@@ -9,7 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from phone_a_friend.backends.gemini import GEMINI_BACKEND, GeminiBackendError
+import sys
+
 from phone_a_friend.relay import relay
+
+relay_mod = sys.modules["phone_a_friend.relay"]
 
 
 class TestGeminiBackend(unittest.TestCase):
@@ -147,7 +151,7 @@ class TestGeminiBackend(unittest.TestCase):
         with (
             patch("phone_a_friend.backends.gemini.shutil.which", return_value="gemini"),
             patch("phone_a_friend.backends.gemini.subprocess.run") as mock_run,
-            patch("phone_a_friend.relay._git_diff", return_value=""),
+            patch.object(relay_mod, "_git_diff", return_value=""),
         ):
             mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="Gemini says hi", stderr="")
 
