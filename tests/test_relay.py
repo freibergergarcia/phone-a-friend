@@ -285,6 +285,58 @@ class TestRelay(unittest.TestCase):
             relay(prompt="Review", repo_path=repo, backend="unknown")
         self.assertIn("Unsupported relay backend", str(ctx.exception))
 
+    def test_context_text_at_size_limit_passes(self):
+        repo = self._make_repo()
+
+        def fake_run(cmd, **_kwargs):
+            output_index = cmd.index("--output-last-message") + 1
+            Path(cmd[output_index]).write_text("ok")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        # Exactly at the 200KB limit should not raise.
+        context = "a" * 200_000
+        with (
+            patch("phone_a_friend.backends.codex.shutil.which", return_value="codex"),
+            patch("phone_a_friend.backends.codex.subprocess.run", side_effect=fake_run),
+        ):
+            result = relay(prompt="Review", repo_path=repo, context_text=context)
+        self.assertEqual(result, "ok")
+
+    def test_context_text_over_size_limit_raises(self):
+        repo = self._make_repo()
+        context = "a" * 200_001
+        with self.assertRaises(RelayError) as ctx:
+            relay(prompt="Review", repo_path=repo, context_text=context)
+        self.assertIn("too large", str(ctx.exception))
+
+    def test_prompt_over_size_limit_raises(self):
+        repo = self._make_repo()
+        big_prompt = "a" * 500_001
+        with (
+            patch("phone_a_friend.backends.codex.shutil.which", return_value="codex"),
+        ):
+            with self.assertRaises(RelayError) as ctx:
+                relay(prompt=big_prompt, repo_path=repo)
+        self.assertIn("too large", str(ctx.exception))
+
+    def test_codex_output_file_oserror_raises(self):
+        repo = self._make_repo()
+
+        def fake_run(cmd, **_kwargs):
+            output_index = cmd.index("--output-last-message") + 1
+            output_path = Path(cmd[output_index])
+            # Create a directory where the file should be, causing OSError on read.
+            output_path.mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with (
+            patch("phone_a_friend.backends.codex.shutil.which", return_value="codex"),
+            patch("phone_a_friend.backends.codex.subprocess.run", side_effect=fake_run),
+        ):
+            with self.assertRaises(RelayError) as ctx:
+                relay(prompt="Review", repo_path=repo)
+        self.assertIn("Failed reading Codex output file", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

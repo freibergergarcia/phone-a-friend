@@ -1,0 +1,15 @@
+[project]
+name = "phone-a-friend"
+version = "0.1.0"
+description = "CLI relay that lets Claude ask another AI (Codex or Gemini) for a second opinion"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [{ name = "Bruno Freiberger" }]
+
+[project.scripts]
+phone-a-friend = "phone_a_friend.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"

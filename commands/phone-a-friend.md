@@ -1,16 +1,16 @@
 ---
 name: phone-a-friend
-description: Relay task context + latest response to Codex for feedback, then continue with that feedback.
+description: Relay task context + latest response to a backend (Codex or Gemini) for feedback, then continue with that feedback.
 argument-hint: [optional review focus]
 ---
 
 # /phone-a-friend
 
-Use this command after an assistant reply you want reviewed by Codex.
+Use this command after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to Codex using `phone-a-friend`, then bring Codex feedback back into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Codex or Gemini) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Inputs
 
@@ -46,7 +46,7 @@ I'm working on this task and got the above response. Please review it and return
 ./phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
 ```
 
-5. Return Codex feedback in concise review format:
+5. Return backend feedback in concise review format:
    - Critical issues
    - Important issues
    - Suggested fixes
