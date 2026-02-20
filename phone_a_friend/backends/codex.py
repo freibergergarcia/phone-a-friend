@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-class CodexBackendError(RuntimeError):
+from phone_a_friend.backends import BackendError, INSTALL_HINTS
+
+
+class CodexBackendError(BackendError):
     """Raised when Codex backend execution fails."""
 
 
@@ -32,7 +35,9 @@ class CodexBackend:
     ) -> str:
         codex_bin = shutil.which("codex")
         if not codex_bin:
-            raise CodexBackendError("codex CLI not found in PATH")
+            raise CodexBackendError(
+                f"codex CLI not found in PATH. Install it: {INSTALL_HINTS['codex']}"
+            )
 
         with tempfile.TemporaryDirectory(prefix="phone-a-friend-") as tmpdir:
             output_path = Path(tmpdir) / "codex-last-message.txt"

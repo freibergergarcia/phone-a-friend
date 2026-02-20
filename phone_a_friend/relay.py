@@ -7,8 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from phone_a_friend.backends import get_backend
-from phone_a_friend.backends.codex import CodexBackendError
+from phone_a_friend.backends import BackendError, get_backend
 
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_BACKEND = "codex"
@@ -169,7 +168,7 @@ def relay(
             model=model,
             env=env,
         )
-    except CodexBackendError as exc:
+    except BackendError as exc:
         raise RelayError(str(exc)) from exc
 
 

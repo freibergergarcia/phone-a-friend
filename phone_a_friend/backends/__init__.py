@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+INSTALL_HINTS: dict[str, str] = {
+    "codex": "npm install -g @openai/codex",
+    "gemini": "npm install -g @google/gemini-cli",
+}
+
+
+class BackendError(RuntimeError):
+    """Base error for all backend execution failures."""
 
 
 class RelayBackend(Protocol):
@@ -33,11 +43,18 @@ class BackendRegistration:
     backend: RelayBackend
 
 
+def check_backends() -> dict[str, bool]:
+    """Check which backend CLIs are available in PATH."""
+    return {name: shutil.which(name) is not None for name in sorted(INSTALL_HINTS)}
+
+
 def get_backend(name: str) -> RelayBackend:
     from phone_a_friend.backends.codex import CODEX_BACKEND
+    from phone_a_friend.backends.gemini import GEMINI_BACKEND
 
     registry = {
         CODEX_BACKEND.name: CODEX_BACKEND,
+        GEMINI_BACKEND.name: GEMINI_BACKEND,
     }
     try:
         return registry[name]
