@@ -1,27 +1,63 @@
-# phone-a-friend
+<div align="center">
 
-A CLI relay that lets AI coding agents collaborate. Claude can delegate tasks to another AI backend (Codex or Gemini) — ask it to review code, make file changes, run analysis, or anything else the backend supports — and bring the results back into the current session.
+# ☎️ phone-a-friend
 
-> **Current direction:** Claude → backend only. Backends cannot yet initiate requests back to Claude.
+*Let your AI coding agent phone a friend.*
 
-## What It Does
+[![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/freibergergarcia/phone-a-friend)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
 
-- Delegates any task to a backend AI: code reviews, file edits, analysis, refactoring, and more
-- Sends prompts with optional repository context and `git diff` for full codebase awareness
-- Returns the backend's response (and any file changes it made) for Claude to incorporate
-- Enforces payload size limits, timeout handling, and a depth guard (`PHONE_A_FRIEND_DEPTH`) to prevent nested loops
-- Supports sandboxed execution: `read-only` (default), `workspace-write`, or `danger-full-access`
-- Backend-agnostic core with pluggable backends
+</div>
+
+`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks — code reviews, file edits, analysis, refactoring — to a backend AI (Codex or Gemini) and brings the results back into the current session. Works as a Claude Code slash command (`/phone-a-friend`) and as a standalone CLI.
+
+```
+  Claude ──> phone-a-friend ──> Codex / Gemini
+  Claude <── phone-a-friend <── Codex / Gemini
+```
+
+## Quick Start
+
+**Prerequisites:** Python 3.10+ and at least one backend CLI installed:
+
+```bash
+npm install -g @openai/codex    # Codex backend
+npm install -g @google/gemini-cli  # Gemini backend (or both)
+```
+
+```bash
+# 1. Clone
+git clone https://github.com/freibergergarcia/phone-a-friend.git
+cd phone-a-friend
+
+# 2. Install as Claude Code plugin
+./phone-a-friend install --claude
+
+# 3. Use from Claude Code
+#    /phone-a-friend Review this code for bugs
+
+# 4. Or use from the command line
+./phone-a-friend --to codex --repo . --prompt "Review this implementation"
+```
+
+## Features
+
+- **Pluggable backends** — Codex and Gemini today; add your own by implementing `RelayBackend`
+- **Context-aware** — sends repo path, optional `git diff`, and extra context (file or inline text)
+- **Sandboxed execution** — `read-only` (default), `workspace-write`, or `danger-full-access`
+- **Depth guard** — `PHONE_A_FRIEND_DEPTH` env var prevents infinite nested relay loops
+- **Size limits** — context (200 KB), diff (300 KB), and prompt (500 KB) caps enforced before relay
+- **Zero dependencies** — pure Python 3.10+, no pip install required
 
 ## Requirements
 
-- Python 3
-- At least one supported backend CLI installed and available in `PATH`:
-  - [Codex CLI](https://github.com/openai/codex) (must support `exec`, `--sandbox`, and `--output-last-message`)
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (must support `--prompt`, `--sandbox`, and `--yolo`)
-- No external Python dependencies required
+- Python 3.10+
+- At least one backend CLI in `PATH`:
+  - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — `npm install -g @google/gemini-cli`
 
-## Install
+## Installation
 
 Install as a Claude plugin:
 
@@ -41,11 +77,13 @@ Uninstall:
 ./phone-a-friend uninstall --claude
 ```
 
-Install supports `--mode symlink|copy` (default `symlink`) and `--force`. By default it also syncs with the Claude CLI marketplace. Use `--no-claude-cli-sync` to skip that.
+- `--mode symlink|copy` — installation mode (default: `symlink`)
+- `--force` — replace existing installation
+- `--no-claude-cli-sync` — skip Claude CLI marketplace sync
 
 ## Usage
 
-Both relay syntaxes are supported: `./phone-a-friend relay ...` and `./phone-a-friend --prompt ...`.
+Both `./phone-a-friend relay ...` and `./phone-a-friend --prompt ...` syntaxes work.
 
 Ask a backend to review code:
 
@@ -53,7 +91,7 @@ Ask a backend to review code:
 ./phone-a-friend --to codex --repo /path/to/repo --prompt "Review this implementation for bugs and security issues."
 ```
 
-Delegate a task with context:
+Delegate a task with write access:
 
 ```bash
 ./phone-a-friend --to gemini --repo /path/to/repo \
@@ -93,7 +131,7 @@ Pass additional context:
 
 ## Privacy
 
-`phone-a-friend` sends to the selected backend (Codex or Gemini): your prompt, optional context text/file, optional `git diff`, and the repository path. Review your inputs before relaying sensitive data.
+`phone-a-friend` sends to the selected backend (Codex or Gemini): your prompt, optional context text/file, optional `git diff`, and the repository path. The backend CLI also has read access to files under `--repo`. Review your inputs and repository contents before relaying sensitive data.
 
 ## Tests
 
