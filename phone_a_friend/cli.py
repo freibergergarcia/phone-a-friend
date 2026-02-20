@@ -7,6 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from phone_a_friend import __version__
 from phone_a_friend.installer import install_hosts, uninstall_hosts, verify_backends
 from phone_a_friend.relay import (
     DEFAULT_BACKEND,
@@ -26,7 +27,7 @@ def _normalize_argv(argv: list[str]) -> list[str]:
     if not argv:
         return argv
     first = argv[0]
-    if first in {"relay", "install", "update", "uninstall", "-h", "--help"}:
+    if first in {"relay", "install", "update", "uninstall", "-h", "--help", "--version"}:
         return argv
     if first.startswith("-"):
         return ["relay", *argv]
@@ -148,6 +149,7 @@ def _run_relay(
 def _run_argparse_fallback(argv: list[str]) -> int:
     argv = _normalize_argv(argv)
     parser = argparse.ArgumentParser(prog="phone-a-friend")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     install_parser = sub.add_parser("install", help="Install Claude plugin")
@@ -281,11 +283,22 @@ def _run_typer(argv: list[str]) -> int:
     argv = _normalize_argv(argv)
     import typer
 
+    def _version_callback(value: bool) -> None:
+        if value:
+            typer.echo(f"phone-a-friend {__version__}")
+            raise typer.Exit()
+
     app = typer.Typer(
         help="Relay prompt/context to coding backends",
         no_args_is_help=True,
         add_completion=False,
     )
+
+    @app.callback()
+    def app_callback(
+        version: bool = typer.Option(False, "--version", callback=_version_callback, is_eager=True, help="Show version and exit"),
+    ) -> None:
+        pass
 
     @app.command("relay")
     def relay_command(
