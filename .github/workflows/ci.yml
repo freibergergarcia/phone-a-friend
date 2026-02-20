@@ -17,5 +17,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install optional dependencies
+        run: pip install typer
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
