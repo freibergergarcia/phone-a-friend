@@ -19,5 +19,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install optional dependencies
         run: pip install typer
+      - name: Check plugin version sync
+        run: |
+          pyproject_ver=$(python3 -c "import re; print(re.search(r'^version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
+          plugin_ver=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          if [ "$pyproject_ver" != "$plugin_ver" ]; then
+            echo "::error::Version mismatch: pyproject.toml=$pyproject_ver plugin.json=$plugin_ver"
+            exit 1
+          fi
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v

@@ -40,6 +40,21 @@ codex exec -C <repo> --skip-git-repo-check --sandbox <mode> --output-last-messag
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
+## Versioning
+
+- Source of truth: `version` in `pyproject.toml`
+- Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
+- Runtime access: `phone_a_friend.__version__` (via `importlib.metadata`)
+- CLI: `./phone-a-friend --version`
+- **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
+- To release: bump version in both `pyproject.toml` and `.claude-plugin/plugin.json`, merge to `main`
+
+### When to bump
+
+- **Patch** (`0.1.0` → `0.1.1`): bug fixes, docs, CI changes
+- **Minor** (`0.1.0` → `0.2.0`): new features, new CLI flags, new backends
+- **Major** (`0.2.0` → `1.0.0`): breaking changes to CLI contract or relay API
+
 ## Scope
 
 This repository only contains relay functionality. VIPGO policy engine, hooks, approvals, trusted scripts, and installer logic are intentionally out of scope.

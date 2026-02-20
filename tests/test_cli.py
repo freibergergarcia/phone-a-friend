@@ -107,6 +107,25 @@ class TestRunUpdate(unittest.TestCase):
         )
 
 
+class TestVersion(unittest.TestCase):
+    def test_argparse_version_prints_and_exits(self):
+        from phone_a_friend import __version__
+        with self.assertRaises(SystemExit) as ctx:
+            with patch("sys.stdout", new_callable=io.StringIO) as out:
+                cli._run_argparse_fallback(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertEqual(out.getvalue().strip(), f"phone-a-friend {__version__}")
+
+    @unittest.skipUnless(_has_typer, "typer is not installed")
+    def test_typer_version_prints_and_exits(self):
+        from phone_a_friend import __version__
+        with self.assertRaises(SystemExit) as ctx:
+            with patch("sys.stdout", new_callable=io.StringIO) as out:
+                cli._run_typer(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertEqual(out.getvalue().strip(), f"phone-a-friend {__version__}")
+
+
 class TestArgparse(unittest.TestCase):
     def test_argparse_relay_routes_to_run_relay(self):
         with patch.object(cli, "_run_relay", return_value=0) as mock_run:
