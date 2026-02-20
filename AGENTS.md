@@ -51,7 +51,9 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 ### When to bump
 
-- **Patch** (`0.1.0` → `0.1.1`): bug fixes, docs, CI changes
+**Every PR must bump the version.** Update both `pyproject.toml` and `.claude-plugin/plugin.json` before merging.
+
+- **Patch** (`0.1.0` → `0.1.1`): bug fixes, docs, CI changes, refactoring
 - **Minor** (`0.1.0` → `0.2.0`): new features, new CLI flags, new backends
 - **Major** (`0.2.0` → `1.0.0`): breaking changes to CLI contract or relay API
 
