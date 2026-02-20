@@ -10,7 +10,11 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
+import sys
+
 from phone_a_friend.relay import RelayError, relay
+
+relay_mod = sys.modules["phone_a_friend.relay"]
 
 
 class TestRelay(unittest.TestCase):
@@ -88,7 +92,7 @@ class TestRelay(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         with (
-            patch("phone_a_friend.relay._git_diff", return_value="diff --git a/a.py b/a.py"),
+            patch.object(relay_mod, "_git_diff", return_value="diff --git a/a.py b/a.py"),
             patch("phone_a_friend.backends.codex.shutil.which", return_value="codex"),
             patch("phone_a_friend.backends.codex.subprocess.run", side_effect=fake_codex),
         ):
@@ -264,7 +268,7 @@ class TestRelay(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not a git repository")
 
         with (
-            patch("phone_a_friend.relay.subprocess.run", side_effect=fake_run),
+            patch.object(relay_mod.subprocess, "run", side_effect=fake_run),
             patch("phone_a_friend.backends.codex.shutil.which", return_value="codex"),
             patch("phone_a_friend.backends.codex.subprocess.run"),
         ):
