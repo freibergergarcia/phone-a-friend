@@ -1,0 +1,8 @@
+{
+  "name": "phone-a-friend",
+  "description": "Cross-agent relay for sending local repository context and prompts to Codex in non-interactive mode.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Bruno Freiberger"
+  }
+}

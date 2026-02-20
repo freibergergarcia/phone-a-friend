@@ -1,0 +1,12 @@
+{
+  "name": "phone-a-friend-dev",
+  "owner": {
+    "name": "Bruno Freiberger"
+  },
+  "plugins": [
+    {
+      "name": "phone-a-friend",
+      "source": "./"
+    }
+  ]
+}
