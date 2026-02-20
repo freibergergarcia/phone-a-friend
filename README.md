@@ -89,6 +89,7 @@ cd phone-a-friend
 - At least one backend CLI in `PATH`:
   - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) — `npm install -g @google/gemini-cli`
+- **Optional:** [Typer](https://github.com/tiangolo/typer) (`typer>=0.9`) for styled CLI output — `pip install typer`. Falls back to argparse automatically if not installed.
 
 ## Installation
 
