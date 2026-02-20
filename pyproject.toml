@@ -7,6 +7,9 @@ license = "MIT"
 requires-python = ">=3.9"
 authors = [{ name = "Bruno Freiberger" }]
 
+[project.optional-dependencies]
+rich = ["typer>=0.9"]
+
 [project.scripts]
 phone-a-friend = "phone_a_friend.cli:main"
 

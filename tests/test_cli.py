@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
 import io
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from phone_a_friend import cli
+
+_has_typer = importlib.util.find_spec("typer") is not None
 
 
 class TestRunRelay(unittest.TestCase):
@@ -231,6 +234,7 @@ class TestArgparse(unittest.TestCase):
             cli._run_argparse_fallback(["relay", "--to", "codex"])
 
 
+@unittest.skipUnless(_has_typer, "typer is not installed")
 class TestTyper(unittest.TestCase):
     def test_typer_root_relay_compatibility(self):
         with patch.object(cli, "_run_relay", return_value=0) as mock_run:
