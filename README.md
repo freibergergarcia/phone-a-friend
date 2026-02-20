@@ -1,20 +1,22 @@
 # phone-a-friend
 
-A CLI relay that lets Claude ask Codex for a second opinion. Claude sends a prompt plus optional repository context to Codex and gets back Codex's response.
+A CLI relay that lets Claude ask another AI for a second opinion. Claude sends a prompt plus optional repository context to a backend (Codex or Gemini) and gets back the response.
 
-> **Current direction:** Claude → Codex only. Codex cannot yet initiate requests back to Claude.
+> **Current direction:** Claude → backend only. Backends cannot yet initiate requests back to Claude.
 
 ## What It Does
 
-- Relays a prompt (with optional context and `git diff`) from Claude to Codex
-- Returns Codex's final response for Claude to incorporate
+- Relays a prompt (with optional context and `git diff`) from Claude to a backend AI
+- Returns the backend's final response for Claude to incorporate
 - Enforces payload size limits, timeout handling, and a depth guard (`PHONE_A_FRIEND_DEPTH`) to prevent nested loops
-- Backend-agnostic core — additional backends can be added later
+- Backend-agnostic core with pluggable backends
 
 ## Requirements
 
 - Python 3
-- [Codex CLI](https://github.com/openai/codex) installed and available in `PATH` (must support `exec`, `--sandbox`, and `--output-last-message`)
+- At least one supported backend CLI installed and available in `PATH`:
+  - [Codex CLI](https://github.com/openai/codex) (must support `exec`, `--sandbox`, and `--output-last-message`)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (must support `--prompt`, `--sandbox`, and `--yolo`)
 - No external Python dependencies required
 
 ## Install
@@ -70,7 +72,7 @@ With a context file and diff:
 
 | Flag | Description |
 |------|-------------|
-| `--to` | Backend name (currently `codex`) |
+| `--to` | Backend name (`codex` or `gemini`) |
 | `--repo` | Repository path sent to the backend |
 | `--prompt` | The prompt to relay (required) |
 | `--context-file` | File with additional context |
@@ -82,7 +84,7 @@ With a context file and diff:
 
 ## Privacy
 
-`phone-a-friend` sends to Codex: your prompt, optional context text/file, optional `git diff`, and the repository path. Review your inputs before relaying sensitive data.
+`phone-a-friend` sends to the selected backend (Codex or Gemini): your prompt, optional context text/file, optional `git diff`, and the repository path. Review your inputs before relaying sensitive data.
 
 ## Tests
 
