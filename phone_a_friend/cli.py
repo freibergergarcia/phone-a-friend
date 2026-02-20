@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from phone_a_friend.installer import install_hosts, uninstall_hosts
+from phone_a_friend.installer import install_hosts, uninstall_hosts, verify_backends
 from phone_a_friend.relay import (
     DEFAULT_BACKEND,
     DEFAULT_SANDBOX,
@@ -38,6 +38,33 @@ def _print_result_lines(lines: list[str]) -> None:
         print(line)
 
 
+def _styled_status(name: str, available: bool) -> str:
+    mark = "\u2713" if available else "\u2717"
+    status = "available" if available else "not found"
+    try:
+        import typer
+        color = typer.colors.GREEN if available else typer.colors.RED
+        return f"  {typer.style(mark, fg=color)} {name}: {status}"
+    except ModuleNotFoundError:
+        return f"  {mark} {name}: {status}"
+
+
+def _styled_hint(text: str) -> str:
+    try:
+        import typer
+        return f"    {typer.style(text, fg=typer.colors.YELLOW)}"
+    except ModuleNotFoundError:
+        return f"    {text}"
+
+
+def _print_backend_availability() -> None:
+    print("\nBackend availability:")
+    for info in verify_backends():
+        print(_styled_status(str(info["name"]), bool(info["available"])))
+        if not info["available"] and info["hint"]:
+            print(_styled_hint(f"Install: {info['hint']}"))
+
+
 def _run_install(
     *,
     claude: bool,
@@ -58,6 +85,7 @@ def _run_install(
         sync_claude_cli=not no_claude_cli_sync,
     )
     _print_result_lines(lines)
+    _print_backend_availability()
     return 0
 
 
@@ -168,7 +196,7 @@ def _run_argparse_fallback(argv: list[str]) -> int:
     relay_parser = sub.add_parser("relay", help="Relay prompt/context to backend")
     relay_parser.add_argument(
         "--to",
-        choices=("codex",),
+        choices=("codex", "gemini"),
         default=DEFAULT_BACKEND,
         help="Target backend",
     )
@@ -261,7 +289,7 @@ def _run_typer(argv: list[str]) -> int:
 
     @app.command("relay")
     def relay_command(
-        to: str = typer.Option(DEFAULT_BACKEND, "--to", help="Target backend (currently codex only)"),
+        to: str = typer.Option(DEFAULT_BACKEND, "--to", help="Target backend (codex or gemini)"),
         repo: Path = typer.Option(Path.cwd(), "--repo", help="Repository path sent to target backend"),
         prompt: str = typer.Option(..., "--prompt", help="Prompt to relay"),
         context_file: Path | None = typer.Option(

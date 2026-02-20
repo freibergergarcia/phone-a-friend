@@ -94,6 +94,18 @@ class TestInstaller(unittest.TestCase):
         self.assertFalse(target.exists() or target.is_symlink())
         self.assertTrue(any(line.startswith("- claude: removed") for line in lines))
 
+    def test_verify_backends(self):
+        def which_side_effect(name):
+            return "/usr/bin/codex" if name == "codex" else None
+
+        with patch("phone_a_friend.backends.shutil.which", side_effect=which_side_effect):
+            results = installer.verify_backends()
+
+        by_name = {r["name"]: r for r in results}
+        self.assertTrue(by_name["codex"]["available"])
+        self.assertFalse(by_name["gemini"]["available"])
+        self.assertIn("npm", str(by_name["gemini"]["hint"]))
+
     def test_sync_skips_when_claude_missing(self):
         repo_tmp, repo = self._make_repo()
         self.addCleanup(repo_tmp.cleanup)

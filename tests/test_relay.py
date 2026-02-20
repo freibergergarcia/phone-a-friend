@@ -282,7 +282,7 @@ class TestRelay(unittest.TestCase):
     def test_unsupported_backend_raises(self):
         repo = self._make_repo()
         with self.assertRaises(RelayError) as ctx:
-            relay(prompt="Review", repo_path=repo, backend="gemini")
+            relay(prompt="Review", repo_path=repo, backend="unknown")
         self.assertIn("Unsupported relay backend", str(ctx.exception))
 
 

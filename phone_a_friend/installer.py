@@ -171,6 +171,20 @@ def install_hosts(
     return lines
 
 
+def verify_backends() -> list[dict[str, object]]:
+    """Check backend CLI availability. Returns list of {name, available, hint}."""
+    from phone_a_friend.backends import INSTALL_HINTS, check_backends
+
+    results: list[dict[str, object]] = []
+    for name, available in check_backends().items():
+        results.append({
+            "name": name,
+            "available": available,
+            "hint": INSTALL_HINTS.get(name, ""),
+        })
+    return results
+
+
 def uninstall_hosts(
     *,
     target: str,
