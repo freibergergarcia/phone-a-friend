@@ -1,7 +1,7 @@
 [project]
 name = "phone-a-friend"
 version = "0.1.0"
-description = "CLI relay that lets Claude ask another AI (Codex or Gemini) for a second opinion"
+description = "CLI relay that lets AI coding agents collaborate — delegate tasks to Codex or Gemini"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
