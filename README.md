@@ -35,11 +35,44 @@ cd phone-a-friend
 ./phone-a-friend install --claude
 
 # 3. Use from Claude Code
-#    /phone-a-friend Review this code for bugs
+#    /phone-a-friend Ask codex to review this code for bugs
 
 # 4. Or use from the command line
 ./phone-a-friend --to codex --repo . --prompt "Review this implementation"
 ```
+
+## Examples
+
+**Ask Codex to review a module:**
+
+    ❯ /phone-a-friend Ask codex to review the error handling in relay.py
+
+    ⏺ Skill(phone-a-friend)
+      ⎿  Successfully loaded skill
+
+    ⏺ Bash(./phone-a-friend --to codex --repo "$PWD" --prompt "Review the error handling in relay.py")
+      ⎿  The subprocess timeout is caught and re-raised as RelayError, but
+         the original stderr is silently discarded. Consider logging it.
+         The depth-guard in _check_depth() correctly prevents infinite
+         recursion. No critical issues found.
+
+    ⏺ Codex found no critical issues. One suggestion: preserve stderr
+      when re-raising timeout errors for easier debugging.
+
+**Ask Codex to review recent changes:**
+
+    ❯ /phone-a-friend Ask codex to review my recent changes for issues
+
+    ⏺ Skill(phone-a-friend)
+      ⎿  Successfully loaded skill
+
+    ⏺ Bash(./phone-a-friend --to codex --repo "$PWD" --include-diff --prompt "Review my recent changes for issues")
+      ⎿  The diff adds a --model flag and threads it through to the
+         backend. Looks correct. One nit: the new flag is missing from
+         the README options table.
+
+    ⏺ Codex approved the changes with one nit — the --model flag needs
+      a row in the README options table.
 
 ## Features
 
@@ -83,36 +116,25 @@ Uninstall:
 
 ## Usage
 
-Both `./phone-a-friend relay ...` and `./phone-a-friend --prompt ...` syntaxes work.
+### Recommended — via Claude Code
 
-Ask a backend to review code:
+Use the slash command with natural language:
 
-```bash
-./phone-a-friend --to codex --repo /path/to/repo --prompt "Review this implementation for bugs and security issues."
+```
+/phone-a-friend Ask codex to review the error handling in relay.py
+/phone-a-friend Ask codex to add input validation to the submit handler
+/phone-a-friend Ask codex to refactor the backend registry for extensibility
+/phone-a-friend Ask codex to review my recent changes for issues
 ```
 
-Delegate a task with write access:
+### CLI flags
+
+For standalone use, scripting, or to select a different backend:
 
 ```bash
-./phone-a-friend --to gemini --repo /path/to/repo \
-  --prompt "Add error handling to the API endpoints." \
-  --sandbox workspace-write
-```
-
-Review changes with diff:
-
-```bash
-./phone-a-friend --to codex --repo /path/to/repo \
-  --prompt "Review these changes and suggest improvements." \
-  --include-diff
-```
-
-Pass additional context:
-
-```bash
-./phone-a-friend --to gemini --repo /path/to/repo \
-  --prompt "Refactor this module following the pattern described." \
-  --context-file /path/to/design-notes.txt
+./phone-a-friend --to codex --repo . --prompt "Review this implementation"
+./phone-a-friend --to gemini --repo . --prompt "Add error handling" --sandbox workspace-write
+./phone-a-friend --to codex --repo . --prompt "Review changes" --include-diff
 ```
 
 ### Options
@@ -132,6 +154,16 @@ Pass additional context:
 ## Privacy
 
 `phone-a-friend` sends to the selected backend (Codex or Gemini): your prompt, optional context text/file, optional `git diff`, and the repository path. The backend CLI also has read access to files under `--repo`. Review your inputs and repository contents before relaying sensitive data.
+
+## Contributing
+
+All changes go through pull requests — no direct pushes to `main`.
+
+1. **Branch off main** using a prefix: `feature/`, `fix/`, `improve/`, or `chore/`
+2. **Open a PR** against `main`
+3. **CI must pass** before merge
+4. PRs are **squash-merged** (one commit per change, clean linear history)
+5. Head branches are auto-deleted after merge
 
 ## Tests
 
