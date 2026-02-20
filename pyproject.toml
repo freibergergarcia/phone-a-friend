@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "CLI relay that lets Claude ask another AI (Codex or Gemini) for a second opinion"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "Bruno Freiberger" }]
 
 [project.optional-dependencies]
