@@ -40,6 +40,14 @@ codex exec -C <repo> --skip-git-repo-check --sandbox <mode> --output-last-messag
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
+## Versioning
+
+- Source of truth: `version` in `pyproject.toml`
+- Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
+- Runtime access: `phone_a_friend.__version__` (via `importlib.metadata`)
+- CLI: `./phone-a-friend --version`
+- To release: update version in both files, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`
+
 ## Scope
 
 This repository only contains relay functionality. VIPGO policy engine, hooks, approvals, trusted scripts, and installer logic are intentionally out of scope.
