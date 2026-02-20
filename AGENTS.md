@@ -46,7 +46,14 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 - Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
 - Runtime access: `phone_a_friend.__version__` (via `importlib.metadata`)
 - CLI: `./phone-a-friend --version`
-- To release: update version in both files, merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`
+- **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
+- To release: bump version in both `pyproject.toml` and `.claude-plugin/plugin.json`, merge to `main`
+
+### When to bump
+
+- **Patch** (`0.1.0` → `0.1.1`): bug fixes, docs, CI changes
+- **Minor** (`0.1.0` → `0.2.0`): new features, new CLI flags, new backends
+- **Major** (`0.2.0` → `1.0.0`): breaking changes to CLI contract or relay API
 
 ## Scope
 

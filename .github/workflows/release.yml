@@ -2,7 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -11,22 +15,47 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Validate tag matches project version
+      - name: Get project version
+        id: version
         run: |
-          tag="${GITHUB_REF#refs/tags/v}"
           ver=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          if [ "$tag" != "$ver" ]; then
-            echo "::error::Tag v$tag does not match pyproject.toml version $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+      - name: Check plugin version sync
+        run: |
+          plugin_ver=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
+          if [ "${{ steps.version.outputs.version }}" != "$plugin_ver" ]; then
+            echo "::error::Version mismatch: pyproject.toml=${{ steps.version.outputs.version }} plugin.json=$plugin_ver"
             exit 1
           fi
-      - name: Install dependencies and run tests
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run tests
+        if: steps.check.outputs.exists == 'false'
         run: |
           pip install typer
           python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
       - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
