@@ -1,14 +1,16 @@
 # phone-a-friend
 
-A CLI relay that lets Claude ask another AI for a second opinion. Claude sends a prompt plus optional repository context to a backend (Codex or Gemini) and gets back the response.
+A CLI relay that lets AI coding agents collaborate. Claude can delegate tasks to another AI backend (Codex or Gemini) — ask it to review code, make file changes, run analysis, or anything else the backend supports — and bring the results back into the current session.
 
 > **Current direction:** Claude → backend only. Backends cannot yet initiate requests back to Claude.
 
 ## What It Does
 
-- Relays a prompt (with optional context and `git diff`) from Claude to a backend AI
-- Returns the backend's final response for Claude to incorporate
+- Delegates any task to a backend AI: code reviews, file edits, analysis, refactoring, and more
+- Sends prompts with optional repository context and `git diff` for full codebase awareness
+- Returns the backend's response (and any file changes it made) for Claude to incorporate
 - Enforces payload size limits, timeout handling, and a depth guard (`PHONE_A_FRIEND_DEPTH`) to prevent nested loops
+- Supports sandboxed execution: `read-only` (default), `workspace-write`, or `danger-full-access`
 - Backend-agnostic core with pluggable backends
 
 ## Requirements
@@ -45,27 +47,34 @@ Install supports `--mode symlink|copy` (default `symlink`) and `--force`. By def
 
 Both relay syntaxes are supported: `./phone-a-friend relay ...` and `./phone-a-friend --prompt ...`.
 
-Basic relay:
+Ask a backend to review code:
 
 ```bash
-./phone-a-friend --to codex --repo /path/to/repo --prompt "Review this implementation."
+./phone-a-friend --to codex --repo /path/to/repo --prompt "Review this implementation for bugs and security issues."
 ```
 
-With inline context:
+Delegate a task with context:
+
+```bash
+./phone-a-friend --to gemini --repo /path/to/repo \
+  --prompt "Add error handling to the API endpoints." \
+  --sandbox workspace-write
+```
+
+Review changes with diff:
 
 ```bash
 ./phone-a-friend --to codex --repo /path/to/repo \
-  --prompt "Review this output." \
-  --context-text "Short context here."
-```
-
-With a context file and diff:
-
-```bash
-./phone-a-friend --to codex --repo /path/to/repo \
-  --prompt "Review this plan." \
-  --context-file /path/to/context.txt \
+  --prompt "Review these changes and suggest improvements." \
   --include-diff
+```
+
+Pass additional context:
+
+```bash
+./phone-a-friend --to gemini --repo /path/to/repo \
+  --prompt "Refactor this module following the pattern described." \
+  --context-file /path/to/design-notes.txt
 ```
 
 ### Options
