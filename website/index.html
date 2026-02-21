@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>phone-a-friend — Multi-Agent Collaboration for Claude Code</title>
+  <meta name="description" content="A CLI relay that lets Claude delegate tasks to Codex and Gemini. Code reviews, refactoring, debugging — with a second opinion built in.">
+  <meta name="theme-color" content="#060c1f">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    /* ========================================
+       CSS VARIABLES
+       ======================================== */
+    :root {
+      --bg-deep: #030a1a;
+      --bg-main: #06101f;
+      --bg-surface: #0c1a35;
+      --bg-elevated: #122448;
+      --bg-card: #0a1630;
+
+      --accent: #38bdf8;
+      --accent-glow: #0ea5e9;
+      --accent-dim: rgba(56, 189, 248, 0.12);
+      --accent-secondary: #a78bfa;
+      --accent-warm: #f59e0b;
+      --accent-green: #34d399;
+
+      --text-primary: #f0f4f8;
+      --text-secondary: #8b9dc3;
+      --text-muted: #4a5f82;
+
+      --border-subtle: rgba(56, 189, 248, 0.08);
+      --border-card: rgba(56, 189, 248, 0.12);
+
+      --font-display: 'Syne', sans-serif;
+      --font-body: 'DM Sans', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --max-width: 1120px;
+      --nav-height: 64px;
+    }
+
+    /* ========================================
+       RESET & BASE
+       ======================================== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Dot grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    a:hover {
+      color: #7dd3fc;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    /* ========================================
+       LAYOUT
+       ======================================== */
+    .container {
+      width: 100%;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ========================================
+       NAVIGATION
+       ======================================== */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--nav-height);
+      z-index: 100;
+      transition: background 0.3s, backdrop-filter 0.3s, box-shadow 0.3s;
+    }
+
+    .nav.scrolled {
+      background: rgba(6, 16, 31, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 1px 0 var(--border-subtle);
+    }
+
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-logo {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.15rem;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .nav-logo span {
+      color: var(--accent);
+    }
+
+    .nav-version {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 2px 8px;
+      border-radius: 99px;
+      border: 1px solid rgba(56, 189, 248, 0.15);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .nav-link {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      transition: color 0.2s;
+      font-weight: 500;
+    }
+
+    .nav-link:hover {
+      color: var(--text-primary);
+    }
+
+    .nav-github {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-github:hover {
+      color: var(--text-primary);
+    }
+
+    .nav-github svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    /* ========================================
+       HERO SECTION
+       ======================================== */
+    .hero {
+      padding: calc(var(--nav-height) + 80px) 0 100px;
+      text-align: center;
+      position: relative;
+    }
+
+    /* Radial glow behind hero */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(ellipse, rgba(56, 189, 248, 0.08) 0%, rgba(167, 139, 250, 0.04) 40%, transparent 70%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .hero-phone {
+      font-size: 3rem;
+      margin-bottom: 24px;
+      display: inline-block;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .hero-title .highlight {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-tagline {
+      font-family: var(--font-display);
+      font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 20px;
+      letter-spacing: -0.01em;
+    }
+
+    .hero-description {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 560px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 64px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 12px 28px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg-deep);
+      box-shadow: 0 0 24px rgba(56, 189, 248, 0.25), 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: #7dd3fc;
+      color: var(--bg-deep);
+      box-shadow: 0 0 32px rgba(56, 189, 248, 0.35), 0 6px 16px rgba(0, 0, 0, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+
+    /* ========================================
+       TERMINAL MOCKUP
+       ======================================== */
+    .terminal {
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: left;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #0b1222;
+      border: 1px solid var(--border-card);
+      box-shadow:
+        0 0 60px rgba(56, 189, 248, 0.06),
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-right: 36px;
+    }
+
+    .terminal-body {
+      padding: 20px 22px;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.75;
+      color: var(--text-secondary);
+    }
+
+    .terminal-line {
+      display: block;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .terminal-line .prompt {
+      color: var(--accent-green);
+    }
+
+    .terminal-line .cmd {
+      color: var(--text-primary);
+    }
+
+    .terminal-line .flag {
+      color: var(--accent-secondary);
+    }
+
+    .terminal-line .str {
+      color: var(--accent-warm);
+    }
+
+    .terminal-line .info {
+      color: var(--accent);
+    }
+
+    .terminal-line .success {
+      color: var(--accent-green);
+    }
+
+    .terminal-line .muted {
+      color: var(--text-muted);
+    }
+
+    .terminal-line .bullet {
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+
+    .terminal-spacer {
+      height: 8px;
+    }
+
+    /* ========================================
+       SECTION HEADINGS
+       ======================================== */
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      line-height: 1.15;
+    }
+
+    .section-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      max-width: 540px;
+      line-height: 1.7;
+    }
+
+    .section-header-centered {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+
+    .section-header-centered .section-subtitle {
+      margin: 0 auto;
+    }
+
+    /* ========================================
+       RELAY FLOW — HOW IT WORKS
+       ======================================== */
+    .relay-flow {
+      padding: 100px 0;
+    }
+
+    .flow-steps {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0;
+      margin-top: 64px;
+      position: relative;
+    }
+
+    .flow-step {
+      flex: 1;
+      max-width: 280px;
+      text-align: center;
+      position: relative;
+      padding: 0 20px;
+    }
+
+    .flow-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+      margin: 0 auto 20px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .flow-icon.icon-claude {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(56, 189, 248, 0.05));
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.1);
+    }
+
+    .flow-icon.icon-relay {
+      background: linear-gradient(135deg, rgba(167, 139, 250, 0.15), rgba(167, 139, 250, 0.05));
+      border: 1px solid rgba(167, 139, 250, 0.2);
+      box-shadow: 0 0 30px rgba(167, 139, 250, 0.1);
+    }
+
+    .flow-icon.icon-result {
+      background: linear-gradient(135deg, rgba(52, 211, 153, 0.15), rgba(52, 211, 153, 0.05));
+      border: 1px solid rgba(52, 211, 153, 0.2);
+      box-shadow: 0 0 30px rgba(52, 211, 153, 0.1);
+    }
+
+    .flow-step h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.15rem;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .flow-step p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Connecting line between steps */
+    .flow-connector {
+      position: absolute;
+      top: 36px;
+      width: calc(100% - 72px);
+      height: 2px;
+      left: calc(50% + 36px);
+      z-index: 1;
+    }
+
+    .flow-connector-line {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-dim), rgba(167, 139, 250, 0.12));
+      position: relative;
+    }
+
+    /* Animated pulse dot */
+    .flow-connector-pulse {
+      position: absolute;
+      top: -3px;
+      width: 8px;
+      height: 8px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 12px var(--accent);
+      animation: relay-pulse 2.5s ease-in-out infinite;
+    }
+
+    @keyframes relay-pulse {
+      0% { left: 0; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { left: 100%; opacity: 0; }
+    }
+
+    .flow-step:last-child .flow-connector {
+      display: none;
+    }
+
+    /* ========================================
+       MODES SECTION
+       ======================================== */
+    .modes {
+      padding: 80px 0 100px;
+    }
+
+    .modes-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      margin-top: 56px;
+    }
+
+    .mode-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 16px;
+      padding: 36px;
+      transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+    }
+
+    .mode-card:hover {
+      border-color: rgba(56, 189, 248, 0.2);
+      box-shadow: 0 0 40px rgba(56, 189, 248, 0.06);
+      transform: translateY(-2px);
+    }
+
+    .mode-badge {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 500;
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .mode-badge.one-shot {
+      background: rgba(56, 189, 248, 0.1);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.15);
+    }
+
+    .mode-badge.iterative {
+      background: rgba(167, 139, 250, 0.1);
+      color: var(--accent-secondary);
+      border: 1px solid rgba(167, 139, 250, 0.15);
+    }
+
+    .mode-card h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.3rem;
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+
+    .mode-card > p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+
+    .mode-code {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      padding: 16px 18px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.8;
+      color: var(--text-secondary);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      overflow-x: auto;
+    }
+
+    .mode-code .comment {
+      color: var(--text-muted);
+    }
+
+    .mode-code .command {
+      color: var(--accent-green);
+    }
+
+    .mode-code .arg {
+      color: var(--text-primary);
+    }
+
+    /* ========================================
+       FEATURES GRID
+       ======================================== */
+    .features {
+      padding: 80px 0 100px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 56px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 14px;
+      padding: 28px;
+      transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(56, 189, 248, 0.2);
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.05);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      font-size: 1.5rem;
+      margin-bottom: 14px;
+      display: block;
+    }
+
+    .feature-card h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.05rem;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-card p {
+      font-size: 0.88rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ========================================
+       QUICKSTART
+       ======================================== */
+    .quickstart {
+      padding: 80px 0 120px;
+    }
+
+    .quickstart-content {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .install-steps {
+      list-style: none;
+      margin-top: 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .install-step {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+
+    .step-number {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      min-width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(56, 189, 248, 0.15);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .step-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .step-content h4 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+
+    .step-content p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .step-content .code-block {
+      width: 100%;
+    }
+
+    .code-block {
+      background: #0b1222;
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 14px 50px 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      position: relative;
+      overflow-x: auto;
+    }
+
+    .code-block .prompt-char {
+      color: var(--accent-green);
+      user-select: none;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      z-index: 2;
+    }
+
+    .copy-btn:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.35);
+      color: var(--text-primary);
+    }
+
+    .copy-btn.copied {
+      color: var(--accent-green);
+      background: rgba(52, 211, 153, 0.1);
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+
+    /* ========================================
+       FOOTER
+       ======================================== */
+    .footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border-subtle);
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-left {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .footer-left a {
+      color: var(--text-secondary);
+    }
+
+    .footer-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .footer-link {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .footer-link:hover {
+      color: var(--text-secondary);
+    }
+
+    /* ========================================
+       SCROLL ANIMATIONS
+       ======================================== */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.35s; }
+    .reveal-delay-5 { transition-delay: 0.4s; }
+    .reveal-delay-6 { transition-delay: 0.45s; }
+
+    /* ========================================
+       ACCESSIBILITY: REDUCED MOTION
+       ======================================== */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .reveal {
+        opacity: 1;
+        transform: none;
+      }
+
+      html {
+        scroll-behavior: auto;
+      }
+    }
+
+    /* ========================================
+       RESPONSIVE
+       ======================================== */
+    @media (max-width: 900px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        padding: calc(var(--nav-height) + 56px) 0 72px;
+      }
+
+      .hero-phone {
+        font-size: 2.5rem;
+        margin-bottom: 16px;
+      }
+
+      .hero-description {
+        font-size: 1rem;
+        margin-bottom: 32px;
+      }
+
+      .hero-actions {
+        margin-bottom: 48px;
+      }
+
+      .terminal-body {
+        font-size: 0.78rem;
+        padding: 16px;
+      }
+
+      /* Flow steps stack vertically on mobile */
+      .flow-steps {
+        flex-direction: column;
+        align-items: center;
+        gap: 32px;
+        margin-top: 48px;
+      }
+
+      .flow-step {
+        max-width: 320px;
+      }
+
+      .flow-connector {
+        display: none;
+      }
+
+      .modes-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mode-card {
+        padding: 28px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-links .nav-link {
+        display: none;
+      }
+
+      .relay-flow,
+      .modes,
+      .features,
+      .quickstart {
+        padding: 60px 0 80px;
+      }
+
+      .section-header-centered {
+        margin-bottom: 40px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 0 16px;
+      }
+
+      .hero-title {
+        font-size: 2rem;
+      }
+
+      .hero-tagline {
+        font-size: 1rem;
+      }
+
+      .btn {
+        padding: 11px 22px;
+        font-size: 0.9rem;
+      }
+
+      .terminal {
+        border-radius: 10px;
+      }
+
+      .mode-card {
+        padding: 22px;
+      }
+
+      .feature-card {
+        padding: 22px;
+      }
+
+      .footer-inner {
+        flex-direction: column;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ======== NAVIGATION ======== -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <div class="nav-brand">
+        <a href="#" class="nav-logo"><span>phone</span>-a-friend</a>
+        <span class="nav-version">v0.3.0</span>
+      </div>
+      <div class="nav-links">
+        <a href="#how-it-works" class="nav-link">How it works</a>
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#quickstart" class="nav-link">Install</a>
+        <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="nav-github" aria-label="View on GitHub">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ======== HERO ======== -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-phone" aria-hidden="true">📞</div>
+        <h1 class="hero-title">
+          <span class="highlight">phone-a-friend</span>
+        </h1>
+        <p class="hero-tagline">When your AI needs a second opinion.</p>
+        <p class="hero-description">
+          A CLI relay that lets Claude delegate tasks to Codex and Gemini.
+          Code reviews, refactoring, debugging — with a second opinion built in.
+        </p>
+        <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary">Get started</a>
+          <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="btn btn-secondary">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+            View on GitHub
+          </a>
+        </div>
+
+        <!-- Terminal Mockup -->
+        <div class="terminal">
+          <div class="terminal-header">
+            <div class="terminal-dot red"></div>
+            <div class="terminal-dot yellow"></div>
+            <div class="terminal-dot green"></div>
+            <span class="terminal-title">Claude Code</span>
+          </div>
+          <div class="terminal-body">
+            <span class="terminal-line"><span class="prompt">$ </span><span class="cmd">/phone-a-friend</span> <span class="str">Review error handling in relay.py</span></span>
+            <div class="terminal-spacer"></div>
+            <span class="terminal-line"><span class="info">📞 Relaying to codex...</span></span>
+            <span class="terminal-line"><span class="success">✓ Response received</span> <span class="muted">(2.1s)</span></span>
+            <div class="terminal-spacer"></div>
+            <span class="terminal-line"><span class="cmd">Found 3 suggestions:</span></span>
+            <span class="terminal-line"><span class="bullet">  ·</span> Add try/except around subprocess call</span>
+            <span class="terminal-line"><span class="bullet">  ·</span> Validate prompt size before relay</span>
+            <span class="terminal-line"><span class="bullet">  ·</span> Return structured error on timeout</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== HOW IT WORKS ======== -->
+    <section class="relay-flow" id="how-it-works">
+      <div class="container">
+        <div class="section-header-centered">
+          <p class="section-label reveal">How it works</p>
+          <h2 class="section-title reveal reveal-delay-1">Three steps. One command.</h2>
+          <p class="section-subtitle reveal reveal-delay-2">
+            Claude stays in the driver's seat. The backend does the heavy lifting.
+            Results flow back into your session.
+          </p>
+        </div>
+
+        <div class="flow-steps">
+          <div class="flow-step reveal reveal-delay-1">
+            <div class="flow-icon icon-claude">💬</div>
+            <div class="flow-connector">
+              <div class="flow-connector-line">
+                <div class="flow-connector-pulse"></div>
+              </div>
+            </div>
+            <h3>You ask Claude</h3>
+            <p>Describe what you need — a code review, refactor, debug session, or architectural analysis.</p>
+          </div>
+
+          <div class="flow-step reveal reveal-delay-2">
+            <div class="flow-icon icon-relay">📞</div>
+            <div class="flow-connector">
+              <div class="flow-connector-line">
+                <div class="flow-connector-pulse" style="animation-delay: 0.8s;"></div>
+              </div>
+            </div>
+            <h3>Claude phones a friend</h3>
+            <p>Your prompt, repo context, and optional diffs are relayed to Codex or Gemini in a sandboxed environment.</p>
+          </div>
+
+          <div class="flow-step reveal reveal-delay-3">
+            <div class="flow-icon icon-result">✨</div>
+            <h3>Get refined results</h3>
+            <p>The backend's response flows back to Claude, who synthesizes it and presents the results in your session.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== TWO MODES ======== -->
+    <section class="modes" id="modes">
+      <div class="container">
+        <div class="section-header-centered">
+          <p class="section-label reveal">Two modes</p>
+          <h2 class="section-title reveal reveal-delay-1">Quick ask or deep collaboration.</h2>
+          <p class="section-subtitle reveal reveal-delay-2">
+            One-shot for fast feedback. Multi-round for iterative refinement
+            until convergence.
+          </p>
+        </div>
+
+        <div class="modes-grid">
+          <div class="mode-card reveal reveal-delay-1">
+            <span class="mode-badge one-shot">/phone-a-friend</span>
+            <h3>One-shot relay</h3>
+            <p>Ask once, get an answer. Perfect for code reviews, quick checks, and second opinions.</p>
+            <div class="mode-code">
+              <div><span class="comment"># Review recent changes</span></div>
+              <div><span class="command">/phone-a-friend</span> <span class="arg">Review my</span></div>
+              <div><span class="arg">recent changes for issues</span></div>
+              <div style="margin-top: 10px;"><span class="comment"># Get a code review</span></div>
+              <div><span class="command">/phone-a-friend</span> <span class="arg">Review the</span></div>
+              <div><span class="arg">error handling in relay.py</span></div>
+            </div>
+          </div>
+
+          <div class="mode-card reveal reveal-delay-2">
+            <span class="mode-badge iterative">/phone-a-team</span>
+            <h3>Iterative refinement</h3>
+            <p>Multi-round loop with convergence checking. Claude delegates, reviews, and iterates up to 5 rounds.</p>
+            <div class="mode-code">
+              <div><span class="comment"># Run both backends</span></div>
+              <div><span class="command">/phone-a-team</span> <span class="arg">--backend both</span></div>
+              <div><span class="arg">Refactor the backend registry</span></div>
+              <div style="margin-top: 10px;"><span class="comment"># Limit rounds</span></div>
+              <div><span class="command">/phone-a-team</span> <span class="arg">--max-rounds 2</span></div>
+              <div><span class="arg">Redesign the auth module</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== FEATURES ======== -->
+    <section class="features" id="features">
+      <div class="container">
+        <div class="section-header-centered">
+          <p class="section-label reveal">Features</p>
+          <h2 class="section-title reveal reveal-delay-1">Built for safety and speed.</h2>
+          <p class="section-subtitle reveal reveal-delay-2">
+            Guard rails, sandboxing, and zero dependencies.
+            Production-ready from the first relay.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <div class="feature-card reveal reveal-delay-1">
+            <span class="feature-icon">🔌</span>
+            <h3>Backend-agnostic</h3>
+            <p>Codex and Gemini today. Add new backends via the RelayBackend protocol — swap or run both in parallel.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-2">
+            <span class="feature-icon">🔒</span>
+            <h3>Sandboxed by default</h3>
+            <p>Read-only sandbox prevents accidental writes. Escalate to workspace-write or full-access only when needed.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-3">
+            <span class="feature-icon">📦</span>
+            <h3>Zero dependencies</h3>
+            <p>Pure Python 3.10+. No pip install required. Clone the repo and start relaying immediately.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-4">
+            <span class="feature-icon">🔄</span>
+            <h3>Multi-round refinement</h3>
+            <p>The /phone-a-team loop delegates, reviews, and iterates with convergence checking across rounds.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-5">
+            <span class="feature-icon">🛡️</span>
+            <h3>Depth guard</h3>
+            <p>Recursive relay prevention via PHONE_A_FRIEND_DEPTH. No infinite agent loops — fail-fast by design.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-6">
+            <span class="feature-icon">⚡</span>
+            <h3>Size limits</h3>
+            <p>Hardened limits on context (200 KB), diffs (300 KB), and prompts (500 KB) prevent oversized payloads.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== QUICKSTART ======== -->
+    <section class="quickstart" id="quickstart">
+      <div class="container">
+        <div class="section-header-centered">
+          <p class="section-label reveal">Get started</p>
+          <h2 class="section-title reveal reveal-delay-1">Up and running in 60 seconds.</h2>
+          <p class="section-subtitle reveal reveal-delay-2">
+            Clone, install the plugin, and start relaying.
+          </p>
+        </div>
+
+        <div class="quickstart-content">
+          <ol class="install-steps">
+            <li class="install-step reveal reveal-delay-1">
+              <span class="step-number">1</span>
+              <div class="step-content">
+                <h4>Clone the repository</h4>
+                <div class="code-block">
+                  <button class="copy-btn" data-copy="git clone https://github.com/freibergergarcia/phone-a-friend.git && cd phone-a-friend">copy</button>
+                  <span class="prompt-char">$ </span>git clone https://github.com/freibergergarcia/phone-a-friend.git<br>
+                  <span class="prompt-char">$ </span>cd phone-a-friend
+                </div>
+              </div>
+            </li>
+
+            <li class="install-step reveal reveal-delay-2">
+              <span class="step-number">2</span>
+              <div class="step-content">
+                <h4>Install the Claude Code plugin</h4>
+                <div class="code-block">
+                  <button class="copy-btn" data-copy="./phone-a-friend install --claude">copy</button>
+                  <span class="prompt-char">$ </span>./phone-a-friend install --claude
+                </div>
+              </div>
+            </li>
+
+            <li class="install-step reveal reveal-delay-3">
+              <span class="step-number">3</span>
+              <div class="step-content">
+                <h4>Start relaying</h4>
+                <p>Use the slash commands in any Claude Code session.</p>
+                <div class="code-block">
+                  <button class="copy-btn" data-copy="/phone-a-friend Review the auth module">copy</button>
+                  <span class="prompt-char">$ </span>/phone-a-friend Review the auth module
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ======== FOOTER ======== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">
+          MIT License &middot; <a href="https://github.com/freibergergarcia/phone-a-friend">phone-a-friend</a>
+        </div>
+        <div class="footer-right">
+          <a href="https://github.com/freibergergarcia/phone-a-friend" class="footer-link">GitHub</a>
+          <a href="https://github.com/freibergergarcia/phone-a-friend/issues" class="footer-link">Issues</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ======== SCRIPTS ======== -->
+  <script>
+    // Nav scroll effect
+    const nav = document.getElementById('nav');
+    let lastScroll = 0;
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 20) {
+        nav.classList.add('scrolled');
+      } else {
+        nav.classList.remove('scrolled');
+      }
+      lastScroll = window.scrollY;
+    }, { passive: true });
+
+    // Scroll reveal with IntersectionObserver
+    const reveals = document.querySelectorAll('.reveal');
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      threshold: 0.15,
+      rootMargin: '0px 0px -40px 0px'
+    });
+
+    reveals.forEach(el => observer.observe(el));
+
+    // Copy button
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = btn.dataset.copy;
+        if (!text) return;
+
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = 'copied!';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = 'copy';
+            btn.classList.remove('copied');
+          }, 2000);
+        });
+      });
+    });
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', (e) => {
+        const target = document.querySelector(anchor.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
