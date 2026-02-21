@@ -12,3 +12,4 @@ htmlcov/
 .ruff_cache/
 .idea/
 .vscode/
+plans/
