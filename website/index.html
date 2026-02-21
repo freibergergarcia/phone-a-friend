@@ -947,7 +947,15 @@
       }
 
       .hero-actions {
+        flex-direction: column;
+        align-items: center;
         margin-bottom: 48px;
+      }
+
+      .hero-actions .btn {
+        width: 100%;
+        max-width: 280px;
+        justify-content: center;
       }
 
       .terminal-body {
@@ -983,8 +991,29 @@
         grid-template-columns: 1fr;
       }
 
-      /* Mobile nav: hide desktop links, show hamburger */
+      /* Mobile nav: compact brand, show hamburger */
+      .nav-brand {
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .nav-logo {
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nav-version {
+        display: none;
+      }
+
       .nav-links .nav-link {
+        display: none;
+      }
+
+      .nav-links .nav-github {
         display: none;
       }
 
@@ -993,7 +1022,8 @@
       }
 
       .nav-links {
-        gap: 12px;
+        flex-shrink: 0;
+        gap: 4px;
       }
 
       /* Mobile menu overlay */
@@ -1068,6 +1098,11 @@
         border-radius: 10px;
       }
 
+      .terminal-body {
+        font-size: 0.72rem;
+        padding: 14px 12px;
+      }
+
       .mode-card {
         padding: 22px;
       }
@@ -1076,13 +1111,25 @@
         padding: 22px;
       }
 
+      .install-step {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 12px;
+      }
+
+      .step-content {
+        width: 100%;
+      }
+
       .footer-inner {
         flex-direction: column;
         text-align: center;
       }
 
       .code-block {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
+        word-break: break-all;
       }
     }
   </style>
