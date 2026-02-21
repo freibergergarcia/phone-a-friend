@@ -59,4 +59,4 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 ## Scope
 
-This repository only contains relay functionality. internal policy engine, hooks, approvals, trusted scripts, and installer logic are intentionally out of scope.
+This repository only contains relay functionality. Policy engines, hooks, approvals, trusted scripts, and installer logic are intentionally out of scope.
