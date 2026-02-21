@@ -9,7 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <style>
     /* ========================================
@@ -31,7 +31,7 @@
 
       --text-primary: #f0f4f8;
       --text-secondary: #8b9dc3;
-      --text-muted: #4a5f82;
+      --text-muted: #6b7fa3;
 
       --border-subtle: rgba(56, 189, 248, 0.08);
       --border-card: rgba(56, 189, 248, 0.12);
@@ -95,6 +95,28 @@
     }
 
     /* ========================================
+       PROGRESSIVE ENHANCEMENT
+       Reveal styles only apply when JS is active
+       ======================================== */
+    html.js-enabled .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    html.js-enabled .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    html.js-enabled .reveal-delay-1 { transition-delay: 0.1s; }
+    html.js-enabled .reveal-delay-2 { transition-delay: 0.2s; }
+    html.js-enabled .reveal-delay-3 { transition-delay: 0.3s; }
+    html.js-enabled .reveal-delay-4 { transition-delay: 0.35s; }
+    html.js-enabled .reveal-delay-5 { transition-delay: 0.4s; }
+    html.js-enabled .reveal-delay-6 { transition-delay: 0.45s; }
+
+    /* ========================================
        LAYOUT
        ======================================== */
     .container {
@@ -107,6 +129,11 @@
     section {
       position: relative;
       z-index: 1;
+    }
+
+    /* Scroll margin for fixed nav */
+    section[id] {
+      scroll-margin-top: calc(var(--nav-height) + 16px);
     }
 
     /* ========================================
@@ -202,6 +229,29 @@
       width: 20px;
       height: 20px;
       fill: currentColor;
+    }
+
+    /* Mobile hamburger menu */
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      color: var(--text-secondary);
+    }
+
+    .nav-hamburger svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .nav-mobile-menu {
+      display: none;
     }
 
     /* ========================================
@@ -381,38 +431,14 @@
       word-break: break-word;
     }
 
-    .terminal-line .prompt {
-      color: var(--accent-green);
-    }
-
-    .terminal-line .cmd {
-      color: var(--text-primary);
-    }
-
-    .terminal-line .flag {
-      color: var(--accent-secondary);
-    }
-
-    .terminal-line .str {
-      color: var(--accent-warm);
-    }
-
-    .terminal-line .info {
-      color: var(--accent);
-    }
-
-    .terminal-line .success {
-      color: var(--accent-green);
-    }
-
-    .terminal-line .muted {
-      color: var(--text-muted);
-    }
-
-    .terminal-line .bullet {
-      color: var(--text-muted);
-      margin-right: 4px;
-    }
+    .terminal-line .prompt { color: var(--accent-green); }
+    .terminal-line .cmd { color: var(--text-primary); }
+    .terminal-line .flag { color: var(--accent-secondary); }
+    .terminal-line .str { color: var(--accent-warm); }
+    .terminal-line .info { color: var(--accent); }
+    .terminal-line .success { color: var(--accent-green); }
+    .terminal-line .muted { color: var(--text-muted); }
+    .terminal-line .bullet { color: var(--text-muted); margin-right: 4px; }
 
     .terminal-spacer {
       height: 8px;
@@ -554,6 +580,10 @@
       animation: relay-pulse 2.5s ease-in-out infinite;
     }
 
+    .flow-connector-pulse.delay {
+      animation-delay: 0.8s;
+    }
+
     @keyframes relay-pulse {
       0% { left: 0; opacity: 0; }
       10% { opacity: 1; }
@@ -642,17 +672,10 @@
       overflow-x: auto;
     }
 
-    .mode-code .comment {
-      color: var(--text-muted);
-    }
-
-    .mode-code .command {
-      color: var(--accent-green);
-    }
-
-    .mode-code .arg {
-      color: var(--text-primary);
-    }
+    .mode-code .comment { color: var(--text-muted); }
+    .mode-code .command { color: var(--accent-green); }
+    .mode-code .arg { color: var(--text-primary); }
+    .mode-code-gap { margin-top: 10px; }
 
     /* ========================================
        FEATURES GRID
@@ -771,13 +794,17 @@
       background: #0b1222;
       border: 1px solid var(--border-card);
       border-radius: 10px;
-      padding: 14px 50px 14px 18px;
+      padding: 14px 18px;
       font-family: var(--font-mono);
       font-size: 0.82rem;
       line-height: 1.7;
       color: var(--text-secondary);
       position: relative;
       overflow-x: auto;
+    }
+
+    .code-block.has-copy {
+      padding-top: 38px;
     }
 
     .code-block .prompt-char {
@@ -808,10 +835,28 @@
       color: var(--text-primary);
     }
 
+    .copy-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
     .copy-btn.copied {
       color: var(--accent-green);
       background: rgba(52, 211, 153, 0.1);
       border-color: rgba(52, 211, 153, 0.3);
+    }
+
+    /* Aria-live region for copy feedback */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
     }
 
     /* ========================================
@@ -858,27 +903,6 @@
     }
 
     /* ========================================
-       SCROLL ANIMATIONS
-       ======================================== */
-    .reveal {
-      opacity: 0;
-      transform: translateY(24px);
-      transition: opacity 0.6s ease, transform 0.6s ease;
-    }
-
-    .reveal.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    .reveal-delay-1 { transition-delay: 0.1s; }
-    .reveal-delay-2 { transition-delay: 0.2s; }
-    .reveal-delay-3 { transition-delay: 0.3s; }
-    .reveal-delay-4 { transition-delay: 0.35s; }
-    .reveal-delay-5 { transition-delay: 0.4s; }
-    .reveal-delay-6 { transition-delay: 0.45s; }
-
-    /* ========================================
        ACCESSIBILITY: REDUCED MOTION
        ======================================== */
     @media (prefers-reduced-motion: reduce) {
@@ -888,7 +912,7 @@
         transition-duration: 0.01ms !important;
       }
 
-      .reveal {
+      html.js-enabled .reveal {
         opacity: 1;
         transform: none;
       }
@@ -959,8 +983,55 @@
         grid-template-columns: 1fr;
       }
 
+      /* Mobile nav: hide desktop links, show hamburger */
       .nav-links .nav-link {
         display: none;
+      }
+
+      .nav-hamburger {
+        display: block;
+      }
+
+      .nav-links {
+        gap: 12px;
+      }
+
+      /* Mobile menu overlay */
+      .nav-mobile-menu {
+        position: fixed;
+        top: var(--nav-height);
+        left: 0;
+        right: 0;
+        background: rgba(6, 16, 31, 0.95);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        padding: 16px 24px 24px;
+        border-bottom: 1px solid var(--border-subtle);
+        z-index: 99;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .nav-mobile-menu.open {
+        display: flex;
+      }
+
+      .nav-mobile-link {
+        display: block;
+        font-size: 1rem;
+        color: var(--text-secondary);
+        padding: 10px 0;
+        font-weight: 500;
+        border-bottom: 1px solid var(--border-subtle);
+        transition: color 0.2s;
+      }
+
+      .nav-mobile-link:last-child {
+        border-bottom: none;
+      }
+
+      .nav-mobile-link:hover {
+        color: var(--text-primary);
       }
 
       .relay-flow,
@@ -1009,16 +1080,23 @@
         flex-direction: column;
         text-align: center;
       }
+
+      .code-block {
+        font-size: 0.75rem;
+      }
     }
   </style>
 </head>
 
 <body>
+  <!-- Aria-live region for copy button feedback -->
+  <div id="copy-status" class="sr-only" aria-live="polite"></div>
+
   <!-- ======== NAVIGATION ======== -->
   <nav class="nav" id="nav">
     <div class="nav-inner">
       <div class="nav-brand">
-        <a href="#" class="nav-logo"><span>phone</span>-a-friend</a>
+        <a href="" class="nav-logo"><span>phone</span>-a-friend</a>
         <span class="nav-version">v0.3.0</span>
       </div>
       <div class="nav-links">
@@ -1029,7 +1107,17 @@
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
           GitHub
         </a>
+        <button class="nav-hamburger" id="nav-hamburger" type="button" aria-label="Open menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
       </div>
+    </div>
+    <!-- Mobile dropdown menu -->
+    <div class="nav-mobile-menu" id="nav-mobile-menu">
+      <a href="#how-it-works" class="nav-mobile-link">How it works</a>
+      <a href="#features" class="nav-mobile-link">Features</a>
+      <a href="#quickstart" class="nav-mobile-link">Install</a>
+      <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="nav-mobile-link">GitHub</a>
     </div>
   </nav>
 
@@ -1105,7 +1193,7 @@
             <div class="flow-icon icon-relay">📞</div>
             <div class="flow-connector">
               <div class="flow-connector-line">
-                <div class="flow-connector-pulse" style="animation-delay: 0.8s;"></div>
+                <div class="flow-connector-pulse delay"></div>
               </div>
             </div>
             <h3>Claude phones a friend</h3>
@@ -1142,7 +1230,7 @@
               <div><span class="comment"># Review recent changes</span></div>
               <div><span class="command">/phone-a-friend</span> <span class="arg">Review my</span></div>
               <div><span class="arg">recent changes for issues</span></div>
-              <div style="margin-top: 10px;"><span class="comment"># Get a code review</span></div>
+              <div class="mode-code-gap"><span class="comment"># Get a code review</span></div>
               <div><span class="command">/phone-a-friend</span> <span class="arg">Review the</span></div>
               <div><span class="arg">error handling in relay.py</span></div>
             </div>
@@ -1156,7 +1244,7 @@
               <div><span class="comment"># Run both backends</span></div>
               <div><span class="command">/phone-a-team</span> <span class="arg">--backend both</span></div>
               <div><span class="arg">Refactor the backend registry</span></div>
-              <div style="margin-top: 10px;"><span class="comment"># Limit rounds</span></div>
+              <div class="mode-code-gap"><span class="comment"># Limit rounds</span></div>
               <div><span class="command">/phone-a-team</span> <span class="arg">--max-rounds 2</span></div>
               <div><span class="arg">Redesign the auth module</span></div>
             </div>
@@ -1234,8 +1322,8 @@
               <span class="step-number">1</span>
               <div class="step-content">
                 <h4>Clone the repository</h4>
-                <div class="code-block">
-                  <button class="copy-btn" data-copy="git clone https://github.com/freibergergarcia/phone-a-friend.git && cd phone-a-friend">copy</button>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="git clone https://github.com/freibergergarcia/phone-a-friend.git && cd phone-a-friend">copy</button>
                   <span class="prompt-char">$ </span>git clone https://github.com/freibergergarcia/phone-a-friend.git<br>
                   <span class="prompt-char">$ </span>cd phone-a-friend
                 </div>
@@ -1246,8 +1334,8 @@
               <span class="step-number">2</span>
               <div class="step-content">
                 <h4>Install the Claude Code plugin</h4>
-                <div class="code-block">
-                  <button class="copy-btn" data-copy="./phone-a-friend install --claude">copy</button>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="./phone-a-friend install --claude">copy</button>
                   <span class="prompt-char">$ </span>./phone-a-friend install --claude
                 </div>
               </div>
@@ -1258,8 +1346,8 @@
               <div class="step-content">
                 <h4>Start relaying</h4>
                 <p>Use the slash commands in any Claude Code session.</p>
-                <div class="code-block">
-                  <button class="copy-btn" data-copy="/phone-a-friend Review the auth module">copy</button>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="/phone-a-friend Review the auth module">copy</button>
                   <span class="prompt-char">$ </span>/phone-a-friend Review the auth module
                 </div>
               </div>
@@ -1287,9 +1375,14 @@
 
   <!-- ======== SCRIPTS ======== -->
   <script>
+    // Progressive enhancement: mark JS as available
+    document.documentElement.classList.add('js-enabled');
+
+    // Reduced motion preference
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     // Nav scroll effect
     const nav = document.getElementById('nav');
-    let lastScroll = 0;
 
     window.addEventListener('scroll', () => {
       if (window.scrollY > 20) {
@@ -1297,7 +1390,6 @@
       } else {
         nav.classList.remove('scrolled');
       }
-      lastScroll = window.scrollY;
     }, { passive: true });
 
     // Scroll reveal with IntersectionObserver
@@ -1317,7 +1409,9 @@
 
     reveals.forEach(el => observer.observe(el));
 
-    // Copy button
+    // Copy button with error handling + aria-live feedback
+    const copyStatus = document.getElementById('copy-status');
+
     document.querySelectorAll('.copy-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const text = btn.dataset.copy;
@@ -1326,22 +1420,57 @@
         navigator.clipboard.writeText(text).then(() => {
           btn.textContent = 'copied!';
           btn.classList.add('copied');
+          copyStatus.textContent = 'Copied to clipboard';
           setTimeout(() => {
             btn.textContent = 'copy';
             btn.classList.remove('copied');
+            copyStatus.textContent = '';
+          }, 2000);
+        }).catch(() => {
+          btn.textContent = 'failed';
+          copyStatus.textContent = 'Failed to copy';
+          setTimeout(() => {
+            btn.textContent = 'copy';
+            copyStatus.textContent = '';
           }, 2000);
         });
       });
     });
 
-    // Smooth scroll for anchor links
+    // Smooth scroll for anchor links (respects reduced motion)
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
       anchor.addEventListener('click', (e) => {
-        const target = document.querySelector(anchor.getAttribute('href'));
+        const href = anchor.getAttribute('href');
+        if (!href || href === '#' || href.length < 2) return;
+
+        const target = document.querySelector(href);
         if (target) {
           e.preventDefault();
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          target.scrollIntoView({
+            behavior: prefersReducedMotion ? 'auto' : 'smooth',
+            block: 'start'
+          });
+          // Close mobile menu if open
+          navMobileMenu.classList.remove('open');
+          hamburger.setAttribute('aria-expanded', 'false');
         }
+      });
+    });
+
+    // Mobile hamburger menu
+    const hamburger = document.getElementById('nav-hamburger');
+    const navMobileMenu = document.getElementById('nav-mobile-menu');
+
+    hamburger.addEventListener('click', () => {
+      const isOpen = navMobileMenu.classList.toggle('open');
+      hamburger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+
+    // Close mobile menu when clicking a link
+    navMobileMenu.querySelectorAll('.nav-mobile-link').forEach(link => {
+      link.addEventListener('click', () => {
+        navMobileMenu.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
       });
     });
   </script>
