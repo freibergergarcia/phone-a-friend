@@ -10,11 +10,11 @@
 
 </div>
 
-`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks — code reviews, file edits, analysis, refactoring — to a backend AI (Codex or Gemini) and brings the results back into the current session. Works as a Claude Code slash command (`/phone-a-friend`) and as a standalone CLI.
+`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks — code reviews, file edits, analysis, refactoring — to a backend AI (Codex or Gemini) and brings the results back into the current session. Use `/phone-a-friend` for one-shot relay, or `/phone-a-team` for iterative multi-round refinement. Works as Claude Code slash commands and as a standalone CLI.
 
 ```
-  Claude ──> phone-a-friend ──> Codex / Gemini
-  Claude <── phone-a-friend <── Codex / Gemini
+  Claude ──> phone-a-friend ──> Codex / Gemini          (one-shot relay)
+  Claude ──> phone-a-team ──> iterate with backend(s)   (iterative refinement)
 ```
 
 ## Quick Start
@@ -74,6 +74,34 @@ cd phone-a-friend
     ⏺ Codex approved the changes with one nit — the --model flag needs
       a row in the README options table.
 
+## Iterative Refinement — `/phone-a-team`
+
+For complex tasks that benefit from review and iteration, use `/phone-a-team`. Claude acts as lead — delegating to backend(s), reviewing output, and iterating up to N rounds (default 3, configurable via `--max-rounds`) until the result converges.
+
+```
+/phone-a-team Refactor the backend registry for extensibility
+/phone-a-team --backend both Review the error handling in relay.py
+/phone-a-team --backend gemini Add input validation to the submit handler
+/phone-a-team --max-rounds 5 Redesign the authentication module
+```
+
+**How it works:**
+
+1. Claude parses your task and verifies the backend is available
+2. Delegates to the backend via `phone-a-friend` relay
+3. Reviews the output against a convergence rubric
+4. If issues found, sends specific feedback for the next round
+5. Synthesizes the final result (converged or best-effort after max rounds)
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--backend` | Backend to use: `codex` (default), `gemini`, or `both` |
+| `--max-rounds` | Max iteration rounds: 1–5 (default: 3) |
+
+**Agent teams** (optional): When available, `/phone-a-team` automatically uses Claude Code agent teams for parallel backend coordination. Falls back to sequential operation if teams are unavailable.
+
 ## Features
 
 - **Pluggable backends** — Codex and Gemini today; add your own by implementing `RelayBackend`
@@ -126,6 +154,8 @@ Use the slash command with natural language:
 /phone-a-friend Ask codex to add input validation to the submit handler
 /phone-a-friend Ask codex to refactor the backend registry for extensibility
 /phone-a-friend Ask codex to review my recent changes for issues
+/phone-a-team Refactor the backend registry for extensibility
+/phone-a-team --backend both Review the error handling in relay.py
 ```
 
 ### CLI flags
