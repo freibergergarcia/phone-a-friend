@@ -64,7 +64,7 @@ sequenceDiagram
 
   User->>Claude: /phone-a-team <task> [--backend ...]
   Claude->>Slash: execute commands/phone-a-team.md workflow
-  loop Up to 3 rounds
+  loop Up to MAX_ROUNDS rounds (default 3, configurable 1–5)
     Slash->>CLI: one or more relay calls
     CLI->>Relay: relay(...)
     Relay->>Backend: run(...)

@@ -100,7 +100,7 @@ For complex tasks that benefit from review and iteration, use `/phone-a-team`. C
 | `--backend` | Backend to use: `codex` (default), `gemini`, or `both` |
 | `--max-rounds` | Max iteration rounds: 1–5 (default: 3) |
 
-**Agent teams** (optional): When available, `/phone-a-team` automatically uses Claude Code agent teams for parallel backend coordination. Falls back to sequential operation if teams are unavailable.
+**Agent teams** (optional): When available, `/phone-a-team` automatically uses Claude Code agent teams for parallel backend coordination. Falls back to sequential operation if teams are unavailable. Note: `/phone-a-team` behavior is prompt-driven policy, not runtime-enforced code.
 
 ## Features
 

@@ -1,6 +1,6 @@
 # Phone-a-Team Iterative Loop
 
-`/phone-a-team` (v0.2.0) is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (max 3 rounds) over one or both backends via `./phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
+`/phone-a-team` (v0.2.0) is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (default 3 rounds, configurable 1–5 via `--max-rounds`) over one or both backends via `./phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
 
 ## Loop Architecture
 
@@ -33,8 +33,8 @@ flowchart TD
   P -- backend failure --> Q[Handle failure]
   P -- issues found --> R[Generate actionable feedback]
 
-  Q --> S{"Round < 3 and backend available?"}
-  R --> T{"Round < 3?"}
+  Q --> S{"Round < MAX_ROUNDS and backend available?"}
+  R --> T{"Round < MAX_ROUNDS?"}
   S -- yes --> U[Next round with focused context]
   S -- no --> Y["Forced stop: synthesis with unresolved items"]
   T -- yes --> U
@@ -57,18 +57,18 @@ stateDiagram-v2
     DO --> REVIEW
     REVIEW --> DECIDE
     DECIDE --> Converged: all rubric items pass
-    DECIDE --> NextRound: issues found and round < 3
-    DECIDE --> ForcedStop: issues found and round = 3
+    DECIDE --> NextRound: issues found and round < MAX_ROUNDS
+    DECIDE --> ForcedStop: issues found and round = MAX_ROUNDS
     DECIDE --> HandleFailure: backend error
     HandleFailure --> NextRound: retry available
     HandleFailure --> ForcedStop: no recovery
   }
 
   Round1 --> Round2: not converged
-  Round2 --> Round3: not converged
+  Round2 --> RoundN: not converged (up to MAX_ROUNDS)
   Round1 --> Synthesis: converged
   Round2 --> Synthesis: converged
-  Round3 --> Synthesis: converged or forced stop
+  RoundN --> Synthesis: converged or forced stop
 
   Synthesis --> [*]
 ```
@@ -175,11 +175,11 @@ flowchart LR
 
 ## Important Design Decisions and Constraints
 
-- Hard loop cap is 3 rounds; no round 4 under any circumstances.
+- Default loop cap is 3 rounds, configurable 1–5 via `--max-rounds`.
 - Early stop on convergence is required (no unnecessary iterations).
 - Feature is prompt policy, not runtime-enforced code.
 - No re-entrancy: do not nest `/phone-a-team` within `/phone-a-team`.
 - One team per session when team mode is used.
-- Teammates inherit lead permissions.
+- Teammates use `mode: "bypassPermissions"` to avoid blocking the user with permission prompts.
 - `/phone-a-team` treats `phone-a-friend` internals as a black box.
 - Token usage is higher than single `/phone-a-friend` (multiple relay calls + review overhead).
