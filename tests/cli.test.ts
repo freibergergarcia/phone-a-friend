@@ -4,7 +4,21 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 // vi.hoisted runs before vi.mock hoisting — safe to reference in factory
-const { mockRelay, mockInstallHosts, mockUninstallHosts, mockVerifyBackends } = vi.hoisted(() => ({
+const {
+  mockRelay,
+  mockInstallHosts,
+  mockUninstallHosts,
+  mockVerifyBackends,
+  mockSetup,
+  mockDoctor,
+  mockConfigInit,
+  mockConfigPaths,
+  mockConfigGet,
+  mockConfigSet,
+  mockLoadConfig,
+  mockSaveConfig,
+  mockResolveConfig,
+} = vi.hoisted(() => ({
   mockRelay: vi.fn(() => 'mock feedback'),
   mockInstallHosts: vi.fn(() => ['phone-a-friend installer', '- claude: installed']),
   mockUninstallHosts: vi.fn(() => ['phone-a-friend uninstaller', '- claude: removed']),
@@ -12,6 +26,19 @@ const { mockRelay, mockInstallHosts, mockUninstallHosts, mockVerifyBackends } = 
     { name: 'codex', available: true, hint: '' },
     { name: 'gemini', available: false, hint: 'npm install -g @google/gemini-cli' },
   ]),
+  mockSetup: vi.fn(),
+  mockDoctor: vi.fn(() => Promise.resolve({ exitCode: 0, output: 'Health Check' })),
+  mockConfigInit: vi.fn(),
+  mockConfigPaths: vi.fn(() => ({ user: '/home/test/.config/phone-a-friend/config.toml', repo: null })),
+  mockConfigGet: vi.fn(),
+  mockConfigSet: vi.fn(),
+  mockLoadConfig: vi.fn(() => ({
+    defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
+  })),
+  mockSaveConfig: vi.fn(),
+  mockResolveConfig: vi.fn(() => ({
+    backend: 'codex', sandbox: 'read-only', timeout: 600, includeDiff: false,
+  })),
 }));
 
 vi.mock('../src/relay.js', async (importOriginal) => {
@@ -31,6 +58,27 @@ vi.mock('../src/installer.js', () => ({
   InstallerError: class InstallerError extends Error {},
 }));
 
+vi.mock('../src/setup.js', () => ({
+  setup: mockSetup,
+}));
+
+vi.mock('../src/doctor.js', () => ({
+  doctor: mockDoctor,
+}));
+
+vi.mock('../src/config.js', () => ({
+  configInit: mockConfigInit,
+  configPaths: mockConfigPaths,
+  configGet: mockConfigGet,
+  configSet: mockConfigSet,
+  loadConfig: mockLoadConfig,
+  saveConfig: mockSaveConfig,
+  resolveConfig: mockResolveConfig,
+  DEFAULT_CONFIG: {
+    defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
+  },
+}));
+
 import { run } from '../src/cli.js';
 import { RelayError } from '../src/relay.js';
 
@@ -42,7 +90,7 @@ function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'phone-a-friend-cli-test-'));
 }
 
-function captureOutput(fn: () => unknown): { stdout: string; stderr: string } {
+function captureOutput(fn: () => unknown): { stdout: string; stderr: string; result: unknown } {
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
   const origStdout = process.stdout.write;
@@ -65,8 +113,9 @@ function captureOutput(fn: () => unknown): { stdout: string; stderr: string } {
     stderrChunks.push(args.map(String).join(' ') + '\n');
   };
 
+  let result: unknown;
   try {
-    fn();
+    result = fn();
   } finally {
     process.stdout.write = origStdout;
     process.stderr.write = origStderr;
@@ -77,6 +126,47 @@ function captureOutput(fn: () => unknown): { stdout: string; stderr: string } {
   return {
     stdout: stdoutChunks.join(''),
     stderr: stderrChunks.join(''),
+    result,
+  };
+}
+
+async function captureOutputAsync(fn: () => Promise<unknown>): Promise<{ stdout: string; stderr: string; result: unknown }> {
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  const origStdout = process.stdout.write;
+  const origStderr = process.stderr.write;
+  const origConsoleLog = console.log;
+  const origConsoleError = console.error;
+
+  process.stdout.write = ((chunk: string) => {
+    stdoutChunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string) => {
+    stderrChunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  console.log = (...args: unknown[]) => {
+    stdoutChunks.push(args.map(String).join(' ') + '\n');
+  };
+  console.error = (...args: unknown[]) => {
+    stderrChunks.push(args.map(String).join(' ') + '\n');
+  };
+
+  let result: unknown;
+  try {
+    result = await fn();
+  } finally {
+    process.stdout.write = origStdout;
+    process.stderr.write = origStderr;
+    console.log = origConsoleLog;
+    console.error = origConsoleError;
+  }
+
+  return {
+    stdout: stdoutChunks.join(''),
+    stderr: stderrChunks.join(''),
+    result,
   };
 }
 
@@ -99,6 +189,23 @@ describe('CLI', () => {
       { name: 'codex', available: true, hint: '' },
       { name: 'gemini', available: false, hint: 'npm install -g @google/gemini-cli' },
     ]);
+    mockSetup.mockReset();
+    mockSetup.mockResolvedValue(undefined);
+    mockDoctor.mockReset();
+    mockDoctor.mockResolvedValue({ exitCode: 0, output: 'Health Check output' });
+    mockConfigInit.mockReset();
+    mockConfigPaths.mockReset();
+    mockConfigPaths.mockReturnValue({ user: '/home/test/.config/phone-a-friend/config.toml', repo: null });
+    mockConfigGet.mockReset();
+    mockConfigSet.mockReset();
+    mockLoadConfig.mockReset();
+    mockLoadConfig.mockReturnValue({
+      defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
+    });
+    mockResolveConfig.mockReset();
+    mockResolveConfig.mockReturnValue({
+      backend: 'codex', sandbox: 'read-only', timeout: 600, includeDiff: false,
+    });
     tmpDir = makeTempDir();
   });
 
@@ -109,9 +216,9 @@ describe('CLI', () => {
 
   // --- Version ---
 
-  it('prints version and exits 0', () => {
-    const { stdout } = captureOutput(() => {
-      const code = run(['--version']);
+  it('prints version and exits 0', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['--version']);
       expect(code).toBe(0);
     });
     expect(stdout.trim()).toMatch(/^phone-a-friend \d+\.\d+\.\d+/);
@@ -119,8 +226,8 @@ describe('CLI', () => {
 
   // --- Relay subcommand ---
 
-  it('relay subcommand calls relay with correct args', () => {
-    const code = run([
+  it('relay subcommand calls relay with correct args', async () => {
+    const code = await run([
       'relay',
       '--to', 'codex',
       '--repo', tmpDir,
@@ -143,11 +250,11 @@ describe('CLI', () => {
     expect(opts.includeDiff).toBe(true);
   });
 
-  it('relay with --context-file passes contextFile', () => {
+  it('relay with --context-file passes contextFile', async () => {
     const contextPath = path.join(tmpDir, 'ctx.md');
     fs.writeFileSync(contextPath, 'context content');
 
-    run([
+    await run([
       'relay', '--prompt', 'Review', '--repo', tmpDir,
       '--context-file', contextPath,
     ]);
@@ -157,8 +264,8 @@ describe('CLI', () => {
     expect(opts.contextText).toBeNull();
   });
 
-  it('relay with --context-text passes contextText', () => {
-    run([
+  it('relay with --context-text passes contextText', async () => {
+    await run([
       'relay', '--prompt', 'Review', '--repo', tmpDir,
       '--context-text', 'inline context',
     ]);
@@ -168,35 +275,35 @@ describe('CLI', () => {
     expect(opts.contextFile).toBeNull();
   });
 
-  it('relay prints feedback to stdout', () => {
-    const { stdout } = captureOutput(() => {
-      run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
+  it('relay prints feedback to stdout', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      await run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
     });
     expect(stdout.trim()).toBe('mock feedback');
   });
 
-  it('relay defaults to codex backend', () => {
-    run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
+  it('relay defaults to codex backend', async () => {
+    await run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
     const opts = mockRelay.mock.calls[0][0];
     expect(opts.backend).toBe('codex');
   });
 
-  it('relay defaults to read-only sandbox', () => {
-    run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
+  it('relay defaults to read-only sandbox', async () => {
+    await run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
     const opts = mockRelay.mock.calls[0][0];
     expect(opts.sandbox).toBe('read-only');
   });
 
-  it('relay dispatches to gemini when --to gemini', () => {
-    run(['relay', '--to', 'gemini', '--prompt', 'Review', '--repo', tmpDir]);
+  it('relay dispatches to gemini when --to gemini', async () => {
+    await run(['relay', '--to', 'gemini', '--prompt', 'Review', '--repo', tmpDir]);
     const opts = mockRelay.mock.calls[0][0];
     expect(opts.backend).toBe('gemini');
   });
 
   // --- Root relay backward compatibility ---
 
-  it('root flags auto-route to relay (backward compat)', () => {
-    const code = run([
+  it('root flags auto-route to relay (backward compat)', async () => {
+    const code = await run([
       '--to', 'codex',
       '--repo', tmpDir,
       '--prompt', 'Review latest changes',
@@ -209,10 +316,10 @@ describe('CLI', () => {
     expect(opts.prompt).toBe('Review latest changes');
   });
 
-  // --- Install subcommand ---
+  // --- Install subcommand (backward compat) ---
 
-  it('install --claude calls installHosts', () => {
-    const code = run(['install', '--claude', '--no-claude-cli-sync']);
+  it('install --claude calls installHosts (backward compat)', async () => {
+    const code = await run(['install', '--claude', '--no-claude-cli-sync']);
     expect(code).toBe(0);
     expect(mockInstallHosts).toHaveBeenCalledOnce();
     const opts = mockInstallHosts.mock.calls[0][0];
@@ -222,28 +329,28 @@ describe('CLI', () => {
     expect(opts.syncClaudeCli).toBe(false);
   });
 
-  it('install with --mode copy passes mode', () => {
-    run(['install', '--claude', '--mode', 'copy', '--no-claude-cli-sync']);
+  it('install with --mode copy passes mode', async () => {
+    await run(['install', '--claude', '--mode', 'copy', '--no-claude-cli-sync']);
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.mode).toBe('copy');
   });
 
-  it('install with --force passes force', () => {
-    run(['install', '--claude', '--force', '--no-claude-cli-sync']);
+  it('install with --force passes force', async () => {
+    await run(['install', '--claude', '--force', '--no-claude-cli-sync']);
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.force).toBe(true);
   });
 
-  it('install with --repo-root passes repoRoot', () => {
-    run(['install', '--claude', '--repo-root', '/custom/path', '--no-claude-cli-sync']);
+  it('install with --repo-root passes repoRoot', async () => {
+    await run(['install', '--claude', '--repo-root', '/custom/path', '--no-claude-cli-sync']);
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.repoRoot).toBe('/custom/path');
   });
 
-  // --- Update subcommand ---
+  // --- Update subcommand (backward compat) ---
 
-  it('update calls installHosts with force=true', () => {
-    const code = run(['update', '--no-claude-cli-sync']);
+  it('update calls installHosts with force=true', async () => {
+    const code = await run(['update', '--no-claude-cli-sync']);
     expect(code).toBe(0);
     expect(mockInstallHosts).toHaveBeenCalledOnce();
     const opts = mockInstallHosts.mock.calls[0][0];
@@ -251,64 +358,160 @@ describe('CLI', () => {
     expect(opts.target).toBe('claude');
   });
 
-  it('update with --mode copy passes mode', () => {
-    run(['update', '--mode', 'copy', '--no-claude-cli-sync']);
+  it('update with --mode copy passes mode', async () => {
+    await run(['update', '--mode', 'copy', '--no-claude-cli-sync']);
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.mode).toBe('copy');
   });
 
-  // --- Uninstall subcommand ---
+  // --- Uninstall subcommand (backward compat) ---
 
-  it('uninstall --claude calls uninstallHosts', () => {
-    const code = run(['uninstall', '--claude']);
+  it('uninstall --claude calls uninstallHosts', async () => {
+    const code = await run(['uninstall', '--claude']);
     expect(code).toBe(0);
     expect(mockUninstallHosts).toHaveBeenCalledOnce();
     const opts = mockUninstallHosts.mock.calls[0][0];
     expect(opts.target).toBe('claude');
   });
 
+  // --- Plugin subcommand (new primary namespace) ---
+
+  it('plugin install --claude works', async () => {
+    const code = await run(['plugin', 'install', '--claude', '--no-claude-cli-sync']);
+    expect(code).toBe(0);
+    expect(mockInstallHosts).toHaveBeenCalledOnce();
+  });
+
+  it('plugin update --claude works', async () => {
+    const code = await run(['plugin', 'update', '--no-claude-cli-sync']);
+    expect(code).toBe(0);
+    expect(mockInstallHosts).toHaveBeenCalledOnce();
+    const opts = mockInstallHosts.mock.calls[0][0];
+    expect(opts.force).toBe(true);
+  });
+
+  it('plugin uninstall --claude works', async () => {
+    const code = await run(['plugin', 'uninstall', '--claude']);
+    expect(code).toBe(0);
+    expect(mockUninstallHosts).toHaveBeenCalledOnce();
+  });
+
+  // --- Setup subcommand ---
+
+  it('setup subcommand calls setup()', async () => {
+    const code = await run(['setup']);
+    expect(code).toBe(0);
+    expect(mockSetup).toHaveBeenCalledOnce();
+  });
+
+  // --- Doctor subcommand ---
+
+  it('doctor subcommand calls doctor()', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['doctor']);
+      expect(code).toBe(0);
+    });
+    expect(mockDoctor).toHaveBeenCalledOnce();
+    expect(stdout).toContain('Health Check');
+  });
+
+  it('doctor --json passes json flag', async () => {
+    mockDoctor.mockResolvedValue({ exitCode: 0, output: '{"status":"ok"}' });
+    await run(['doctor', '--json']);
+    expect(mockDoctor).toHaveBeenCalledWith(expect.objectContaining({ json: true }));
+  });
+
+  it('doctor returns exit code from doctor result', async () => {
+    mockDoctor.mockResolvedValue({ exitCode: 2, output: 'no backends' });
+    const code = await run(['doctor']);
+    expect(code).toBe(2);
+  });
+
+  // --- Config subcommands ---
+
+  it('config init creates default config', async () => {
+    const code = await run(['config', 'init']);
+    expect(code).toBe(0);
+    expect(mockConfigInit).toHaveBeenCalled();
+  });
+
+  it('config show displays config', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['config', 'show']);
+      expect(code).toBe(0);
+    });
+    expect(stdout).toBeTruthy();
+  });
+
+  it('config paths shows config file paths', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['config', 'paths']);
+      expect(code).toBe(0);
+    });
+    expect(stdout).toContain('config.toml');
+  });
+
+  it('config set key value sets a config value', async () => {
+    const code = await run(['config', 'set', 'defaults.backend', 'gemini']);
+    expect(code).toBe(0);
+    expect(mockConfigSet).toHaveBeenCalledWith(
+      'defaults.backend',
+      'gemini',
+      expect.any(String),
+    );
+  });
+
+  it('config get key gets a config value', async () => {
+    mockConfigGet.mockReturnValue('codex');
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['config', 'get', 'defaults.backend']);
+      expect(code).toBe(0);
+    });
+    expect(mockConfigGet).toHaveBeenCalled();
+  });
+
   // --- Error handling ---
 
-  it('returns 1 and prints to stderr on RelayError', () => {
+  it('returns 1 and prints to stderr on RelayError', async () => {
     mockRelay.mockImplementation(() => {
       throw new RelayError('something went wrong');
     });
 
-    const { stderr } = captureOutput(() => {
-      const code = run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
+    const { stderr } = await captureOutputAsync(async () => {
+      const code = await run(['relay', '--prompt', 'Review', '--repo', tmpDir]);
       expect(code).toBe(1);
     });
 
     expect(stderr).toContain('something went wrong');
   });
 
-  it('returns 1 on installer error', () => {
+  it('returns 1 on installer error', async () => {
     mockInstallHosts.mockImplementation(() => {
       throw new Error('install failed');
     });
 
-    const { stderr } = captureOutput(() => {
-      const code = run(['install', '--claude', '--no-claude-cli-sync']);
+    const { stderr } = await captureOutputAsync(async () => {
+      const code = await run(['install', '--claude', '--no-claude-cli-sync']);
       expect(code).toBe(1);
     });
 
     expect(stderr).toContain('install failed');
   });
 
-  // --- Commander validation (Codex review fixes) ---
+  // --- Commander validation ---
 
-  it('returns non-zero when --prompt is missing from relay', () => {
-    const { stderr } = captureOutput(() => {
-      const code = run(['relay', '--to', 'codex', '--repo', tmpDir]);
+  it('returns non-zero when --prompt is missing from relay', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      const code = await run(['relay', '--to', 'codex', '--repo', tmpDir]);
       expect(code).not.toBe(0);
     });
     expect(stderr).toContain('--prompt');
     expect(mockRelay).not.toHaveBeenCalled();
   });
 
-  it('returns non-zero for unknown options', () => {
-    const { stderr } = captureOutput(() => {
-      const code = run(['relay', '--prompt', 'x', '--bogus-flag', 'y']);
+  it('returns non-zero for unknown options', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      const code = await run(['relay', '--prompt', 'x', '--bogus-flag', 'y']);
       expect(code).not.toBe(0);
     });
     expect(stderr).toContain('bogus-flag');

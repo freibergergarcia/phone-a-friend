@@ -1,12 +1,14 @@
 /**
  * CLI entry point using Commander.js.
  *
- * Ported from phone_a_friend/cli.py
+ * Subcommands: relay (default), setup, doctor, config, plugin
+ * Backward compat aliases: install, update, uninstall
  */
 
 import { resolve, dirname } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { Command } from 'commander';
 import {
   relay,
@@ -21,6 +23,16 @@ import {
   verifyBackends,
   InstallerError,
 } from './installer.js';
+import { setup } from './setup.js';
+import { doctor } from './doctor.js';
+import {
+  configInit,
+  configPaths,
+  configGet,
+  configSet,
+  loadConfig,
+  DEFAULT_CONFIG,
+} from './config.js';
 
 // ---------------------------------------------------------------------------
 // Version
@@ -50,10 +62,12 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin'];
+
 function normalizeArgv(argv: string[]): string[] {
   if (argv.length === 0) return argv;
   const first = argv[0];
-  if (['relay', 'install', 'update', 'uninstall'].includes(first)) {
+  if (KNOWN_SUBCOMMANDS.includes(first)) {
     return argv;
   }
   if (first.startsWith('-')) {
@@ -79,12 +93,107 @@ function printBackendAvailability(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Install/update/uninstall action factories (shared by plugin + backward compat)
+// ---------------------------------------------------------------------------
+
+function installAction(opts: {
+  claude?: boolean;
+  all?: boolean;
+  mode?: string;
+  force?: boolean;
+  repoRoot?: string;
+  claudeCliSync?: boolean;
+}): void {
+  const target = opts.all ? 'all' : 'claude';
+  const lines = installHosts({
+    repoRoot: opts.repoRoot ?? repoRootDefault(),
+    target: target as 'claude' | 'all',
+    mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
+    force: opts.force ?? false,
+    syncClaudeCli: opts.claudeCliSync !== false,
+  });
+  for (const line of lines) console.log(line);
+  printBackendAvailability();
+}
+
+function updateAction(opts: {
+  mode?: string;
+  repoRoot?: string;
+  claudeCliSync?: boolean;
+}): void {
+  const lines = installHosts({
+    repoRoot: opts.repoRoot ?? repoRootDefault(),
+    target: 'claude',
+    mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
+    force: true,
+    syncClaudeCli: opts.claudeCliSync !== false,
+  });
+  for (const line of lines) console.log(line);
+  printBackendAvailability();
+}
+
+function uninstallAction(opts: { claude?: boolean; all?: boolean }): void {
+  const target = opts.all ? 'all' : 'claude';
+  const lines = uninstallHosts({ target: target as 'claude' | 'all' });
+  for (const line of lines) console.log(line);
+}
+
+// ---------------------------------------------------------------------------
+// Install/update/uninstall option helpers
+// ---------------------------------------------------------------------------
+
+function addInstallOptions(cmd: Command): Command {
+  return cmd
+    .option('--claude', 'Install for Claude', false)
+    .option('--all', 'Alias for --claude', false)
+    .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
+    .option('--force', 'Replace existing installation', false)
+    .option('--repo-root <path>', 'Repository root path')
+    .option('--no-claude-cli-sync', 'Skip Claude CLI sync');
+}
+
+function addUpdateOptions(cmd: Command): Command {
+  return cmd
+    .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
+    .option('--repo-root <path>', 'Repository root path')
+    .option('--no-claude-cli-sync', 'Skip Claude CLI sync');
+}
+
+function addUninstallOptions(cmd: Command): Command {
+  return cmd
+    .option('--claude', 'Uninstall for Claude', false)
+    .option('--all', 'Alias for --claude', false);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-export function run(argv: string[]): number {
+export async function run(argv: string[]): Promise<number> {
   const normalized = normalizeArgv(argv);
   let exitCode = 0;
+
+  // Smart no-args behavior
+  if (normalized.length === 0) {
+    const paths = configPaths();
+    if (!existsSync(paths.user)) {
+      // No config — show setup nudge
+      const version = getVersion();
+      console.log('');
+      console.log(`  phone-a-friend v${version} \u2014 AI coding agent relay`);
+      console.log('');
+      console.log('  No backends configured yet. Run setup to get started:');
+      console.log('');
+      console.log('    phone-a-friend setup');
+      console.log('');
+      console.log('  Or jump straight in (requires codex in PATH):');
+      console.log('');
+      console.log('    phone-a-friend --to codex --prompt "What does this project do?"');
+      console.log('');
+      return 0;
+    }
+    // Config exists — fall through to Commander help
+  }
 
   const program = new Command()
     .name('phone-a-friend')
@@ -94,14 +203,14 @@ export function run(argv: string[]): number {
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd()),
     })
-    .exitOverride(); // Don't call process.exit — let us control exit codes
+    .exitOverride();
 
   // --- relay subcommand ---
   program
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .requiredOption('--prompt <text>', 'Prompt to relay')
-    .option('--to <backend>', 'Target backend: codex, gemini', DEFAULT_BACKEND)
+    .option('--to <backend>', 'Target backend: codex, gemini, ollama, openai', DEFAULT_BACKEND)
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')
@@ -124,62 +233,148 @@ export function run(argv: string[]): number {
       console.log(feedback);
     });
 
-  // --- install subcommand ---
+  // --- setup subcommand ---
   program
-    .command('install')
-    .description('Install Claude plugin')
-    .option('--claude', 'Install for Claude', false)
-    .option('--all', 'Alias for --claude', false)
-    .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
-    .option('--force', 'Replace existing installation', false)
-    .option('--repo-root <path>', 'Repository root path', repoRootDefault())
-    .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
-    .action((opts) => {
-      const target = opts.all ? 'all' : 'claude';
-      const lines = installHosts({
-        repoRoot: opts.repoRoot,
-        target: target as 'claude' | 'all',
-        mode: opts.mode as 'symlink' | 'copy',
-        force: opts.force,
-        syncClaudeCli: opts.claudeCliSync !== false,
-      });
-      for (const line of lines) console.log(line);
-      printBackendAvailability();
+    .command('setup')
+    .description('Interactive setup wizard')
+    .action(async () => {
+      await setup();
     });
 
-  // --- update subcommand ---
+  // --- doctor subcommand ---
   program
-    .command('update')
-    .description('Update Claude plugin (equivalent to install --force)')
-    .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
-    .option('--repo-root <path>', 'Repository root path', repoRootDefault())
-    .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
-    .action((opts) => {
-      const lines = installHosts({
-        repoRoot: opts.repoRoot,
-        target: 'claude',
-        mode: opts.mode as 'symlink' | 'copy',
-        force: true,
-        syncClaudeCli: opts.claudeCliSync !== false,
-      });
-      for (const line of lines) console.log(line);
-      printBackendAvailability();
+    .command('doctor')
+    .description('Health check all backends')
+    .option('--json', 'Output structured JSON', false)
+    .action(async (opts) => {
+      const result = await doctor({ json: opts.json });
+      console.log(result.output);
+      exitCode = result.exitCode;
     });
 
-  // --- uninstall subcommand ---
-  program
-    .command('uninstall')
-    .description('Uninstall Claude plugin')
-    .option('--claude', 'Uninstall for Claude', false)
-    .option('--all', 'Alias for --claude', false)
-    .action((opts) => {
-      const target = opts.all ? 'all' : 'claude';
-      const lines = uninstallHosts({ target: target as 'claude' | 'all' });
-      for (const line of lines) console.log(line);
+  // --- config subcommand group ---
+  const configCmd = program
+    .command('config')
+    .description('Manage configuration');
+
+  configCmd
+    .command('init')
+    .description('Create default config file')
+    .action(() => {
+      const paths = configPaths();
+      configInit(paths.user);
+      console.log(`Config created at ${paths.user}`);
     });
+
+  configCmd
+    .command('show')
+    .description('Show resolved configuration')
+    .option('--sources', 'Show which file each value comes from', false)
+    .action((opts) => {
+      const config = loadConfig();
+      if (opts.sources) {
+        const paths = configPaths();
+        console.log(`User config: ${paths.user}`);
+        if (paths.repo) console.log(`Repo config: ${paths.repo}`);
+        console.log('');
+      }
+      console.log(JSON.stringify(config, null, 2));
+    });
+
+  configCmd
+    .command('paths')
+    .description('Print all config file paths')
+    .action(() => {
+      const paths = configPaths();
+      console.log(`User: ${paths.user}`);
+      if (paths.repo) {
+        console.log(`Repo: ${paths.repo}`);
+      } else {
+        console.log('Repo: (none)');
+      }
+    });
+
+  configCmd
+    .command('edit')
+    .description('Open user config in $EDITOR')
+    .action(() => {
+      const paths = configPaths();
+      const editor = process.env.EDITOR ?? 'vi';
+      if (!existsSync(paths.user)) {
+        configInit(paths.user);
+      }
+      spawnSync(editor, [paths.user], { stdio: 'inherit' });
+    });
+
+  configCmd
+    .command('set <key> <value>')
+    .description('Set a config value (dot-notation)')
+    .action((key: string, value: string) => {
+      const paths = configPaths();
+      if (!existsSync(paths.user)) {
+        configInit(paths.user);
+      }
+      configSet(key, value, paths.user);
+      console.log(`Set ${key} = ${value}`);
+    });
+
+  configCmd
+    .command('get <key>')
+    .description('Get a config value')
+    .action((key: string) => {
+      const config = loadConfig();
+      const value = configGet(key, config);
+      if (value === undefined) {
+        console.log(`(not set)`);
+      } else {
+        console.log(String(value));
+      }
+    });
+
+  // --- plugin subcommand group ---
+  const pluginCmd = program
+    .command('plugin')
+    .description('Manage host integrations');
+
+  addInstallOptions(
+    pluginCmd
+      .command('install')
+      .description('Install as Claude Code plugin')
+  ).action((opts) => installAction(opts));
+
+  addUpdateOptions(
+    pluginCmd
+      .command('update')
+      .description('Update Claude plugin')
+  ).action((opts) => updateAction(opts));
+
+  addUninstallOptions(
+    pluginCmd
+      .command('uninstall')
+      .description('Uninstall Claude plugin')
+  ).action((opts) => uninstallAction(opts));
+
+  // --- Backward compat aliases ---
+  addInstallOptions(
+    program
+      .command('install')
+      .description('Install Claude plugin (alias for: plugin install)')
+  ).action((opts) => installAction(opts));
+
+  addUpdateOptions(
+    program
+      .command('update')
+      .description('Update Claude plugin (alias for: plugin update)')
+  ).action((opts) => updateAction(opts));
+
+  addUninstallOptions(
+    program
+      .command('uninstall')
+      .description('Uninstall Claude plugin (alias for: plugin uninstall)')
+  ).action((opts) => uninstallAction(opts));
 
   try {
-    program.parse(normalized, { from: 'user' });
+    await program.parseAsync(normalized, { from: 'user' });
   } catch (err) {
     if (err instanceof RelayError || err instanceof InstallerError) {
       console.error(err.message);
