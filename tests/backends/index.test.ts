@@ -8,16 +8,19 @@ import {
   BackendError,
   type Backend,
   type BackendResult,
+  type SandboxMode,
 } from '../../src/backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+const ALL_SANDBOXES: SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access'];
+
 function makeMockBackend(name: string): Backend {
   return {
     name,
-    allowedSandboxes: new Set(['read-only', 'workspace-write', 'danger-full-access']),
+    allowedSandboxes: new Set<SandboxMode>(ALL_SANDBOXES),
     run: vi.fn(() => 'mock output'),
   };
 }
@@ -80,6 +83,16 @@ describe('registerBackend / getBackend', () => {
     } catch (err) {
       expect((err as Error).message).toMatch(/Supported: codex, gemini/);
     }
+  });
+
+  it('overwrites existing backend on duplicate registration', () => {
+    const first = makeMockBackend('codex');
+    const second = makeMockBackend('codex');
+    registerBackend(first);
+    registerBackend(second);
+
+    expect(getBackend('codex')).toBe(second);
+    expect(getBackend('codex')).not.toBe(first);
   });
 
   it('returned backend has required interface properties', () => {

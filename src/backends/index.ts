@@ -10,6 +10,8 @@ import { execFileSync } from 'node:child_process';
 // Types
 // ---------------------------------------------------------------------------
 
+export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+
 export interface BackendResult {
   output: string;
   exitCode: number;
@@ -17,12 +19,12 @@ export interface BackendResult {
 
 export interface Backend {
   name: string;
-  allowedSandboxes: ReadonlySet<string>;
+  allowedSandboxes: ReadonlySet<SandboxMode>;
   run(opts: {
     prompt: string;
     repoPath: string;
     timeoutSeconds: number;
-    sandbox: string;
+    sandbox: SandboxMode;
     model: string | null;
     env: Record<string, string>;
   }): string;

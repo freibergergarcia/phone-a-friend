@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "dev": "tsup src/index.ts --format esm --watch"
   },
   "files": [
