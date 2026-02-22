@@ -75,7 +75,7 @@ export class CodexBackend implements Backend {
           encoding: 'utf-8',
           stdio: ['pipe', 'pipe', 'pipe'],
         });
-        stdout = (typeof result === 'string' ? result : result?.toString() ?? '').trim();
+        stdout = result.trim();
       } catch (err: unknown) {
         const execErr = err as NodeJS.ErrnoException & {
           status?: number;

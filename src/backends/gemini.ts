@@ -78,7 +78,7 @@ export class GeminiBackend implements Backend {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      const output = (typeof result === 'string' ? result : result?.toString() ?? '').trim();
+      const output = result.trim();
       if (output) {
         return output;
       }

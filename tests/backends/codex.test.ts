@@ -38,13 +38,13 @@ describe('CodexBackend', () => {
   it('builds correct codex exec args', () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       // which check
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       // codex exec — write output file
       const outputIdx = args.indexOf('--output-last-message') + 1;
       if (outputIdx > 0) {
         fs.writeFileSync(args[outputIdx], 'Codex feedback');
       }
-      return Buffer.from('');
+      return '';
     });
 
     const result = CODEX_BACKEND.run({
@@ -77,10 +77,10 @@ describe('CodexBackend', () => {
 
   it('passes -m when model is provided', () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
       if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
-      return Buffer.from('');
+      return '';
     });
 
     CODEX_BACKEND.run({
@@ -103,10 +103,10 @@ describe('CodexBackend', () => {
 
   it('does not pass -m when model is null', () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
       if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
-      return Buffer.from('');
+      return '';
     });
 
     CODEX_BACKEND.run({
@@ -127,10 +127,10 @@ describe('CodexBackend', () => {
 
   it('reads result from temp output file', () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
       if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'File-based output');
-      return Buffer.from('');
+      return '';
     });
 
     const result = CODEX_BACKEND.run({
@@ -147,9 +147,9 @@ describe('CodexBackend', () => {
 
   it('falls back to stdout when output file is missing', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       // Don't write output file — return stdout
-      return Buffer.from('stdout feedback');
+      return 'stdout feedback';
     });
 
     const result = CODEX_BACKEND.run({
@@ -167,7 +167,7 @@ describe('CodexBackend', () => {
   it('throws CodexBackendError when codex not found in PATH', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') throw new Error('not found');
-      return Buffer.from('');
+      return '';
     });
 
     expect(() =>
@@ -184,7 +184,7 @@ describe('CodexBackend', () => {
 
   it('throws on non-zero exit code with stderr', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       const err = new Error('command failed') as Error & {
         status: number;
         stdout: Buffer;
@@ -210,7 +210,7 @@ describe('CodexBackend', () => {
 
   it('throws on timeout', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       const err = new Error('TIMEOUT') as Error & {
         killed: boolean;
         signal: string;
@@ -236,9 +236,9 @@ describe('CodexBackend', () => {
 
   it('throws when codex produces no output', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/codex');
+      if (cmd === 'which') return '/usr/local/bin/codex';
       // No output file, empty stdout
-      return Buffer.from('');
+      return '';
     });
 
     expect(() =>

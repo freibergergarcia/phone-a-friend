@@ -38,9 +38,9 @@ describe('GeminiBackend', () => {
 
     mockExecFileSync.mockImplementation(
       (cmd: string, args: string[], opts?: Record<string, unknown>) => {
-        if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
+        if (cmd === 'which') return '/usr/local/bin/gemini';
         observedOpts = opts ?? {};
-        return Buffer.from('Gemini feedback');
+        return 'Gemini feedback';
       },
     );
 
@@ -79,8 +79,8 @@ describe('GeminiBackend', () => {
 
   it('omits --sandbox for danger-full-access', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('ok');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'ok';
     });
 
     GEMINI_BACKEND.run({
@@ -103,8 +103,8 @@ describe('GeminiBackend', () => {
 
   it('passes --sandbox for read-only', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('ok');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'ok';
     });
 
     GEMINI_BACKEND.run({
@@ -125,8 +125,8 @@ describe('GeminiBackend', () => {
 
   it('passes --sandbox for workspace-write', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('ok');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'ok';
     });
 
     GEMINI_BACKEND.run({
@@ -147,8 +147,8 @@ describe('GeminiBackend', () => {
 
   it('passes -m when model is provided', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('model feedback');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'model feedback';
     });
 
     GEMINI_BACKEND.run({
@@ -171,8 +171,8 @@ describe('GeminiBackend', () => {
 
   it('does not pass -m when model is null', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('ok');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'ok';
     });
 
     GEMINI_BACKEND.run({
@@ -194,7 +194,7 @@ describe('GeminiBackend', () => {
   it('throws GeminiBackendError when gemini not found in PATH', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') throw new Error('not found');
-      return Buffer.from('');
+      return '';
     });
 
     expect(() =>
@@ -211,7 +211,7 @@ describe('GeminiBackend', () => {
 
   it('throws on timeout', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
       const err = new Error('TIMEOUT') as Error & {
         killed: boolean;
         signal: string;
@@ -237,7 +237,7 @@ describe('GeminiBackend', () => {
 
   it('throws on non-zero exit code with stderr', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
       const err = new Error('command failed') as Error & {
         status: number;
         stdout: Buffer;
@@ -263,8 +263,8 @@ describe('GeminiBackend', () => {
 
   it('throws when gemini produces no output', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return '';
     });
 
     expect(() =>
@@ -281,16 +281,16 @@ describe('GeminiBackend', () => {
 
   it('always passes --yolo flag', () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-      return Buffer.from('ok');
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      return 'ok';
     });
 
     // Test with both sandbox modes to confirm --yolo is always present
     for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
       mockExecFileSync.mockClear();
       mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return Buffer.from('/usr/local/bin/gemini');
-        return Buffer.from('ok');
+        if (cmd === 'which') return '/usr/local/bin/gemini';
+        return 'ok';
       });
 
       GEMINI_BACKEND.run({
