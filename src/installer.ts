@@ -67,8 +67,15 @@ function installPath(src: string, dst: string, mode: string, force: boolean): st
   const dstExists = existsSync(dst) || isSymlink(dst);
 
   if (dstExists) {
-    if (isSymlink(dst) && realpathSync(dst) === realpathSync(src)) {
-      return 'already-installed';
+    if (isSymlink(dst)) {
+      // realpathSync throws on dangling symlinks — handle gracefully
+      try {
+        if (realpathSync(dst) === realpathSync(src)) {
+          return 'already-installed';
+        }
+      } catch {
+        // Dangling symlink — fall through to force/error handling
+      }
     }
     if (!force) {
       throw new InstallerError(`Destination already exists: ${dst}`);

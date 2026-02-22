@@ -10,8 +10,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { mkdirSync, existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { detectAll } from '../detection.js';
-import { configPaths } from '../config.js';
+import { configPaths, configInit } from '../config.js';
 import type { DetectionReport } from '../detection.js';
 
 interface Action {
@@ -62,6 +64,11 @@ function buildActions(
       description: 'Open config in $EDITOR',
       run: async () => {
         const paths = configPaths();
+        // Ensure config file exists before opening editor
+        if (!existsSync(paths.user)) {
+          mkdirSync(dirname(paths.user), { recursive: true });
+          configInit(paths.user, true);
+        }
         const editorEnv = process.env.EDITOR ?? 'vi';
         // Handle editors with args (e.g. "code -w", "nvim -u ...")
         const parts = editorEnv.split(/\s+/);

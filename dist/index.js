@@ -4226,7 +4226,7 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3e3);
-    const resp = await fetchFn(`${host}/api/tags`, controller.signal);
+    const resp = await fetchFn(`${host}/api/tags`, { signal: controller.signal });
     clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
@@ -59339,6 +59339,8 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn } from "child_process";
+import { mkdirSync as mkdirSync3, existsSync as existsSync7 } from "fs";
+import { dirname as dirname4 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
     {
@@ -59382,6 +59384,10 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
+        if (!existsSync7(paths.user)) {
+          mkdirSync3(dirname4(paths.user), { recursive: true });
+          configInit(paths.user, true);
+        }
         const editorEnv = process.env.EDITOR ?? "vi";
         const parts = editorEnv.split(/\s+/);
         const editor = parts[0];
@@ -59816,8 +59822,8 @@ var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
 // src/cli.ts
-import { resolve as resolve4, dirname as dirname4 } from "path";
-import { existsSync as existsSync7 } from "fs";
+import { resolve as resolve4, dirname as dirname5 } from "path";
+import { existsSync as existsSync8 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 import { spawnSync } from "child_process";
 
@@ -62620,8 +62626,13 @@ function removePath(filePath) {
 function installPath(src, dst, mode, force) {
   const dstExists = existsSync3(dst) || isSymlink(dst);
   if (dstExists) {
-    if (isSymlink(dst) && realpathSync(dst) === realpathSync(src)) {
-      return "already-installed";
+    if (isSymlink(dst)) {
+      try {
+        if (realpathSync(dst) === realpathSync(src)) {
+          return "already-installed";
+        }
+      } catch {
+      }
     }
     if (!force) {
       throw new InstallerError(`Destination already exists: ${dst}`);
@@ -64468,7 +64479,7 @@ async function doctor(opts) {
 init_config();
 init_version();
 function repoRootDefault() {
-  const thisDir = dirname4(fileURLToPath2(import.meta.url));
+  const thisDir = dirname5(fileURLToPath2(import.meta.url));
   return resolve4(thisDir, "..");
 }
 var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin"];
@@ -64544,7 +64555,7 @@ async function run(argv) {
       return await renderTui2();
     }
     const paths = configPaths();
-    if (!existsSync7(paths.user)) {
+    if (!existsSync8(paths.user)) {
       console.log("");
       console.log(banner("AI coding agent relay"));
       console.log("");
@@ -64633,14 +64644,14 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editor = process.env.EDITOR ?? "vi";
-    if (!existsSync7(paths.user)) {
+    if (!existsSync8(paths.user)) {
       configInit(paths.user, true);
     }
     spawnSync(editor, [paths.user], { stdio: "inherit" });
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync7(paths.user)) {
+    if (!existsSync8(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);

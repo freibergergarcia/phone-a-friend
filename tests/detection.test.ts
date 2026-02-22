@@ -96,6 +96,21 @@ describe('detection', () => {
       expect(ollama!.installHint).toContain('ollama');
     });
 
+    it('passes abort signal as { signal } init object to fetch', async () => {
+      const whichFn = vi.fn(() => true);
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [] }),
+      });
+
+      await detection.detectLocalBackends(whichFn, fetchFn);
+
+      expect(fetchFn).toHaveBeenCalledOnce();
+      const [, init] = fetchFn.mock.calls[0];
+      expect(init).toHaveProperty('signal');
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
     it('marks Ollama unavailable when running but has no models', async () => {
       const whichFn = vi.fn(() => true);
       const fetchFn = vi.fn().mockResolvedValue({

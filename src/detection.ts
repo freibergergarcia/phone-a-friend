@@ -56,7 +56,7 @@ const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] 
 // ---------------------------------------------------------------------------
 
 type WhichFn = (name: string) => boolean;
-type FetchFn = (url: string, signal?: AbortSignal) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+type FetchFn = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
 
 // ---------------------------------------------------------------------------
 // CLI backend detection
@@ -83,7 +83,7 @@ export async function detectCliBackends(
 
 export async function detectLocalBackends(
   whichFn: WhichFn = isInPath,
-  fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
+  fetchFn: FetchFn = globalThis.fetch,
 ): Promise<BackendStatus[]> {
   const binaryInstalled = whichFn('ollama');
   const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
@@ -94,7 +94,7 @@ export async function detectLocalBackends(
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-    const resp = await fetchFn(`${host}/api/tags`, controller.signal);
+    const resp = await fetchFn(`${host}/api/tags`, { signal: controller.signal });
     clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
@@ -177,7 +177,7 @@ export async function detectHostIntegrations(
 
 export async function detectAll(
   whichFn: WhichFn = isInPath,
-  fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
+  fetchFn: FetchFn = globalThis.fetch,
 ): Promise<DetectionReport> {
   const [cli, local, host] = await Promise.all([
     detectCliBackends(whichFn),

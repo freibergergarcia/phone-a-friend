@@ -157,6 +157,30 @@ describe('installHosts', () => {
     ).toThrow(/already exists/);
   });
 
+  it('recovers from broken (dangling) symlink with force', () => {
+    const pluginDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    const target = path.join(pluginDir, 'phone-a-friend');
+
+    // Create a dangling symlink pointing to a non-existent path
+    fs.symlinkSync('/tmp/nonexistent-paf-target', target);
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+
+    // Force install should recover
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'claude',
+      mode: 'symlink',
+      force: true,
+      claudeHome,
+      syncClaudeCli: false,
+    });
+
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(target)).toBe(fs.realpathSync(repo));
+    expect(lines.some(l => l.includes('installed'))).toBe(true);
+  });
+
   it('replaces when force is true', () => {
     // Install via copy first
     installHosts({
