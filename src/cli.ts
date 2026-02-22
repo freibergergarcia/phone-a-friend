@@ -320,11 +320,13 @@ export async function run(argv: string[]): Promise<number> {
     .description('Open user config in $EDITOR')
     .action(() => {
       const paths = configPaths(process.cwd());
-      const editor = process.env.EDITOR ?? 'vi';
+      const editorEnv = process.env.EDITOR ?? 'vi';
       if (!existsSync(paths.user)) {
         configInit(paths.user, true);
       }
-      spawnSync(editor, [paths.user], { stdio: 'inherit' });
+      // Handle editors with args (e.g. "code -w", "nvim -u ...")
+      const parts = editorEnv.split(/\s+/);
+      spawnSync(parts[0], [...parts.slice(1), paths.user], { stdio: 'inherit' });
     });
 
   configCmd

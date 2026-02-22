@@ -4223,17 +4223,18 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
   const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
   let serverResponding = false;
   let models = [];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3e3);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3e3);
     const resp = await fetchFn(`${host}/api/tags`, { signal: controller.signal });
-    clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
       const data = await resp.json();
       models = (data.models ?? []).map((m) => m.name);
     }
   } catch {
+  } finally {
+    clearTimeout(timeout);
   }
   let available = false;
   let detail;
@@ -64643,11 +64644,12 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
-    const editor = process.env.EDITOR ?? "vi";
+    const editorEnv = process.env.EDITOR ?? "vi";
     if (!existsSync8(paths.user)) {
       configInit(paths.user, true);
     }
-    spawnSync(editor, [paths.user], { stdio: "inherit" });
+    const parts = editorEnv.split(/\s+/);
+    spawnSync(parts[0], [...parts.slice(1), paths.user], { stdio: "inherit" });
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());

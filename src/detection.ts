@@ -91,11 +91,10 @@ export async function detectLocalBackends(
   let serverResponding = false;
   let models: string[] = [];
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
     const resp = await fetchFn(`${host}/api/tags`, { signal: controller.signal });
-    clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
       const data = (await resp.json()) as { models?: { name: string }[] };
@@ -103,6 +102,8 @@ export async function detectLocalBackends(
     }
   } catch {
     // Server not reachable or timed out
+  } finally {
+    clearTimeout(timeout);
   }
 
   let available = false;
