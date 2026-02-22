@@ -294,4 +294,24 @@ describe('CLI', () => {
 
     expect(stderr).toContain('install failed');
   });
+
+  // --- Commander validation (Codex review fixes) ---
+
+  it('returns non-zero when --prompt is missing from relay', () => {
+    const { stderr } = captureOutput(() => {
+      const code = run(['relay', '--to', 'codex', '--repo', tmpDir]);
+      expect(code).not.toBe(0);
+    });
+    expect(stderr).toContain('--prompt');
+    expect(mockRelay).not.toHaveBeenCalled();
+  });
+
+  it('returns non-zero for unknown options', () => {
+    const { stderr } = captureOutput(() => {
+      const code = run(['relay', '--prompt', 'x', '--bogus-flag', 'y']);
+      expect(code).not.toBe(0);
+    });
+    expect(stderr).toContain('bogus-flag');
+    expect(mockRelay).not.toHaveBeenCalled();
+  });
 });

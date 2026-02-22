@@ -49,15 +49,17 @@ function ensureParent(filePath: string): void {
 }
 
 function removePath(filePath: string): void {
+  let stat;
   try {
-    const stat = lstatSync(filePath);
-    if (stat.isSymbolicLink() || stat.isFile()) {
-      unlinkSync(filePath);
-    } else if (stat.isDirectory()) {
-      rmSync(filePath, { recursive: true, force: true });
-    }
-  } catch {
-    // Path doesn't exist — nothing to remove
+    stat = lstatSync(filePath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  if (stat.isSymbolicLink() || stat.isFile()) {
+    unlinkSync(filePath);
+  } else if (stat.isDirectory()) {
+    rmSync(filePath, { recursive: true, force: true });
   }
 }
 

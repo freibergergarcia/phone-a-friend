@@ -7,7 +7,7 @@
     "phone-a-friend": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
+    "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "tsup src/index.ts --format esm --watch"
