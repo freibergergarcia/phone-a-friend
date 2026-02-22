@@ -129,19 +129,17 @@ function buildPrompt(opts: {
 
 function nextRelayEnv(): Record<string, string> {
   const depthRaw = process.env.PHONE_A_FRIEND_DEPTH ?? '0';
-  let depth: number;
-  try {
-    depth = parseInt(depthRaw, 10);
-    if (isNaN(depth)) depth = 0;
-  } catch {
-    depth = 0;
-  }
+  // Match Python's strict int() — reject partial numeric strings like "1abc"
+  const depth = /^\d+$/.test(depthRaw) ? Number(depthRaw) : 0;
 
   if (depth >= MAX_RELAY_DEPTH) {
     throw new RelayError('Relay depth limit reached; refusing nested relay invocation');
   }
 
-  const env: Record<string, string> = { ...process.env as Record<string, string> };
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
   env.PHONE_A_FRIEND_DEPTH = String(depth + 1);
   return env;
 }
@@ -224,6 +222,9 @@ export function relay(opts: RelayOptions): string {
     });
   } catch (err) {
     if (err instanceof RelayError) throw err;
-    throw new RelayError(String((err as Error).message));
+    if (err instanceof BackendError) {
+      throw new RelayError(err.message);
+    }
+    throw err;
   }
 }

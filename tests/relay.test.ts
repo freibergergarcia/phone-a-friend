@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { SandboxMode, Backend } from '../src/backends/index.js';
+import { BackendError, type SandboxMode, type Backend } from '../src/backends/index.js';
 
 // Mock child_process for git diff calls
 const { mockExecFileSync } = vi.hoisted(() => ({
@@ -282,6 +282,13 @@ describe('relay', () => {
     expect(mockBackend.run).toHaveBeenCalledOnce();
   });
 
+  it('treats partial numeric depth "1abc" as 0 (matches Python int())', () => {
+    process.env.PHONE_A_FRIEND_DEPTH = '1abc';
+    // Python int("1abc") raises ValueError, falls to 0. We should too.
+    relay({ prompt: 'Review', repoPath: repo });
+    expect(mockBackend.run).toHaveBeenCalledOnce();
+  });
+
   // --- Git diff errors ---
 
   it('raises on git diff failure', () => {
@@ -308,10 +315,10 @@ describe('relay', () => {
 
   // --- Backend error wrapping ---
 
-  it('wraps backend errors as RelayError', () => {
+  it('wraps BackendError as RelayError', () => {
     const failingBackend = makeMockBackend('codex');
     (failingBackend.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new Error('codex exploded');
+      throw new BackendError('codex exploded');
     });
     _resetRegistry();
     registerBackend(failingBackend);
@@ -324,7 +331,36 @@ describe('relay', () => {
     }).toThrow('codex exploded');
   });
 
-  // --- Stdout fallback (codex specific, tested via relay) ---
+  it('lets unexpected (non-BackendError) errors propagate unwrapped', () => {
+    const failingBackend = makeMockBackend('codex');
+    (failingBackend.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new TypeError('unexpected bug');
+    });
+    _resetRegistry();
+    registerBackend(failingBackend);
+
+    expect(() => relay({ prompt: 'Review', repoPath: repo })).toThrow(TypeError);
+    expect(() => {
+      _resetRegistry();
+      registerBackend(failingBackend);
+      relay({ prompt: 'Review', repoPath: repo });
+    }).toThrow('unexpected bug');
+  });
+
+  // --- Backend dispatch ---
+
+  it('dispatches to gemini backend when specified', () => {
+    const geminiBackend = makeMockBackend('gemini');
+    (geminiBackend.run as ReturnType<typeof vi.fn>).mockReturnValue('Gemini says hi');
+    _resetRegistry();
+    registerBackend(mockBackend);
+    registerBackend(geminiBackend);
+
+    const result = relay({ prompt: 'Hello Gemini', repoPath: repo, backend: 'gemini' });
+    expect(result).toBe('Gemini says hi');
+    expect(geminiBackend.run).toHaveBeenCalledOnce();
+    expect(mockBackend.run).not.toHaveBeenCalled();
+  });
 
   it('returns backend output directly', () => {
     (mockBackend.run as ReturnType<typeof vi.fn>).mockReturnValue('Direct feedback');

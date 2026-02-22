@@ -252,4 +252,27 @@ describe('CodexBackend', () => {
       }),
     ).toThrow(/without producing feedback/);
   });
+
+  it('throws on output file read failure (OSError parity)', () => {
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which') return '/usr/local/bin/codex';
+      // Write a directory where the output file should be, causing read failure
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      if (outputIdx > 0) {
+        fs.mkdirSync(args[outputIdx], { recursive: true });
+      }
+      return '';
+    });
+
+    expect(() =>
+      CODEX_BACKEND.run({
+        prompt: 'Review',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only' as SandboxMode,
+        model: null,
+        env: {},
+      }),
+    ).toThrow(/Failed reading Codex output file/);
+  });
 });
