@@ -9,6 +9,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
 
@@ -66,7 +67,7 @@ export function configPaths(
 ): { user: string; repo: string | null } {
   const configBase = xdgConfigHome
     ?? process.env.XDG_CONFIG_HOME
-    ?? join(homeDir ?? require('node:os').homedir(), '.config');
+    ?? join(homeDir ?? homedir(), '.config');
 
   return {
     user: join(configBase, 'phone-a-friend', 'config.toml'),

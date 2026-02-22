@@ -38,7 +38,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/backends/index.ts
 import { execFileSync } from "child_process";
@@ -5217,22 +5216,11 @@ var init_dist = __esm({
 });
 
 // src/config.ts
-var config_exports = {};
-__export(config_exports, {
-  DEFAULT_CONFIG: () => DEFAULT_CONFIG,
-  configGet: () => configGet,
-  configInit: () => configInit,
-  configPaths: () => configPaths,
-  configSet: () => configSet,
-  loadConfig: () => loadConfig,
-  loadConfigFromFile: () => loadConfigFromFile,
-  resolveConfig: () => resolveConfig,
-  saveConfig: () => saveConfig
-});
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
+import { homedir as homedir2 } from "os";
 import { join as join3, dirname as dirname3 } from "path";
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? __require("os").homedir(), ".config");
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? homedir2(), ".config");
   return {
     user: join3(configBase, "phone-a-friend", "config.toml"),
     repo: repoRoot ? join3(repoRoot, ".phone-a-friend.toml") : null
@@ -59268,8 +59256,7 @@ function ConfigPanel({ onEditingChange } = {}) {
         try {
           const userPath = paths.user;
           if (!existsSync6(userPath)) {
-            const { configInit: configInit2 } = (init_config(), __toCommonJS(config_exports));
-            configInit2(userPath, true);
+            configInit(userPath, true);
           }
           configSet(row.dotKey, editValue, userPath);
           reload();

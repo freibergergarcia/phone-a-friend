@@ -5,7 +5,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { loadConfig, configPaths, configSet } from '../config.js';
+import { loadConfig, configPaths, configSet, configInit } from '../config.js';
 import { existsSync } from 'node:fs';
 
 interface ConfigRow {
@@ -68,7 +68,6 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
           const userPath = paths.user;
           if (!existsSync(userPath)) {
             // Create default config first
-            const { configInit } = require('../config.js');
             configInit(userPath, true);
           }
           configSet(row.dotKey, editValue, userPath);
