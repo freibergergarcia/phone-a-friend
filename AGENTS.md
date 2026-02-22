@@ -24,6 +24,20 @@ src/
     index.ts         Backend interface, registry, types
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
+  tui/
+    App.tsx          Root TUI component — tab bar + panel routing
+    render.tsx       Ink render entry point
+    StatusPanel.tsx  System info + backend detection display
+    BackendsPanel.tsx Per-backend list with detail pane
+    ConfigPanel.tsx  Config view + inline editing
+    ActionsPanel.tsx Async-wrapped executable actions
+    hooks/
+      useDetection.ts  Async detection with throttled refresh
+    components/
+      TabBar.tsx     Tab navigation bar
+      Badge.tsx      Status badges (✓ ✗ ! ·)
+      KeyHint.tsx    Footer keyboard hints
+      ListSelect.tsx Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure)
 dist/                Built bundle (committed, self-contained)
 ```
@@ -68,6 +82,21 @@ dist/                Built bundle (committed, self-contained)
 
 Backward-compatible aliases: `install`, `update`, `uninstall` still work.
 
+### Interactive TUI
+
+```bash
+./phone-a-friend                              # Launches TUI dashboard (TTY only)
+```
+
+No-args in a TTY launches a full-screen Ink (React) dashboard with 4 tabs:
+- **Status** — system info + live backend detection (auto-refreshes)
+- **Backends** — navigable backend list with detail pane
+- **Config** — inline config editing with focus model (nav/edit modes)
+- **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+
+TTY guard: non-interactive terminals fall back to help/setup nudge.
+Global keys: `q` quit, `Tab`/`1-4` switch tabs, `r` refresh detection.
+
 ## Running Tests
 
 ```bash
@@ -109,4 +138,4 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, and Claude plugin installer. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, and interactive TUI dashboard. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
