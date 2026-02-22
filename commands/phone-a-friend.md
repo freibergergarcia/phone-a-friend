@@ -59,6 +59,22 @@ When using `--to gemini`, **always** pass `--model` using the first model from
 this priority list. Never use aliases (`auto`, `pro`, `flash`) — use concrete
 model names only:
 
+### Why we bypass auto-routing
+
+Gemini CLI has built-in model fallback via auto mode, but it does NOT work in
+headless/non-interactive mode. `--yolo` (and `--approval-mode yolo`) only
+auto-approve tool calls, not model switch prompts. When Gemini hits a capacity
+error in headless mode, it tries to prompt for consent and fails
+(`google-gemini/gemini-cli#13561`). By passing `--model` explicitly, we bypass
+this broken behavior and handle retry/fallback ourselves.
+
+### Priority rationale
+
+Google's ADK benchmark SWE agent defaults to `gemini-2.5-flash` for
+speed/cost. We intentionally keep preview/customtools-first priority here
+because relay tasks are agentic tool-use tasks where capability matters more
+than speed.
+
 1. `gemini-3.1-pro-preview-customtools` — optimized for agentic tool-use
 2. `gemini-3.1-pro-preview` — general-purpose preview
 3. `gemini-2.5-pro` — stable fallback
@@ -70,8 +86,8 @@ model names only:
 On Gemini relay failure, retry with the next model **only** for transient or
 capacity errors:
 
-- **Retry**: 429, RESOURCE_EXHAUSTED, "high demand", model not found, 5xx,
-  transient/timeout errors
+- **Retry with next model**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED;
+  "high demand"; model not found; transient/timeout errors
 - **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
   permission errors
 - **Default**: if an error cannot be confidently classified as transient, do
