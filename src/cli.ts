@@ -395,7 +395,15 @@ export async function run(argv: string[]): Promise<number> {
     await program.parseAsync(normalized, { from: 'user' });
   } catch (err) {
     if (err instanceof RelayError || err instanceof InstallerError) {
-      console.error(err.message);
+      console.error('');
+      console.error(`  ${theme.crossmark} ${theme.error(err.message)}`);
+      if (err.message.includes('too large')) {
+        console.error(`  ${theme.hint('Try reducing the size of your input or context.')}`);
+      }
+      if (err.message.includes('depth limit')) {
+        console.error(`  ${theme.hint('Agents are calling each other recursively.')}`);
+      }
+      console.error('');
       return 1;
     }
     // Commander throws CommanderError for --help, --version, parse errors
