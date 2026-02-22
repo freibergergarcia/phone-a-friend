@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini).
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama, OpenAI, Google, Anthropic).
 
 ## Project Structure
 
@@ -14,6 +14,11 @@ src/
   cli.ts             Commander.js CLI with subcommands
   relay.ts           Backend-agnostic relay core
   context.ts         RelayContext interface
+  version.ts         Shared version reader
+  detection.ts       Three-category backend detection
+  config.ts          TOML configuration system
+  doctor.ts          Health check command
+  setup.ts           Interactive setup wizard
   installer.ts       Claude plugin installer (symlink/copy)
   backends/
     index.ts         Backend interface, registry, types
@@ -29,23 +34,39 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts`
 - Codex backend in `src/backends/codex.ts`
 - Gemini backend in `src/backends/gemini.ts`
+- Three-category backend detection in `src/detection.ts`
+- TOML config system in `src/config.ts`
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
 - Default sandbox: `read-only`
 
 ## CLI Contract
 
 ```bash
+# Relay
 ./phone-a-friend --to codex --repo <path> --prompt "..."
 ./phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
+./phone-a-friend --prompt "..."               # Uses default backend from config
+
+# Setup & diagnostics
+./phone-a-friend setup                        # Interactive setup wizard
+./phone-a-friend doctor                       # Health check (human-readable)
+./phone-a-friend doctor --json                # Health check (machine-readable)
+
+# Configuration
+./phone-a-friend config init                  # Create default config
+./phone-a-friend config show                  # Show resolved config
+./phone-a-friend config paths                 # Show config file paths
+./phone-a-friend config set <key> <value>     # Set a value (dot-notation)
+./phone-a-friend config get <key>             # Get a value
+./phone-a-friend config edit                  # Open in $EDITOR
+
+# Plugin management
+./phone-a-friend plugin install --claude      # Install as Claude plugin
+./phone-a-friend plugin update --claude       # Update Claude plugin
+./phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 ```
 
-Claude install commands:
-
-```bash
-./phone-a-friend install --claude
-./phone-a-friend update
-./phone-a-friend uninstall --claude
-```
+Backward-compatible aliases: `install`, `update`, `uninstall` still work.
 
 ## Running Tests
 
@@ -59,7 +80,7 @@ npm run build             # tsup (rebuilds dist/)
 
 - Source of truth: `version` in `package.json`
 - Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
-- Runtime access: reads `package.json` at startup
+- Runtime access: reads `package.json` via `src/version.ts`
 - CLI: `./phone-a-friend --version`
 - **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
 - To release: bump version in both `package.json` and `.claude-plugin/plugin.json`, merge to `main`
@@ -78,6 +99,14 @@ npm run build             # tsup (rebuilds dist/)
 
 After changing source: `npm run build && git add dist/`
 
+## Configuration
+
+Config files (TOML format):
+- User: `~/.config/phone-a-friend/config.toml`
+- Repo: `.phone-a-friend.toml` (optional, merges over user config)
+
+Precedence: CLI flags > env vars > repo config > user config > defaults
+
 ## Scope
 
-This repository contains relay functionality and Claude plugin installer. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, and Claude plugin installer. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
