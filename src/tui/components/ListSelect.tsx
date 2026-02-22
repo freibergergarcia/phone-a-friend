@@ -24,6 +24,7 @@ export function ListSelect<T>({
 
   useInput(
     (input, key) => {
+      if (items.length === 0) return;
       if (key.downArrow) {
         const next = Math.min(selectedIndex + 1, items.length - 1);
         setSelectedIndex(next);
@@ -35,7 +36,8 @@ export function ListSelect<T>({
         onChange?.(prev);
       }
       if (key.return) {
-        onSelect?.(items[selectedIndex], selectedIndex);
+        const item = items[selectedIndex];
+        if (item !== undefined) onSelect?.(item, selectedIndex);
       }
     },
     { isActive },

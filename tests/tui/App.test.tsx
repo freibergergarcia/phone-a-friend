@@ -21,6 +21,19 @@ vi.mock('../../src/version.js', () => ({
   getVersion: vi.fn().mockReturnValue('1.0.0-test'),
 }));
 
+// Mock config for ConfigPanel (used when navigating to Config tab)
+vi.mock('../../src/config.js', () => ({
+  loadConfig: vi.fn().mockReturnValue({
+    defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
+    backends: {},
+  }),
+  configPaths: vi.fn().mockReturnValue({
+    user: '/home/test/.config/phone-a-friend/config.toml',
+    repo: null,
+  }),
+  configSet: vi.fn(),
+}));
+
 import { App } from '../../src/tui/App.js';
 
 const TAB_NAMES = ['Status', 'Backends', 'Config', 'Actions'];
@@ -121,5 +134,36 @@ describe('TUI App', () => {
     stdin.write('4');
     await tick();
     expect(lastFrame()).not.toContain('refresh');
+  });
+
+  it('global hotkeys are suppressed while ConfigPanel is in edit mode', async () => {
+    const { lastFrame, stdin } = render(<App />);
+
+    // Navigate to Config tab (tab 3)
+    stdin.write('3');
+    await tick();
+    expect(lastFrame()).toContain('Config');
+
+    // Enter edit mode on first config row
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame()).toContain('Esc cancel');
+
+    // Type 'q' — should NOT quit, should appear in edit field
+    stdin.write('q');
+    await tick();
+    // App should still be rendering (not exited)
+    expect(lastFrame()).toContain('Config');
+
+    // Type a number key — should NOT switch tabs
+    stdin.write('1');
+    await tick();
+    // Should still be on Config tab, not Status
+    expect(lastFrame()).toContain('Esc cancel');
+
+    // Escape to exit edit mode
+    stdin.write('\u001B');
+    await tick();
+    expect(lastFrame()).toContain('Arrow keys navigate');
   });
 });

@@ -3,7 +3,7 @@
  * Read-only: shows status, models, config, install hints.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { Badge } from './components/Badge.js';
 import type { BadgeStatus } from './components/Badge.js';
@@ -18,8 +18,7 @@ function badgeStatus(b: BackendStatus): BadgeStatus {
   return 'unavailable';
 }
 
-function BackendDetail({ backend }: { backend: BackendStatus }) {
-  const config = loadConfig();
+function BackendDetail({ backend, config }: { backend: BackendStatus; config: ReturnType<typeof loadConfig> }) {
   const backendConfig = config.backends?.[backend.name];
 
   return (
@@ -71,6 +70,8 @@ export interface BackendsPanelProps {
 
 export function BackendsPanel({ report }: BackendsPanelProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Load config once per mount, not on every render/navigation
+  const config = useMemo(() => loadConfig(), []);
 
   if (!report) {
     return <Text color="cyan">Loading backends...</Text>;
@@ -107,7 +108,7 @@ export function BackendsPanel({ report }: BackendsPanelProps) {
 
       {/* Right: detail pane */}
       <Box flexDirection="column" flexGrow={1}>
-        {selected && <BackendDetail backend={selected} />}
+        {selected && <BackendDetail backend={selected} config={config} />}
       </Box>
     </Box>
   );

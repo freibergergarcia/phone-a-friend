@@ -34,6 +34,8 @@ const TAB_HINTS: Record<string, Hint[]> = {
 export function App() {
   const { exit } = useApp();
   const [activeTab, setActiveTab] = useState(0);
+  // When true, a child panel owns keyboard input — global hotkeys are disabled
+  const [childHasFocus, setChildHasFocus] = useState(false);
 
   // Detection state lifted here — persists across tab switches
   const detection = useDetection();
@@ -45,6 +47,9 @@ export function App() {
   const currentTab = TABS[activeTab];
 
   useInput((input, key) => {
+    // When a child panel is in text-edit mode, suppress all global hotkeys
+    if (childHasFocus) return;
+
     if (input === 'q') {
       exit();
       return;
@@ -74,7 +79,7 @@ export function App() {
     <Box flexDirection="column" padding={1}>
       <TabBar tabs={[...TABS]} activeIndex={activeTab} />
       <Box flexDirection="column" minHeight={10}>
-        <PanelContent tab={currentTab} detection={detection} />
+        <PanelContent tab={currentTab} detection={detection} onFocusChange={setChildHasFocus} />
       </Box>
       <KeyHint hints={hints} />
     </Box>
@@ -84,9 +89,10 @@ export function App() {
 interface PanelProps {
   tab: string;
   detection: ReturnType<typeof useDetection>;
+  onFocusChange: (hasFocus: boolean) => void;
 }
 
-function PanelContent({ tab, detection }: PanelProps) {
+function PanelContent({ tab, detection, onFocusChange }: PanelProps) {
   switch (tab) {
     case 'Status':
       return (
@@ -100,7 +106,7 @@ function PanelContent({ tab, detection }: PanelProps) {
     case 'Backends':
       return <BackendsPanel report={detection.report} />;
     case 'Config':
-      return <ConfigPanel />;
+      return <ConfigPanel onEditingChange={onFocusChange} />;
     case 'Actions':
       return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} />;
     default:

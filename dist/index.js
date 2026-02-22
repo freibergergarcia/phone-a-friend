@@ -37081,7 +37081,7 @@ var require_backend = __commonJS({
                     });
                     return value;
                   },
-                  useEffect: function useEffect6(create3) {
+                  useEffect: function useEffect7(create3) {
                     nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37127,7 +37127,7 @@ var require_backend = __commonJS({
                       dispatcherHookName: "InsertionEffect"
                     });
                   },
-                  useMemo: function useMemo5(nextCreate) {
+                  useMemo: function useMemo6(nextCreate) {
                     var hook = nextHook();
                     nextCreate = null !== hook ? hook.memoizedState[0] : nextCreate();
                     hookLog.push({
@@ -37154,7 +37154,7 @@ var require_backend = __commonJS({
                     return [initialArg, function() {
                     }];
                   },
-                  useRef: function useRef5(initialValue) {
+                  useRef: function useRef6(initialValue) {
                     var hook = nextHook();
                     initialValue = null !== hook ? hook.memoizedState : {
                       current: initialValue
@@ -59024,7 +59024,26 @@ function CategorySection({ label, backends }) {
   ] });
 }
 function StatusPanel({ report, loading, refreshing, error: error2 }) {
-  if (loading || !report) {
+  if (!report) {
+    if (error2) {
+      return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "System" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
+            "  Node.js    ",
+            process.version
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
+            "  phone-a-friend  ",
+            cachedVersion
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
+          "Detection failed: ",
+          error2.message
+        ] }) })
+      ] });
+    }
     return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "Scanning backends..." }) });
   }
   const allRelay = [...report.cli, ...report.local, ...report.api];
@@ -59089,6 +59108,7 @@ function ListSelect({
   const [selectedIndex, setSelectedIndex] = (0, import_react29.useState)(0);
   use_input_default(
     (input, key) => {
+      if (items.length === 0) return;
       if (key.downArrow) {
         const next = Math.min(selectedIndex + 1, items.length - 1);
         setSelectedIndex(next);
@@ -59100,7 +59120,8 @@ function ListSelect({
         onChange?.(prev);
       }
       if (key.return) {
-        onSelect?.(items[selectedIndex], selectedIndex);
+        const item = items[selectedIndex];
+        if (item !== void 0) onSelect?.(item, selectedIndex);
       }
     },
     { isActive }
@@ -59124,8 +59145,7 @@ function badgeStatus(b) {
   if (b.name === "ollama" && (b.models !== void 0 || b.installHint === "ollama serve")) return "partial";
   return "unavailable";
 }
-function BackendDetail({ backend }) {
-  const config = loadConfig();
+function BackendDetail({ backend, config }) {
   const backendConfig = config.backends?.[backend.name];
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", paddingLeft: 2, borderStyle: "single", borderColor: "gray", paddingRight: 2, children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
@@ -59162,6 +59182,7 @@ function BackendDetail({ backend }) {
 }
 function BackendsPanel({ report }) {
   const [selectedIndex, setSelectedIndex] = (0, import_react30.useState)(0);
+  const config = (0, import_react30.useMemo)(() => loadConfig(), []);
   if (!report) {
     return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "cyan", children: "Loading backends..." });
   }
@@ -59189,7 +59210,7 @@ function BackendsPanel({ report }) {
         }
       )
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, children: selected && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BackendDetail, { backend: selected }) })
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, children: selected && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BackendDetail, { backend: selected, config }) })
   ] });
 }
 var import_react30, import_jsx_runtime6;
@@ -59220,13 +59241,17 @@ function buildRows(config) {
   }
   return rows;
 }
-function ConfigPanel() {
+function ConfigPanel({ onEditingChange } = {}) {
   const paths = configPaths();
   const [config, setConfig] = (0, import_react31.useState)(() => loadConfig());
   const [selectedIndex, setSelectedIndex] = (0, import_react31.useState)(0);
-  const [editing, setEditing] = (0, import_react31.useState)(false);
+  const [editing, setEditingRaw] = (0, import_react31.useState)(false);
   const [editValue, setEditValue] = (0, import_react31.useState)("");
   const [saveMessage, setSaveMessage] = (0, import_react31.useState)(null);
+  const setEditing = (0, import_react31.useCallback)((value) => {
+    setEditingRaw(value);
+    onEditingChange?.(value);
+  }, [onEditingChange]);
   const rows = buildRows(config);
   const reload = (0, import_react31.useCallback)(() => {
     setConfig(loadConfig());
@@ -59236,6 +59261,10 @@ function ConfigPanel() {
     if (editing) {
       if (key.return) {
         const row = rows[selectedIndex];
+        if (!row) {
+          setEditing(false);
+          return;
+        }
         try {
           const userPath = paths.user;
           if (!existsSync6(userPath)) {
@@ -59274,6 +59303,7 @@ function ConfigPanel() {
     }
     if (key.return) {
       const row = rows[selectedIndex];
+      if (!row) return;
       setEditValue(String(row.value));
       setEditing(true);
       setSaveMessage(null);
@@ -59322,18 +59352,14 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn } from "child_process";
-function buildActions(report, onRefresh) {
+function buildActions(report, onRefresh, processRef) {
   return [
     {
       label: "Check Backends",
       description: "Re-scan all backends",
       run: async () => {
-        const result = await detectAll();
-        const allRelay = [...result.cli, ...result.local, ...result.api];
-        const available = allRelay.filter((b) => b.available && !b.planned).length;
-        const total = allRelay.filter((b) => !b.planned).length;
         onRefresh();
-        return `${available} of ${total} relay backends ready`;
+        return "Backend re-scan triggered";
       }
     },
     {
@@ -59344,6 +59370,7 @@ function buildActions(report, onRefresh) {
           const proc = spawn(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
+          processRef.current = proc;
           let output = "";
           proc.stdout?.on("data", (d) => {
             output += d.toString();
@@ -59352,10 +59379,14 @@ function buildActions(report, onRefresh) {
             output += d.toString();
           });
           proc.on("close", (code) => {
+            processRef.current = null;
             if (code === 0) resolve5(output.trim() || "Plugin reinstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
-          proc.on("error", (err) => reject(err));
+          proc.on("error", (err) => {
+            processRef.current = null;
+            reject(err);
+          });
         });
       }
     },
@@ -59364,11 +59395,21 @@ function buildActions(report, onRefresh) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        const editor = process.env.EDITOR ?? "vi";
+        const editorEnv = process.env.EDITOR ?? "vi";
+        const parts = editorEnv.split(/\s+/);
+        const editor = parts[0];
+        const editorArgs = [...parts.slice(1), paths.user];
         return new Promise((resolve5, reject) => {
-          const proc = spawn(editor, [paths.user], { stdio: "inherit" });
-          proc.on("close", () => resolve5("Editor closed"));
-          proc.on("error", (err) => reject(err));
+          const proc = spawn(editor, editorArgs, { stdio: "inherit" });
+          processRef.current = proc;
+          proc.on("close", () => {
+            processRef.current = null;
+            resolve5("Editor closed");
+          });
+          proc.on("error", (err) => {
+            processRef.current = null;
+            reject(err);
+          });
         });
       }
     }
@@ -59378,7 +59419,18 @@ function ActionsPanel({ report, onRefresh }) {
   const [selectedIndex, setSelectedIndex] = (0, import_react32.useState)(0);
   const [running, setRunning] = (0, import_react32.useState)(false);
   const [result, setResult] = (0, import_react32.useState)(null);
-  const actions = buildActions(report, onRefresh);
+  const mountedRef = (0, import_react32.useRef)(true);
+  const activeProcessRef = (0, import_react32.useRef)(null);
+  (0, import_react32.useEffect)(() => {
+    return () => {
+      mountedRef.current = false;
+      if (activeProcessRef.current) {
+        activeProcessRef.current.kill();
+        activeProcessRef.current = null;
+      }
+    };
+  }, []);
+  const actions = buildActions(report, onRefresh, activeProcessRef);
   use_input_default((_input, key) => {
     if (running) return;
     if (key.downArrow) {
@@ -59395,10 +59447,13 @@ function ActionsPanel({ report, onRefresh }) {
       setRunning(true);
       setResult(null);
       action.run().then((msg) => {
+        if (!mountedRef.current) return;
         setResult({ success: true, message: msg });
       }).catch((err) => {
+        if (!mountedRef.current) return;
         setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
       }).finally(() => {
+        if (!mountedRef.current) return;
         setRunning(false);
       });
     }
@@ -59434,7 +59489,6 @@ var init_ActionsPanel = __esm({
     "use strict";
     import_react32 = __toESM(require_react(), 1);
     await init_build2();
-    init_detection();
     init_config();
     import_jsx_runtime8 = __toESM(require_jsx_runtime(), 1);
   }
@@ -59505,12 +59559,14 @@ var init_useDetection = __esm({
 function App2() {
   const { exit } = use_app_default();
   const [activeTab, setActiveTab] = (0, import_react34.useState)(0);
+  const [childHasFocus, setChildHasFocus] = (0, import_react34.useState)(false);
   const detection = useDetection();
   const nextTab = (0, import_react34.useCallback)(() => {
     setActiveTab((prev) => (prev + 1) % TABS.length);
   }, []);
   const currentTab = TABS[activeTab];
   use_input_default((input, key) => {
+    if (childHasFocus) return;
     if (input === "q") {
       exit();
       return;
@@ -59531,11 +59587,11 @@ function App2() {
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelContent, { tab: currentTab, detection }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelContent, { tab: currentTab, detection, onFocusChange: setChildHasFocus }) }),
     /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection }) {
+function PanelContent({ tab: tab2, detection, onFocusChange }) {
   switch (tab2) {
     case "Status":
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
@@ -59550,7 +59606,7 @@ function PanelContent({ tab: tab2, detection }) {
     case "Backends":
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(BackendsPanel, { report: detection.report });
     case "Config":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfigPanel, {});
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
     case "Actions":
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }) });
     default:

@@ -34,13 +34,22 @@ function buildRows(config: ReturnType<typeof loadConfig>): ConfigRow[] {
   return rows;
 }
 
-export function ConfigPanel() {
+export interface ConfigPanelProps {
+  onEditingChange?: (editing: boolean) => void;
+}
+
+export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
   const paths = configPaths();
   const [config, setConfig] = useState(() => loadConfig());
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditingRaw] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const setEditing = useCallback((value: boolean) => {
+    setEditingRaw(value);
+    onEditingChange?.(value);
+  }, [onEditingChange]);
 
   const rows = buildRows(config);
 
@@ -54,6 +63,7 @@ export function ConfigPanel() {
       if (key.return) {
         // Save
         const row = rows[selectedIndex];
+        if (!row) { setEditing(false); return; }
         try {
           const userPath = paths.user;
           if (!existsSync(userPath)) {
@@ -95,6 +105,7 @@ export function ConfigPanel() {
     }
     if (key.return) {
       const row = rows[selectedIndex];
+      if (!row) return;
       setEditValue(String(row.value));
       setEditing(true);
       setSaveMessage(null);

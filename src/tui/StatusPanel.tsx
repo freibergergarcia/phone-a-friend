@@ -57,7 +57,23 @@ export interface StatusPanelProps {
 }
 
 export function StatusPanel({ report, loading, refreshing, error }: StatusPanelProps) {
-  if (loading || !report) {
+  // Initial load with no report yet
+  if (!report) {
+    // Show error if detection failed before producing any report
+    if (error) {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="column">
+            <Text bold underline>System</Text>
+            <Text>  Node.js    {process.version}</Text>
+            <Text>  phone-a-friend  {cachedVersion}</Text>
+          </Box>
+          <Box>
+            <Text color="red">Detection failed: {error.message}</Text>
+          </Box>
+        </Box>
+      );
+    }
     return (
       <Box flexDirection="column">
         <Text color="cyan">Scanning backends...</Text>

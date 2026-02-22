@@ -97,4 +97,15 @@ describe('StatusPanel', () => {
     );
     expect(lastFrame()).toContain('Refreshing');
   });
+
+  it('shows error when initial detection fails (no report)', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={null} loading={false} refreshing={false} error={new Error('Connection refused')} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Connection refused');
+    expect(frame).toContain('Detection failed');
+    // Should still show system info
+    expect(frame).toContain('Node.js');
+  });
 });

@@ -86,4 +86,16 @@ describe('BackendsPanel', () => {
     const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
     expect(lastFrame()).toContain('claude');
   });
+
+  it('handles empty backend list without crashing', () => {
+    const emptyReport: DetectionReport = { cli: [], local: [], api: [], host: [] };
+    const { lastFrame } = render(<BackendsPanel report={emptyReport} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain('Backends');
+  });
+
+  it('shows loading state when report is null', () => {
+    const { lastFrame } = render(<BackendsPanel report={null} />);
+    expect(lastFrame()).toContain('Loading');
+  });
 });
