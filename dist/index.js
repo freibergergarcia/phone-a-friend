@@ -650,12 +650,12 @@ var require_help = __commonJS({
         const indentString = " ".repeat(indent);
         const zeroWidthSpace = "\u200B";
         const breaks = `\\s${zeroWidthSpace}`;
-        const regex = new RegExp(
+        const regex2 = new RegExp(
           `
 |.{1,${columnWidth - 1}}([${breaks}]|$)|[^${breaks}]+?([${breaks}]|$)`,
           "g"
         );
-        const lines = columnText.match(regex) || [];
+        const lines = columnText.match(regex2) || [];
         return leadingStr + lines.map((line, i) => {
           if (line === "\n") return "";
           return (i > 0 ? indentString : "") + line.trimEnd();
@@ -1028,7 +1028,7 @@ var require_command = __commonJS({
     var childProcess = __require("child_process");
     var path = __require("path");
     var fs = __require("fs");
-    var process5 = __require("process");
+    var process10 = __require("process");
     var { Argument: Argument2, humanReadableArgName } = require_argument();
     var { CommanderError: CommanderError2 } = require_error();
     var { Help: Help2 } = require_help();
@@ -1074,10 +1074,10 @@ var require_command = __commonJS({
         this._showHelpAfterError = false;
         this._showSuggestionAfterError = true;
         this._outputConfiguration = {
-          writeOut: (str) => process5.stdout.write(str),
-          writeErr: (str) => process5.stderr.write(str),
-          getOutHelpWidth: () => process5.stdout.isTTY ? process5.stdout.columns : void 0,
-          getErrHelpWidth: () => process5.stderr.isTTY ? process5.stderr.columns : void 0,
+          writeOut: (str) => process10.stdout.write(str),
+          writeErr: (str) => process10.stderr.write(str),
+          getOutHelpWidth: () => process10.stdout.isTTY ? process10.stdout.columns : void 0,
+          getErrHelpWidth: () => process10.stderr.isTTY ? process10.stderr.columns : void 0,
           outputError: (str, write) => write(str)
         };
         this._hidden = false;
@@ -1456,7 +1456,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
         if (this._exitCallback) {
           this._exitCallback(new CommanderError2(exitCode, code, message));
         }
-        process5.exit(exitCode);
+        process10.exit(exitCode);
       }
       /**
        * Register callback `fn` for the command.
@@ -1631,9 +1631,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
         if (typeof fn === "function") {
           option.default(defaultValue).argParser(fn);
         } else if (fn instanceof RegExp) {
-          const regex = fn;
+          const regex2 = fn;
           fn = (val, def) => {
-            const m = regex.exec(val);
+            const m = regex2.exec(val);
             return m ? m[0] : def;
           };
           option.default(defaultValue).argParser(fn);
@@ -1854,16 +1854,16 @@ Expecting one of '${allowedValues.join("', '")}'`);
         }
         parseOptions = parseOptions || {};
         if (argv === void 0 && parseOptions.from === void 0) {
-          if (process5.versions?.electron) {
+          if (process10.versions?.electron) {
             parseOptions.from = "electron";
           }
-          const execArgv = process5.execArgv ?? [];
+          const execArgv = process10.execArgv ?? [];
           if (execArgv.includes("-e") || execArgv.includes("--eval") || execArgv.includes("-p") || execArgv.includes("--print")) {
             parseOptions.from = "eval";
           }
         }
         if (argv === void 0) {
-          argv = process5.argv;
+          argv = process10.argv;
         }
         this.rawArgs = argv.slice();
         let userArgs;
@@ -1874,7 +1874,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
             userArgs = argv.slice(2);
             break;
           case "electron":
-            if (process5.defaultApp) {
+            if (process10.defaultApp) {
               this._scriptPath = argv[1];
               userArgs = argv.slice(2);
             } else {
@@ -2002,23 +2002,23 @@ Expecting one of '${allowedValues.join("', '")}'`);
         }
         launchWithNode = sourceExt.includes(path.extname(executableFile));
         let proc;
-        if (process5.platform !== "win32") {
+        if (process10.platform !== "win32") {
           if (launchWithNode) {
             args.unshift(executableFile);
-            args = incrementNodeInspectorPort(process5.execArgv).concat(args);
-            proc = childProcess.spawn(process5.argv[0], args, { stdio: "inherit" });
+            args = incrementNodeInspectorPort(process10.execArgv).concat(args);
+            proc = childProcess.spawn(process10.argv[0], args, { stdio: "inherit" });
           } else {
             proc = childProcess.spawn(executableFile, args, { stdio: "inherit" });
           }
         } else {
           args.unshift(executableFile);
-          args = incrementNodeInspectorPort(process5.execArgv).concat(args);
-          proc = childProcess.spawn(process5.execPath, args, { stdio: "inherit" });
+          args = incrementNodeInspectorPort(process10.execArgv).concat(args);
+          proc = childProcess.spawn(process10.execPath, args, { stdio: "inherit" });
         }
         if (!proc.killed) {
           const signals2 = ["SIGUSR1", "SIGUSR2", "SIGTERM", "SIGINT", "SIGHUP"];
           signals2.forEach((signal) => {
-            process5.on(signal, () => {
+            process10.on(signal, () => {
               if (proc.killed === false && proc.exitCode === null) {
                 proc.kill(signal);
               }
@@ -2029,7 +2029,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
         proc.on("close", (code) => {
           code = code ?? 1;
           if (!exitCallback) {
-            process5.exit(code);
+            process10.exit(code);
           } else {
             exitCallback(
               new CommanderError2(
@@ -2052,7 +2052,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
             throw new Error(`'${executableFile}' not executable`);
           }
           if (!exitCallback) {
-            process5.exit(1);
+            process10.exit(1);
           } else {
             const wrappedError = new CommanderError2(
               1,
@@ -2544,13 +2544,13 @@ Expecting one of '${allowedValues.join("', '")}'`);
        */
       _parseOptionsEnv() {
         this.options.forEach((option) => {
-          if (option.envVar && option.envVar in process5.env) {
+          if (option.envVar && option.envVar in process10.env) {
             const optionKey = option.attributeName();
             if (this.getOptionValue(optionKey) === void 0 || ["default", "config", "env"].includes(
               this.getOptionValueSource(optionKey)
             )) {
               if (option.required || option.optional) {
-                this.emit(`optionEnv:${option.name()}`, process5.env[option.envVar]);
+                this.emit(`optionEnv:${option.name()}`, process10.env[option.envVar]);
               } else {
                 this.emit(`optionEnv:${option.name()}`);
               }
@@ -2979,7 +2979,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
        */
       help(contextOptions) {
         this.outputHelp(contextOptions);
-        let exitCode = process5.exitCode || 0;
+        let exitCode = process10.exitCode || 0;
         if (exitCode === 0 && contextOptions && typeof contextOptions !== "function" && contextOptions.error) {
           exitCode = 1;
         }
@@ -3620,210 +3620,15 @@ var {
   Help
 } = import_index3.default;
 
-// src/cli.ts
-init_relay();
-
-// src/installer.ts
-init_backends();
-import { execFileSync as execFileSync5 } from "child_process";
-import {
-  existsSync as existsSync3,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmSync as rmSync2,
-  symlinkSync,
-  cpSync,
-  unlinkSync
-} from "fs";
-import { resolve as resolve2, join as join2, dirname } from "path";
-import { homedir } from "os";
-var PLUGIN_NAME = "phone-a-friend";
-var MARKETPLACE_NAME = "phone-a-friend-dev";
-var INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
-var INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
-var InstallerError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "InstallerError";
-  }
-};
-function ensureParent(filePath) {
-  mkdirSync(dirname(filePath), { recursive: true });
-}
-function removePath(filePath) {
-  let stat;
-  try {
-    stat = lstatSync(filePath);
-  } catch (err) {
-    if (err.code === "ENOENT") return;
-    throw err;
-  }
-  if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync(filePath);
-  } else if (stat.isDirectory()) {
-    rmSync2(filePath, { recursive: true, force: true });
-  }
-}
-function installPath(src, dst, mode, force) {
-  const dstExists = existsSync3(dst) || isSymlink(dst);
-  if (dstExists) {
-    if (isSymlink(dst) && realpathSync(dst) === realpathSync(src)) {
-      return "already-installed";
-    }
-    if (!force) {
-      throw new InstallerError(`Destination already exists: ${dst}`);
-    }
-    removePath(dst);
-  }
-  ensureParent(dst);
-  if (mode === "symlink") {
-    symlinkSync(src, dst);
-  } else {
-    cpSync(src, dst, { recursive: true });
-  }
-  return "installed";
-}
-function isSymlink(filePath) {
-  try {
-    return lstatSync(filePath).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function runClaudeCommand(args) {
-  try {
-    const result = execFileSync5(args[0], args.slice(1), {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    return { code: 0, output: result.trim() };
-  } catch (err) {
-    const execErr = err;
-    const stdout = execErr.stdout?.toString() ?? "";
-    const stderr = execErr.stderr?.toString() ?? "";
-    return {
-      code: execErr.status ?? 1,
-      output: (stdout + stderr).trim()
-    };
-  }
-}
-function looksLikeOkIfAlready(output) {
-  const text = output.toLowerCase();
-  return [
-    "already configured",
-    "already added",
-    "already installed",
-    "already enabled",
-    "already up to date"
-  ].some((token) => text.includes(token));
-}
-function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
-  const lines = [];
-  try {
-    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
-  } catch {
-    lines.push("- claude_cli: skipped (claude binary not found)");
-    return lines;
-  }
-  const commands = [
-    [["claude", "plugin", "marketplace", "add", repoRoot], "marketplace_add"],
-    [["claude", "plugin", "marketplace", "update", marketplaceName], "marketplace_update"],
-    [["claude", "plugin", "install", `${pluginName}@${marketplaceName}`, "-s", scope], "install"],
-    [["claude", "plugin", "enable", `${pluginName}@${marketplaceName}`, "-s", scope], "enable"],
-    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`], "update"]
-  ];
-  for (const [cmd, label] of commands) {
-    const { code, output } = runClaudeCommand(cmd);
-    if (code === 0 || looksLikeOkIfAlready(output)) {
-      lines.push(`- claude_cli_${label}: ok`);
-    } else {
-      lines.push(`- claude_cli_${label}: failed`);
-      if (output) {
-        lines.push(`  output: ${output}`);
-      }
-    }
-  }
-  return lines;
-}
-function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join2(homedir(), ".claude");
-  return join2(base, "plugins", PLUGIN_NAME);
-}
-function installClaude(repoRoot, mode, force, claudeHome) {
-  const target = claudeTarget(claudeHome);
-  const status = installPath(repoRoot, target, mode, force);
-  return { status, targetPath: target };
-}
-function uninstallPath(filePath) {
-  if (existsSync3(filePath) || isSymlink(filePath)) {
-    removePath(filePath);
-    return "removed";
-  }
-  return "not-installed";
-}
-function uninstallClaude(claudeHome) {
-  const target = claudeTarget(claudeHome);
-  return { status: uninstallPath(target), targetPath: target };
-}
-function isValidRepoRoot(repoRoot) {
-  return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
-}
-function installHosts(opts) {
-  const {
-    repoRoot,
-    target,
-    mode = "symlink",
-    force = false,
-    claudeHome,
-    syncClaudeCli = true
-  } = opts;
-  if (!INSTALL_TARGETS.has(target)) {
-    throw new InstallerError(`Invalid target: ${target}`);
-  }
-  if (!INSTALL_MODES.has(mode)) {
-    throw new InstallerError(`Invalid mode: ${mode}`);
-  }
-  const resolvedRepo = resolve2(repoRoot);
-  if (!isValidRepoRoot(resolvedRepo)) {
-    throw new InstallerError(`Invalid repo root: ${resolvedRepo}`);
-  }
-  const lines = [
-    "phone-a-friend installer",
-    `- repo_root: ${resolvedRepo}`,
-    `- mode: ${mode}`
-  ];
-  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
-  if (syncClaudeCli) {
-    lines.push(...syncClaudePluginRegistration(resolvedRepo));
-  }
-  return lines;
-}
-function uninstallHosts(opts) {
-  const { target, claudeHome } = opts;
-  if (!INSTALL_TARGETS.has(target)) {
-    throw new InstallerError(`Invalid target: ${target}`);
-  }
-  const lines = ["phone-a-friend uninstaller"];
-  const { status, targetPath } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
-  return lines;
-}
-function verifyBackends() {
-  const availability = checkBackends();
-  return Object.entries(availability).map(([name, available]) => ({
-    name,
-    available,
-    hint: INSTALL_HINTS[name] ?? ""
-  }));
-}
+// node_modules/ora/index.js
+import process8 from "process";
+import { stripVTControlCharacters } from "util";
 
 // node_modules/chalk/source/vendor/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET = 10;
 var wrapAnsi16 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi256 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
-var wrapAnsi16m = (offset = 0) => (red, green, blue) => `\x1B[${38 + offset};2;${red};${green};${blue}m`;
+var wrapAnsi16m = (offset = 0) => (red2, green2, blue2) => `\x1B[${38 + offset};2;${red2};${green2};${blue2}m`;
 var styles = {
   modifier: {
     reset: [0, 0],
@@ -3918,17 +3723,17 @@ function assembleStyles() {
   styles.bgColor.ansi16m = wrapAnsi16m(ANSI_BACKGROUND_OFFSET);
   Object.defineProperties(styles, {
     rgbToAnsi256: {
-      value(red, green, blue) {
-        if (red === green && green === blue) {
-          if (red < 8) {
+      value(red2, green2, blue2) {
+        if (red2 === green2 && green2 === blue2) {
+          if (red2 < 8) {
             return 16;
           }
-          if (red > 248) {
+          if (red2 > 248) {
             return 231;
           }
-          return Math.round((red - 8) / 247 * 24) + 232;
+          return Math.round((red2 - 8) / 247 * 24) + 232;
         }
-        return 16 + 36 * Math.round(red / 255 * 5) + 6 * Math.round(green / 255 * 5) + Math.round(blue / 255 * 5);
+        return 16 + 36 * Math.round(red2 / 255 * 5) + 6 * Math.round(green2 / 255 * 5) + Math.round(blue2 / 255 * 5);
       },
       enumerable: false
     },
@@ -3965,25 +3770,25 @@ function assembleStyles() {
         if (code < 16) {
           return 90 + (code - 8);
         }
-        let red;
-        let green;
-        let blue;
+        let red2;
+        let green2;
+        let blue2;
         if (code >= 232) {
-          red = ((code - 232) * 10 + 8) / 255;
-          green = red;
-          blue = red;
+          red2 = ((code - 232) * 10 + 8) / 255;
+          green2 = red2;
+          blue2 = red2;
         } else {
           code -= 16;
           const remainder = code % 36;
-          red = Math.floor(code / 36) / 5;
-          green = Math.floor(remainder / 6) / 5;
-          blue = remainder % 6 / 5;
+          red2 = Math.floor(code / 36) / 5;
+          green2 = Math.floor(remainder / 6) / 5;
+          blue2 = remainder % 6 / 5;
         }
-        const value = Math.max(red, green, blue) * 2;
+        const value = Math.max(red2, green2, blue2) * 2;
         if (value === 0) {
           return 30;
         }
-        let result = 30 + (Math.round(blue) << 2 | Math.round(green) << 1 | Math.round(red));
+        let result = 30 + (Math.round(blue2) << 2 | Math.round(green2) << 1 | Math.round(red2));
         if (value === 2) {
           result += 60;
         }
@@ -3992,7 +3797,7 @@ function assembleStyles() {
       enumerable: false
     },
     rgbToAnsi: {
-      value: (red, green, blue) => styles.ansi256ToAnsi(styles.rgbToAnsi256(red, green, blue)),
+      value: (red2, green2, blue2) => styles.ansi256ToAnsi(styles.rgbToAnsi256(red2, green2, blue2)),
       enumerable: false
     },
     hexToAnsi: {
@@ -4314,6 +4119,3124 @@ var chalk = createChalk();
 var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
 var source_default = chalk;
 
+// node_modules/cli-cursor/index.js
+import process5 from "process";
+
+// node_modules/restore-cursor/index.js
+import process4 from "process";
+
+// node_modules/mimic-function/index.js
+var copyProperty = (to, from, property, ignoreNonConfigurable) => {
+  if (property === "length" || property === "prototype") {
+    return;
+  }
+  if (property === "arguments" || property === "caller") {
+    return;
+  }
+  const toDescriptor = Object.getOwnPropertyDescriptor(to, property);
+  const fromDescriptor = Object.getOwnPropertyDescriptor(from, property);
+  if (!canCopyProperty(toDescriptor, fromDescriptor) && ignoreNonConfigurable) {
+    return;
+  }
+  Object.defineProperty(to, property, fromDescriptor);
+};
+var canCopyProperty = function(toDescriptor, fromDescriptor) {
+  return toDescriptor === void 0 || toDescriptor.configurable || toDescriptor.writable === fromDescriptor.writable && toDescriptor.enumerable === fromDescriptor.enumerable && toDescriptor.configurable === fromDescriptor.configurable && (toDescriptor.writable || toDescriptor.value === fromDescriptor.value);
+};
+var changePrototype = (to, from) => {
+  const fromPrototype = Object.getPrototypeOf(from);
+  if (fromPrototype === Object.getPrototypeOf(to)) {
+    return;
+  }
+  Object.setPrototypeOf(to, fromPrototype);
+};
+var wrappedToString = (withName, fromBody) => `/* Wrapped ${withName}*/
+${fromBody}`;
+var toStringDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, "toString");
+var toStringName = Object.getOwnPropertyDescriptor(Function.prototype.toString, "name");
+var changeToString = (to, from, name) => {
+  const withName = name === "" ? "" : `with ${name.trim()}() `;
+  const newToString = wrappedToString.bind(null, withName, from.toString());
+  Object.defineProperty(newToString, "name", toStringName);
+  const { writable, enumerable, configurable } = toStringDescriptor;
+  Object.defineProperty(to, "toString", { value: newToString, writable, enumerable, configurable });
+};
+function mimicFunction(to, from, { ignoreNonConfigurable = false } = {}) {
+  const { name } = to;
+  for (const property of Reflect.ownKeys(from)) {
+    copyProperty(to, from, property, ignoreNonConfigurable);
+  }
+  changePrototype(to, from);
+  changeToString(to, from, name);
+  return to;
+}
+
+// node_modules/onetime/index.js
+var calledFunctions = /* @__PURE__ */ new WeakMap();
+var onetime = (function_, options = {}) => {
+  if (typeof function_ !== "function") {
+    throw new TypeError("Expected a function");
+  }
+  let returnValue;
+  let callCount = 0;
+  const functionName = function_.displayName || function_.name || "<anonymous>";
+  const onetime2 = function(...arguments_) {
+    calledFunctions.set(onetime2, ++callCount);
+    if (callCount === 1) {
+      returnValue = function_.apply(this, arguments_);
+      function_ = void 0;
+    } else if (options.throw === true) {
+      throw new Error(`Function \`${functionName}\` can only be called once`);
+    }
+    return returnValue;
+  };
+  mimicFunction(onetime2, function_);
+  calledFunctions.set(onetime2, callCount);
+  return onetime2;
+};
+onetime.callCount = (function_) => {
+  if (!calledFunctions.has(function_)) {
+    throw new Error(`The given function \`${function_.name}\` is not wrapped by the \`onetime\` package`);
+  }
+  return calledFunctions.get(function_);
+};
+var onetime_default = onetime;
+
+// node_modules/signal-exit/dist/mjs/signals.js
+var signals = [];
+signals.push("SIGHUP", "SIGINT", "SIGTERM");
+if (process.platform !== "win32") {
+  signals.push(
+    "SIGALRM",
+    "SIGABRT",
+    "SIGVTALRM",
+    "SIGXCPU",
+    "SIGXFSZ",
+    "SIGUSR2",
+    "SIGTRAP",
+    "SIGSYS",
+    "SIGQUIT",
+    "SIGIOT"
+    // should detect profiler and enable/disable accordingly.
+    // see #21
+    // 'SIGPROF'
+  );
+}
+if (process.platform === "linux") {
+  signals.push("SIGIO", "SIGPOLL", "SIGPWR", "SIGSTKFLT");
+}
+
+// node_modules/signal-exit/dist/mjs/index.js
+var processOk = (process10) => !!process10 && typeof process10 === "object" && typeof process10.removeListener === "function" && typeof process10.emit === "function" && typeof process10.reallyExit === "function" && typeof process10.listeners === "function" && typeof process10.kill === "function" && typeof process10.pid === "number" && typeof process10.on === "function";
+var kExitEmitter = /* @__PURE__ */ Symbol.for("signal-exit emitter");
+var global = globalThis;
+var ObjectDefineProperty = Object.defineProperty.bind(Object);
+var Emitter = class {
+  emitted = {
+    afterExit: false,
+    exit: false
+  };
+  listeners = {
+    afterExit: [],
+    exit: []
+  };
+  count = 0;
+  id = Math.random();
+  constructor() {
+    if (global[kExitEmitter]) {
+      return global[kExitEmitter];
+    }
+    ObjectDefineProperty(global, kExitEmitter, {
+      value: this,
+      writable: false,
+      enumerable: false,
+      configurable: false
+    });
+  }
+  on(ev, fn) {
+    this.listeners[ev].push(fn);
+  }
+  removeListener(ev, fn) {
+    const list = this.listeners[ev];
+    const i = list.indexOf(fn);
+    if (i === -1) {
+      return;
+    }
+    if (i === 0 && list.length === 1) {
+      list.length = 0;
+    } else {
+      list.splice(i, 1);
+    }
+  }
+  emit(ev, code, signal) {
+    if (this.emitted[ev]) {
+      return false;
+    }
+    this.emitted[ev] = true;
+    let ret = false;
+    for (const fn of this.listeners[ev]) {
+      ret = fn(code, signal) === true || ret;
+    }
+    if (ev === "exit") {
+      ret = this.emit("afterExit", code, signal) || ret;
+    }
+    return ret;
+  }
+};
+var SignalExitBase = class {
+};
+var signalExitWrap = (handler) => {
+  return {
+    onExit(cb, opts) {
+      return handler.onExit(cb, opts);
+    },
+    load() {
+      return handler.load();
+    },
+    unload() {
+      return handler.unload();
+    }
+  };
+};
+var SignalExitFallback = class extends SignalExitBase {
+  onExit() {
+    return () => {
+    };
+  }
+  load() {
+  }
+  unload() {
+  }
+};
+var SignalExit = class extends SignalExitBase {
+  // "SIGHUP" throws an `ENOSYS` error on Windows,
+  // so use a supported signal instead
+  /* c8 ignore start */
+  #hupSig = process3.platform === "win32" ? "SIGINT" : "SIGHUP";
+  /* c8 ignore stop */
+  #emitter = new Emitter();
+  #process;
+  #originalProcessEmit;
+  #originalProcessReallyExit;
+  #sigListeners = {};
+  #loaded = false;
+  constructor(process10) {
+    super();
+    this.#process = process10;
+    this.#sigListeners = {};
+    for (const sig of signals) {
+      this.#sigListeners[sig] = () => {
+        const listeners = this.#process.listeners(sig);
+        let { count } = this.#emitter;
+        const p = process10;
+        if (typeof p.__signal_exit_emitter__ === "object" && typeof p.__signal_exit_emitter__.count === "number") {
+          count += p.__signal_exit_emitter__.count;
+        }
+        if (listeners.length === count) {
+          this.unload();
+          const ret = this.#emitter.emit("exit", null, sig);
+          const s = sig === "SIGHUP" ? this.#hupSig : sig;
+          if (!ret)
+            process10.kill(process10.pid, s);
+        }
+      };
+    }
+    this.#originalProcessReallyExit = process10.reallyExit;
+    this.#originalProcessEmit = process10.emit;
+  }
+  onExit(cb, opts) {
+    if (!processOk(this.#process)) {
+      return () => {
+      };
+    }
+    if (this.#loaded === false) {
+      this.load();
+    }
+    const ev = opts?.alwaysLast ? "afterExit" : "exit";
+    this.#emitter.on(ev, cb);
+    return () => {
+      this.#emitter.removeListener(ev, cb);
+      if (this.#emitter.listeners["exit"].length === 0 && this.#emitter.listeners["afterExit"].length === 0) {
+        this.unload();
+      }
+    };
+  }
+  load() {
+    if (this.#loaded) {
+      return;
+    }
+    this.#loaded = true;
+    this.#emitter.count += 1;
+    for (const sig of signals) {
+      try {
+        const fn = this.#sigListeners[sig];
+        if (fn)
+          this.#process.on(sig, fn);
+      } catch (_) {
+      }
+    }
+    this.#process.emit = (ev, ...a) => {
+      return this.#processEmit(ev, ...a);
+    };
+    this.#process.reallyExit = (code) => {
+      return this.#processReallyExit(code);
+    };
+  }
+  unload() {
+    if (!this.#loaded) {
+      return;
+    }
+    this.#loaded = false;
+    signals.forEach((sig) => {
+      const listener = this.#sigListeners[sig];
+      if (!listener) {
+        throw new Error("Listener not defined for signal: " + sig);
+      }
+      try {
+        this.#process.removeListener(sig, listener);
+      } catch (_) {
+      }
+    });
+    this.#process.emit = this.#originalProcessEmit;
+    this.#process.reallyExit = this.#originalProcessReallyExit;
+    this.#emitter.count -= 1;
+  }
+  #processReallyExit(code) {
+    if (!processOk(this.#process)) {
+      return 0;
+    }
+    this.#process.exitCode = code || 0;
+    this.#emitter.emit("exit", this.#process.exitCode, null);
+    return this.#originalProcessReallyExit.call(this.#process, this.#process.exitCode);
+  }
+  #processEmit(ev, ...args) {
+    const og = this.#originalProcessEmit;
+    if (ev === "exit" && processOk(this.#process)) {
+      if (typeof args[0] === "number") {
+        this.#process.exitCode = args[0];
+      }
+      const ret = og.call(this.#process, ev, ...args);
+      this.#emitter.emit("exit", this.#process.exitCode, null);
+      return ret;
+    } else {
+      return og.call(this.#process, ev, ...args);
+    }
+  }
+};
+var process3 = globalThis.process;
+var {
+  /**
+   * Called when the process is exiting, whether via signal, explicit
+   * exit, or running out of stuff to do.
+   *
+   * If the global process object is not suitable for instrumentation,
+   * then this will be a no-op.
+   *
+   * Returns a function that may be used to unload signal-exit.
+   */
+  onExit,
+  /**
+   * Load the listeners.  Likely you never need to call this, unless
+   * doing a rather deep integration with signal-exit functionality.
+   * Mostly exposed for the benefit of testing.
+   *
+   * @internal
+   */
+  load,
+  /**
+   * Unload the listeners.  Likely you never need to call this, unless
+   * doing a rather deep integration with signal-exit functionality.
+   * Mostly exposed for the benefit of testing.
+   *
+   * @internal
+   */
+  unload
+} = signalExitWrap(processOk(process3) ? new SignalExit(process3) : new SignalExitFallback());
+
+// node_modules/restore-cursor/index.js
+var terminal = process4.stderr.isTTY ? process4.stderr : process4.stdout.isTTY ? process4.stdout : void 0;
+var restoreCursor = terminal ? onetime_default(() => {
+  onExit(() => {
+    terminal.write("\x1B[?25h");
+  }, { alwaysLast: true });
+}) : () => {
+};
+var restore_cursor_default = restoreCursor;
+
+// node_modules/cli-cursor/index.js
+var isHidden = false;
+var cliCursor = {};
+cliCursor.show = (writableStream = process5.stderr) => {
+  if (!writableStream.isTTY) {
+    return;
+  }
+  isHidden = false;
+  writableStream.write("\x1B[?25h");
+};
+cliCursor.hide = (writableStream = process5.stderr) => {
+  if (!writableStream.isTTY) {
+    return;
+  }
+  restore_cursor_default();
+  isHidden = true;
+  writableStream.write("\x1B[?25l");
+};
+cliCursor.toggle = (force, writableStream) => {
+  if (force !== void 0) {
+    isHidden = force;
+  }
+  if (isHidden) {
+    cliCursor.show(writableStream);
+  } else {
+    cliCursor.hide(writableStream);
+  }
+};
+var cli_cursor_default = cliCursor;
+
+// node_modules/cli-spinners/spinners.json
+var spinners_default = {
+  dots: {
+    interval: 80,
+    frames: [
+      "\u280B",
+      "\u2819",
+      "\u2839",
+      "\u2838",
+      "\u283C",
+      "\u2834",
+      "\u2826",
+      "\u2827",
+      "\u2807",
+      "\u280F"
+    ]
+  },
+  dots2: {
+    interval: 80,
+    frames: [
+      "\u28FE",
+      "\u28FD",
+      "\u28FB",
+      "\u28BF",
+      "\u287F",
+      "\u28DF",
+      "\u28EF",
+      "\u28F7"
+    ]
+  },
+  dots3: {
+    interval: 80,
+    frames: [
+      "\u280B",
+      "\u2819",
+      "\u281A",
+      "\u281E",
+      "\u2816",
+      "\u2826",
+      "\u2834",
+      "\u2832",
+      "\u2833",
+      "\u2813"
+    ]
+  },
+  dots4: {
+    interval: 80,
+    frames: [
+      "\u2804",
+      "\u2806",
+      "\u2807",
+      "\u280B",
+      "\u2819",
+      "\u2838",
+      "\u2830",
+      "\u2820",
+      "\u2830",
+      "\u2838",
+      "\u2819",
+      "\u280B",
+      "\u2807",
+      "\u2806"
+    ]
+  },
+  dots5: {
+    interval: 80,
+    frames: [
+      "\u280B",
+      "\u2819",
+      "\u281A",
+      "\u2812",
+      "\u2802",
+      "\u2802",
+      "\u2812",
+      "\u2832",
+      "\u2834",
+      "\u2826",
+      "\u2816",
+      "\u2812",
+      "\u2810",
+      "\u2810",
+      "\u2812",
+      "\u2813",
+      "\u280B"
+    ]
+  },
+  dots6: {
+    interval: 80,
+    frames: [
+      "\u2801",
+      "\u2809",
+      "\u2819",
+      "\u281A",
+      "\u2812",
+      "\u2802",
+      "\u2802",
+      "\u2812",
+      "\u2832",
+      "\u2834",
+      "\u2824",
+      "\u2804",
+      "\u2804",
+      "\u2824",
+      "\u2834",
+      "\u2832",
+      "\u2812",
+      "\u2802",
+      "\u2802",
+      "\u2812",
+      "\u281A",
+      "\u2819",
+      "\u2809",
+      "\u2801"
+    ]
+  },
+  dots7: {
+    interval: 80,
+    frames: [
+      "\u2808",
+      "\u2809",
+      "\u280B",
+      "\u2813",
+      "\u2812",
+      "\u2810",
+      "\u2810",
+      "\u2812",
+      "\u2816",
+      "\u2826",
+      "\u2824",
+      "\u2820",
+      "\u2820",
+      "\u2824",
+      "\u2826",
+      "\u2816",
+      "\u2812",
+      "\u2810",
+      "\u2810",
+      "\u2812",
+      "\u2813",
+      "\u280B",
+      "\u2809",
+      "\u2808"
+    ]
+  },
+  dots8: {
+    interval: 80,
+    frames: [
+      "\u2801",
+      "\u2801",
+      "\u2809",
+      "\u2819",
+      "\u281A",
+      "\u2812",
+      "\u2802",
+      "\u2802",
+      "\u2812",
+      "\u2832",
+      "\u2834",
+      "\u2824",
+      "\u2804",
+      "\u2804",
+      "\u2824",
+      "\u2820",
+      "\u2820",
+      "\u2824",
+      "\u2826",
+      "\u2816",
+      "\u2812",
+      "\u2810",
+      "\u2810",
+      "\u2812",
+      "\u2813",
+      "\u280B",
+      "\u2809",
+      "\u2808",
+      "\u2808"
+    ]
+  },
+  dots9: {
+    interval: 80,
+    frames: [
+      "\u28B9",
+      "\u28BA",
+      "\u28BC",
+      "\u28F8",
+      "\u28C7",
+      "\u2867",
+      "\u2857",
+      "\u284F"
+    ]
+  },
+  dots10: {
+    interval: 80,
+    frames: [
+      "\u2884",
+      "\u2882",
+      "\u2881",
+      "\u2841",
+      "\u2848",
+      "\u2850",
+      "\u2860"
+    ]
+  },
+  dots11: {
+    interval: 100,
+    frames: [
+      "\u2801",
+      "\u2802",
+      "\u2804",
+      "\u2840",
+      "\u2880",
+      "\u2820",
+      "\u2810",
+      "\u2808"
+    ]
+  },
+  dots12: {
+    interval: 80,
+    frames: [
+      "\u2880\u2800",
+      "\u2840\u2800",
+      "\u2804\u2800",
+      "\u2882\u2800",
+      "\u2842\u2800",
+      "\u2805\u2800",
+      "\u2883\u2800",
+      "\u2843\u2800",
+      "\u280D\u2800",
+      "\u288B\u2800",
+      "\u284B\u2800",
+      "\u280D\u2801",
+      "\u288B\u2801",
+      "\u284B\u2801",
+      "\u280D\u2809",
+      "\u280B\u2809",
+      "\u280B\u2809",
+      "\u2809\u2819",
+      "\u2809\u2819",
+      "\u2809\u2829",
+      "\u2808\u2899",
+      "\u2808\u2859",
+      "\u2888\u2829",
+      "\u2840\u2899",
+      "\u2804\u2859",
+      "\u2882\u2829",
+      "\u2842\u2898",
+      "\u2805\u2858",
+      "\u2883\u2828",
+      "\u2843\u2890",
+      "\u280D\u2850",
+      "\u288B\u2820",
+      "\u284B\u2880",
+      "\u280D\u2841",
+      "\u288B\u2801",
+      "\u284B\u2801",
+      "\u280D\u2809",
+      "\u280B\u2809",
+      "\u280B\u2809",
+      "\u2809\u2819",
+      "\u2809\u2819",
+      "\u2809\u2829",
+      "\u2808\u2899",
+      "\u2808\u2859",
+      "\u2808\u2829",
+      "\u2800\u2899",
+      "\u2800\u2859",
+      "\u2800\u2829",
+      "\u2800\u2898",
+      "\u2800\u2858",
+      "\u2800\u2828",
+      "\u2800\u2890",
+      "\u2800\u2850",
+      "\u2800\u2820",
+      "\u2800\u2880",
+      "\u2800\u2840"
+    ]
+  },
+  dots13: {
+    interval: 80,
+    frames: [
+      "\u28FC",
+      "\u28F9",
+      "\u28BB",
+      "\u283F",
+      "\u285F",
+      "\u28CF",
+      "\u28E7",
+      "\u28F6"
+    ]
+  },
+  dots14: {
+    interval: 80,
+    frames: [
+      "\u2809\u2809",
+      "\u2808\u2819",
+      "\u2800\u2839",
+      "\u2800\u28B8",
+      "\u2800\u28F0",
+      "\u2880\u28E0",
+      "\u28C0\u28C0",
+      "\u28C4\u2840",
+      "\u28C6\u2800",
+      "\u2847\u2800",
+      "\u280F\u2800",
+      "\u280B\u2801"
+    ]
+  },
+  dots8Bit: {
+    interval: 80,
+    frames: [
+      "\u2800",
+      "\u2801",
+      "\u2802",
+      "\u2803",
+      "\u2804",
+      "\u2805",
+      "\u2806",
+      "\u2807",
+      "\u2840",
+      "\u2841",
+      "\u2842",
+      "\u2843",
+      "\u2844",
+      "\u2845",
+      "\u2846",
+      "\u2847",
+      "\u2808",
+      "\u2809",
+      "\u280A",
+      "\u280B",
+      "\u280C",
+      "\u280D",
+      "\u280E",
+      "\u280F",
+      "\u2848",
+      "\u2849",
+      "\u284A",
+      "\u284B",
+      "\u284C",
+      "\u284D",
+      "\u284E",
+      "\u284F",
+      "\u2810",
+      "\u2811",
+      "\u2812",
+      "\u2813",
+      "\u2814",
+      "\u2815",
+      "\u2816",
+      "\u2817",
+      "\u2850",
+      "\u2851",
+      "\u2852",
+      "\u2853",
+      "\u2854",
+      "\u2855",
+      "\u2856",
+      "\u2857",
+      "\u2818",
+      "\u2819",
+      "\u281A",
+      "\u281B",
+      "\u281C",
+      "\u281D",
+      "\u281E",
+      "\u281F",
+      "\u2858",
+      "\u2859",
+      "\u285A",
+      "\u285B",
+      "\u285C",
+      "\u285D",
+      "\u285E",
+      "\u285F",
+      "\u2820",
+      "\u2821",
+      "\u2822",
+      "\u2823",
+      "\u2824",
+      "\u2825",
+      "\u2826",
+      "\u2827",
+      "\u2860",
+      "\u2861",
+      "\u2862",
+      "\u2863",
+      "\u2864",
+      "\u2865",
+      "\u2866",
+      "\u2867",
+      "\u2828",
+      "\u2829",
+      "\u282A",
+      "\u282B",
+      "\u282C",
+      "\u282D",
+      "\u282E",
+      "\u282F",
+      "\u2868",
+      "\u2869",
+      "\u286A",
+      "\u286B",
+      "\u286C",
+      "\u286D",
+      "\u286E",
+      "\u286F",
+      "\u2830",
+      "\u2831",
+      "\u2832",
+      "\u2833",
+      "\u2834",
+      "\u2835",
+      "\u2836",
+      "\u2837",
+      "\u2870",
+      "\u2871",
+      "\u2872",
+      "\u2873",
+      "\u2874",
+      "\u2875",
+      "\u2876",
+      "\u2877",
+      "\u2838",
+      "\u2839",
+      "\u283A",
+      "\u283B",
+      "\u283C",
+      "\u283D",
+      "\u283E",
+      "\u283F",
+      "\u2878",
+      "\u2879",
+      "\u287A",
+      "\u287B",
+      "\u287C",
+      "\u287D",
+      "\u287E",
+      "\u287F",
+      "\u2880",
+      "\u2881",
+      "\u2882",
+      "\u2883",
+      "\u2884",
+      "\u2885",
+      "\u2886",
+      "\u2887",
+      "\u28C0",
+      "\u28C1",
+      "\u28C2",
+      "\u28C3",
+      "\u28C4",
+      "\u28C5",
+      "\u28C6",
+      "\u28C7",
+      "\u2888",
+      "\u2889",
+      "\u288A",
+      "\u288B",
+      "\u288C",
+      "\u288D",
+      "\u288E",
+      "\u288F",
+      "\u28C8",
+      "\u28C9",
+      "\u28CA",
+      "\u28CB",
+      "\u28CC",
+      "\u28CD",
+      "\u28CE",
+      "\u28CF",
+      "\u2890",
+      "\u2891",
+      "\u2892",
+      "\u2893",
+      "\u2894",
+      "\u2895",
+      "\u2896",
+      "\u2897",
+      "\u28D0",
+      "\u28D1",
+      "\u28D2",
+      "\u28D3",
+      "\u28D4",
+      "\u28D5",
+      "\u28D6",
+      "\u28D7",
+      "\u2898",
+      "\u2899",
+      "\u289A",
+      "\u289B",
+      "\u289C",
+      "\u289D",
+      "\u289E",
+      "\u289F",
+      "\u28D8",
+      "\u28D9",
+      "\u28DA",
+      "\u28DB",
+      "\u28DC",
+      "\u28DD",
+      "\u28DE",
+      "\u28DF",
+      "\u28A0",
+      "\u28A1",
+      "\u28A2",
+      "\u28A3",
+      "\u28A4",
+      "\u28A5",
+      "\u28A6",
+      "\u28A7",
+      "\u28E0",
+      "\u28E1",
+      "\u28E2",
+      "\u28E3",
+      "\u28E4",
+      "\u28E5",
+      "\u28E6",
+      "\u28E7",
+      "\u28A8",
+      "\u28A9",
+      "\u28AA",
+      "\u28AB",
+      "\u28AC",
+      "\u28AD",
+      "\u28AE",
+      "\u28AF",
+      "\u28E8",
+      "\u28E9",
+      "\u28EA",
+      "\u28EB",
+      "\u28EC",
+      "\u28ED",
+      "\u28EE",
+      "\u28EF",
+      "\u28B0",
+      "\u28B1",
+      "\u28B2",
+      "\u28B3",
+      "\u28B4",
+      "\u28B5",
+      "\u28B6",
+      "\u28B7",
+      "\u28F0",
+      "\u28F1",
+      "\u28F2",
+      "\u28F3",
+      "\u28F4",
+      "\u28F5",
+      "\u28F6",
+      "\u28F7",
+      "\u28B8",
+      "\u28B9",
+      "\u28BA",
+      "\u28BB",
+      "\u28BC",
+      "\u28BD",
+      "\u28BE",
+      "\u28BF",
+      "\u28F8",
+      "\u28F9",
+      "\u28FA",
+      "\u28FB",
+      "\u28FC",
+      "\u28FD",
+      "\u28FE",
+      "\u28FF"
+    ]
+  },
+  dotsCircle: {
+    interval: 80,
+    frames: [
+      "\u288E ",
+      "\u280E\u2801",
+      "\u280A\u2811",
+      "\u2808\u2831",
+      " \u2871",
+      "\u2880\u2870",
+      "\u2884\u2860",
+      "\u2886\u2840"
+    ]
+  },
+  sand: {
+    interval: 80,
+    frames: [
+      "\u2801",
+      "\u2802",
+      "\u2804",
+      "\u2840",
+      "\u2848",
+      "\u2850",
+      "\u2860",
+      "\u28C0",
+      "\u28C1",
+      "\u28C2",
+      "\u28C4",
+      "\u28CC",
+      "\u28D4",
+      "\u28E4",
+      "\u28E5",
+      "\u28E6",
+      "\u28EE",
+      "\u28F6",
+      "\u28F7",
+      "\u28FF",
+      "\u287F",
+      "\u283F",
+      "\u289F",
+      "\u281F",
+      "\u285B",
+      "\u281B",
+      "\u282B",
+      "\u288B",
+      "\u280B",
+      "\u280D",
+      "\u2849",
+      "\u2809",
+      "\u2811",
+      "\u2821",
+      "\u2881"
+    ]
+  },
+  line: {
+    interval: 130,
+    frames: [
+      "-",
+      "\\",
+      "|",
+      "/"
+    ]
+  },
+  line2: {
+    interval: 100,
+    frames: [
+      "\u2802",
+      "-",
+      "\u2013",
+      "\u2014",
+      "\u2013",
+      "-"
+    ]
+  },
+  rollingLine: {
+    interval: 80,
+    frames: [
+      "/  ",
+      " - ",
+      " \\ ",
+      "  |",
+      "  |",
+      " \\ ",
+      " - ",
+      "/  "
+    ]
+  },
+  pipe: {
+    interval: 100,
+    frames: [
+      "\u2524",
+      "\u2518",
+      "\u2534",
+      "\u2514",
+      "\u251C",
+      "\u250C",
+      "\u252C",
+      "\u2510"
+    ]
+  },
+  simpleDots: {
+    interval: 400,
+    frames: [
+      ".  ",
+      ".. ",
+      "...",
+      "   "
+    ]
+  },
+  simpleDotsScrolling: {
+    interval: 200,
+    frames: [
+      ".  ",
+      ".. ",
+      "...",
+      " ..",
+      "  .",
+      "   "
+    ]
+  },
+  star: {
+    interval: 70,
+    frames: [
+      "\u2736",
+      "\u2738",
+      "\u2739",
+      "\u273A",
+      "\u2739",
+      "\u2737"
+    ]
+  },
+  star2: {
+    interval: 80,
+    frames: [
+      "+",
+      "x",
+      "*"
+    ]
+  },
+  flip: {
+    interval: 70,
+    frames: [
+      "_",
+      "_",
+      "_",
+      "-",
+      "`",
+      "`",
+      "'",
+      "\xB4",
+      "-",
+      "_",
+      "_",
+      "_"
+    ]
+  },
+  hamburger: {
+    interval: 100,
+    frames: [
+      "\u2631",
+      "\u2632",
+      "\u2634"
+    ]
+  },
+  growVertical: {
+    interval: 120,
+    frames: [
+      "\u2581",
+      "\u2583",
+      "\u2584",
+      "\u2585",
+      "\u2586",
+      "\u2587",
+      "\u2586",
+      "\u2585",
+      "\u2584",
+      "\u2583"
+    ]
+  },
+  growHorizontal: {
+    interval: 120,
+    frames: [
+      "\u258F",
+      "\u258E",
+      "\u258D",
+      "\u258C",
+      "\u258B",
+      "\u258A",
+      "\u2589",
+      "\u258A",
+      "\u258B",
+      "\u258C",
+      "\u258D",
+      "\u258E"
+    ]
+  },
+  balloon: {
+    interval: 140,
+    frames: [
+      " ",
+      ".",
+      "o",
+      "O",
+      "@",
+      "*",
+      " "
+    ]
+  },
+  balloon2: {
+    interval: 120,
+    frames: [
+      ".",
+      "o",
+      "O",
+      "\xB0",
+      "O",
+      "o",
+      "."
+    ]
+  },
+  noise: {
+    interval: 100,
+    frames: [
+      "\u2593",
+      "\u2592",
+      "\u2591"
+    ]
+  },
+  bounce: {
+    interval: 120,
+    frames: [
+      "\u2801",
+      "\u2802",
+      "\u2804",
+      "\u2802"
+    ]
+  },
+  boxBounce: {
+    interval: 120,
+    frames: [
+      "\u2596",
+      "\u2598",
+      "\u259D",
+      "\u2597"
+    ]
+  },
+  boxBounce2: {
+    interval: 100,
+    frames: [
+      "\u258C",
+      "\u2580",
+      "\u2590",
+      "\u2584"
+    ]
+  },
+  triangle: {
+    interval: 50,
+    frames: [
+      "\u25E2",
+      "\u25E3",
+      "\u25E4",
+      "\u25E5"
+    ]
+  },
+  binary: {
+    interval: 80,
+    frames: [
+      "010010",
+      "001100",
+      "100101",
+      "111010",
+      "111101",
+      "010111",
+      "101011",
+      "111000",
+      "110011",
+      "110101"
+    ]
+  },
+  arc: {
+    interval: 100,
+    frames: [
+      "\u25DC",
+      "\u25E0",
+      "\u25DD",
+      "\u25DE",
+      "\u25E1",
+      "\u25DF"
+    ]
+  },
+  circle: {
+    interval: 120,
+    frames: [
+      "\u25E1",
+      "\u2299",
+      "\u25E0"
+    ]
+  },
+  squareCorners: {
+    interval: 180,
+    frames: [
+      "\u25F0",
+      "\u25F3",
+      "\u25F2",
+      "\u25F1"
+    ]
+  },
+  circleQuarters: {
+    interval: 120,
+    frames: [
+      "\u25F4",
+      "\u25F7",
+      "\u25F6",
+      "\u25F5"
+    ]
+  },
+  circleHalves: {
+    interval: 50,
+    frames: [
+      "\u25D0",
+      "\u25D3",
+      "\u25D1",
+      "\u25D2"
+    ]
+  },
+  squish: {
+    interval: 100,
+    frames: [
+      "\u256B",
+      "\u256A"
+    ]
+  },
+  toggle: {
+    interval: 250,
+    frames: [
+      "\u22B6",
+      "\u22B7"
+    ]
+  },
+  toggle2: {
+    interval: 80,
+    frames: [
+      "\u25AB",
+      "\u25AA"
+    ]
+  },
+  toggle3: {
+    interval: 120,
+    frames: [
+      "\u25A1",
+      "\u25A0"
+    ]
+  },
+  toggle4: {
+    interval: 100,
+    frames: [
+      "\u25A0",
+      "\u25A1",
+      "\u25AA",
+      "\u25AB"
+    ]
+  },
+  toggle5: {
+    interval: 100,
+    frames: [
+      "\u25AE",
+      "\u25AF"
+    ]
+  },
+  toggle6: {
+    interval: 300,
+    frames: [
+      "\u101D",
+      "\u1040"
+    ]
+  },
+  toggle7: {
+    interval: 80,
+    frames: [
+      "\u29BE",
+      "\u29BF"
+    ]
+  },
+  toggle8: {
+    interval: 100,
+    frames: [
+      "\u25CD",
+      "\u25CC"
+    ]
+  },
+  toggle9: {
+    interval: 100,
+    frames: [
+      "\u25C9",
+      "\u25CE"
+    ]
+  },
+  toggle10: {
+    interval: 100,
+    frames: [
+      "\u3282",
+      "\u3280",
+      "\u3281"
+    ]
+  },
+  toggle11: {
+    interval: 50,
+    frames: [
+      "\u29C7",
+      "\u29C6"
+    ]
+  },
+  toggle12: {
+    interval: 120,
+    frames: [
+      "\u2617",
+      "\u2616"
+    ]
+  },
+  toggle13: {
+    interval: 80,
+    frames: [
+      "=",
+      "*",
+      "-"
+    ]
+  },
+  arrow: {
+    interval: 100,
+    frames: [
+      "\u2190",
+      "\u2196",
+      "\u2191",
+      "\u2197",
+      "\u2192",
+      "\u2198",
+      "\u2193",
+      "\u2199"
+    ]
+  },
+  arrow2: {
+    interval: 80,
+    frames: [
+      "\u2B06\uFE0F ",
+      "\u2197\uFE0F ",
+      "\u27A1\uFE0F ",
+      "\u2198\uFE0F ",
+      "\u2B07\uFE0F ",
+      "\u2199\uFE0F ",
+      "\u2B05\uFE0F ",
+      "\u2196\uFE0F "
+    ]
+  },
+  arrow3: {
+    interval: 120,
+    frames: [
+      "\u25B9\u25B9\u25B9\u25B9\u25B9",
+      "\u25B8\u25B9\u25B9\u25B9\u25B9",
+      "\u25B9\u25B8\u25B9\u25B9\u25B9",
+      "\u25B9\u25B9\u25B8\u25B9\u25B9",
+      "\u25B9\u25B9\u25B9\u25B8\u25B9",
+      "\u25B9\u25B9\u25B9\u25B9\u25B8"
+    ]
+  },
+  bouncingBar: {
+    interval: 80,
+    frames: [
+      "[    ]",
+      "[=   ]",
+      "[==  ]",
+      "[=== ]",
+      "[====]",
+      "[ ===]",
+      "[  ==]",
+      "[   =]",
+      "[    ]",
+      "[   =]",
+      "[  ==]",
+      "[ ===]",
+      "[====]",
+      "[=== ]",
+      "[==  ]",
+      "[=   ]"
+    ]
+  },
+  bouncingBall: {
+    interval: 80,
+    frames: [
+      "( \u25CF    )",
+      "(  \u25CF   )",
+      "(   \u25CF  )",
+      "(    \u25CF )",
+      "(     \u25CF)",
+      "(    \u25CF )",
+      "(   \u25CF  )",
+      "(  \u25CF   )",
+      "( \u25CF    )",
+      "(\u25CF     )"
+    ]
+  },
+  smiley: {
+    interval: 200,
+    frames: [
+      "\u{1F604} ",
+      "\u{1F61D} "
+    ]
+  },
+  monkey: {
+    interval: 300,
+    frames: [
+      "\u{1F648} ",
+      "\u{1F648} ",
+      "\u{1F649} ",
+      "\u{1F64A} "
+    ]
+  },
+  hearts: {
+    interval: 100,
+    frames: [
+      "\u{1F49B} ",
+      "\u{1F499} ",
+      "\u{1F49C} ",
+      "\u{1F49A} ",
+      "\u{1F497} "
+    ]
+  },
+  clock: {
+    interval: 100,
+    frames: [
+      "\u{1F55B} ",
+      "\u{1F550} ",
+      "\u{1F551} ",
+      "\u{1F552} ",
+      "\u{1F553} ",
+      "\u{1F554} ",
+      "\u{1F555} ",
+      "\u{1F556} ",
+      "\u{1F557} ",
+      "\u{1F558} ",
+      "\u{1F559} ",
+      "\u{1F55A} "
+    ]
+  },
+  earth: {
+    interval: 180,
+    frames: [
+      "\u{1F30D} ",
+      "\u{1F30E} ",
+      "\u{1F30F} "
+    ]
+  },
+  material: {
+    interval: 17,
+    frames: [
+      "\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588",
+      "\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588",
+      "\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588",
+      "\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588",
+      "\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588",
+      "\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588",
+      "\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2588",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+      "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581"
+    ]
+  },
+  moon: {
+    interval: 80,
+    frames: [
+      "\u{1F311} ",
+      "\u{1F312} ",
+      "\u{1F313} ",
+      "\u{1F314} ",
+      "\u{1F315} ",
+      "\u{1F316} ",
+      "\u{1F317} ",
+      "\u{1F318} "
+    ]
+  },
+  runner: {
+    interval: 140,
+    frames: [
+      "\u{1F6B6} ",
+      "\u{1F3C3} "
+    ]
+  },
+  pong: {
+    interval: 80,
+    frames: [
+      "\u2590\u2802       \u258C",
+      "\u2590\u2808       \u258C",
+      "\u2590 \u2802      \u258C",
+      "\u2590 \u2820      \u258C",
+      "\u2590  \u2840     \u258C",
+      "\u2590  \u2820     \u258C",
+      "\u2590   \u2802    \u258C",
+      "\u2590   \u2808    \u258C",
+      "\u2590    \u2802   \u258C",
+      "\u2590    \u2820   \u258C",
+      "\u2590     \u2840  \u258C",
+      "\u2590     \u2820  \u258C",
+      "\u2590      \u2802 \u258C",
+      "\u2590      \u2808 \u258C",
+      "\u2590       \u2802\u258C",
+      "\u2590       \u2820\u258C",
+      "\u2590       \u2840\u258C",
+      "\u2590      \u2820 \u258C",
+      "\u2590      \u2802 \u258C",
+      "\u2590     \u2808  \u258C",
+      "\u2590     \u2802  \u258C",
+      "\u2590    \u2820   \u258C",
+      "\u2590    \u2840   \u258C",
+      "\u2590   \u2820    \u258C",
+      "\u2590   \u2802    \u258C",
+      "\u2590  \u2808     \u258C",
+      "\u2590  \u2802     \u258C",
+      "\u2590 \u2820      \u258C",
+      "\u2590 \u2840      \u258C",
+      "\u2590\u2820       \u258C"
+    ]
+  },
+  shark: {
+    interval: 120,
+    frames: [
+      "\u2590|\\____________\u258C",
+      "\u2590_|\\___________\u258C",
+      "\u2590__|\\__________\u258C",
+      "\u2590___|\\_________\u258C",
+      "\u2590____|\\________\u258C",
+      "\u2590_____|\\_______\u258C",
+      "\u2590______|\\______\u258C",
+      "\u2590_______|\\_____\u258C",
+      "\u2590________|\\____\u258C",
+      "\u2590_________|\\___\u258C",
+      "\u2590__________|\\__\u258C",
+      "\u2590___________|\\_\u258C",
+      "\u2590____________|\\\u258C",
+      "\u2590____________/|\u258C",
+      "\u2590___________/|_\u258C",
+      "\u2590__________/|__\u258C",
+      "\u2590_________/|___\u258C",
+      "\u2590________/|____\u258C",
+      "\u2590_______/|_____\u258C",
+      "\u2590______/|______\u258C",
+      "\u2590_____/|_______\u258C",
+      "\u2590____/|________\u258C",
+      "\u2590___/|_________\u258C",
+      "\u2590__/|__________\u258C",
+      "\u2590_/|___________\u258C",
+      "\u2590/|____________\u258C"
+    ]
+  },
+  dqpb: {
+    interval: 100,
+    frames: [
+      "d",
+      "q",
+      "p",
+      "b"
+    ]
+  },
+  weather: {
+    interval: 100,
+    frames: [
+      "\u2600\uFE0F ",
+      "\u2600\uFE0F ",
+      "\u2600\uFE0F ",
+      "\u{1F324} ",
+      "\u26C5\uFE0F ",
+      "\u{1F325} ",
+      "\u2601\uFE0F ",
+      "\u{1F327} ",
+      "\u{1F328} ",
+      "\u{1F327} ",
+      "\u{1F328} ",
+      "\u{1F327} ",
+      "\u{1F328} ",
+      "\u26C8 ",
+      "\u{1F328} ",
+      "\u{1F327} ",
+      "\u{1F328} ",
+      "\u2601\uFE0F ",
+      "\u{1F325} ",
+      "\u26C5\uFE0F ",
+      "\u{1F324} ",
+      "\u2600\uFE0F ",
+      "\u2600\uFE0F "
+    ]
+  },
+  christmas: {
+    interval: 400,
+    frames: [
+      "\u{1F332}",
+      "\u{1F384}"
+    ]
+  },
+  grenade: {
+    interval: 80,
+    frames: [
+      "\u060C  ",
+      "\u2032  ",
+      " \xB4 ",
+      " \u203E ",
+      "  \u2E0C",
+      "  \u2E0A",
+      "  |",
+      "  \u204E",
+      "  \u2055",
+      " \u0DF4 ",
+      "  \u2053",
+      "   ",
+      "   ",
+      "   "
+    ]
+  },
+  point: {
+    interval: 125,
+    frames: [
+      "\u2219\u2219\u2219",
+      "\u25CF\u2219\u2219",
+      "\u2219\u25CF\u2219",
+      "\u2219\u2219\u25CF",
+      "\u2219\u2219\u2219"
+    ]
+  },
+  layer: {
+    interval: 150,
+    frames: [
+      "-",
+      "=",
+      "\u2261"
+    ]
+  },
+  betaWave: {
+    interval: 80,
+    frames: [
+      "\u03C1\u03B2\u03B2\u03B2\u03B2\u03B2\u03B2",
+      "\u03B2\u03C1\u03B2\u03B2\u03B2\u03B2\u03B2",
+      "\u03B2\u03B2\u03C1\u03B2\u03B2\u03B2\u03B2",
+      "\u03B2\u03B2\u03B2\u03C1\u03B2\u03B2\u03B2",
+      "\u03B2\u03B2\u03B2\u03B2\u03C1\u03B2\u03B2",
+      "\u03B2\u03B2\u03B2\u03B2\u03B2\u03C1\u03B2",
+      "\u03B2\u03B2\u03B2\u03B2\u03B2\u03B2\u03C1"
+    ]
+  },
+  fingerDance: {
+    interval: 160,
+    frames: [
+      "\u{1F918} ",
+      "\u{1F91F} ",
+      "\u{1F596} ",
+      "\u270B ",
+      "\u{1F91A} ",
+      "\u{1F446} "
+    ]
+  },
+  fistBump: {
+    interval: 80,
+    frames: [
+      "\u{1F91C}\u3000\u3000\u3000\u3000\u{1F91B} ",
+      "\u{1F91C}\u3000\u3000\u3000\u3000\u{1F91B} ",
+      "\u{1F91C}\u3000\u3000\u3000\u3000\u{1F91B} ",
+      "\u3000\u{1F91C}\u3000\u3000\u{1F91B}\u3000 ",
+      "\u3000\u3000\u{1F91C}\u{1F91B}\u3000\u3000 ",
+      "\u3000\u{1F91C}\u2728\u{1F91B}\u3000\u3000 ",
+      "\u{1F91C}\u3000\u2728\u3000\u{1F91B}\u3000 "
+    ]
+  },
+  soccerHeader: {
+    interval: 80,
+    frames: [
+      " \u{1F9D1}\u26BD\uFE0F       \u{1F9D1} ",
+      "\u{1F9D1}  \u26BD\uFE0F      \u{1F9D1} ",
+      "\u{1F9D1}   \u26BD\uFE0F     \u{1F9D1} ",
+      "\u{1F9D1}    \u26BD\uFE0F    \u{1F9D1} ",
+      "\u{1F9D1}     \u26BD\uFE0F   \u{1F9D1} ",
+      "\u{1F9D1}      \u26BD\uFE0F  \u{1F9D1} ",
+      "\u{1F9D1}       \u26BD\uFE0F\u{1F9D1}  ",
+      "\u{1F9D1}      \u26BD\uFE0F  \u{1F9D1} ",
+      "\u{1F9D1}     \u26BD\uFE0F   \u{1F9D1} ",
+      "\u{1F9D1}    \u26BD\uFE0F    \u{1F9D1} ",
+      "\u{1F9D1}   \u26BD\uFE0F     \u{1F9D1} ",
+      "\u{1F9D1}  \u26BD\uFE0F      \u{1F9D1} "
+    ]
+  },
+  mindblown: {
+    interval: 160,
+    frames: [
+      "\u{1F610} ",
+      "\u{1F610} ",
+      "\u{1F62E} ",
+      "\u{1F62E} ",
+      "\u{1F626} ",
+      "\u{1F626} ",
+      "\u{1F627} ",
+      "\u{1F627} ",
+      "\u{1F92F} ",
+      "\u{1F4A5} ",
+      "\u2728 ",
+      "\u3000 ",
+      "\u3000 ",
+      "\u3000 "
+    ]
+  },
+  speaker: {
+    interval: 160,
+    frames: [
+      "\u{1F508} ",
+      "\u{1F509} ",
+      "\u{1F50A} ",
+      "\u{1F509} "
+    ]
+  },
+  orangePulse: {
+    interval: 100,
+    frames: [
+      "\u{1F538} ",
+      "\u{1F536} ",
+      "\u{1F7E0} ",
+      "\u{1F7E0} ",
+      "\u{1F536} "
+    ]
+  },
+  bluePulse: {
+    interval: 100,
+    frames: [
+      "\u{1F539} ",
+      "\u{1F537} ",
+      "\u{1F535} ",
+      "\u{1F535} ",
+      "\u{1F537} "
+    ]
+  },
+  orangeBluePulse: {
+    interval: 100,
+    frames: [
+      "\u{1F538} ",
+      "\u{1F536} ",
+      "\u{1F7E0} ",
+      "\u{1F7E0} ",
+      "\u{1F536} ",
+      "\u{1F539} ",
+      "\u{1F537} ",
+      "\u{1F535} ",
+      "\u{1F535} ",
+      "\u{1F537} "
+    ]
+  },
+  timeTravel: {
+    interval: 100,
+    frames: [
+      "\u{1F55B} ",
+      "\u{1F55A} ",
+      "\u{1F559} ",
+      "\u{1F558} ",
+      "\u{1F557} ",
+      "\u{1F556} ",
+      "\u{1F555} ",
+      "\u{1F554} ",
+      "\u{1F553} ",
+      "\u{1F552} ",
+      "\u{1F551} ",
+      "\u{1F550} "
+    ]
+  },
+  aesthetic: {
+    interval: 80,
+    frames: [
+      "\u25B0\u25B1\u25B1\u25B1\u25B1\u25B1\u25B1",
+      "\u25B0\u25B0\u25B1\u25B1\u25B1\u25B1\u25B1",
+      "\u25B0\u25B0\u25B0\u25B1\u25B1\u25B1\u25B1",
+      "\u25B0\u25B0\u25B0\u25B0\u25B1\u25B1\u25B1",
+      "\u25B0\u25B0\u25B0\u25B0\u25B0\u25B1\u25B1",
+      "\u25B0\u25B0\u25B0\u25B0\u25B0\u25B0\u25B1",
+      "\u25B0\u25B0\u25B0\u25B0\u25B0\u25B0\u25B0",
+      "\u25B0\u25B1\u25B1\u25B1\u25B1\u25B1\u25B1"
+    ]
+  },
+  dwarfFortress: {
+    interval: 80,
+    frames: [
+      " \u2588\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2588\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2588\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2593\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2593\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2592\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2592\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2591\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A\u2591\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "\u263A \u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2593\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2593\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2592\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2592\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2591\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A\u2591\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u263A \u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2593\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2593\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2592\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2592\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2591\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A\u2591\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u263A \u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2593\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2593\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2592\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2592\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2591\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A\u2591\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u263A \u2588\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2588\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2588\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2593\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2593\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2592\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2592\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2591\u2588\xA3\xA3\xA3  ",
+      "    \u263A\u2591\u2588\xA3\xA3\xA3  ",
+      "    \u263A \u2588\xA3\xA3\xA3  ",
+      "     \u263A\u2588\xA3\xA3\xA3  ",
+      "     \u263A\u2588\xA3\xA3\xA3  ",
+      "     \u263A\u2593\xA3\xA3\xA3  ",
+      "     \u263A\u2593\xA3\xA3\xA3  ",
+      "     \u263A\u2592\xA3\xA3\xA3  ",
+      "     \u263A\u2592\xA3\xA3\xA3  ",
+      "     \u263A\u2591\xA3\xA3\xA3  ",
+      "     \u263A\u2591\xA3\xA3\xA3  ",
+      "     \u263A \xA3\xA3\xA3  ",
+      "      \u263A\xA3\xA3\xA3  ",
+      "      \u263A\xA3\xA3\xA3  ",
+      "      \u263A\u2593\xA3\xA3  ",
+      "      \u263A\u2593\xA3\xA3  ",
+      "      \u263A\u2592\xA3\xA3  ",
+      "      \u263A\u2592\xA3\xA3  ",
+      "      \u263A\u2591\xA3\xA3  ",
+      "      \u263A\u2591\xA3\xA3  ",
+      "      \u263A \xA3\xA3  ",
+      "       \u263A\xA3\xA3  ",
+      "       \u263A\xA3\xA3  ",
+      "       \u263A\u2593\xA3  ",
+      "       \u263A\u2593\xA3  ",
+      "       \u263A\u2592\xA3  ",
+      "       \u263A\u2592\xA3  ",
+      "       \u263A\u2591\xA3  ",
+      "       \u263A\u2591\xA3  ",
+      "       \u263A \xA3  ",
+      "        \u263A\xA3  ",
+      "        \u263A\xA3  ",
+      "        \u263A\u2593  ",
+      "        \u263A\u2593  ",
+      "        \u263A\u2592  ",
+      "        \u263A\u2592  ",
+      "        \u263A\u2591  ",
+      "        \u263A\u2591  ",
+      "        \u263A   ",
+      "        \u263A  &",
+      "        \u263A \u263C&",
+      "       \u263A \u263C &",
+      "       \u263A\u263C  &",
+      "      \u263A\u263C  & ",
+      "      \u203C   & ",
+      "     \u263A   &  ",
+      "    \u203C    &  ",
+      "   \u263A    &   ",
+      "  \u203C     &   ",
+      " \u263A     &    ",
+      "\u203C      &    ",
+      "      &     ",
+      "      &     ",
+      "     &   \u2591  ",
+      "     &   \u2592  ",
+      "    &    \u2593  ",
+      "    &    \xA3  ",
+      "   &    \u2591\xA3  ",
+      "   &    \u2592\xA3  ",
+      "  &     \u2593\xA3  ",
+      "  &     \xA3\xA3  ",
+      " &     \u2591\xA3\xA3  ",
+      " &     \u2592\xA3\xA3  ",
+      "&      \u2593\xA3\xA3  ",
+      "&      \xA3\xA3\xA3  ",
+      "      \u2591\xA3\xA3\xA3  ",
+      "      \u2592\xA3\xA3\xA3  ",
+      "      \u2593\xA3\xA3\xA3  ",
+      "      \u2588\xA3\xA3\xA3  ",
+      "     \u2591\u2588\xA3\xA3\xA3  ",
+      "     \u2592\u2588\xA3\xA3\xA3  ",
+      "     \u2593\u2588\xA3\xA3\xA3  ",
+      "     \u2588\u2588\xA3\xA3\xA3  ",
+      "    \u2591\u2588\u2588\xA3\xA3\xA3  ",
+      "    \u2592\u2588\u2588\xA3\xA3\xA3  ",
+      "    \u2593\u2588\u2588\xA3\xA3\xA3  ",
+      "    \u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u2591\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u2592\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u2593\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "   \u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u2591\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u2592\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u2593\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      "  \u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u2591\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u2592\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u2593\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u2588\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  ",
+      " \u2588\u2588\u2588\u2588\u2588\u2588\xA3\xA3\xA3  "
+    ]
+  },
+  fish: {
+    interval: 80,
+    frames: [
+      "~~~~~~~~~~~~~~~~~~~~",
+      "> ~~~~~~~~~~~~~~~~~~",
+      "\xBA> ~~~~~~~~~~~~~~~~~",
+      "(\xBA> ~~~~~~~~~~~~~~~~",
+      "((\xBA> ~~~~~~~~~~~~~~~",
+      "<((\xBA> ~~~~~~~~~~~~~~",
+      "><((\xBA> ~~~~~~~~~~~~~",
+      " ><((\xBA> ~~~~~~~~~~~~",
+      "~ ><((\xBA> ~~~~~~~~~~~",
+      "~~ <>((\xBA> ~~~~~~~~~~",
+      "~~~ ><((\xBA> ~~~~~~~~~",
+      "~~~~ <>((\xBA> ~~~~~~~~",
+      "~~~~~ ><((\xBA> ~~~~~~~",
+      "~~~~~~ <>((\xBA> ~~~~~~",
+      "~~~~~~~ ><((\xBA> ~~~~~",
+      "~~~~~~~~ <>((\xBA> ~~~~",
+      "~~~~~~~~~ ><((\xBA> ~~~",
+      "~~~~~~~~~~ <>((\xBA> ~~",
+      "~~~~~~~~~~~ ><((\xBA> ~",
+      "~~~~~~~~~~~~ <>((\xBA> ",
+      "~~~~~~~~~~~~~ ><((\xBA>",
+      "~~~~~~~~~~~~~~ <>((\xBA",
+      "~~~~~~~~~~~~~~~ ><((",
+      "~~~~~~~~~~~~~~~~ <>(",
+      "~~~~~~~~~~~~~~~~~ ><",
+      "~~~~~~~~~~~~~~~~~~ <",
+      "~~~~~~~~~~~~~~~~~~~~"
+    ]
+  }
+};
+
+// node_modules/cli-spinners/index.js
+var cli_spinners_default = spinners_default;
+var spinnersList = Object.keys(spinners_default);
+
+// node_modules/log-symbols/symbols.js
+var symbols_exports = {};
+__export(symbols_exports, {
+  error: () => error,
+  info: () => info,
+  success: () => success,
+  warning: () => warning
+});
+
+// node_modules/yoctocolors/base.js
+import tty2 from "tty";
+var hasColors = tty2?.WriteStream?.prototype?.hasColors?.() ?? false;
+var format = (open, close) => {
+  if (!hasColors) {
+    return (input) => input;
+  }
+  const openCode = `\x1B[${open}m`;
+  const closeCode = `\x1B[${close}m`;
+  return (input) => {
+    const string = input + "";
+    let index = string.indexOf(closeCode);
+    if (index === -1) {
+      return openCode + string + closeCode;
+    }
+    let result = openCode;
+    let lastIndex = 0;
+    const reopenOnNestedClose = close === 22;
+    const replaceCode = (reopenOnNestedClose ? closeCode : "") + openCode;
+    while (index !== -1) {
+      result += string.slice(lastIndex, index) + replaceCode;
+      lastIndex = index + closeCode.length;
+      index = string.indexOf(closeCode, lastIndex);
+    }
+    result += string.slice(lastIndex) + closeCode;
+    return result;
+  };
+};
+var reset = format(0, 0);
+var bold = format(1, 22);
+var dim = format(2, 22);
+var italic = format(3, 23);
+var underline = format(4, 24);
+var overline = format(53, 55);
+var inverse = format(7, 27);
+var hidden = format(8, 28);
+var strikethrough = format(9, 29);
+var black = format(30, 39);
+var red = format(31, 39);
+var green = format(32, 39);
+var yellow = format(33, 39);
+var blue = format(34, 39);
+var magenta = format(35, 39);
+var cyan = format(36, 39);
+var white = format(37, 39);
+var gray = format(90, 39);
+var bgBlack = format(40, 49);
+var bgRed = format(41, 49);
+var bgGreen = format(42, 49);
+var bgYellow = format(43, 49);
+var bgBlue = format(44, 49);
+var bgMagenta = format(45, 49);
+var bgCyan = format(46, 49);
+var bgWhite = format(47, 49);
+var bgGray = format(100, 49);
+var redBright = format(91, 39);
+var greenBright = format(92, 39);
+var yellowBright = format(93, 39);
+var blueBright = format(94, 39);
+var magentaBright = format(95, 39);
+var cyanBright = format(96, 39);
+var whiteBright = format(97, 39);
+var bgRedBright = format(101, 49);
+var bgGreenBright = format(102, 49);
+var bgYellowBright = format(103, 49);
+var bgBlueBright = format(104, 49);
+var bgMagentaBright = format(105, 49);
+var bgCyanBright = format(106, 49);
+var bgWhiteBright = format(107, 49);
+
+// node_modules/is-unicode-supported/index.js
+import process6 from "process";
+function isUnicodeSupported() {
+  const { env: env2 } = process6;
+  const { TERM, TERM_PROGRAM } = env2;
+  if (process6.platform !== "win32") {
+    return TERM !== "linux";
+  }
+  return Boolean(env2.WT_SESSION) || Boolean(env2.TERMINUS_SUBLIME) || env2.ConEmuTask === "{cmd::Cmder}" || TERM_PROGRAM === "Terminus-Sublime" || TERM_PROGRAM === "vscode" || TERM === "xterm-256color" || TERM === "alacritty" || TERM === "rxvt-unicode" || TERM === "rxvt-unicode-256color" || env2.TERMINAL_EMULATOR === "JetBrains-JediTerm";
+}
+
+// node_modules/log-symbols/symbols.js
+var _isUnicodeSupported = isUnicodeSupported();
+var info = blue(_isUnicodeSupported ? "\u2139" : "i");
+var success = green(_isUnicodeSupported ? "\u2714" : "\u221A");
+var warning = yellow(_isUnicodeSupported ? "\u26A0" : "\u203C");
+var error = red(_isUnicodeSupported ? "\u2716" : "\xD7");
+
+// node_modules/ansi-regex/index.js
+function ansiRegex({ onlyFirst = false } = {}) {
+  const ST = "(?:\\u0007|\\u001B\\u005C|\\u009C)";
+  const osc = `(?:\\u001B\\][\\s\\S]*?${ST})`;
+  const csi = "[\\u001B\\u009B][[\\]()#;?]*(?:\\d{1,4}(?:[;:]\\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]";
+  const pattern = `${osc}|${csi}`;
+  return new RegExp(pattern, onlyFirst ? void 0 : "g");
+}
+
+// node_modules/strip-ansi/index.js
+var regex = ansiRegex();
+function stripAnsi(string) {
+  if (typeof string !== "string") {
+    throw new TypeError(`Expected a \`string\`, got \`${typeof string}\``);
+  }
+  return string.replace(regex, "");
+}
+
+// node_modules/get-east-asian-width/lookup-data.js
+var ambiguousRanges = [161, 161, 164, 164, 167, 168, 170, 170, 173, 174, 176, 180, 182, 186, 188, 191, 198, 198, 208, 208, 215, 216, 222, 225, 230, 230, 232, 234, 236, 237, 240, 240, 242, 243, 247, 250, 252, 252, 254, 254, 257, 257, 273, 273, 275, 275, 283, 283, 294, 295, 299, 299, 305, 307, 312, 312, 319, 322, 324, 324, 328, 331, 333, 333, 338, 339, 358, 359, 363, 363, 462, 462, 464, 464, 466, 466, 468, 468, 470, 470, 472, 472, 474, 474, 476, 476, 593, 593, 609, 609, 708, 708, 711, 711, 713, 715, 717, 717, 720, 720, 728, 731, 733, 733, 735, 735, 768, 879, 913, 929, 931, 937, 945, 961, 963, 969, 1025, 1025, 1040, 1103, 1105, 1105, 8208, 8208, 8211, 8214, 8216, 8217, 8220, 8221, 8224, 8226, 8228, 8231, 8240, 8240, 8242, 8243, 8245, 8245, 8251, 8251, 8254, 8254, 8308, 8308, 8319, 8319, 8321, 8324, 8364, 8364, 8451, 8451, 8453, 8453, 8457, 8457, 8467, 8467, 8470, 8470, 8481, 8482, 8486, 8486, 8491, 8491, 8531, 8532, 8539, 8542, 8544, 8555, 8560, 8569, 8585, 8585, 8592, 8601, 8632, 8633, 8658, 8658, 8660, 8660, 8679, 8679, 8704, 8704, 8706, 8707, 8711, 8712, 8715, 8715, 8719, 8719, 8721, 8721, 8725, 8725, 8730, 8730, 8733, 8736, 8739, 8739, 8741, 8741, 8743, 8748, 8750, 8750, 8756, 8759, 8764, 8765, 8776, 8776, 8780, 8780, 8786, 8786, 8800, 8801, 8804, 8807, 8810, 8811, 8814, 8815, 8834, 8835, 8838, 8839, 8853, 8853, 8857, 8857, 8869, 8869, 8895, 8895, 8978, 8978, 9312, 9449, 9451, 9547, 9552, 9587, 9600, 9615, 9618, 9621, 9632, 9633, 9635, 9641, 9650, 9651, 9654, 9655, 9660, 9661, 9664, 9665, 9670, 9672, 9675, 9675, 9678, 9681, 9698, 9701, 9711, 9711, 9733, 9734, 9737, 9737, 9742, 9743, 9756, 9756, 9758, 9758, 9792, 9792, 9794, 9794, 9824, 9825, 9827, 9829, 9831, 9834, 9836, 9837, 9839, 9839, 9886, 9887, 9919, 9919, 9926, 9933, 9935, 9939, 9941, 9953, 9955, 9955, 9960, 9961, 9963, 9969, 9972, 9972, 9974, 9977, 9979, 9980, 9982, 9983, 10045, 10045, 10102, 10111, 11094, 11097, 12872, 12879, 57344, 63743, 65024, 65039, 65533, 65533, 127232, 127242, 127248, 127277, 127280, 127337, 127344, 127373, 127375, 127376, 127387, 127404, 917760, 917999, 983040, 1048573, 1048576, 1114109];
+var fullwidthRanges = [12288, 12288, 65281, 65376, 65504, 65510];
+var halfwidthRanges = [8361, 8361, 65377, 65470, 65474, 65479, 65482, 65487, 65490, 65495, 65498, 65500, 65512, 65518];
+var narrowRanges = [32, 126, 162, 163, 165, 166, 172, 172, 175, 175, 10214, 10221, 10629, 10630];
+var wideRanges = [4352, 4447, 8986, 8987, 9001, 9002, 9193, 9196, 9200, 9200, 9203, 9203, 9725, 9726, 9748, 9749, 9776, 9783, 9800, 9811, 9855, 9855, 9866, 9871, 9875, 9875, 9889, 9889, 9898, 9899, 9917, 9918, 9924, 9925, 9934, 9934, 9940, 9940, 9962, 9962, 9970, 9971, 9973, 9973, 9978, 9978, 9981, 9981, 9989, 9989, 9994, 9995, 10024, 10024, 10060, 10060, 10062, 10062, 10067, 10069, 10071, 10071, 10133, 10135, 10160, 10160, 10175, 10175, 11035, 11036, 11088, 11088, 11093, 11093, 11904, 11929, 11931, 12019, 12032, 12245, 12272, 12287, 12289, 12350, 12353, 12438, 12441, 12543, 12549, 12591, 12593, 12686, 12688, 12773, 12783, 12830, 12832, 12871, 12880, 42124, 42128, 42182, 43360, 43388, 44032, 55203, 63744, 64255, 65040, 65049, 65072, 65106, 65108, 65126, 65128, 65131, 94176, 94180, 94192, 94198, 94208, 101589, 101631, 101662, 101760, 101874, 110576, 110579, 110581, 110587, 110589, 110590, 110592, 110882, 110898, 110898, 110928, 110930, 110933, 110933, 110948, 110951, 110960, 111355, 119552, 119638, 119648, 119670, 126980, 126980, 127183, 127183, 127374, 127374, 127377, 127386, 127488, 127490, 127504, 127547, 127552, 127560, 127568, 127569, 127584, 127589, 127744, 127776, 127789, 127797, 127799, 127868, 127870, 127891, 127904, 127946, 127951, 127955, 127968, 127984, 127988, 127988, 127992, 128062, 128064, 128064, 128066, 128252, 128255, 128317, 128331, 128334, 128336, 128359, 128378, 128378, 128405, 128406, 128420, 128420, 128507, 128591, 128640, 128709, 128716, 128716, 128720, 128722, 128725, 128728, 128732, 128735, 128747, 128748, 128756, 128764, 128992, 129003, 129008, 129008, 129292, 129338, 129340, 129349, 129351, 129535, 129648, 129660, 129664, 129674, 129678, 129734, 129736, 129736, 129741, 129756, 129759, 129770, 129775, 129784, 131072, 196605, 196608, 262141];
+
+// node_modules/get-east-asian-width/utilities.js
+var isInRange = (ranges, codePoint) => {
+  let low = 0;
+  let high = Math.floor(ranges.length / 2) - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const i = mid * 2;
+    if (codePoint < ranges[i]) {
+      high = mid - 1;
+    } else if (codePoint > ranges[i + 1]) {
+      low = mid + 1;
+    } else {
+      return true;
+    }
+  }
+  return false;
+};
+
+// node_modules/get-east-asian-width/lookup.js
+var minimumAmbiguousCodePoint = ambiguousRanges[0];
+var maximumAmbiguousCodePoint = ambiguousRanges.at(-1);
+var minimumFullWidthCodePoint = fullwidthRanges[0];
+var maximumFullWidthCodePoint = fullwidthRanges.at(-1);
+var minimumHalfWidthCodePoint = halfwidthRanges[0];
+var maximumHalfWidthCodePoint = halfwidthRanges.at(-1);
+var minimumNarrowCodePoint = narrowRanges[0];
+var maximumNarrowCodePoint = narrowRanges.at(-1);
+var minimumWideCodePoint = wideRanges[0];
+var maximumWideCodePoint = wideRanges.at(-1);
+var commonCjkCodePoint = 19968;
+var [wideFastPathStart, wideFastPathEnd] = findWideFastPathRange(wideRanges);
+function findWideFastPathRange(ranges) {
+  let fastPathStart = ranges[0];
+  let fastPathEnd = ranges[1];
+  for (let index = 0; index < ranges.length; index += 2) {
+    const start = ranges[index];
+    const end = ranges[index + 1];
+    if (commonCjkCodePoint >= start && commonCjkCodePoint <= end) {
+      return [start, end];
+    }
+    if (end - start > fastPathEnd - fastPathStart) {
+      fastPathStart = start;
+      fastPathEnd = end;
+    }
+  }
+  return [fastPathStart, fastPathEnd];
+}
+var isAmbiguous = (codePoint) => {
+  if (codePoint < minimumAmbiguousCodePoint || codePoint > maximumAmbiguousCodePoint) {
+    return false;
+  }
+  return isInRange(ambiguousRanges, codePoint);
+};
+var isFullWidth = (codePoint) => {
+  if (codePoint < minimumFullWidthCodePoint || codePoint > maximumFullWidthCodePoint) {
+    return false;
+  }
+  return isInRange(fullwidthRanges, codePoint);
+};
+var isWide = (codePoint) => {
+  if (codePoint >= wideFastPathStart && codePoint <= wideFastPathEnd) {
+    return true;
+  }
+  if (codePoint < minimumWideCodePoint || codePoint > maximumWideCodePoint) {
+    return false;
+  }
+  return isInRange(wideRanges, codePoint);
+};
+
+// node_modules/get-east-asian-width/index.js
+function validate(codePoint) {
+  if (!Number.isSafeInteger(codePoint)) {
+    throw new TypeError(`Expected a code point, got \`${typeof codePoint}\`.`);
+  }
+}
+function eastAsianWidth(codePoint, { ambiguousAsWide = false } = {}) {
+  validate(codePoint);
+  if (isFullWidth(codePoint) || isWide(codePoint) || ambiguousAsWide && isAmbiguous(codePoint)) {
+    return 2;
+  }
+  return 1;
+}
+
+// node_modules/string-width/index.js
+var segmenter = new Intl.Segmenter();
+var zeroWidthClusterRegex = new RegExp("^(?:\\p{Default_Ignorable_Code_Point}|\\p{Control}|\\p{Format}|\\p{Mark}|\\p{Surrogate})+$", "v");
+var leadingNonPrintingRegex = new RegExp("^[\\p{Default_Ignorable_Code_Point}\\p{Control}\\p{Format}\\p{Mark}\\p{Surrogate}]+", "v");
+var rgiEmojiRegex = new RegExp("^\\p{RGI_Emoji}$", "v");
+var unqualifiedKeycapRegex = /^[\d#*]\u20E3$/;
+var extendedPictographicRegex = /\p{Extended_Pictographic}/gu;
+function isDoubleWidthNonRgiEmojiSequence(segment) {
+  if (segment.length > 50) {
+    return false;
+  }
+  if (unqualifiedKeycapRegex.test(segment)) {
+    return true;
+  }
+  if (segment.includes("\u200D")) {
+    const pictographics = segment.match(extendedPictographicRegex);
+    return pictographics !== null && pictographics.length >= 2;
+  }
+  return false;
+}
+function baseVisible(segment) {
+  return segment.replace(leadingNonPrintingRegex, "");
+}
+function isZeroWidthCluster(segment) {
+  return zeroWidthClusterRegex.test(segment);
+}
+function trailingHalfwidthWidth(segment, eastAsianWidthOptions) {
+  let extra = 0;
+  if (segment.length > 1) {
+    for (const char of segment.slice(1)) {
+      if (char >= "\uFF00" && char <= "\uFFEF") {
+        extra += eastAsianWidth(char.codePointAt(0), eastAsianWidthOptions);
+      }
+    }
+  }
+  return extra;
+}
+function stringWidth(input, options = {}) {
+  if (typeof input !== "string" || input.length === 0) {
+    return 0;
+  }
+  const {
+    ambiguousIsNarrow = true,
+    countAnsiEscapeCodes = false
+  } = options;
+  let string = input;
+  if (!countAnsiEscapeCodes && (string.includes("\x1B") || string.includes("\x9B"))) {
+    string = stripAnsi(string);
+  }
+  if (string.length === 0) {
+    return 0;
+  }
+  if (/^[\u0020-\u007E]*$/.test(string)) {
+    return string.length;
+  }
+  let width = 0;
+  const eastAsianWidthOptions = { ambiguousAsWide: !ambiguousIsNarrow };
+  for (const { segment } of segmenter.segment(string)) {
+    if (isZeroWidthCluster(segment)) {
+      continue;
+    }
+    if (rgiEmojiRegex.test(segment) || isDoubleWidthNonRgiEmojiSequence(segment)) {
+      width += 2;
+      continue;
+    }
+    const codePoint = baseVisible(segment).codePointAt(0);
+    width += eastAsianWidth(codePoint, eastAsianWidthOptions);
+    width += trailingHalfwidthWidth(segment, eastAsianWidthOptions);
+  }
+  return width;
+}
+
+// node_modules/is-interactive/index.js
+function isInteractive({ stream = process.stdout } = {}) {
+  return Boolean(
+    stream && stream.isTTY && process.env.TERM !== "dumb" && !("CI" in process.env)
+  );
+}
+
+// node_modules/stdin-discarder/index.js
+import process7 from "process";
+var ASCII_ETX_CODE = 3;
+var StdinDiscarder = class {
+  #activeCount = 0;
+  #stdin;
+  #stdinWasPaused = false;
+  #stdinWasRaw = false;
+  #handleInputBound = (chunk) => {
+    if (!chunk?.length) {
+      return;
+    }
+    const code = typeof chunk === "string" ? chunk.codePointAt(0) : chunk[0];
+    if (code === ASCII_ETX_CODE) {
+      if (process7.listenerCount("SIGINT") > 0) {
+        process7.emit("SIGINT");
+      } else {
+        process7.kill(process7.pid, "SIGINT");
+      }
+    }
+  };
+  start() {
+    this.#activeCount++;
+    if (this.#activeCount === 1) {
+      this.#realStart();
+    }
+  }
+  stop() {
+    if (this.#activeCount === 0) {
+      return;
+    }
+    if (--this.#activeCount === 0) {
+      this.#realStop();
+    }
+  }
+  #realStart() {
+    const { stdin } = process7;
+    if (process7.platform === "win32" || !stdin?.isTTY || typeof stdin.setRawMode !== "function") {
+      this.#stdin = void 0;
+      return;
+    }
+    this.#stdin = stdin;
+    this.#stdinWasPaused = stdin.isPaused();
+    this.#stdinWasRaw = Boolean(stdin.isRaw);
+    stdin.setRawMode(true);
+    stdin.prependListener("data", this.#handleInputBound);
+    if (this.#stdinWasPaused) {
+      stdin.resume();
+    }
+  }
+  #realStop() {
+    if (!this.#stdin) {
+      return;
+    }
+    const stdin = this.#stdin;
+    stdin.off("data", this.#handleInputBound);
+    if (stdin.isTTY) {
+      stdin.setRawMode?.(this.#stdinWasRaw);
+    }
+    if (this.#stdinWasPaused) {
+      stdin.pause();
+    }
+    this.#stdin = void 0;
+    this.#stdinWasPaused = false;
+    this.#stdinWasRaw = false;
+  }
+};
+var stdinDiscarder = new StdinDiscarder();
+var stdin_discarder_default = Object.freeze(stdinDiscarder);
+
+// node_modules/ora/index.js
+var RENDER_DEFERRAL_TIMEOUT = 200;
+var SYNCHRONIZED_OUTPUT_ENABLE = "\x1B[?2026h";
+var SYNCHRONIZED_OUTPUT_DISABLE = "\x1B[?2026l";
+var activeHooksPerStream = /* @__PURE__ */ new Map();
+var Ora = class {
+  #linesToClear = 0;
+  #frameIndex = -1;
+  #lastFrameTime = 0;
+  #options;
+  #spinner;
+  #stream;
+  #id;
+  #hookedStreams = /* @__PURE__ */ new Map();
+  #isInternalWrite = false;
+  #drainHandler;
+  #deferRenderTimer;
+  #isDiscardingStdin = false;
+  color;
+  // Helper to execute writes while preventing hook recursion
+  #internalWrite(fn) {
+    this.#isInternalWrite = true;
+    try {
+      return fn();
+    } finally {
+      this.#isInternalWrite = false;
+    }
+  }
+  // Helper to render if still spinning
+  #tryRender() {
+    if (this.isSpinning) {
+      this.render();
+    }
+  }
+  #stringifyChunk(chunk, encoding) {
+    if (chunk === void 0 || chunk === null) {
+      return "";
+    }
+    if (typeof chunk === "string") {
+      return chunk;
+    }
+    if (Buffer.isBuffer(chunk) || ArrayBuffer.isView(chunk)) {
+      const normalizedEncoding = typeof encoding === "string" && encoding && encoding !== "buffer" ? encoding : "utf8";
+      return Buffer.from(chunk).toString(normalizedEncoding);
+    }
+    return String(chunk);
+  }
+  #chunkTerminatesLine(chunkString) {
+    if (!chunkString) {
+      return false;
+    }
+    const lastCharacter = chunkString.at(-1);
+    return lastCharacter === "\n" || lastCharacter === "\r";
+  }
+  #scheduleRenderDeferral() {
+    if (this.#deferRenderTimer) {
+      return;
+    }
+    this.#deferRenderTimer = setTimeout(() => {
+      this.#deferRenderTimer = void 0;
+      if (this.isSpinning) {
+        this.#tryRender();
+      }
+    }, RENDER_DEFERRAL_TIMEOUT);
+    if (typeof this.#deferRenderTimer?.unref === "function") {
+      this.#deferRenderTimer.unref();
+    }
+  }
+  #clearRenderDeferral() {
+    if (this.#deferRenderTimer) {
+      clearTimeout(this.#deferRenderTimer);
+      this.#deferRenderTimer = void 0;
+    }
+  }
+  // Helper to build complete line with symbol, text, prefix, and suffix
+  #buildOutputLine(symbol, text, prefixText, suffixText) {
+    const fullPrefixText = this.#getFullPrefixText(prefixText, " ");
+    const separatorText = symbol ? " " : "";
+    const fullText = typeof text === "string" ? separatorText + text : "";
+    const fullSuffixText = this.#getFullSuffixText(suffixText, " ");
+    return fullPrefixText + symbol + fullText + fullSuffixText;
+  }
+  constructor(options) {
+    if (typeof options === "string") {
+      options = {
+        text: options
+      };
+    }
+    this.#options = {
+      color: "cyan",
+      stream: process8.stderr,
+      discardStdin: true,
+      hideCursor: true,
+      ...options
+    };
+    this.color = this.#options.color;
+    this.#stream = this.#options.stream;
+    if (typeof this.#options.isEnabled !== "boolean") {
+      this.#options.isEnabled = isInteractive({ stream: this.#stream });
+    }
+    if (typeof this.#options.isSilent !== "boolean") {
+      this.#options.isSilent = false;
+    }
+    const userInterval = this.#options.interval;
+    this.spinner = this.#options.spinner;
+    this.#options.interval = userInterval;
+    this.text = this.#options.text;
+    this.prefixText = this.#options.prefixText;
+    this.suffixText = this.#options.suffixText;
+    this.indent = this.#options.indent;
+    if (process8.env.NODE_ENV === "test") {
+      this._stream = this.#stream;
+      this._isEnabled = this.#options.isEnabled;
+      Object.defineProperty(this, "_linesToClear", {
+        get() {
+          return this.#linesToClear;
+        },
+        set(newValue) {
+          this.#linesToClear = newValue;
+        }
+      });
+      Object.defineProperty(this, "_frameIndex", {
+        get() {
+          return this.#frameIndex;
+        }
+      });
+      Object.defineProperty(this, "_lineCount", {
+        get() {
+          const columns = this.#stream.columns ?? 80;
+          const prefixText = typeof this.#options.prefixText === "function" ? "" : this.#options.prefixText;
+          const suffixText = typeof this.#options.suffixText === "function" ? "" : this.#options.suffixText;
+          const fullPrefixText = typeof prefixText === "string" && prefixText !== "" ? prefixText + " " : "";
+          const fullSuffixText = typeof suffixText === "string" && suffixText !== "" ? " " + suffixText : "";
+          const spinnerChar = "-";
+          const fullText = " ".repeat(this.#options.indent) + fullPrefixText + spinnerChar + (typeof this.#options.text === "string" ? " " + this.#options.text : "") + fullSuffixText;
+          return this.#computeLineCountFrom(fullText, columns);
+        }
+      });
+    }
+  }
+  get indent() {
+    return this.#options.indent;
+  }
+  set indent(indent = 0) {
+    if (!(indent >= 0 && Number.isInteger(indent))) {
+      throw new Error("The `indent` option must be an integer from 0 and up");
+    }
+    this.#options.indent = indent;
+  }
+  get interval() {
+    return this.#options.interval ?? this.#spinner.interval ?? 100;
+  }
+  get spinner() {
+    return this.#spinner;
+  }
+  set spinner(spinner) {
+    this.#frameIndex = -1;
+    this.#options.interval = void 0;
+    if (typeof spinner === "object") {
+      if (!Array.isArray(spinner.frames) || spinner.frames.length === 0 || spinner.frames.some((frame) => typeof frame !== "string")) {
+        throw new Error("The given spinner must have a non-empty `frames` array of strings");
+      }
+      if (spinner.interval !== void 0 && !(Number.isInteger(spinner.interval) && spinner.interval > 0)) {
+        throw new Error("`spinner.interval` must be a positive integer if provided");
+      }
+      this.#spinner = spinner;
+    } else if (!isUnicodeSupported()) {
+      this.#spinner = cli_spinners_default.line;
+    } else if (spinner === void 0) {
+      this.#spinner = cli_spinners_default.dots;
+    } else if (spinner !== "default" && cli_spinners_default[spinner]) {
+      this.#spinner = cli_spinners_default[spinner];
+    } else {
+      throw new Error(`There is no built-in spinner named '${spinner}'. See https://github.com/sindresorhus/cli-spinners/blob/main/spinners.json for a full list.`);
+    }
+  }
+  get text() {
+    return this.#options.text;
+  }
+  set text(value = "") {
+    this.#options.text = value;
+  }
+  get prefixText() {
+    return this.#options.prefixText;
+  }
+  set prefixText(value = "") {
+    this.#options.prefixText = value;
+  }
+  get suffixText() {
+    return this.#options.suffixText;
+  }
+  set suffixText(value = "") {
+    this.#options.suffixText = value;
+  }
+  get isSpinning() {
+    return this.#id !== void 0;
+  }
+  #formatAffix(value, separator, placeBefore = false) {
+    const resolved = typeof value === "function" ? value() : value;
+    if (typeof resolved === "string" && resolved !== "") {
+      return placeBefore ? separator + resolved : resolved + separator;
+    }
+    return "";
+  }
+  #getFullPrefixText(prefixText = this.#options.prefixText, postfix = " ") {
+    return this.#formatAffix(prefixText, postfix, false);
+  }
+  #getFullSuffixText(suffixText = this.#options.suffixText, prefix = " ") {
+    return this.#formatAffix(suffixText, prefix, true);
+  }
+  #computeLineCountFrom(text, columns) {
+    let count = 0;
+    for (const line of stripVTControlCharacters(text).split("\n")) {
+      count += Math.max(1, Math.ceil(stringWidth(line) / columns));
+    }
+    return count;
+  }
+  get isEnabled() {
+    return this.#options.isEnabled && !this.#options.isSilent;
+  }
+  set isEnabled(value) {
+    if (typeof value !== "boolean") {
+      throw new TypeError("The `isEnabled` option must be a boolean");
+    }
+    this.#options.isEnabled = value;
+  }
+  get isSilent() {
+    return this.#options.isSilent;
+  }
+  set isSilent(value) {
+    if (typeof value !== "boolean") {
+      throw new TypeError("The `isSilent` option must be a boolean");
+    }
+    this.#options.isSilent = value;
+  }
+  frame() {
+    const now = Date.now();
+    if (this.#frameIndex === -1 || now - this.#lastFrameTime >= this.interval) {
+      this.#frameIndex = (this.#frameIndex + 1) % this.#spinner.frames.length;
+      this.#lastFrameTime = now;
+    }
+    const { frames } = this.#spinner;
+    let frame = frames[this.#frameIndex];
+    if (this.color) {
+      frame = source_default[this.color](frame);
+    }
+    const fullPrefixText = this.#getFullPrefixText(this.#options.prefixText, " ");
+    const fullText = typeof this.text === "string" ? " " + this.text : "";
+    const fullSuffixText = this.#getFullSuffixText(this.#options.suffixText, " ");
+    return fullPrefixText + frame + fullText + fullSuffixText;
+  }
+  clear() {
+    if (!this.isEnabled || !this.#stream.isTTY) {
+      return this;
+    }
+    this.#internalWrite(() => {
+      this.#stream.cursorTo(0);
+      for (let index = 0; index < this.#linesToClear; index++) {
+        if (index > 0) {
+          this.#stream.moveCursor(0, -1);
+        }
+        this.#stream.clearLine(1);
+      }
+      if (this.#options.indent) {
+        this.#stream.cursorTo(this.#options.indent);
+      }
+    });
+    this.#linesToClear = 0;
+    return this;
+  }
+  // Helper to hook a single stream
+  #hookStream(stream) {
+    if (!stream || this.#hookedStreams.has(stream) || !stream.isTTY || typeof stream.write !== "function") {
+      return;
+    }
+    if (activeHooksPerStream.has(stream)) {
+      console.warn("[ora] Multiple concurrent spinners detected. This may cause visual corruption. Use one spinner at a time.");
+    }
+    const originalWrite = stream.write;
+    this.#hookedStreams.set(stream, originalWrite);
+    activeHooksPerStream.set(stream, this);
+    stream.write = (chunk, encoding, callback) => this.#hookedWrite(stream, originalWrite, chunk, encoding, callback);
+  }
+  /**
+  Intercept stream writes while spinner is active to handle external writes cleanly without visual corruption.
+  Hooks process stdio streams and the active spinner stream so console.log(), console.error(), and direct writes stay tidy.
+  */
+  #installHook() {
+    if (!this.isEnabled || this.#hookedStreams.size > 0) {
+      return;
+    }
+    const streamsToHook = /* @__PURE__ */ new Set([this.#stream, process8.stdout, process8.stderr]);
+    for (const stream of streamsToHook) {
+      this.#hookStream(stream);
+    }
+  }
+  #uninstallHook() {
+    for (const [stream, originalWrite] of this.#hookedStreams) {
+      stream.write = originalWrite;
+      if (activeHooksPerStream.get(stream) === this) {
+        activeHooksPerStream.delete(stream);
+      }
+    }
+    this.#hookedStreams.clear();
+  }
+  // eslint-disable-next-line max-params -- Need stream and originalWrite for multi-stream support
+  #hookedWrite(stream, originalWrite, chunk, encoding, callback) {
+    if (typeof encoding === "function") {
+      callback = encoding;
+      encoding = void 0;
+    }
+    if (this.#isInternalWrite) {
+      return originalWrite.call(stream, chunk, encoding, callback);
+    }
+    this.clear();
+    const chunkString = this.#stringifyChunk(chunk, encoding);
+    const chunkTerminatesLine = this.#chunkTerminatesLine(chunkString);
+    const writeResult = originalWrite.call(stream, chunk, encoding, callback);
+    if (chunkTerminatesLine) {
+      this.#clearRenderDeferral();
+    } else if (chunkString.length > 0) {
+      this.#scheduleRenderDeferral();
+    }
+    if (this.isSpinning && !this.#deferRenderTimer) {
+      this.render();
+    }
+    return writeResult;
+  }
+  render() {
+    if (!this.isEnabled || this.#drainHandler || this.#deferRenderTimer) {
+      return this;
+    }
+    const useSynchronizedOutput = this.#stream.isTTY;
+    let shouldDisableSynchronizedOutput = false;
+    try {
+      if (useSynchronizedOutput) {
+        this.#internalWrite(() => this.#stream.write(SYNCHRONIZED_OUTPUT_ENABLE));
+        shouldDisableSynchronizedOutput = true;
+      }
+      this.clear();
+      let frameContent = this.frame();
+      const columns = this.#stream.columns ?? 80;
+      const actualLineCount = this.#computeLineCountFrom(frameContent, columns);
+      const consoleHeight = this.#stream.rows;
+      if (consoleHeight && consoleHeight > 1 && actualLineCount > consoleHeight) {
+        const lines = frameContent.split("\n");
+        const maxLines = consoleHeight - 1;
+        frameContent = [...lines.slice(0, maxLines), "... (content truncated to fit terminal)"].join("\n");
+      }
+      const canContinue = this.#internalWrite(() => this.#stream.write(frameContent));
+      if (canContinue === false && this.#stream.isTTY) {
+        this.#drainHandler = () => {
+          this.#drainHandler = void 0;
+          this.#tryRender();
+        };
+        this.#stream.once("drain", this.#drainHandler);
+      }
+      this.#linesToClear = this.#computeLineCountFrom(frameContent, columns);
+    } finally {
+      if (shouldDisableSynchronizedOutput) {
+        this.#internalWrite(() => this.#stream.write(SYNCHRONIZED_OUTPUT_DISABLE));
+      }
+    }
+    return this;
+  }
+  start(text) {
+    if (text) {
+      this.text = text;
+    }
+    if (this.isSilent) {
+      return this;
+    }
+    if (!this.isEnabled) {
+      const symbol = this.text ? "-" : "";
+      const line = " ".repeat(this.#options.indent) + this.#buildOutputLine(symbol, this.text, this.#options.prefixText, this.#options.suffixText);
+      if (line.trim() !== "") {
+        this.#internalWrite(() => this.#stream.write(line + "\n"));
+      }
+      return this;
+    }
+    if (this.isSpinning) {
+      return this;
+    }
+    if (this.#options.hideCursor) {
+      cli_cursor_default.hide(this.#stream);
+    }
+    if (this.#options.discardStdin && process8.stdin.isTTY) {
+      stdin_discarder_default.start();
+      this.#isDiscardingStdin = true;
+    }
+    this.#installHook();
+    this.render();
+    this.#id = setInterval(this.render.bind(this), this.interval);
+    return this;
+  }
+  stop() {
+    clearInterval(this.#id);
+    this.#id = void 0;
+    this.#frameIndex = -1;
+    this.#lastFrameTime = 0;
+    this.#clearRenderDeferral();
+    this.#uninstallHook();
+    if (this.#drainHandler) {
+      this.#stream.removeListener("drain", this.#drainHandler);
+      this.#drainHandler = void 0;
+    }
+    if (this.isEnabled) {
+      this.clear();
+      if (this.#options.hideCursor) {
+        cli_cursor_default.show(this.#stream);
+      }
+    }
+    if (this.#isDiscardingStdin) {
+      this.#isDiscardingStdin = false;
+      stdin_discarder_default.stop();
+    }
+    return this;
+  }
+  succeed(text) {
+    return this.stopAndPersist({ symbol: symbols_exports.success, text });
+  }
+  fail(text) {
+    return this.stopAndPersist({ symbol: symbols_exports.error, text });
+  }
+  warn(text) {
+    return this.stopAndPersist({ symbol: symbols_exports.warning, text });
+  }
+  info(text) {
+    return this.stopAndPersist({ symbol: symbols_exports.info, text });
+  }
+  stopAndPersist(options = {}) {
+    if (this.isSilent) {
+      return this;
+    }
+    const symbol = options.symbol ?? " ";
+    const text = options.text ?? this.text;
+    const prefixText = options.prefixText ?? this.#options.prefixText;
+    const suffixText = options.suffixText ?? this.#options.suffixText;
+    const textToWrite = this.#buildOutputLine(symbol, text, prefixText, suffixText) + "\n";
+    this.stop();
+    this.#internalWrite(() => this.#stream.write(textToWrite));
+    return this;
+  }
+};
+function ora(options) {
+  return new Ora(options);
+}
+
+// src/cli.ts
+init_relay();
+
+// src/version.ts
+import { readFileSync as readFileSync3 } from "fs";
+import { resolve as resolve2, dirname } from "path";
+import { fileURLToPath } from "url";
+function getVersion() {
+  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const pkgPath = resolve2(thisDir, "..", "package.json");
+  try {
+    const pkg = JSON.parse(readFileSync3(pkgPath, "utf-8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+// src/theme.ts
+var theme = {
+  // Status
+  success: source_default.green,
+  error: source_default.red,
+  warning: source_default.yellow,
+  info: source_default.cyan,
+  hint: source_default.dim,
+  // Typography
+  bold: source_default.bold,
+  heading: source_default.bold,
+  label: source_default.bold.dim,
+  // Branding
+  brand: source_default.cyan.bold,
+  version: source_default.dim,
+  // Marks
+  checkmark: source_default.green("\u2713"),
+  crossmark: source_default.red("\u2717"),
+  planned: source_default.dim("[planned]")
+};
+function banner(title) {
+  const v = getVersion();
+  return `  ${theme.brand("phone-a-friend")} ${theme.version(`v${v}`)} \u2014 ${theme.heading(title)}`;
+}
+
+// src/installer.ts
+init_backends();
+import { execFileSync as execFileSync5 } from "child_process";
+import {
+  existsSync as existsSync3,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  rmSync as rmSync2,
+  symlinkSync,
+  cpSync,
+  unlinkSync
+} from "fs";
+import { resolve as resolve3, join as join2, dirname as dirname2 } from "path";
+import { homedir } from "os";
+var PLUGIN_NAME = "phone-a-friend";
+var MARKETPLACE_NAME = "phone-a-friend-dev";
+var INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
+var INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
+var InstallerError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "InstallerError";
+  }
+};
+function ensureParent(filePath) {
+  mkdirSync(dirname2(filePath), { recursive: true });
+}
+function removePath(filePath) {
+  let stat;
+  try {
+    stat = lstatSync(filePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+  if (stat.isSymbolicLink() || stat.isFile()) {
+    unlinkSync(filePath);
+  } else if (stat.isDirectory()) {
+    rmSync2(filePath, { recursive: true, force: true });
+  }
+}
+function installPath(src, dst, mode, force) {
+  const dstExists = existsSync3(dst) || isSymlink(dst);
+  if (dstExists) {
+    if (isSymlink(dst) && realpathSync(dst) === realpathSync(src)) {
+      return "already-installed";
+    }
+    if (!force) {
+      throw new InstallerError(`Destination already exists: ${dst}`);
+    }
+    removePath(dst);
+  }
+  ensureParent(dst);
+  if (mode === "symlink") {
+    symlinkSync(src, dst);
+  } else {
+    cpSync(src, dst, { recursive: true });
+  }
+  return "installed";
+}
+function isSymlink(filePath) {
+  try {
+    return lstatSync(filePath).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function runClaudeCommand(args) {
+  try {
+    const result = execFileSync5(args[0], args.slice(1), {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    return { code: 0, output: result.trim() };
+  } catch (err) {
+    const execErr = err;
+    const stdout = execErr.stdout?.toString() ?? "";
+    const stderr = execErr.stderr?.toString() ?? "";
+    return {
+      code: execErr.status ?? 1,
+      output: (stdout + stderr).trim()
+    };
+  }
+}
+function looksLikeOkIfAlready(output) {
+  const text = output.toLowerCase();
+  return [
+    "already configured",
+    "already added",
+    "already installed",
+    "already enabled",
+    "already up to date"
+  ].some((token) => text.includes(token));
+}
+function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
+  const lines = [];
+  try {
+    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    lines.push("- claude_cli: skipped (claude binary not found)");
+    return lines;
+  }
+  const commands = [
+    [["claude", "plugin", "marketplace", "add", repoRoot], "marketplace_add"],
+    [["claude", "plugin", "marketplace", "update", marketplaceName], "marketplace_update"],
+    [["claude", "plugin", "install", `${pluginName}@${marketplaceName}`, "-s", scope], "install"],
+    [["claude", "plugin", "enable", `${pluginName}@${marketplaceName}`, "-s", scope], "enable"],
+    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`], "update"]
+  ];
+  for (const [cmd, label] of commands) {
+    const { code, output } = runClaudeCommand(cmd);
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- claude_cli_${label}: ok`);
+    } else {
+      lines.push(`- claude_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+  return lines;
+}
+function claudeTarget(claudeHome) {
+  const base = claudeHome ?? join2(homedir(), ".claude");
+  return join2(base, "plugins", PLUGIN_NAME);
+}
+function installClaude(repoRoot, mode, force, claudeHome) {
+  const target = claudeTarget(claudeHome);
+  const status = installPath(repoRoot, target, mode, force);
+  return { status, targetPath: target };
+}
+function uninstallPath(filePath) {
+  if (existsSync3(filePath) || isSymlink(filePath)) {
+    removePath(filePath);
+    return "removed";
+  }
+  return "not-installed";
+}
+function uninstallClaude(claudeHome) {
+  const target = claudeTarget(claudeHome);
+  return { status: uninstallPath(target), targetPath: target };
+}
+function isValidRepoRoot(repoRoot) {
+  return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
+}
+function installHosts(opts) {
+  const {
+    repoRoot,
+    target,
+    mode = "symlink",
+    force = false,
+    claudeHome,
+    syncClaudeCli = true
+  } = opts;
+  if (!INSTALL_TARGETS.has(target)) {
+    throw new InstallerError(`Invalid target: ${target}`);
+  }
+  if (!INSTALL_MODES.has(mode)) {
+    throw new InstallerError(`Invalid mode: ${mode}`);
+  }
+  const resolvedRepo = resolve3(repoRoot);
+  if (!isValidRepoRoot(resolvedRepo)) {
+    throw new InstallerError(`Invalid repo root: ${resolvedRepo}`);
+  }
+  const lines = [
+    "phone-a-friend installer",
+    `- repo_root: ${resolvedRepo}`,
+    `- mode: ${mode}`
+  ];
+  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
+  lines.push(`- claude: ${status} -> ${targetPath}`);
+  if (syncClaudeCli) {
+    lines.push(...syncClaudePluginRegistration(resolvedRepo));
+  }
+  return lines;
+}
+function uninstallHosts(opts) {
+  const { target, claudeHome } = opts;
+  if (!INSTALL_TARGETS.has(target)) {
+    throw new InstallerError(`Invalid target: ${target}`);
+  }
+  const lines = ["phone-a-friend uninstaller"];
+  const { status, targetPath } = uninstallClaude(claudeHome);
+  lines.push(`- claude: ${status} -> ${targetPath}`);
+  return lines;
+}
+function verifyBackends() {
+  const availability = checkBackends();
+  return Object.entries(availability).map(([name, available]) => ({
+    name,
+    available,
+    hint: INSTALL_HINTS[name] ?? ""
+  }));
+}
+
 // node_modules/@inquirer/core/dist/lib/key.js
 var isUpKey = (key, keybindings = []) => (
   // The up key
@@ -4498,15 +7421,15 @@ function useEffect(cb, depArray) {
 import { styleText } from "util";
 
 // node_modules/@inquirer/figures/dist/index.js
-import process3 from "process";
-function isUnicodeSupported() {
-  if (process3.platform !== "win32") {
-    return process3.env["TERM"] !== "linux";
+import process9 from "process";
+function isUnicodeSupported2() {
+  if (process9.platform !== "win32") {
+    return process9.env["TERM"] !== "linux";
   }
-  return Boolean(process3.env["WT_SESSION"]) || // Windows Terminal
-  Boolean(process3.env["TERMINUS_SUBLIME"]) || // Terminus (<0.2.27)
-  process3.env["ConEmuTask"] === "{cmd::Cmder}" || // ConEmu and cmder
-  process3.env["TERM_PROGRAM"] === "Terminus-Sublime" || process3.env["TERM_PROGRAM"] === "vscode" || process3.env["TERM"] === "xterm-256color" || process3.env["TERM"] === "alacritty" || process3.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
+  return Boolean(process9.env["WT_SESSION"]) || // Windows Terminal
+  Boolean(process9.env["TERMINUS_SUBLIME"]) || // Terminus (<0.2.27)
+  process9.env["ConEmuTask"] === "{cmd::Cmder}" || // ConEmu and cmder
+  process9.env["TERM_PROGRAM"] === "Terminus-Sublime" || process9.env["TERM_PROGRAM"] === "vscode" || process9.env["TERM"] === "xterm-256color" || process9.env["TERM"] === "alacritty" || process9.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
 }
 var common = {
   circleQuestionMark: "(?)",
@@ -4784,7 +7707,7 @@ var fallbackSymbols = {
   ...common,
   ...specialFallbackSymbols
 };
-var shouldUseMain = isUnicodeSupported();
+var shouldUseMain = isUnicodeSupported2();
 var figures = shouldUseMain ? mainSymbols : fallbackSymbols;
 var dist_default = figures;
 var replacements = Object.entries(specialMainSymbols);
@@ -4833,16 +7756,16 @@ function deepMerge(...objects) {
 function makeTheme(...themes) {
   const themesToMerge = [
     defaultTheme,
-    ...themes.filter((theme) => theme != null)
+    ...themes.filter((theme2) => theme2 != null)
   ];
   return deepMerge(...themesToMerge);
 }
 
 // node_modules/@inquirer/core/dist/lib/use-prefix.js
-function usePrefix({ status = "idle", theme }) {
+function usePrefix({ status = "idle", theme: theme2 }) {
   const [showLoader, setShowLoader] = useState(false);
   const [tick, setTick] = useState(0);
-  const { prefix, spinner } = makeTheme(theme);
+  const { prefix, spinner } = makeTheme(theme2);
   useEffect(() => {
     if (status === "loading") {
       let tickInterval;
@@ -4921,7 +7844,7 @@ var getCodePointsLength = /* @__PURE__ */ (() => {
     return input.length - surrogatePairsNr;
   };
 })();
-var isFullWidth = (x) => {
+var isFullWidth2 = (x) => {
   return x === 12288 || x >= 65281 && x <= 65376 || x >= 65504 && x <= 65510;
 };
 var isWideNotCJKTNotEmoji = (x) => {
@@ -4973,7 +7896,7 @@ var getStringTruncatedWidth = (input, truncationOptions = {}, widthOptions = {})
       lengthExtra = 0;
       for (const char of unmatched.replaceAll(MODIFIER_RE, "")) {
         const codePoint = char.codePointAt(0) || 0;
-        if (isFullWidth(codePoint)) {
+        if (isFullWidth2(codePoint)) {
           widthExtra = FULL_WIDTH_WIDTH;
         } else if (isWideNotCJKTNotEmoji(codePoint)) {
           widthExtra = WIDE_WIDTH;
@@ -5347,259 +8270,8 @@ var import_mute_stream = __toESM(require_lib(), 1);
 import * as readline2 from "readline";
 import { AsyncResource as AsyncResource3 } from "async_hooks";
 
-// node_modules/signal-exit/dist/mjs/signals.js
-var signals = [];
-signals.push("SIGHUP", "SIGINT", "SIGTERM");
-if (process.platform !== "win32") {
-  signals.push(
-    "SIGALRM",
-    "SIGABRT",
-    "SIGVTALRM",
-    "SIGXCPU",
-    "SIGXFSZ",
-    "SIGUSR2",
-    "SIGTRAP",
-    "SIGSYS",
-    "SIGQUIT",
-    "SIGIOT"
-    // should detect profiler and enable/disable accordingly.
-    // see #21
-    // 'SIGPROF'
-  );
-}
-if (process.platform === "linux") {
-  signals.push("SIGIO", "SIGPOLL", "SIGPWR", "SIGSTKFLT");
-}
-
-// node_modules/signal-exit/dist/mjs/index.js
-var processOk = (process5) => !!process5 && typeof process5 === "object" && typeof process5.removeListener === "function" && typeof process5.emit === "function" && typeof process5.reallyExit === "function" && typeof process5.listeners === "function" && typeof process5.kill === "function" && typeof process5.pid === "number" && typeof process5.on === "function";
-var kExitEmitter = /* @__PURE__ */ Symbol.for("signal-exit emitter");
-var global = globalThis;
-var ObjectDefineProperty = Object.defineProperty.bind(Object);
-var Emitter = class {
-  emitted = {
-    afterExit: false,
-    exit: false
-  };
-  listeners = {
-    afterExit: [],
-    exit: []
-  };
-  count = 0;
-  id = Math.random();
-  constructor() {
-    if (global[kExitEmitter]) {
-      return global[kExitEmitter];
-    }
-    ObjectDefineProperty(global, kExitEmitter, {
-      value: this,
-      writable: false,
-      enumerable: false,
-      configurable: false
-    });
-  }
-  on(ev, fn) {
-    this.listeners[ev].push(fn);
-  }
-  removeListener(ev, fn) {
-    const list = this.listeners[ev];
-    const i = list.indexOf(fn);
-    if (i === -1) {
-      return;
-    }
-    if (i === 0 && list.length === 1) {
-      list.length = 0;
-    } else {
-      list.splice(i, 1);
-    }
-  }
-  emit(ev, code, signal) {
-    if (this.emitted[ev]) {
-      return false;
-    }
-    this.emitted[ev] = true;
-    let ret = false;
-    for (const fn of this.listeners[ev]) {
-      ret = fn(code, signal) === true || ret;
-    }
-    if (ev === "exit") {
-      ret = this.emit("afterExit", code, signal) || ret;
-    }
-    return ret;
-  }
-};
-var SignalExitBase = class {
-};
-var signalExitWrap = (handler) => {
-  return {
-    onExit(cb, opts) {
-      return handler.onExit(cb, opts);
-    },
-    load() {
-      return handler.load();
-    },
-    unload() {
-      return handler.unload();
-    }
-  };
-};
-var SignalExitFallback = class extends SignalExitBase {
-  onExit() {
-    return () => {
-    };
-  }
-  load() {
-  }
-  unload() {
-  }
-};
-var SignalExit = class extends SignalExitBase {
-  // "SIGHUP" throws an `ENOSYS` error on Windows,
-  // so use a supported signal instead
-  /* c8 ignore start */
-  #hupSig = process4.platform === "win32" ? "SIGINT" : "SIGHUP";
-  /* c8 ignore stop */
-  #emitter = new Emitter();
-  #process;
-  #originalProcessEmit;
-  #originalProcessReallyExit;
-  #sigListeners = {};
-  #loaded = false;
-  constructor(process5) {
-    super();
-    this.#process = process5;
-    this.#sigListeners = {};
-    for (const sig of signals) {
-      this.#sigListeners[sig] = () => {
-        const listeners = this.#process.listeners(sig);
-        let { count } = this.#emitter;
-        const p = process5;
-        if (typeof p.__signal_exit_emitter__ === "object" && typeof p.__signal_exit_emitter__.count === "number") {
-          count += p.__signal_exit_emitter__.count;
-        }
-        if (listeners.length === count) {
-          this.unload();
-          const ret = this.#emitter.emit("exit", null, sig);
-          const s = sig === "SIGHUP" ? this.#hupSig : sig;
-          if (!ret)
-            process5.kill(process5.pid, s);
-        }
-      };
-    }
-    this.#originalProcessReallyExit = process5.reallyExit;
-    this.#originalProcessEmit = process5.emit;
-  }
-  onExit(cb, opts) {
-    if (!processOk(this.#process)) {
-      return () => {
-      };
-    }
-    if (this.#loaded === false) {
-      this.load();
-    }
-    const ev = opts?.alwaysLast ? "afterExit" : "exit";
-    this.#emitter.on(ev, cb);
-    return () => {
-      this.#emitter.removeListener(ev, cb);
-      if (this.#emitter.listeners["exit"].length === 0 && this.#emitter.listeners["afterExit"].length === 0) {
-        this.unload();
-      }
-    };
-  }
-  load() {
-    if (this.#loaded) {
-      return;
-    }
-    this.#loaded = true;
-    this.#emitter.count += 1;
-    for (const sig of signals) {
-      try {
-        const fn = this.#sigListeners[sig];
-        if (fn)
-          this.#process.on(sig, fn);
-      } catch (_) {
-      }
-    }
-    this.#process.emit = (ev, ...a) => {
-      return this.#processEmit(ev, ...a);
-    };
-    this.#process.reallyExit = (code) => {
-      return this.#processReallyExit(code);
-    };
-  }
-  unload() {
-    if (!this.#loaded) {
-      return;
-    }
-    this.#loaded = false;
-    signals.forEach((sig) => {
-      const listener = this.#sigListeners[sig];
-      if (!listener) {
-        throw new Error("Listener not defined for signal: " + sig);
-      }
-      try {
-        this.#process.removeListener(sig, listener);
-      } catch (_) {
-      }
-    });
-    this.#process.emit = this.#originalProcessEmit;
-    this.#process.reallyExit = this.#originalProcessReallyExit;
-    this.#emitter.count -= 1;
-  }
-  #processReallyExit(code) {
-    if (!processOk(this.#process)) {
-      return 0;
-    }
-    this.#process.exitCode = code || 0;
-    this.#emitter.emit("exit", this.#process.exitCode, null);
-    return this.#originalProcessReallyExit.call(this.#process, this.#process.exitCode);
-  }
-  #processEmit(ev, ...args) {
-    const og = this.#originalProcessEmit;
-    if (ev === "exit" && processOk(this.#process)) {
-      if (typeof args[0] === "number") {
-        this.#process.exitCode = args[0];
-      }
-      const ret = og.call(this.#process, ev, ...args);
-      this.#emitter.emit("exit", this.#process.exitCode, null);
-      return ret;
-    } else {
-      return og.call(this.#process, ev, ...args);
-    }
-  }
-};
-var process4 = globalThis.process;
-var {
-  /**
-   * Called when the process is exiting, whether via signal, explicit
-   * exit, or running out of stuff to do.
-   *
-   * If the global process object is not suitable for instrumentation,
-   * then this will be a no-op.
-   *
-   * Returns a function that may be used to unload signal-exit.
-   */
-  onExit,
-  /**
-   * Load the listeners.  Likely you never need to call this, unless
-   * doing a rather deep integration with signal-exit functionality.
-   * Mostly exposed for the benefit of testing.
-   *
-   * @internal
-   */
-  load,
-  /**
-   * Unload the listeners.  Likely you never need to call this, unless
-   * doing a rather deep integration with signal-exit functionality.
-   * Mostly exposed for the benefit of testing.
-   *
-   * @internal
-   */
-  unload
-} = signalExitWrap(processOk(process4) ? new SignalExit(process4) : new SignalExitFallback());
-
 // node_modules/@inquirer/core/dist/lib/screen-manager.js
-import { stripVTControlCharacters } from "util";
+import { stripVTControlCharacters as stripVTControlCharacters2 } from "util";
 
 // node_modules/@inquirer/ansi/dist/index.js
 var ESC2 = "\x1B[";
@@ -5637,7 +8309,7 @@ var ScreenManager = class {
   }
   render(content, bottomContent = "") {
     const promptLine = lastLine(content);
-    const rawPromptLine = stripVTControlCharacters(promptLine);
+    const rawPromptLine = stripVTControlCharacters2(promptLine);
     let prompt = rawPromptLine;
     if (this.rl.line.length > 0) {
       prompt = prompt.slice(0, -this.rl.line.length);
@@ -5759,16 +8431,16 @@ function createPrompt(view) {
           const [content, bottomContent] = typeof nextView === "string" ? [nextView] : nextView;
           screen.render(content, bottomContent);
           effectScheduler.run();
-        } catch (error) {
-          reject(error);
+        } catch (error2) {
+          reject(error2);
         }
       });
       return Object.assign(promise.then((answer) => {
         effectScheduler.clearAll();
         return answer;
-      }, (error) => {
+      }, (error2) => {
         effectScheduler.clearAll();
-        throw error;
+        throw error2;
       }).finally(() => {
         cleanups.forEach((cleanup) => cleanup());
         screen.done({ clearContent: Boolean(context.clearPromptOnDone) });
@@ -5810,8 +8482,8 @@ var dist_default4 = createPrompt((config, done) => {
   const { transformer = boolToString } = config;
   const [status, setStatus] = useState("idle");
   const [value, setValue] = useState("");
-  const theme = makeTheme(config.theme);
-  const prefix = usePrefix({ status, theme });
+  const theme2 = makeTheme(config.theme);
+  const prefix = usePrefix({ status, theme: theme2 });
   useKeypress((key, rl) => {
     if (status !== "idle")
       return;
@@ -5832,11 +8504,11 @@ var dist_default4 = createPrompt((config, done) => {
   let formattedValue = value;
   let defaultValue = "";
   if (status === "done") {
-    formattedValue = theme.style.answer(value);
+    formattedValue = theme2.style.answer(value);
   } else {
-    defaultValue = ` ${theme.style.defaultAnswer(config.default === false ? "y/N" : "Y/n")}`;
+    defaultValue = ` ${theme2.style.defaultAnswer(config.default === false ? "y/N" : "Y/n")}`;
   }
-  const message = theme.style.message(config.message, status);
+  const message = theme2.style.message(config.message, status);
   return `${prefix} ${message}${defaultValue} ${formattedValue}`;
 });
 
@@ -5883,10 +8555,10 @@ function normalizeChoices(choices) {
 }
 var dist_default5 = createPrompt((config, done) => {
   const { loop = true, pageSize = 7 } = config;
-  const theme = makeTheme(selectTheme, config.theme);
-  const { keybindings } = theme;
+  const theme2 = makeTheme(selectTheme, config.theme);
+  const { keybindings } = theme2;
   const [status, setStatus] = useState("idle");
-  const prefix = usePrefix({ status, theme });
+  const prefix = usePrefix({ status, theme: theme2 });
   const searchTimeoutRef = useRef();
   const searchEnabled = !keybindings.includes("vim");
   const items = useMemo(() => normalizeChoices(config.choices), [config.choices]);
@@ -5956,8 +8628,8 @@ var dist_default5 = createPrompt((config, done) => {
   useEffect(() => () => {
     clearTimeout(searchTimeoutRef.current);
   }, []);
-  const message = theme.style.message(config.message, status);
-  const helpLine = theme.style.keysHelpTip([
+  const message = theme2.style.message(config.message, status);
+  const helpLine = theme2.style.keysHelpTip([
     ["\u2191\u2193", "navigate"],
     ["\u23CE", "select"]
   ]);
@@ -5970,27 +8642,27 @@ var dist_default5 = createPrompt((config, done) => {
         separatorCount++;
         return ` ${item.separator}`;
       }
-      const indexLabel = theme.indexMode === "number" ? `${index + 1 - separatorCount}. ` : "";
+      const indexLabel = theme2.indexMode === "number" ? `${index + 1 - separatorCount}. ` : "";
       if (item.disabled) {
         const disabledLabel = typeof item.disabled === "string" ? item.disabled : "(disabled)";
-        return theme.style.disabled(`${indexLabel}${item.name} ${disabledLabel}`);
+        return theme2.style.disabled(`${indexLabel}${item.name} ${disabledLabel}`);
       }
-      const color = isActive ? theme.style.highlight : (x) => x;
-      const cursor = isActive ? theme.icon.cursor : ` `;
+      const color = isActive ? theme2.style.highlight : (x) => x;
+      const cursor = isActive ? theme2.icon.cursor : ` `;
       return color(`${cursor} ${indexLabel}${item.name}`);
     },
     pageSize,
     loop
   });
   if (status === "done") {
-    return [prefix, message, theme.style.answer(selectedChoice.short)].filter(Boolean).join(" ");
+    return [prefix, message, theme2.style.answer(selectedChoice.short)].filter(Boolean).join(" ");
   }
   const { description } = selectedChoice;
   const lines = [
     [prefix, message].filter(Boolean).join(" "),
     page,
     " ",
-    description ? theme.style.description(description) : "",
+    description ? theme2.style.description(description) : "",
     helpLine
   ].filter(Boolean).join("\n").trimEnd();
   return `${lines}${cursorHide}`;
@@ -6103,8 +8775,8 @@ async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
 }
 
 // src/config.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
-import { join as join3, dirname as dirname2 } from "path";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
+import { join as join3, dirname as dirname3 } from "path";
 
 // node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string, ptr) {
@@ -6966,7 +9638,7 @@ function loadConfigFromFile(filePath) {
     return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   }
   try {
-    const content = readFileSync3(filePath, "utf-8");
+    const content = readFileSync4(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge2(
       { defaults: { ...DEFAULT_CONFIG.defaults } },
@@ -6982,13 +9654,13 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   config = loadConfigFromFile(paths.user);
   if (paths.repo && existsSync4(paths.repo)) {
-    const repoConfig = parse(readFileSync3(paths.repo, "utf-8"));
+    const repoConfig = parse(readFileSync4(paths.repo, "utf-8"));
     config = deepMerge2(config, repoConfig);
   }
   return config;
 }
 function saveConfig(cfg, filePath) {
-  mkdirSync2(dirname2(filePath), { recursive: true });
+  mkdirSync2(dirname3(filePath), { recursive: true });
   const content = stringify(cfg);
   writeFileSync2(filePath, content, "utf-8");
 }
@@ -7012,7 +9684,7 @@ function configGet(key, cfg) {
 function configSet(key, rawValue, filePath) {
   let cfg;
   if (existsSync4(filePath)) {
-    const content = readFileSync3(filePath, "utf-8");
+    const content = readFileSync4(filePath, "utf-8");
     cfg = parse(content);
   } else {
     cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
@@ -7051,32 +9723,17 @@ function resolveConfig(cliOpts, env2 = process.env, repoRoot, xdgConfigHome) {
   return { backend, sandbox, timeout, includeDiff, model };
 }
 
-// src/version.ts
-import { readFileSync as readFileSync4 } from "fs";
-import { resolve as resolve3, dirname as dirname3 } from "path";
-import { fileURLToPath } from "url";
-function getVersion() {
-  const thisDir = dirname3(fileURLToPath(import.meta.url));
-  const pkgPath = resolve3(thisDir, "..", "package.json");
-  try {
-    const pkg = JSON.parse(readFileSync4(pkgPath, "utf-8"));
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
 // src/display.ts
 function mark(available, planned) {
-  if (planned) return source_default.dim("[planned]");
-  return available ? source_default.green("\u2713") : source_default.red("\u2717");
+  if (planned) return theme.planned;
+  return available ? theme.checkmark : theme.crossmark;
 }
 function formatBackendLine(b) {
   const m = mark(b.available, b.planned);
   const line = `    ${m} ${b.name.padEnd(12)} ${b.detail}`;
   if (!b.available && !b.planned && b.installHint) {
     return `${line}
-${" ".repeat(19)}${source_default.dim(b.installHint)}`;
+${" ".repeat(19)}${theme.hint(b.installHint)}`;
   }
   return line;
 }
@@ -7116,32 +9773,38 @@ function getSelectableBackends(report) {
   return allRelay.filter((b) => b.available && !b.planned);
 }
 async function setup(opts) {
-  const version = getVersion();
   const paths = configPaths(opts?.repoRoot);
   console.log("");
-  console.log(`  phone-a-friend v${version} \u2014 ${source_default.bold("Setup")}`);
+  console.log(banner("Setup"));
   console.log("");
-  console.log("  Scanning your environment...");
-  console.log("");
+  const scanSpinner = ora({
+    text: "Scanning your environment...",
+    spinner: "dots",
+    color: "cyan",
+    stream: process.stderr
+  }).start();
   const report = await detectAll();
+  scanSpinner.succeed("Environment scanned");
+  console.log("");
   printReport(report);
   console.log("");
   const selectable = getSelectableBackends(report);
   let selectedBackend;
+  console.log(`  ${theme.hint("Step 1/3")} ${theme.heading("Choose default backend")}`);
   if (selectable.length === 0) {
-    console.log(source_default.yellow("  No relay backends available."));
+    console.log(theme.warning("  No relay backends available."));
     console.log("  Install at least one backend to get started:");
     const allRelay = [...report.cli, ...report.local, ...report.api];
     for (const b of allRelay) {
       if (!b.planned && b.installHint) {
-        console.log(`    ${b.name}: ${source_default.dim(b.installHint)}`);
+        console.log(`    ${b.name}: ${theme.hint(b.installHint)}`);
       }
     }
     console.log("");
     selectedBackend = DEFAULT_CONFIG.defaults.backend;
   } else if (selectable.length === 1) {
     selectedBackend = selectable[0].name;
-    console.log(`  Default backend: ${source_default.bold(selectedBackend)} (only available backend)`);
+    console.log(`  Default backend: ${theme.bold(selectedBackend)} (only available backend)`);
   } else {
     selectedBackend = await dist_default5({
       message: "Default backend:",
@@ -7153,6 +9816,7 @@ async function setup(opts) {
   }
   const claudeAvailable = report.host.some((h) => h.name === "claude" && h.available);
   if (claudeAvailable) {
+    console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("Claude integration")}`);
     const installPlugin = await dist_default4({
       message: "Install as Claude Code plugin?",
       default: true
@@ -7169,7 +9833,7 @@ async function setup(opts) {
         });
         for (const line of lines) console.log(`  ${line}`);
       } catch (err) {
-        console.log(source_default.yellow(`  Plugin install failed: ${err.message}`));
+        console.log(theme.warning(`  Plugin install failed: ${err.message}`));
       }
     }
   }
@@ -7183,48 +9847,55 @@ async function setup(opts) {
   };
   saveConfig(cfg, paths.user);
   console.log("");
-  console.log(`  ${source_default.green("\u2713")} Config saved to ${paths.user}`);
+  console.log(`  ${theme.checkmark} Config saved to ${paths.user}`);
   if (selectable.length > 0) {
+    console.log(`  ${theme.hint("Step 3/3")} ${theme.heading("Verify")}`);
     const runTest = await dist_default4({
       message: "Run a quick test?",
       default: true
     });
     if (runTest) {
-      console.log(`  Testing ${selectedBackend}...`);
+      const testSpinner = ora({
+        text: `Testing ${selectedBackend}...`,
+        spinner: "dots",
+        color: "cyan",
+        stream: process.stderr
+      }).start();
       try {
         const { relay: relay2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
-        const result = relay2({
+        relay2({
           prompt: "Say hello in one sentence.",
           repoPath: process.cwd(),
           backend: selectedBackend,
           timeoutSeconds: 30
         });
-        console.log(`  ${source_default.green("\u2713")} ${selectedBackend} responded`);
+        testSpinner.succeed(`${selectedBackend} responded`);
       } catch (err) {
-        console.log(source_default.yellow(`  ${selectedBackend} test failed: ${err.message}`));
+        testSpinner.fail(`${selectedBackend} test failed: ${err.message}`);
       }
     }
   }
   console.log("");
-  console.log("  You're ready! Try:");
-  console.log(`    phone-a-friend --prompt "What does this project do?"`);
+  console.log(`  ${theme.checkmark} ${theme.success("Setup complete!")}`);
   console.log("");
-  console.log(`  Tip: ${source_default.dim("alias paf='phone-a-friend'")}`);
+  console.log(`  ${theme.label("Backend:")}  ${selectedBackend}`);
+  console.log(`  ${theme.label("Config:")}   ${paths.user}`);
+  console.log("");
+  console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log("");
 }
 
 // src/doctor.ts
 function formatHumanReadable(report, config, paths) {
-  const version = getVersion();
   const lines = [];
   lines.push("");
-  lines.push(`  phone-a-friend v${version} \u2014 ${source_default.bold("Health Check")}`);
+  lines.push(banner("Health Check"));
   lines.push("");
-  lines.push("  System:");
-  lines.push(`    ${source_default.green("\u2713")} Node.js ${process.version}`);
-  lines.push(`    ${source_default.green("\u2713")} Config ${paths.user}`);
+  lines.push(`  ${theme.label("System:")}`);
+  lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
+  lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push("");
-  lines.push("  Relay Backends:");
+  lines.push(`  ${theme.label("Relay Backends:")}`);
   if (report.cli.length > 0) {
     lines.push("    CLI:");
     for (const b of report.cli) {
@@ -7246,18 +9917,19 @@ function formatHumanReadable(report, config, paths) {
     }
   }
   lines.push("");
-  lines.push("  Host Integrations:");
+  lines.push(`  ${theme.label("Host Integrations:")}`);
   for (const b of report.host) {
     lines.push(`  ${formatBackendLine(b)}`);
   }
   lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
-  lines.push(`  Default: ${defaultBackend}`);
+  lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
   lines.push("");
   const allRelay = [...report.cli, ...report.local, ...report.api];
   const available = allRelay.filter((b) => b.available).length;
   const total = allRelay.length;
-  lines.push(`  ${available} of ${total} relay backends ready`);
+  const summaryColor = available === total ? theme.success : available > 0 ? theme.warning : theme.error;
+  lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push("");
   return lines.join("\n");
 }
@@ -7329,12 +10001,12 @@ function normalizeArgv(argv) {
 }
 function printBackendAvailability() {
   console.log("\nBackend availability:");
-  for (const info of verifyBackends()) {
-    const mark2 = info.available ? "\u2713" : "\u2717";
-    const status = info.available ? "available" : "not found";
-    console.log(`  ${mark2} ${info.name}: ${status}`);
-    if (!info.available && info.hint) {
-      console.log(`    Install: ${info.hint}`);
+  for (const info2 of verifyBackends()) {
+    const mark2 = info2.available ? "\u2713" : "\u2717";
+    const status = info2.available ? "available" : "not found";
+    console.log(`  ${mark2} ${info2.name}: ${status}`);
+    if (!info2.available && info2.hint) {
+      console.log(`    Install: ${info2.hint}`);
     }
   }
 }
@@ -7381,22 +10053,21 @@ async function run(argv) {
   if (normalized.length === 0) {
     const paths = configPaths();
     if (!existsSync5(paths.user)) {
-      const version = getVersion();
       console.log("");
-      console.log(`  phone-a-friend v${version} \u2014 AI coding agent relay`);
+      console.log(banner("AI coding agent relay"));
       console.log("");
-      console.log("  No backends configured yet. Run setup to get started:");
+      console.log(`  ${theme.warning("No backends configured yet.")}`);
+      console.log(`  Run ${theme.bold("phone-a-friend setup")} to get started.`);
       console.log("");
-      console.log("    phone-a-friend setup");
-      console.log("");
-      console.log("  Or jump straight in (requires codex in PATH):");
-      console.log("");
-      console.log('    phone-a-friend --to codex --prompt "What does this project do?"');
+      console.log(`  ${theme.hint("Or jump straight in (requires codex in PATH):")}`);
+      console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
       console.log("");
       return 0;
     }
   }
-  const program2 = new Command().name("phone-a-friend").version(`phone-a-friend ${getVersion()}`, "-V, --version").description("CLI relay for AI coding agent collaboration").configureOutput({
+  const program2 = new Command().name("phone-a-friend").version(`phone-a-friend ${getVersion()}`, "-V, --version").description("CLI relay for AI coding agent collaboration").addHelpText("before", `
+${banner("AI coding agent relay")}
+`).configureOutput({
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
@@ -7408,18 +10079,31 @@ async function run(argv) {
       includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
       model: opts.model
     });
-    const feedback = relay({
-      prompt: opts.prompt,
-      repoPath: opts.repo,
-      backend: resolved.backend,
-      contextFile: opts.contextFile ?? null,
-      contextText: opts.contextText ?? null,
-      includeDiff: resolved.includeDiff,
-      timeoutSeconds: resolved.timeout,
-      model: resolved.model ?? null,
-      sandbox: resolved.sandbox
-    });
-    console.log(feedback);
+    const backendName = resolved.backend;
+    const spinner = ora({
+      text: `Relaying to ${theme.bold(backendName)}...`,
+      spinner: "dots",
+      color: "cyan",
+      stream: process.stderr
+    }).start();
+    try {
+      const feedback = relay({
+        prompt: opts.prompt,
+        repoPath: opts.repo,
+        backend: backendName,
+        contextFile: opts.contextFile ?? null,
+        contextText: opts.contextText ?? null,
+        includeDiff: resolved.includeDiff,
+        timeoutSeconds: resolved.timeout,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox
+      });
+      spinner.succeed(`${theme.bold(backendName)} responded`);
+      process.stdout.write(feedback + "\n");
+    } catch (err) {
+      spinner.fail(`${theme.bold(backendName)} failed`);
+      throw err;
+    }
   });
   program2.command("setup").description("Interactive setup wizard").action(async () => {
     await setup();
@@ -7502,7 +10186,15 @@ async function run(argv) {
     await program2.parseAsync(normalized, { from: "user" });
   } catch (err) {
     if (err instanceof RelayError || err instanceof InstallerError) {
-      console.error(err.message);
+      console.error("");
+      console.error(`  ${theme.crossmark} ${theme.error(err.message)}`);
+      if (err.message.includes("too large")) {
+        console.error(`  ${theme.hint("Try reducing the size of your input or context.")}`);
+      }
+      if (err.message.includes("depth limit")) {
+        console.error(`  ${theme.hint("Agents are calling each other recursively.")}`);
+      }
+      console.error("");
       return 1;
     }
     if (err && typeof err === "object" && "exitCode" in err) {
