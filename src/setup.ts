@@ -11,6 +11,7 @@ import { select, confirm } from '@inquirer/prompts';
 import { detectAll, type BackendStatus, type DetectionReport } from './detection.js';
 import { saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { installHosts } from './installer.js';
+import { getVersion } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,23 +19,6 @@ import { installHosts } from './installer.js';
 
 export interface SetupOptions {
   repoRoot?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Version helper
-// ---------------------------------------------------------------------------
-
-function getVersion(): string {
-  try {
-    const { readFileSync } = require('node:fs');
-    const { resolve, dirname } = require('node:path');
-    const thisDir = dirname(__filename);
-    const pkgPath = resolve(thisDir, '..', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
 }
 
 // ---------------------------------------------------------------------------

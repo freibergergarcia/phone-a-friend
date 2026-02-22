@@ -10,6 +10,7 @@
 import chalk from 'chalk';
 import { detectAll, type DetectionReport, type BackendStatus } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
+import { getVersion } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,23 +24,6 @@ export interface DoctorOptions {
 export interface DoctorResult {
   exitCode: number;
   output: string;
-}
-
-// ---------------------------------------------------------------------------
-// Version helper
-// ---------------------------------------------------------------------------
-
-function getVersion(): string {
-  try {
-    const { readFileSync } = require('node:fs');
-    const { resolve, dirname } = require('node:path');
-    const thisDir = dirname(__filename);
-    const pkgPath = resolve(thisDir, '..', 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
 }
 
 // ---------------------------------------------------------------------------

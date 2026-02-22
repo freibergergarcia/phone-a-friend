@@ -6,6 +6,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   platform: 'node',
+  splitting: false,
   noExternal: ['commander', '@inquirer/prompts', 'chalk', 'ora', 'smol-toml'],
   banner: {
     // Shim CJS require() for bundled dependencies that use it for Node builtins

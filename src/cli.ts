@@ -6,7 +6,7 @@
  */
 
 import { resolve, dirname } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Command } from 'commander';
@@ -33,21 +33,7 @@ import {
   loadConfig,
   DEFAULT_CONFIG,
 } from './config.js';
-
-// ---------------------------------------------------------------------------
-// Version
-// ---------------------------------------------------------------------------
-
-function getVersion(): string {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
-  const pkgPath = resolve(thisDir, '..', 'package.json');
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-    return pkg.version ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
+import { getVersion } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Repo root default
@@ -64,10 +50,17 @@ function repoRootDefault(): string {
 
 const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin'];
 
+// Flags that Commander handles at the top level — never auto-route to relay
+const TOP_LEVEL_FLAGS = new Set(['-V', '--version', '-h', '--help']);
+
 function normalizeArgv(argv: string[]): string[] {
   if (argv.length === 0) return argv;
   const first = argv[0];
   if (KNOWN_SUBCOMMANDS.includes(first)) {
+    return argv;
+  }
+  // Don't auto-route --help / --version to relay
+  if (TOP_LEVEL_FLAGS.has(first)) {
     return argv;
   }
   if (first.startsWith('-')) {
