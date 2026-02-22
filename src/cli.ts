@@ -10,10 +10,12 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Command } from 'commander';
+import ora from 'ora';
 import {
   relay,
   RelayError,
 } from './relay.js';
+import { theme } from './theme.js';
 import type { SandboxMode } from './backends/index.js';
 import {
   installHosts,
@@ -220,18 +222,32 @@ export async function run(argv: string[]): Promise<number> {
         model: opts.model,
       });
 
-      const feedback = relay({
-        prompt: opts.prompt,
-        repoPath: opts.repo,
-        backend: resolved.backend,
-        contextFile: opts.contextFile ?? null,
-        contextText: opts.contextText ?? null,
-        includeDiff: resolved.includeDiff,
-        timeoutSeconds: resolved.timeout,
-        model: resolved.model ?? null,
-        sandbox: resolved.sandbox as SandboxMode,
-      });
-      console.log(feedback);
+      const backendName = resolved.backend;
+      const spinner = ora({
+        text: `Relaying to ${theme.bold(backendName)}...`,
+        spinner: 'dots',
+        color: 'cyan',
+        stream: process.stderr,
+      }).start();
+
+      try {
+        const feedback = relay({
+          prompt: opts.prompt,
+          repoPath: opts.repo,
+          backend: backendName,
+          contextFile: opts.contextFile ?? null,
+          contextText: opts.contextText ?? null,
+          includeDiff: resolved.includeDiff,
+          timeoutSeconds: resolved.timeout,
+          model: resolved.model ?? null,
+          sandbox: resolved.sandbox as SandboxMode,
+        });
+        spinner.succeed(`${theme.bold(backendName)} responded`);
+        process.stdout.write(feedback + '\n');
+      } catch (err) {
+        spinner.fail(`${theme.bold(backendName)} failed`);
+        throw err;
+      }
     });
 
   // --- setup subcommand ---
