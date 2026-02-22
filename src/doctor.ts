@@ -7,11 +7,11 @@
  *   2 = no relay backends available
  */
 
-import chalk from 'chalk';
-import { detectAll, type DetectionReport, type BackendStatus } from './detection.js';
+import { detectAll, type DetectionReport } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
+import { theme, banner } from './theme.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,21 +32,20 @@ function formatHumanReadable(
   config: PafConfig,
   paths: { user: string; repo: string | null },
 ): string {
-  const version = getVersion();
   const lines: string[] = [];
 
   lines.push('');
-  lines.push(`  phone-a-friend v${version} \u2014 ${chalk.bold('Health Check')}`);
+  lines.push(banner('Health Check'));
   lines.push('');
 
   // System
-  lines.push('  System:');
-  lines.push(`    ${chalk.green('\u2713')} Node.js ${process.version}`);
-  lines.push(`    ${chalk.green('\u2713')} Config ${paths.user}`);
+  lines.push(`  ${theme.label('System:')}`);
+  lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
+  lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push('');
 
   // Relay Backends
-  lines.push('  Relay Backends:');
+  lines.push(`  ${theme.label('Relay Backends:')}`);
 
   // CLI
   if (report.cli.length > 0) {
@@ -77,7 +76,7 @@ function formatHumanReadable(
   lines.push('');
 
   // Host Integrations
-  lines.push('  Host Integrations:');
+  lines.push(`  ${theme.label('Host Integrations:')}`);
   for (const b of report.host) {
     lines.push(`  ${formatBackendLine(b)}`);
   }
@@ -85,14 +84,16 @@ function formatHumanReadable(
 
   // Default
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
-  lines.push(`  Default: ${defaultBackend}`);
+  lines.push(`  ${theme.label('Default:')} ${defaultBackend}`);
   lines.push('');
 
-  // Summary count
+  // Summary count — colored by health status
   const allRelay = [...report.cli, ...report.local, ...report.api];
   const available = allRelay.filter(b => b.available).length;
   const total = allRelay.length;
-  lines.push(`  ${available} of ${total} relay backends ready`);
+  const summaryColor = available === total ? theme.success :
+                       available > 0 ? theme.warning : theme.error;
+  lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push('');
 
   return lines.join('\n');
