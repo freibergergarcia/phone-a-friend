@@ -62765,6 +62765,31 @@ function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NA
   }
   return lines;
 }
+function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME) {
+  const lines = [];
+  try {
+    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    lines.push("- claude_cli: skipped (claude binary not found)");
+    return lines;
+  }
+  const commands = [
+    [["claude", "plugin", "disable", `${pluginName}@${marketplaceName}`, "-s", "user"], "disable"],
+    [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"]
+  ];
+  for (const [cmd, label] of commands) {
+    const { code, output } = runClaudeCommand(cmd);
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- claude_cli_${label}: ok`);
+    } else {
+      lines.push(`- claude_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+  return lines;
+}
 function claudeTarget(claudeHome) {
   const base = claudeHome ?? join2(homedir(), ".claude");
   return join2(base, "plugins", PLUGIN_NAME);
@@ -62826,7 +62851,8 @@ function uninstallHosts(opts) {
   }
   const lines = ["phone-a-friend uninstaller"];
   const { status, targetPath } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
+  lines.push(`- claude: ${status}`);
+  lines.push(...unsyncClaudePluginRegistration());
   return lines;
 }
 function verifyBackends() {
