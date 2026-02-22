@@ -59467,12 +59467,12 @@ function ActionsPanel({ report, onRefresh, onExit: onExit2 }) {
         setTimeout(() => {
           if (mountedRef.current) onExit2();
         }, 800);
+        return;
       }
+      setRunning(false);
     }).catch((err) => {
       if (!mountedRef.current) return;
       setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
-    }).finally(() => {
-      if (!mountedRef.current) return;
       setRunning(false);
     });
   };

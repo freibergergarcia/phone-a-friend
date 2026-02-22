@@ -145,16 +145,15 @@ export function ActionsPanel({ report, onRefresh, onExit }: ActionsPanelProps) {
         if (!mountedRef.current) return;
         setResult({ success: true, message: msg });
         if (action.exitAfter) {
-          // Brief delay so user sees the result before exit
+          // Keep running=true to lock input until exit fires
           setTimeout(() => { if (mountedRef.current) onExit(); }, 800);
+          return;
         }
+        setRunning(false);
       })
       .catch((err) => {
         if (!mountedRef.current) return;
         setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
-      })
-      .finally(() => {
-        if (!mountedRef.current) return;
         setRunning(false);
       });
   };
