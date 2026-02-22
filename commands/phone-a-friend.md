@@ -70,16 +70,17 @@ this broken behavior and handle retry/fallback ourselves.
 
 ### Priority rationale
 
-Google's ADK benchmark SWE agent defaults to `gemini-2.5-flash` for
-speed/cost. We intentionally keep preview/customtools-first priority here
-because relay tasks are agentic tool-use tasks where capability matters more
-than speed.
+As of 2026-02-22, `gemini-3.1-pro-preview-*` models return 404 (not yet
+deployed) and `gemini-2.5-pro` is perpetually at capacity (429). Based on
+empirical testing across 10+ relay sessions, `gemini-2.5-flash` is the only
+model that reliably works. Lead with what works; fall forward to newer models
+as they become available.
 
-1. `gemini-3.1-pro-preview-customtools` — optimized for agentic tool-use
-2. `gemini-3.1-pro-preview` — general-purpose preview
-3. `gemini-2.5-pro` — stable fallback
-4. `gemini-2.5-flash` — fast, lower-cost fallback
-5. `gemini-2.5-flash-lite` — last resort
+1. `gemini-2.5-flash` — reliable, fast, confirmed working
+2. `gemini-2.5-pro` — higher capability but frequently at capacity (429)
+3. `gemini-2.5-flash-lite` — last resort
+4. `gemini-3.1-pro-preview-customtools` — not yet deployed (404 as of 2026-02-22)
+5. `gemini-3.1-pro-preview` — not yet deployed (404 as of 2026-02-22)
 
 ### Fallback rule
 
