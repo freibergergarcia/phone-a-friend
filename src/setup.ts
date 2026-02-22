@@ -6,13 +6,13 @@
  * a quick verification test.
  */
 
-import chalk from 'chalk';
+import ora from 'ora';
 import { select, confirm } from '@inquirer/prompts';
 import { detectAll, type BackendStatus, type DetectionReport } from './detection.js';
 import { loadConfig, saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { installHosts } from './installer.js';
-import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
+import { theme, banner } from './theme.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,17 +69,24 @@ function getSelectableBackends(report: DetectionReport): BackendStatus[] {
 // ---------------------------------------------------------------------------
 
 export async function setup(opts?: SetupOptions): Promise<void> {
-  const version = getVersion();
   const paths = configPaths(opts?.repoRoot);
 
   console.log('');
-  console.log(`  phone-a-friend v${version} \u2014 ${chalk.bold('Setup')}`);
+  console.log(banner('Setup'));
   console.log('');
-  console.log('  Scanning your environment...');
-  console.log('');
+
+  const scanSpinner = ora({
+    text: 'Scanning your environment...',
+    spinner: 'dots',
+    color: 'cyan',
+    stream: process.stderr,
+  }).start();
 
   // Detect all backends
   const report = await detectAll();
+  scanSpinner.succeed('Environment scanned');
+  console.log('');
+
   printReport(report);
   console.log('');
 
@@ -88,14 +95,16 @@ export async function setup(opts?: SetupOptions): Promise<void> {
 
   let selectedBackend: string;
 
+  console.log(`  ${theme.hint('Step 1/3')} ${theme.heading('Choose default backend')}`);
+
   if (selectable.length === 0) {
     // No backends available
-    console.log(chalk.yellow('  No relay backends available.'));
+    console.log(theme.warning('  No relay backends available.'));
     console.log('  Install at least one backend to get started:');
     const allRelay = [...report.cli, ...report.local, ...report.api];
     for (const b of allRelay) {
       if (!b.planned && b.installHint) {
-        console.log(`    ${b.name}: ${chalk.dim(b.installHint)}`);
+        console.log(`    ${b.name}: ${theme.hint(b.installHint)}`);
       }
     }
     console.log('');
@@ -103,7 +112,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   } else if (selectable.length === 1) {
     // Auto-select the only available backend
     selectedBackend = selectable[0].name;
-    console.log(`  Default backend: ${chalk.bold(selectedBackend)} (only available backend)`);
+    console.log(`  Default backend: ${theme.bold(selectedBackend)} (only available backend)`);
   } else {
     // Prompt for selection
     selectedBackend = await select({
@@ -118,6 +127,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   // Offer Claude plugin install if claude is available
   const claudeAvailable = report.host.some(h => h.name === 'claude' && h.available);
   if (claudeAvailable) {
+    console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('Claude integration')}`);
     const installPlugin = await confirm({
       message: 'Install as Claude Code plugin?',
       default: true,
@@ -134,7 +144,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
         });
         for (const line of lines) console.log(`  ${line}`);
       } catch (err) {
-        console.log(chalk.yellow(`  Plugin install failed: ${(err as Error).message}`));
+        console.log(theme.warning(`  Plugin install failed: ${(err as Error).message}`));
       }
     }
   }
@@ -150,36 +160,44 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   };
   saveConfig(cfg, paths.user);
   console.log('');
-  console.log(`  ${chalk.green('\u2713')} Config saved to ${paths.user}`);
+  console.log(`  ${theme.checkmark} Config saved to ${paths.user}`);
 
   // Offer test run
   if (selectable.length > 0) {
+    console.log(`  ${theme.hint('Step 3/3')} ${theme.heading('Verify')}`);
     const runTest = await confirm({
       message: 'Run a quick test?',
       default: true,
     });
     if (runTest) {
-      console.log(`  Testing ${selectedBackend}...`);
+      const testSpinner = ora({
+        text: `Testing ${selectedBackend}...`,
+        spinner: 'dots',
+        color: 'cyan',
+        stream: process.stderr,
+      }).start();
       try {
         // Dynamic import to avoid circular dependency
         const { relay } = await import('./relay.js');
-        const result = relay({
+        relay({
           prompt: 'Say hello in one sentence.',
           repoPath: process.cwd(),
           backend: selectedBackend,
           timeoutSeconds: 30,
         });
-        console.log(`  ${chalk.green('\u2713')} ${selectedBackend} responded`);
+        testSpinner.succeed(`${selectedBackend} responded`);
       } catch (err) {
-        console.log(chalk.yellow(`  ${selectedBackend} test failed: ${(err as Error).message}`));
+        testSpinner.fail(`${selectedBackend} test failed: ${(err as Error).message}`);
       }
     }
   }
 
   console.log('');
-  console.log('  You\'re ready! Try:');
-  console.log(`    phone-a-friend --prompt "What does this project do?"`);
+  console.log(`  ${theme.checkmark} ${theme.success('Setup complete!')}`);
   console.log('');
-  console.log(`  Tip: ${chalk.dim("alias paf='phone-a-friend'")}`);
+  console.log(`  ${theme.label('Backend:')}  ${selectedBackend}`);
+  console.log(`  ${theme.label('Config:')}   ${paths.user}`);
+  console.log('');
+  console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log('');
 }
