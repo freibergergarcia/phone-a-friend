@@ -29,3 +29,14 @@ jobs:
           fi
       - name: Run tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  tests:
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            exit 1
+          fi
