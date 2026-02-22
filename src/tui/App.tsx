@@ -10,6 +10,7 @@ import { KeyHint } from './components/KeyHint.js';
 import type { Hint } from './components/KeyHint.js';
 import { StatusPanel } from './StatusPanel.js';
 import { BackendsPanel } from './BackendsPanel.js';
+import { ConfigPanel } from './ConfigPanel.js';
 import { useDetection } from './hooks/useDetection.js';
 
 const TABS = ['Status', 'Backends', 'Config', 'Actions'] as const;
@@ -98,7 +99,7 @@ function PanelContent({ tab, detection }: PanelProps) {
     case 'Backends':
       return <BackendsPanel report={detection.report} />;
     case 'Config':
-      return <Text>Config Panel</Text>;
+      return <ConfigPanel />;
     case 'Actions':
       return <Text>Actions Panel</Text>;
     default:

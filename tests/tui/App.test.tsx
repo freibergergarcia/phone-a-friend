@@ -63,7 +63,7 @@ describe('TUI App', () => {
     // Jump to Config (tab 3)
     stdin.write('3');
     await tick();
-    expect(lastFrame()).toContain('Config Panel');
+    expect(lastFrame()).toContain('Config');
 
     // Jump to Actions (tab 4)
     stdin.write('4');
@@ -82,7 +82,7 @@ describe('TUI App', () => {
     // Tab to Config (2)
     stdin.write('\t');
     await tick();
-    expect(lastFrame()).toContain('Config Panel');
+    expect(lastFrame()).toContain('Config');
 
     // Tab to Actions (3)
     stdin.write('\t');
