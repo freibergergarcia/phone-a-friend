@@ -19,8 +19,15 @@ describe('config', () => {
     });
 
     it('returns user config path under ~/.config by default', () => {
-      const paths = config.configPaths(undefined, undefined, tempDir);
-      expect(paths.user).toBe(join(tempDir, '.config', 'phone-a-friend', 'config.toml'));
+      const prev = process.env.XDG_CONFIG_HOME;
+      delete process.env.XDG_CONFIG_HOME;
+      try {
+        const paths = config.configPaths(undefined, undefined, tempDir);
+        expect(paths.user).toBe(join(tempDir, '.config', 'phone-a-friend', 'config.toml'));
+      } finally {
+        if (prev === undefined) delete process.env.XDG_CONFIG_HOME;
+        else process.env.XDG_CONFIG_HOME = prev;
+      }
     });
 
     it('returns repo config path when repoRoot is provided', () => {
