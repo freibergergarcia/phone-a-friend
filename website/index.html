@@ -1148,7 +1148,7 @@
     <div class="nav-inner">
       <div class="nav-brand">
         <a href="" class="nav-logo"><span>phone</span>-a-friend</a>
-        <span class="nav-version">v0.3.0</span>
+        <span class="nav-version" id="nav-version">v…</span>
       </div>
       <div class="nav-links">
         <a href="#how-it-works" class="nav-link">How it works</a>
@@ -1524,6 +1524,15 @@
         hamburger.setAttribute('aria-expanded', 'false');
       });
     });
+
+    // Fetch latest version from GitHub Releases
+    fetch('https://api.github.com/repos/freibergergarcia/phone-a-friend/releases/latest')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        const el = document.getElementById('nav-version');
+        if (el && data.tag_name) el.textContent = data.tag_name;
+      })
+      .catch(() => {});
   </script>
 </body>
 </html>
