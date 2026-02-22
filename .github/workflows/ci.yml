@@ -7,36 +7,47 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-node:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.12", "3.13"]
+        node-version: ["18", "20", "22"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install optional dependencies
-        run: pip install typer
-      - name: Check plugin version sync
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - name: Check version sync
         run: |
-          pyproject_ver=$(python3 -c "import re; print(re.search(r'^version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
-          plugin_ver=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
-          if [ "$pyproject_ver" != "$plugin_ver" ]; then
-            echo "::error::Version mismatch: pyproject.toml=$pyproject_ver plugin.json=$plugin_ver"
+          pkg_ver=$(node -e "console.log(require('./package.json').version)")
+          plugin_ver=$(node -e "console.log(require('./.claude-plugin/plugin.json').version)")
+          if [ "$pkg_ver" != "$plugin_ver" ]; then
+            echo "::error::Version mismatch: package.json=$pkg_ver plugin.json=$plugin_ver"
             exit 1
           fi
-      - name: Run tests
-        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Check dist is up to date
+        run: |
+          npm run build
+          if ! git diff --quiet dist/; then
+            echo "::error::dist/ is out of date — run 'npm run build' and commit"
+            exit 1
+          fi
+      - name: Verify dist is self-contained
+        run: |
+          mv node_modules node_modules_bak
+          node dist/index.js --version
+          mv node_modules_bak node_modules
+      - run: npm test
+      - run: npm run typecheck
 
   tests:
-    needs: test
+    needs: [test-node]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.test.result }}" != "success" ]; then
+          if [ "${{ needs.test-node.result }}" != "success" ]; then
             exit 1
           fi
