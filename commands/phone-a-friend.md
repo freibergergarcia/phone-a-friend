@@ -44,12 +44,59 @@ I'm working on this task and got the above response. Please review it and return
 
 ```bash
 ./phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
+# For gemini, always include --model (see "Gemini Model Priority" below):
+./phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
 ```
 
 5. Return backend feedback in concise review format:
    - Critical issues
    - Important issues
    - Suggested fixes
+
+## Gemini Model Priority
+
+When using `--to gemini`, **always** pass `--model` using the first model from
+this priority list. Never use aliases (`auto`, `pro`, `flash`) — use concrete
+model names only:
+
+### Why we bypass auto-routing
+
+Gemini CLI has built-in model fallback via auto mode, but it does NOT work in
+headless/non-interactive mode. `--yolo` (and `--approval-mode yolo`) only
+auto-approve tool calls, not model switch prompts. When Gemini hits a capacity
+error in headless mode, it tries to prompt for consent and fails
+(`google-gemini/gemini-cli#13561`). By passing `--model` explicitly, we bypass
+this broken behavior and handle retry/fallback ourselves.
+
+### Priority rationale
+
+Google's ADK benchmark SWE agent defaults to `gemini-2.5-flash` for
+speed/cost. We intentionally keep preview/customtools-first priority here
+because relay tasks are agentic tool-use tasks where capability matters more
+than speed.
+
+1. `gemini-3.1-pro-preview-customtools` — optimized for agentic tool-use
+2. `gemini-3.1-pro-preview` — general-purpose preview
+3. `gemini-2.5-pro` — stable fallback
+4. `gemini-2.5-flash` — fast, lower-cost fallback
+5. `gemini-2.5-flash-lite` — last resort
+
+### Fallback rule
+
+On Gemini relay failure, retry with the next model **only** for transient or
+capacity errors:
+
+- **Retry with next model**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED;
+  "high demand"; model not found; transient/timeout errors
+- **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
+  permission errors
+- **Default**: if an error cannot be confidently classified as transient, do
+  NOT model-fallback — report the error immediately
+
+After exhausting all models, stop and report the error with the list of
+attempted models.
+
+This does NOT apply to `--to codex`.
 
 ## Notes
 
