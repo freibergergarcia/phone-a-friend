@@ -20,7 +20,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20.12"
   },
   "license": "MIT",
   "author": "Bruno Freiberger",
