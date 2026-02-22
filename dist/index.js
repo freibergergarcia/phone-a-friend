@@ -6030,7 +6030,10 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
   let serverResponding = false;
   let models = [];
   try {
-    const resp = await fetchFn(`${host}/api/tags`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3e3);
+    const resp = await fetchFn(`${host}/api/tags`, controller.signal);
+    clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
       const data = await resp.json();
@@ -6989,7 +6992,10 @@ function saveConfig(cfg, filePath) {
   const content = stringify(cfg);
   writeFileSync2(filePath, content, "utf-8");
 }
-function configInit(filePath) {
+function configInit(filePath, force = false) {
+  if (!force && existsSync4(filePath)) {
+    throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
+  }
   saveConfig(DEFAULT_CONFIG, filePath);
 }
 function configGet(key, cfg) {
@@ -7004,7 +7010,13 @@ function configGet(key, cfg) {
   return current;
 }
 function configSet(key, rawValue, filePath) {
-  const cfg = loadConfigFromFile(filePath);
+  let cfg;
+  if (existsSync4(filePath)) {
+    const content = readFileSync3(filePath, "utf-8");
+    cfg = parse(content);
+  } else {
+    cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
+  }
   let value;
   if (rawValue.toLowerCase() === "true") {
     value = true;
@@ -7027,6 +7039,17 @@ function configSet(key, rawValue, filePath) {
   current[parts[parts.length - 1]] = value;
   saveConfig(cfg, filePath);
 }
+function resolveConfig(cliOpts, env2 = process.env, repoRoot, xdgConfigHome) {
+  const cfg = loadConfig(repoRoot, xdgConfigHome);
+  const backend = cliOpts.to ?? env2.PHONE_A_FRIEND_BACKEND ?? cfg.defaults.backend;
+  const sandbox = cliOpts.sandbox ?? env2.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
+  const timeoutRaw = cliOpts.timeout ?? env2.PHONE_A_FRIEND_TIMEOUT ?? String(cfg.defaults.timeout);
+  const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
+  const includeDiffRaw = cliOpts.includeDiff ?? env2.PHONE_A_FRIEND_INCLUDE_DIFF;
+  const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
+  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? void 0;
+  return { backend, sandbox, timeout, includeDiff, model };
+}
 
 // src/version.ts
 import { readFileSync as readFileSync4 } from "fs";
@@ -7043,21 +7066,32 @@ function getVersion() {
   }
 }
 
-// src/setup.ts
+// src/display.ts
 function mark(available, planned) {
   if (planned) return source_default.dim("[planned]");
   return available ? source_default.green("\u2713") : source_default.red("\u2717");
 }
-function printBackendLine(b) {
+function formatBackendLine(b) {
   const m = mark(b.available, b.planned);
   const line = `    ${m} ${b.name.padEnd(12)} ${b.detail}`;
-  console.log(line);
-  if (b.models && b.models.length > 0) {
-    console.log(`${" ".repeat(19)}Models: ${b.models.join(", ")}`);
-  }
   if (!b.available && !b.planned && b.installHint) {
-    console.log(`${" ".repeat(19)}${source_default.dim(b.installHint)}`);
+    return `${line}
+${" ".repeat(19)}${source_default.dim(b.installHint)}`;
   }
+  return line;
+}
+function formatBackendModels(b) {
+  if (b.models && b.models.length > 0) {
+    return `${" ".repeat(21)}Models: ${b.models.join(", ")}`;
+  }
+  return null;
+}
+
+// src/setup.ts
+function printBackendLine(b) {
+  console.log(`    ${formatBackendLine(b).trimStart()}`);
+  const modelsLine = formatBackendModels(b);
+  if (modelsLine) console.log(modelsLine);
 }
 function printReport(report) {
   console.log("  Relay Backends:");
@@ -7139,12 +7173,12 @@ async function setup(opts) {
       }
     }
   }
+  const existing = loadConfig(opts?.repoRoot);
   const cfg = {
+    ...existing,
     defaults: {
-      backend: selectedBackend,
-      sandbox: DEFAULT_CONFIG.defaults.sandbox,
-      timeout: DEFAULT_CONFIG.defaults.timeout,
-      include_diff: DEFAULT_CONFIG.defaults.include_diff
+      ...existing.defaults,
+      backend: selectedBackend
     }
   };
   saveConfig(cfg, paths.user);
@@ -7180,19 +7214,6 @@ async function setup(opts) {
 }
 
 // src/doctor.ts
-function mark2(available, planned) {
-  if (planned) return source_default.dim("[planned]");
-  return available ? source_default.green("\u2713") : source_default.red("\u2717");
-}
-function formatBackend(b) {
-  const m = mark2(b.available, b.planned);
-  const line = `    ${m} ${b.name.padEnd(12)} ${b.detail}`;
-  if (!b.available && !b.planned && b.installHint) {
-    return `${line}
-${" ".repeat(19)}${source_default.dim(b.installHint)}`;
-  }
-  return line;
-}
 function formatHumanReadable(report, config, paths) {
   const version = getVersion();
   const lines = [];
@@ -7207,28 +7228,27 @@ function formatHumanReadable(report, config, paths) {
   if (report.cli.length > 0) {
     lines.push("    CLI:");
     for (const b of report.cli) {
-      lines.push(`  ${formatBackend(b)}`);
+      lines.push(`  ${formatBackendLine(b)}`);
     }
   }
   if (report.local.length > 0) {
     lines.push("    Local:");
     for (const b of report.local) {
-      lines.push(`  ${formatBackend(b)}`);
-      if (b.models && b.models.length > 0) {
-        lines.push(`${" ".repeat(21)}Models: ${b.models.join(", ")}`);
-      }
+      lines.push(`  ${formatBackendLine(b)}`);
+      const modelsLine = formatBackendModels(b);
+      if (modelsLine) lines.push(modelsLine);
     }
   }
   if (report.api.length > 0) {
     lines.push("    API:");
     for (const b of report.api) {
-      lines.push(`  ${formatBackend(b)}`);
+      lines.push(`  ${formatBackendLine(b)}`);
     }
   }
   lines.push("");
   lines.push("  Host Integrations:");
   for (const b of report.host) {
-    lines.push(`  ${formatBackend(b)}`);
+    lines.push(`  ${formatBackendLine(b)}`);
   }
   lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
@@ -7262,7 +7282,7 @@ function formatJson(report, config, exitCode) {
   }, null, 2);
 }
 function computeExitCode(report) {
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local, ...report.api].filter((b) => !b.planned);
   const available = allRelay.filter((b) => b.available).length;
   if (available === 0) return 2;
   const total = allRelay.length;
@@ -7310,9 +7330,9 @@ function normalizeArgv(argv) {
 function printBackendAvailability() {
   console.log("\nBackend availability:");
   for (const info of verifyBackends()) {
-    const mark3 = info.available ? "\u2713" : "\u2717";
+    const mark2 = info.available ? "\u2713" : "\u2717";
     const status = info.available ? "available" : "not found";
-    console.log(`  ${mark3} ${info.name}: ${status}`);
+    console.log(`  ${mark2} ${info.name}: ${status}`);
     if (!info.available && info.hint) {
       console.log(`    Install: ${info.hint}`);
     }
@@ -7380,17 +7400,24 @@ async function run(argv) {
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, openai", DEFAULT_BACKEND).option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt", false).option("--timeout <seconds>", "Max runtime in seconds", String(DEFAULT_TIMEOUT_SECONDS)).option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access", DEFAULT_SANDBOX).action((opts) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, openai").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action((opts) => {
+    const resolved = resolveConfig({
+      to: opts.to,
+      sandbox: opts.sandbox,
+      timeout: opts.timeout,
+      includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
+      model: opts.model
+    });
     const feedback = relay({
       prompt: opts.prompt,
       repoPath: opts.repo,
-      backend: opts.to,
+      backend: resolved.backend,
       contextFile: opts.contextFile ?? null,
       contextText: opts.contextText ?? null,
-      includeDiff: opts.includeDiff,
-      timeoutSeconds: Number(opts.timeout),
-      model: opts.model ?? null,
-      sandbox: opts.sandbox
+      includeDiff: resolved.includeDiff,
+      timeoutSeconds: resolved.timeout,
+      model: resolved.model ?? null,
+      sandbox: resolved.sandbox
     });
     console.log(feedback);
   });
@@ -7398,20 +7425,20 @@ async function run(argv) {
     await setup();
   });
   program2.command("doctor").description("Health check all backends").option("--json", "Output structured JSON", false).action(async (opts) => {
-    const result = await doctor({ json: opts.json });
+    const result = await doctor({ json: opts.json, repoRoot: process.cwd() });
     console.log(result.output);
     exitCode = result.exitCode;
   });
   const configCmd = program2.command("config").description("Manage configuration");
-  configCmd.command("init").description("Create default config file").action(() => {
-    const paths = configPaths();
-    configInit(paths.user);
+  configCmd.command("init").description("Create default config file").option("--force", "Overwrite existing config", false).action((opts) => {
+    const paths = configPaths(process.cwd());
+    configInit(paths.user, opts.force);
     console.log(`Config created at ${paths.user}`);
   });
   configCmd.command("show").description("Show resolved configuration").option("--sources", "Show which file each value comes from", false).action((opts) => {
-    const config = loadConfig();
+    const config = loadConfig(process.cwd());
     if (opts.sources) {
-      const paths = configPaths();
+      const paths = configPaths(process.cwd());
       console.log(`User config: ${paths.user}`);
       if (paths.repo) console.log(`Repo config: ${paths.repo}`);
       console.log("");
@@ -7419,7 +7446,7 @@ async function run(argv) {
     console.log(JSON.stringify(config, null, 2));
   });
   configCmd.command("paths").description("Print all config file paths").action(() => {
-    const paths = configPaths();
+    const paths = configPaths(process.cwd());
     console.log(`User: ${paths.user}`);
     if (paths.repo) {
       console.log(`Repo: ${paths.repo}`);
@@ -7428,23 +7455,23 @@ async function run(argv) {
     }
   });
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
-    const paths = configPaths();
+    const paths = configPaths(process.cwd());
     const editor = process.env.EDITOR ?? "vi";
     if (!existsSync5(paths.user)) {
-      configInit(paths.user);
+      configInit(paths.user, true);
     }
     spawnSync(editor, [paths.user], { stdio: "inherit" });
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
-    const paths = configPaths();
+    const paths = configPaths(process.cwd());
     if (!existsSync5(paths.user)) {
-      configInit(paths.user);
+      configInit(paths.user, true);
     }
     configSet(key, value, paths.user);
     console.log(`Set ${key} = ${value}`);
   });
   configCmd.command("get <key>").description("Get a config value").action((key) => {
-    const config = loadConfig();
+    const config = loadConfig(process.cwd());
     const value = configGet(key, config);
     if (value === void 0) {
       console.log(`(not set)`);

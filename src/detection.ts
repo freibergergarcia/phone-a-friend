@@ -56,7 +56,7 @@ const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] 
 // ---------------------------------------------------------------------------
 
 type WhichFn = (name: string) => boolean;
-type FetchFn = (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+type FetchFn = (url: string, signal?: AbortSignal) => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
 
 // ---------------------------------------------------------------------------
 // CLI backend detection
@@ -92,14 +92,17 @@ export async function detectLocalBackends(
   let models: string[] = [];
 
   try {
-    const resp = await fetchFn(`${host}/api/tags`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetchFn(`${host}/api/tags`, controller.signal);
+    clearTimeout(timeout);
     if (resp.ok) {
       serverResponding = true;
       const data = (await resp.json()) as { models?: { name: string }[] };
       models = (data.models ?? []).map(m => m.name);
     }
   } catch {
-    // Server not reachable
+    // Server not reachable or timed out
   }
 
   let available = false;

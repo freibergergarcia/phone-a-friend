@@ -136,6 +136,22 @@ describe('config', () => {
       const loaded = config.loadConfigFromFile(configPath);
       expect(loaded.defaults.backend).toBe('codex');
     });
+
+    it('throws when config already exists (no --force)', () => {
+      const configPath = join(tempDir, 'config.toml');
+      config.configInit(configPath);
+      expect(() => config.configInit(configPath)).toThrow('Config already exists');
+    });
+
+    it('overwrites when force=true', () => {
+      const configPath = join(tempDir, 'config.toml');
+      config.saveConfig({ defaults: { backend: 'gemini', sandbox: 'read-only', timeout: 300, include_diff: true } }, configPath);
+      config.configInit(configPath, true);
+
+      const loaded = config.loadConfigFromFile(configPath);
+      expect(loaded.defaults.backend).toBe('codex');
+      expect(loaded.defaults.timeout).toBe(600);
+    });
   });
 
   describe('configSet', () => {
@@ -174,6 +190,20 @@ describe('config', () => {
       config.configSet('backends.ollama.host', 'http://custom:11434', configPath);
       const loaded = config.loadConfigFromFile(configPath);
       expect(loaded.backends?.ollama?.host).toBe('http://custom:11434');
+    });
+
+    it('throws on malformed TOML instead of silently using defaults', () => {
+      const configPath = join(tempDir, 'config.toml');
+      writeFileSync(configPath, 'this is not valid toml [[[broken');
+      expect(() => config.configSet('defaults.backend', 'gemini', configPath)).toThrow();
+    });
+
+    it('creates defaults when config file does not exist', () => {
+      const configPath = join(tempDir, 'new-config.toml');
+      config.configSet('defaults.backend', 'gemini', configPath);
+      expect(existsSync(configPath)).toBe(true);
+      const loaded = config.loadConfigFromFile(configPath);
+      expect(loaded.defaults.backend).toBe('gemini');
     });
   });
 

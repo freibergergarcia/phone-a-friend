@@ -153,7 +153,10 @@ export function saveConfig(cfg: Partial<PafConfig>, filePath: string): void {
 // Init
 // ---------------------------------------------------------------------------
 
-export function configInit(filePath: string): void {
+export function configInit(filePath: string, force = false): void {
+  if (!force && existsSync(filePath)) {
+    throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
+  }
   saveConfig(DEFAULT_CONFIG, filePath);
 }
 
@@ -174,7 +177,14 @@ export function configGet(key: string, cfg: unknown): unknown {
 }
 
 export function configSet(key: string, rawValue: string, filePath: string): void {
-  const cfg = loadConfigFromFile(filePath) as Record<string, unknown>;
+  // Strict load — fail on malformed TOML rather than silently using defaults
+  let cfg: Record<string, unknown>;
+  if (existsSync(filePath)) {
+    const content = readFileSync(filePath, 'utf-8');
+    cfg = tomlParse(content) as Record<string, unknown>; // throws on malformed TOML
+  } else {
+    cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
+  }
 
   // Type inference
   let value: unknown;

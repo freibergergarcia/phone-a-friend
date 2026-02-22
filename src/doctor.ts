@@ -11,6 +11,7 @@ import chalk from 'chalk';
 import { detectAll, type DetectionReport, type BackendStatus } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { getVersion } from './version.js';
+import { formatBackendLine, formatBackendModels } from './display.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,24 +25,6 @@ export interface DoctorOptions {
 export interface DoctorResult {
   exitCode: number;
   output: string;
-}
-
-// ---------------------------------------------------------------------------
-// Human-readable output
-// ---------------------------------------------------------------------------
-
-function mark(available: boolean, planned?: boolean): string {
-  if (planned) return chalk.dim('[planned]');
-  return available ? chalk.green('\u2713') : chalk.red('\u2717');
-}
-
-function formatBackend(b: BackendStatus): string {
-  const m = mark(b.available, b.planned);
-  const line = `    ${m} ${b.name.padEnd(12)} ${b.detail}`;
-  if (!b.available && !b.planned && b.installHint) {
-    return `${line}\n${' '.repeat(19)}${chalk.dim(b.installHint)}`;
-  }
-  return line;
 }
 
 function formatHumanReadable(
@@ -69,7 +52,7 @@ function formatHumanReadable(
   if (report.cli.length > 0) {
     lines.push('    CLI:');
     for (const b of report.cli) {
-      lines.push(`  ${formatBackend(b)}`);
+      lines.push(`  ${formatBackendLine(b)}`);
     }
   }
 
@@ -77,10 +60,9 @@ function formatHumanReadable(
   if (report.local.length > 0) {
     lines.push('    Local:');
     for (const b of report.local) {
-      lines.push(`  ${formatBackend(b)}`);
-      if (b.models && b.models.length > 0) {
-        lines.push(`${' '.repeat(21)}Models: ${b.models.join(', ')}`);
-      }
+      lines.push(`  ${formatBackendLine(b)}`);
+      const modelsLine = formatBackendModels(b);
+      if (modelsLine) lines.push(modelsLine);
     }
   }
 
@@ -88,7 +70,7 @@ function formatHumanReadable(
   if (report.api.length > 0) {
     lines.push('    API:');
     for (const b of report.api) {
-      lines.push(`  ${formatBackend(b)}`);
+      lines.push(`  ${formatBackendLine(b)}`);
     }
   }
 
@@ -97,7 +79,7 @@ function formatHumanReadable(
   // Host Integrations
   lines.push('  Host Integrations:');
   for (const b of report.host) {
-    lines.push(`  ${formatBackend(b)}`);
+    lines.push(`  ${formatBackendLine(b)}`);
   }
   lines.push('');
 
@@ -151,7 +133,8 @@ function formatJson(
 // ---------------------------------------------------------------------------
 
 function computeExitCode(report: DetectionReport): number {
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  // Only count implemented (non-planned) backends for exit code
+  const allRelay = [...report.cli, ...report.local, ...report.api].filter(b => !b.planned);
   const available = allRelay.filter(b => b.available).length;
 
   if (available === 0) return 2;

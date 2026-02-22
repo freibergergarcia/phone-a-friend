@@ -9,9 +9,10 @@
 import chalk from 'chalk';
 import { select, confirm } from '@inquirer/prompts';
 import { detectAll, type BackendStatus, type DetectionReport } from './detection.js';
-import { saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
+import { loadConfig, saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { installHosts } from './installer.js';
 import { getVersion } from './version.js';
+import { formatBackendLine, formatBackendModels } from './display.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,21 +26,10 @@ export interface SetupOptions {
 // Display helpers
 // ---------------------------------------------------------------------------
 
-function mark(available: boolean, planned?: boolean): string {
-  if (planned) return chalk.dim('[planned]');
-  return available ? chalk.green('\u2713') : chalk.red('\u2717');
-}
-
 function printBackendLine(b: BackendStatus): void {
-  const m = mark(b.available, b.planned);
-  const line = `    ${m} ${b.name.padEnd(12)} ${b.detail}`;
-  console.log(line);
-  if (b.models && b.models.length > 0) {
-    console.log(`${' '.repeat(19)}Models: ${b.models.join(', ')}`);
-  }
-  if (!b.available && !b.planned && b.installHint) {
-    console.log(`${' '.repeat(19)}${chalk.dim(b.installHint)}`);
-  }
+  console.log(`    ${formatBackendLine(b).trimStart()}`);
+  const modelsLine = formatBackendModels(b);
+  if (modelsLine) console.log(modelsLine);
 }
 
 function printReport(report: DetectionReport): void {
@@ -149,13 +139,13 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     }
   }
 
-  // Save config
+  // Save config — merge into existing to preserve user's backend settings
+  const existing = loadConfig(opts?.repoRoot);
   const cfg: PafConfig = {
+    ...existing,
     defaults: {
+      ...existing.defaults,
       backend: selectedBackend,
-      sandbox: DEFAULT_CONFIG.defaults.sandbox,
-      timeout: DEFAULT_CONFIG.defaults.timeout,
-      include_diff: DEFAULT_CONFIG.defaults.include_diff,
     },
   };
   saveConfig(cfg, paths.user);

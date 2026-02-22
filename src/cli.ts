@@ -13,10 +13,8 @@ import { Command } from 'commander';
 import {
   relay,
   RelayError,
-  DEFAULT_BACKEND,
-  DEFAULT_SANDBOX,
-  DEFAULT_TIMEOUT_SECONDS,
 } from './relay.js';
+import type { SandboxMode } from './backends/index.js';
 import {
   installHosts,
   uninstallHosts,
@@ -31,6 +29,7 @@ import {
   configGet,
   configSet,
   loadConfig,
+  resolveConfig,
   DEFAULT_CONFIG,
 } from './config.js';
 import { getVersion } from './version.js';
@@ -203,25 +202,34 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .requiredOption('--prompt <text>', 'Prompt to relay')
-    .option('--to <backend>', 'Target backend: codex, gemini, ollama, openai', DEFAULT_BACKEND)
+    .option('--to <backend>', 'Target backend: codex, gemini, ollama, openai')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')
-    .option('--include-diff', 'Append git diff to prompt', false)
-    .option('--timeout <seconds>', 'Max runtime in seconds', String(DEFAULT_TIMEOUT_SECONDS))
+    .option('--include-diff', 'Append git diff to prompt')
+    .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
-    .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access', DEFAULT_SANDBOX)
+    .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
     .action((opts) => {
+      // Resolve config: CLI flags > env vars > repo config > user config > defaults
+      const resolved = resolveConfig({
+        to: opts.to,
+        sandbox: opts.sandbox,
+        timeout: opts.timeout,
+        includeDiff: opts.includeDiff !== undefined ? String(opts.includeDiff) : undefined,
+        model: opts.model,
+      });
+
       const feedback = relay({
         prompt: opts.prompt,
         repoPath: opts.repo,
-        backend: opts.to,
+        backend: resolved.backend,
         contextFile: opts.contextFile ?? null,
         contextText: opts.contextText ?? null,
-        includeDiff: opts.includeDiff,
-        timeoutSeconds: Number(opts.timeout),
-        model: opts.model ?? null,
-        sandbox: opts.sandbox,
+        includeDiff: resolved.includeDiff,
+        timeoutSeconds: resolved.timeout,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox as SandboxMode,
       });
       console.log(feedback);
     });
@@ -240,7 +248,7 @@ export async function run(argv: string[]): Promise<number> {
     .description('Health check all backends')
     .option('--json', 'Output structured JSON', false)
     .action(async (opts) => {
-      const result = await doctor({ json: opts.json });
+      const result = await doctor({ json: opts.json, repoRoot: process.cwd() });
       console.log(result.output);
       exitCode = result.exitCode;
     });
@@ -253,9 +261,10 @@ export async function run(argv: string[]): Promise<number> {
   configCmd
     .command('init')
     .description('Create default config file')
-    .action(() => {
-      const paths = configPaths();
-      configInit(paths.user);
+    .option('--force', 'Overwrite existing config', false)
+    .action((opts) => {
+      const paths = configPaths(process.cwd());
+      configInit(paths.user, opts.force);
       console.log(`Config created at ${paths.user}`);
     });
 
@@ -264,9 +273,9 @@ export async function run(argv: string[]): Promise<number> {
     .description('Show resolved configuration')
     .option('--sources', 'Show which file each value comes from', false)
     .action((opts) => {
-      const config = loadConfig();
+      const config = loadConfig(process.cwd());
       if (opts.sources) {
-        const paths = configPaths();
+        const paths = configPaths(process.cwd());
         console.log(`User config: ${paths.user}`);
         if (paths.repo) console.log(`Repo config: ${paths.repo}`);
         console.log('');
@@ -278,7 +287,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('paths')
     .description('Print all config file paths')
     .action(() => {
-      const paths = configPaths();
+      const paths = configPaths(process.cwd());
       console.log(`User: ${paths.user}`);
       if (paths.repo) {
         console.log(`Repo: ${paths.repo}`);
@@ -291,10 +300,10 @@ export async function run(argv: string[]): Promise<number> {
     .command('edit')
     .description('Open user config in $EDITOR')
     .action(() => {
-      const paths = configPaths();
+      const paths = configPaths(process.cwd());
       const editor = process.env.EDITOR ?? 'vi';
       if (!existsSync(paths.user)) {
-        configInit(paths.user);
+        configInit(paths.user, true);
       }
       spawnSync(editor, [paths.user], { stdio: 'inherit' });
     });
@@ -303,9 +312,9 @@ export async function run(argv: string[]): Promise<number> {
     .command('set <key> <value>')
     .description('Set a config value (dot-notation)')
     .action((key: string, value: string) => {
-      const paths = configPaths();
+      const paths = configPaths(process.cwd());
       if (!existsSync(paths.user)) {
-        configInit(paths.user);
+        configInit(paths.user, true);
       }
       configSet(key, value, paths.user);
       console.log(`Set ${key} = ${value}`);
@@ -315,7 +324,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('get <key>')
     .description('Get a config value')
     .action((key: string) => {
-      const config = loadConfig();
+      const config = loadConfig(process.cwd());
       const value = configGet(key, config);
       if (value === undefined) {
         console.log(`(not set)`);

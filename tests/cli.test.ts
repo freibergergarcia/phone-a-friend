@@ -36,8 +36,12 @@ const {
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
   })),
   mockSaveConfig: vi.fn(),
-  mockResolveConfig: vi.fn(() => ({
-    backend: 'codex', sandbox: 'read-only', timeout: 600, includeDiff: false,
+  mockResolveConfig: vi.fn((cliOpts: Record<string, string | undefined>) => ({
+    backend: cliOpts.to ?? 'codex',
+    sandbox: cliOpts.sandbox ?? 'read-only',
+    timeout: cliOpts.timeout ? Number(cliOpts.timeout) : 600,
+    includeDiff: cliOpts.includeDiff === 'true',
+    model: cliOpts.model,
   })),
 }));
 
@@ -203,9 +207,13 @@ describe('CLI', () => {
       defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     });
     mockResolveConfig.mockReset();
-    mockResolveConfig.mockReturnValue({
-      backend: 'codex', sandbox: 'read-only', timeout: 600, includeDiff: false,
-    });
+    mockResolveConfig.mockImplementation((cliOpts: Record<string, string | undefined>) => ({
+      backend: cliOpts.to ?? 'codex',
+      sandbox: cliOpts.sandbox ?? 'read-only',
+      timeout: cliOpts.timeout ? Number(cliOpts.timeout) : 600,
+      includeDiff: cliOpts.includeDiff === 'true',
+      model: cliOpts.model,
+    }));
     tmpDir = makeTempDir();
   });
 

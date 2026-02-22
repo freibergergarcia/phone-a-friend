@@ -152,10 +152,31 @@ describe('doctor', () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it('returns 1 when some backends have issues', async () => {
+    it('returns 0 when all implemented backends are healthy (planned excluded)', async () => {
+      const report = makeReport({
+        cli: [
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+        api: [
+          { name: 'openai', category: 'api', available: true, detail: 'set', installHint: '' },
+          { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
+          { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      // Planned backends should not affect exit code
+      expect(result.exitCode).toBe(0);
+    });
+
+    it('returns 1 when some implemented backends have issues', async () => {
       mockDetectAll.mockResolvedValue(makeReport());
       const result = await doctor.doctor();
-      // gemini unavailable, anthropic+google planned → exit 1
+      // gemini unavailable → exit 1 (planned backends excluded from calculation)
       expect(result.exitCode).toBe(1);
     });
 
