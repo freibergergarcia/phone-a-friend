@@ -15,7 +15,7 @@ import {
   relay,
   RelayError,
 } from './relay.js';
-import { theme } from './theme.js';
+import { theme, banner } from './theme.js';
 import type { SandboxMode } from './backends/index.js';
 import {
   installHosts,
@@ -172,17 +172,14 @@ export async function run(argv: string[]): Promise<number> {
     const paths = configPaths();
     if (!existsSync(paths.user)) {
       // No config — show setup nudge
-      const version = getVersion();
       console.log('');
-      console.log(`  phone-a-friend v${version} \u2014 AI coding agent relay`);
+      console.log(banner('AI coding agent relay'));
       console.log('');
-      console.log('  No backends configured yet. Run setup to get started:');
+      console.log(`  ${theme.warning('No backends configured yet.')}`);
+      console.log(`  Run ${theme.bold('phone-a-friend setup')} to get started.`);
       console.log('');
-      console.log('    phone-a-friend setup');
-      console.log('');
-      console.log('  Or jump straight in (requires codex in PATH):');
-      console.log('');
-      console.log('    phone-a-friend --to codex --prompt "What does this project do?"');
+      console.log(`  ${theme.hint('Or jump straight in (requires codex in PATH):')}`);
+      console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
       console.log('');
       return 0;
     }
@@ -193,6 +190,7 @@ export async function run(argv: string[]): Promise<number> {
     .name('phone-a-friend')
     .version(`phone-a-friend ${getVersion()}`, '-V, --version')
     .description('CLI relay for AI coding agent collaboration')
+    .addHelpText('before', `\n${banner('AI coding agent relay')}\n`)
     .configureOutput({
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd()),
