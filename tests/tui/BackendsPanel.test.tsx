@@ -1,0 +1,89 @@
+/**
+ * Tests for BackendsPanel — navigable backend list with detail pane.
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { BackendsPanel } from '../../src/tui/BackendsPanel.js';
+import type { DetectionReport } from '../../src/detection.js';
+
+vi.mock('../../src/config.js', () => ({
+  loadConfig: vi.fn().mockReturnValue({
+    defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
+    backends: {
+      codex: { model: 'o3' },
+      openai: { model: 'gpt-4o', api_key_env: 'OPENAI_API_KEY' },
+      ollama: { host: 'http://localhost:11434', model: 'qwen3' },
+    },
+  }),
+}));
+
+const MOCK_REPORT: DetectionReport = {
+  cli: [
+    { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: '' },
+    { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },
+  ],
+  local: [
+    { name: 'ollama', category: 'local', available: true, detail: 'http://localhost:11434 (3 models)', installHint: '', models: ['qwen3', 'llama3', 'phi3'] },
+  ],
+  api: [
+    { name: 'openai', category: 'api', available: true, detail: 'OPENAI_API_KEY set', installHint: '' },
+    { name: 'anthropic', category: 'api', available: false, detail: 'ANTHROPIC_API_KEY not set', installHint: 'export ANTHROPIC_API_KEY=sk-ant-...', planned: true },
+    { name: 'google', category: 'api', available: false, detail: 'GOOGLE_API_KEY not set', installHint: 'export GOOGLE_API_KEY=...', planned: true },
+  ],
+  host: [
+    { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: '' },
+  ],
+};
+
+const tick = () => new Promise((r) => setTimeout(r, 50));
+
+describe('BackendsPanel', () => {
+  it('lists all backends', () => {
+    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain('codex');
+    expect(frame).toContain('gemini');
+    expect(frame).toContain('ollama');
+    expect(frame).toContain('openai');
+  });
+
+  it('shows detail for the first backend by default', () => {
+    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
+    const frame = lastFrame()!;
+    // First backend is codex — detail should be visible
+    expect(frame).toContain('found in PATH');
+  });
+
+  it('shows install hint for unavailable backends when selected', async () => {
+    const { lastFrame, stdin } = render(<BackendsPanel report={MOCK_REPORT} />);
+    // Navigate down to gemini (second item)
+    stdin.write('\u001B[B'); // arrow down
+    await tick();
+    const frame = lastFrame()!;
+    expect(frame).toContain('npm install -g @google/gemini-cli');
+  });
+
+  it('shows models for Ollama when selected', async () => {
+    const { lastFrame, stdin } = render(<BackendsPanel report={MOCK_REPORT} />);
+    // Navigate to ollama (third item: codex, gemini, ollama)
+    stdin.write('\u001B[B'); // down to gemini
+    await tick();
+    stdin.write('\u001B[B'); // down to ollama
+    await tick();
+    const frame = lastFrame()!;
+    expect(frame).toContain('qwen3');
+    expect(frame).toContain('llama3');
+  });
+
+  it('shows planned badge for planned backends', () => {
+    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
+    expect(lastFrame()).toContain('planned');
+  });
+
+  it('shows host integrations', () => {
+    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
+    expect(lastFrame()).toContain('claude');
+  });
+});

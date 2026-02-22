@@ -52,13 +52,13 @@ describe('TUI App', () => {
     expect(frame).toMatch(/Scanning|System|Node/);
   });
 
-  it('number keys jump to placeholder panels', async () => {
+  it('number keys jump to panels', async () => {
     const { lastFrame, stdin } = render(<App />);
 
-    // Jump to Backends (tab 2) — shows placeholder
+    // Jump to Backends (tab 2) — shows real BackendsPanel
     stdin.write('2');
     await tick();
-    expect(lastFrame()).toContain('Backends Panel');
+    expect(lastFrame()).toContain('Backends');
 
     // Jump to Config (tab 3)
     stdin.write('3');
@@ -77,7 +77,7 @@ describe('TUI App', () => {
     // Start at Status (0), Tab to Backends (1)
     stdin.write('\t');
     await tick();
-    expect(lastFrame()).toContain('Backends Panel');
+    expect(lastFrame()).toContain('Backends');
 
     // Tab to Config (2)
     stdin.write('\t');
