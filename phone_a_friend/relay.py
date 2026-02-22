@@ -35,6 +35,7 @@ def _ensure_size_limit(label: str, text: str, max_bytes: int) -> None:
 def _read_context_file(context_file: Path | None) -> str:
     if context_file is None:
         return ""
+    context_file = context_file.resolve()
     if not context_file.exists():
         raise RelayError(f"Context file does not exist: {context_file}")
     if not context_file.is_file():

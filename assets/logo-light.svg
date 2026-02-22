@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 80" fill="none">
+  <text x="240" y="44" text-anchor="middle" font-family="'Syne', 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="800" font-size="42" letter-spacing="-0.5">
+    <tspan fill="#0284c7">phone</tspan><tspan fill="#1e293b">-a-friend</tspan>
+  </text>
+  <text x="240" y="70" text-anchor="middle" font-family="'Syne', 'SF Pro Display', 'Segoe UI', system-ui, -apple-system, sans-serif" font-weight="400" font-size="13" fill="#64748b" letter-spacing="0.5">
+    When your AI needs a second opinion.
+  </text>
+</svg>
