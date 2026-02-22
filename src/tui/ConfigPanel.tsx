@@ -1,64 +1,160 @@
 /**
- * Config panel — read-only display of TOML configuration.
- * Inline editing comes in a later task.
+ * Config panel — navigable config display with inline editing.
+ * Editing targets user config file only (never repo config).
  */
 
-import React from 'react';
-import { Box, Text } from 'ink';
-import { loadConfig, configPaths } from '../config.js';
+import React, { useState, useCallback } from 'react';
+import { Box, Text, useInput } from 'ink';
+import { loadConfig, configPaths, configSet } from '../config.js';
+import { existsSync } from 'node:fs';
 
-function ConfigSection({ title, entries }: { title: string; entries: [string, unknown][] }) {
-  if (entries.length === 0) return null;
-  return (
-    <Box flexDirection="column">
-      <Text bold>{title}</Text>
-      {entries.map(([key, val]) => (
-        <Box key={key} gap={1}>
-          <Text>  </Text>
-          <Text dimColor>{key}</Text>
-          <Text>{String(val)}</Text>
-        </Box>
-      ))}
-    </Box>
-  );
+interface ConfigRow {
+  dotKey: string;
+  label: string;
+  value: unknown;
+  section: string;
+}
+
+function buildRows(config: ReturnType<typeof loadConfig>): ConfigRow[] {
+  const rows: ConfigRow[] = [];
+
+  // Defaults
+  rows.push({ dotKey: 'defaults.backend', label: 'backend', value: config.defaults.backend, section: 'Defaults' });
+  rows.push({ dotKey: 'defaults.sandbox', label: 'sandbox', value: config.defaults.sandbox, section: 'Defaults' });
+  rows.push({ dotKey: 'defaults.timeout', label: 'timeout', value: config.defaults.timeout, section: 'Defaults' });
+  rows.push({ dotKey: 'defaults.include_diff', label: 'include_diff', value: config.defaults.include_diff, section: 'Defaults' });
+
+  // Per-backend
+  for (const [name, cfg] of Object.entries(config.backends ?? {})) {
+    for (const [key, val] of Object.entries(cfg)) {
+      rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}` });
+    }
+  }
+
+  return rows;
 }
 
 export function ConfigPanel() {
   const paths = configPaths();
-  const config = loadConfig();
+  const [config, setConfig] = useState(() => loadConfig());
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  const defaultEntries: [string, unknown][] = [
-    ['backend', config.defaults.backend],
-    ['sandbox', config.defaults.sandbox],
-    ['timeout', config.defaults.timeout],
-    ['include_diff', config.defaults.include_diff],
-  ];
+  const rows = buildRows(config);
 
-  const backendSections = Object.entries(config.backends ?? {}).map(([name, cfg]) => ({
-    name,
-    entries: Object.entries(cfg) as [string, unknown][],
-  }));
+  const reload = useCallback(() => {
+    setConfig(loadConfig());
+    setSaveMessage(null);
+  }, []);
+
+  useInput((input, key) => {
+    if (editing) {
+      if (key.return) {
+        // Save
+        const row = rows[selectedIndex];
+        try {
+          const userPath = paths.user;
+          if (!existsSync(userPath)) {
+            // Create default config first
+            const { configInit } = require('../config.js');
+            configInit(userPath, true);
+          }
+          configSet(row.dotKey, editValue, userPath);
+          reload();
+          setSaveMessage(`Saved ${row.dotKey}`);
+        } catch (err) {
+          setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        setEditing(false);
+        return;
+      }
+      if (key.escape) {
+        setEditing(false);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setEditValue((v) => v.slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta) {
+        setEditValue((v) => v + input);
+      }
+      return;
+    }
+
+    // Navigation mode
+    if (key.downArrow) {
+      setSelectedIndex((i) => Math.min(i + 1, rows.length - 1));
+      setSaveMessage(null);
+    }
+    if (key.upArrow) {
+      setSelectedIndex((i) => Math.max(i - 1, 0));
+      setSaveMessage(null);
+    }
+    if (key.return) {
+      const row = rows[selectedIndex];
+      setEditValue(String(row.value));
+      setEditing(true);
+      setSaveMessage(null);
+    }
+    if (input === 'r') {
+      reload();
+    }
+  });
+
+  let lastSection = '';
 
   return (
-    <Box flexDirection="column" gap={1}>
+    <Box flexDirection="column" gap={0}>
       {/* Config path */}
-      <Box>
+      <Box marginBottom={1}>
         <Text dimColor>Config: </Text>
         <Text>{paths.user}</Text>
       </Box>
 
-      {/* Defaults */}
-      <ConfigSection title="Defaults" entries={defaultEntries} />
+      {/* Rows */}
+      {rows.map((row, i) => {
+        const showSection = row.section !== lastSection;
+        lastSection = row.section;
+        const isSelected = i === selectedIndex;
+        const isEditing = isSelected && editing;
 
-      {/* Per-backend config */}
-      {backendSections.map(({ name, entries }) => (
-        <ConfigSection key={name} title={`Backend: ${name}`} entries={entries} />
-      ))}
+        return (
+          <Box key={row.dotKey} flexDirection="column">
+            {showSection && (
+              <Box marginTop={i > 0 ? 1 : 0}>
+                <Text bold>{row.section}</Text>
+              </Box>
+            )}
+            <Box gap={1}>
+              <Text>{isSelected ? '\u25b8' : ' '}</Text>
+              <Text dimColor>{row.label.padEnd(14)}</Text>
+              {isEditing ? (
+                <Text color="cyan">{editValue}<Text inverse> </Text></Text>
+              ) : (
+                <Text bold={isSelected}>{String(row.value)}</Text>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
 
-      {/* Edit tip */}
+      {/* Save message */}
+      {saveMessage && (
+        <Box marginTop={1}>
+          <Text color={saveMessage.startsWith('Error') ? 'red' : 'green'}>{saveMessage}</Text>
+        </Box>
+      )}
+
+      {/* Hints */}
       <Box marginTop={1}>
-        <Text dimColor>Tip: </Text>
-        <Text>phone-a-friend config set {'<key>'} {'<value>'}</Text>
+        {editing ? (
+          <Text dimColor>Enter save  Esc cancel  Backspace delete</Text>
+        ) : (
+          <Text dimColor>Enter edit  Arrow keys navigate  r reload</Text>
+        )}
       </Box>
     </Box>
   );
