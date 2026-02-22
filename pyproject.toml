@@ -1,6 +1,6 @@
 [project]
 name = "phone-a-friend"
-version = "0.4.2"
+version = "0.4.3"
 description = "CLI relay that lets AI coding agents collaborate — delegate tasks to Codex or Gemini"
 readme = "README.md"
 license = "MIT"
