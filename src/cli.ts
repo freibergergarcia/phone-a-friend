@@ -169,9 +169,14 @@ export async function run(argv: string[]): Promise<number> {
 
   // Smart no-args behavior
   if (normalized.length === 0) {
+    // TTY guard: launch TUI only in interactive terminal
+    if (process.stdout.isTTY && process.env.TERM !== 'dumb') {
+      const { renderTui } = await import('./tui/render.js');
+      return await renderTui();
+    }
+    // Non-interactive: show setup nudge or help
     const paths = configPaths();
     if (!existsSync(paths.user)) {
-      // No config — show setup nudge
       console.log('');
       console.log(banner('AI coding agent relay'));
       console.log('');
