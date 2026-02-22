@@ -44,12 +44,43 @@ I'm working on this task and got the above response. Please review it and return
 
 ```bash
 ./phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
+# For gemini, always include --model (see "Gemini Model Priority" below):
+./phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
 ```
 
 5. Return backend feedback in concise review format:
    - Critical issues
    - Important issues
    - Suggested fixes
+
+## Gemini Model Priority
+
+When using `--to gemini`, **always** pass `--model` using the first model from
+this priority list. Never use aliases (`auto`, `pro`, `flash`) — use concrete
+model names only:
+
+1. `gemini-3.1-pro-preview-customtools` — optimized for agentic tool-use
+2. `gemini-3.1-pro-preview` — general-purpose preview
+3. `gemini-2.5-pro` — stable fallback
+4. `gemini-2.5-flash` — fast, lower-cost fallback
+5. `gemini-2.5-flash-lite` — last resort
+
+### Fallback rule
+
+On Gemini relay failure, retry with the next model **only** for transient or
+capacity errors:
+
+- **Retry**: 429, RESOURCE_EXHAUSTED, "high demand", model not found, 5xx,
+  transient/timeout errors
+- **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
+  permission errors
+- **Default**: if an error cannot be confidently classified as transient, do
+  NOT model-fallback — report the error immediately
+
+After exhausting all models, stop and report the error with the list of
+attempted models.
+
+This does NOT apply to `--to codex`.
 
 ## Notes
 

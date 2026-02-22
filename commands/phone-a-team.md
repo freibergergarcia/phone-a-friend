@@ -120,8 +120,10 @@ command:
    - Their assigned backend (`--to codex` or `--to gemini`)
    - The relay command template:
      ```
-     ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>]
+     ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
      ```
+   - For gemini workers: always include `--model` per the Gemini Model
+     Priority section below
    - Instructions to:
      - Run relay calls as messaged by the lead
      - Send results back via `SendMessage`
@@ -180,8 +182,9 @@ Delegate the task to the backend via the relay. The lead's job is to
 
 - **Single backend**: Relay the task (or sub-task) via phone-a-friend:
   ```bash
-  ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>]
+  ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
   ```
+  For gemini, always include `--model` per the Gemini Model Priority section.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
@@ -235,7 +238,8 @@ Based on the review:
   timeouts specifically, retry the backend in the next round (matching the
   failure table). Only stop the loop on non-timeout failures when no backend
   produced a result.
-- **Rate limited (429)**: Skip this backend for the current round. Retry it
+- **Rate limited (429)**: For gemini, try the next model in the priority list
+  before skipping. For codex, skip this backend for the current round. Retry
   in the next round. If using both backends, continue with the other.
 
 ### Round Progression Example
@@ -310,8 +314,19 @@ Reference table for handling backend failures during the loop:
 | Both requested, one missing            | Degrade to available (handled in Step 2)          |
 | Both requested, one fails mid-loop     | Continue with remaining backend, note failure     |
 | Both requested, both fail mid-loop     | Stop loop. Synthesize using best prior result, or failure summary if no prior result exists |
-| Backend rate-limited (429)             | Skip for this round, retry next round             |
-| Backend timeout                        | Treat as failure for this round, retry next       |
+| Backend rate-limited (429)             | Gemini: try next model in priority list first. If all models exhausted, skip for this round, retry next round |
+| Backend timeout                        | Gemini: try next model in priority list first. If all models exhausted, treat as failure for this round, retry next |
+| Gemini "high demand" / capacity error  | Try next model in priority list. If all exhausted, treat as round failure |
+| Gemini model not found                 | Try next model in priority list. If all exhausted, treat as round failure |
+| Gemini RESOURCE_EXHAUSTED / 5xx        | Try next model in priority list. If all exhausted, treat as round failure, retry next round |
+| Gemini unclassified error              | Do NOT model-fallback. Treat as round failure immediately |
+
+**Precedence**: For gemini errors, always attempt model fallback **within the
+current round** before escalating to round-level retry. Only move to the next
+round (or stop) after the model priority list is exhausted.
+
+**Round reset**: Each new round starts again from model #1 in the priority
+list. Model fallback state does not carry across rounds.
 
 If all backends are unavailable or failing, stop the loop and move to
 synthesis with whatever results have been collected. Always explain what
@@ -372,6 +387,39 @@ happened and whether the result is complete.
 - **Cleanup is mandatory.** Step 8 must execute if a team was created (i.e.,
   `TeamCreate` succeeded at any point during this session), even on error
   paths.
+
+## Gemini Model Priority
+
+When using `--to gemini` (including the gemini side of `--backend both`),
+**always** pass `--model` using the first model from this priority list. Never
+use aliases (`auto`, `pro`, `flash`) — use concrete model names only:
+
+1. `gemini-3.1-pro-preview-customtools` — optimized for agentic tool-use
+2. `gemini-3.1-pro-preview` — general-purpose preview
+3. `gemini-2.5-pro` — stable fallback
+4. `gemini-2.5-flash` — fast, lower-cost fallback
+5. `gemini-2.5-flash-lite` — last resort
+
+### Fallback rule
+
+On Gemini relay failure, retry with the next model **only** for transient or
+capacity errors:
+
+- **Retry with next model**: 429, RESOURCE_EXHAUSTED, "high demand", model not
+  found, 5xx, transient/timeout errors
+- **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
+  permission errors
+- **Default**: if an error cannot be confidently classified as transient, do
+  NOT model-fallback — treat as immediate round failure
+
+Model fallback happens **within the current round** (see Step 7 precedence
+rule). After exhausting all models in a round, escalate to round-level retry
+or stop per Step 7. Each new round resets to model #1.
+
+When reporting errors in synthesis, list all attempted models and the error
+from each.
+
+This does NOT apply to `--to codex`.
 
 ## Notes
 
