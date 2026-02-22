@@ -37,7 +37,7 @@ const MOCK_REPORT: DetectionReport = {
 describe('ActionsPanel', () => {
   it('shows action list', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Check Backends');
@@ -46,7 +46,7 @@ describe('ActionsPanel', () => {
 
   it('shows action descriptions', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Re-scan');
@@ -54,7 +54,7 @@ describe('ActionsPanel', () => {
 
   it('highlights first action by default', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
     );
     // The pointer indicator should be visible
     expect(lastFrame()).toContain('\u25b8');
@@ -62,7 +62,7 @@ describe('ActionsPanel', () => {
 
   it('navigates with arrow keys', async () => {
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
     );
     // Move down
     stdin.write('\u001B[B');
@@ -74,8 +74,49 @@ describe('ActionsPanel', () => {
 
   it('shows Open Config action', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
     );
     expect(lastFrame()).toContain('Open Config');
+  });
+
+  it('shows Uninstall Plugin action', () => {
+    const { lastFrame } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+    );
+    expect(lastFrame()).toContain('Uninstall Plugin');
+  });
+
+  it('shows confirmation prompt for Uninstall Plugin', async () => {
+    const { lastFrame, stdin } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+    );
+    // Navigate to Uninstall Plugin (3rd item: Check Backends, Reinstall, Uninstall)
+    stdin.write('\u001B[B'); // down
+    await tick();
+    stdin.write('\u001B[B'); // down
+    await tick();
+    // Press Enter — should show confirmation, not run immediately
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame()).toContain('y/n');
+  });
+
+  it('cancels confirmation with n key', async () => {
+    const { lastFrame, stdin } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+    );
+    // Navigate to Uninstall
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame()).toContain('y/n');
+    // Press n to cancel
+    stdin.write('n');
+    await tick();
+    expect(lastFrame()).not.toContain('y/n');
+    expect(lastFrame()).toContain('Enter to run');
   });
 });

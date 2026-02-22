@@ -59381,6 +59381,36 @@ function buildActions(report, onRefresh, processRef) {
       }
     },
     {
+      label: "Uninstall Plugin",
+      description: "Remove Claude Code plugin",
+      confirm: "Uninstall plugin and exit? (y/n)",
+      exitAfter: true,
+      run: async () => {
+        return new Promise((resolve5, reject) => {
+          const proc = spawn(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
+            stdio: ["ignore", "pipe", "pipe"]
+          });
+          processRef.current = proc;
+          let output = "";
+          proc.stdout?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.stderr?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.on("close", (code) => {
+            processRef.current = null;
+            if (code === 0) resolve5(output.trim() || "Plugin uninstalled");
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on("error", (err) => {
+            processRef.current = null;
+            reject(err);
+          });
+        });
+      }
+    },
+    {
       label: "Open Config",
       description: "Open config in $EDITOR",
       run: async () => {
@@ -59409,9 +59439,10 @@ function buildActions(report, onRefresh, processRef) {
     }
   ];
 }
-function ActionsPanel({ report, onRefresh }) {
+function ActionsPanel({ report, onRefresh, onExit: onExit2 }) {
   const [selectedIndex, setSelectedIndex] = (0, import_react32.useState)(0);
   const [running, setRunning] = (0, import_react32.useState)(false);
+  const [confirming, setConfirming] = (0, import_react32.useState)(false);
   const [result, setResult] = (0, import_react32.useState)(null);
   const mountedRef = (0, import_react32.useRef)(true);
   const activeProcessRef = (0, import_react32.useRef)(null);
@@ -59425,8 +59456,37 @@ function ActionsPanel({ report, onRefresh }) {
     };
   }, []);
   const actions = buildActions(report, onRefresh, activeProcessRef);
-  use_input_default((_input, key) => {
+  const executeAction = (action) => {
+    setRunning(true);
+    setConfirming(false);
+    setResult(null);
+    action.run().then((msg) => {
+      if (!mountedRef.current) return;
+      setResult({ success: true, message: msg });
+      if (action.exitAfter) {
+        setTimeout(() => {
+          if (mountedRef.current) onExit2();
+        }, 800);
+      }
+    }).catch((err) => {
+      if (!mountedRef.current) return;
+      setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
+    }).finally(() => {
+      if (!mountedRef.current) return;
+      setRunning(false);
+    });
+  };
+  use_input_default((input, key) => {
     if (running) return;
+    if (confirming) {
+      if (input === "y" || input === "Y") {
+        executeAction(actions[selectedIndex]);
+      }
+      if (input === "n" || input === "N" || key.escape) {
+        setConfirming(false);
+      }
+      return;
+    }
     if (key.downArrow) {
       setSelectedIndex((i) => Math.min(i + 1, actions.length - 1));
       setResult(null);
@@ -59438,18 +59498,12 @@ function ActionsPanel({ report, onRefresh }) {
     if (key.return) {
       const action = actions[selectedIndex];
       if (action.disabled) return;
-      setRunning(true);
-      setResult(null);
-      action.run().then((msg) => {
-        if (!mountedRef.current) return;
-        setResult({ success: true, message: msg });
-      }).catch((err) => {
-        if (!mountedRef.current) return;
-        setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
-      }).finally(() => {
-        if (!mountedRef.current) return;
-        setRunning(false);
-      });
+      if (action.confirm) {
+        setConfirming(true);
+        setResult(null);
+      } else {
+        executeAction(action);
+      }
     }
   });
   return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
@@ -59468,13 +59522,14 @@ function ActionsPanel({ report, onRefresh }) {
         ] })
       ] }, action.label);
     }) }),
+    confirming && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: "yellow", children: actions[selectedIndex]?.confirm }) }),
     running && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { color: "cyan", children: "Running..." }),
     result && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(Text, { color: result.success ? "green" : "red", children: [
       result.success ? "\u2713" : "\u2717",
       " ",
       result.message
     ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: "Enter to run  Arrow keys to navigate" }) })
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Box_default, { marginTop: 1, children: confirming ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: "y confirm  n/Esc cancel" }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Text, { dimColor: true, children: "Enter to run  Arrow keys to navigate" }) })
   ] });
 }
 var import_react32, import_jsx_runtime8;
@@ -59581,11 +59636,11 @@ function App2() {
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelContent, { tab: currentTab, detection, onFocusChange: setChildHasFocus }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelContent, { tab: currentTab, detection, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
     /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection, onFocusChange }) {
+function PanelContent({ tab: tab2, detection, onFocusChange, onExit: onExit2 }) {
   switch (tab2) {
     case "Status":
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
@@ -59602,7 +59657,7 @@ function PanelContent({ tab: tab2, detection, onFocusChange }) {
     case "Config":
       return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
     case "Actions":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }) });
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onExit: onExit2 });
     default:
       return null;
   }

@@ -79,7 +79,7 @@ export function App() {
     <Box flexDirection="column" padding={1}>
       <TabBar tabs={[...TABS]} activeIndex={activeTab} />
       <Box flexDirection="column" minHeight={10}>
-        <PanelContent tab={currentTab} detection={detection} onFocusChange={setChildHasFocus} />
+        <PanelContent tab={currentTab} detection={detection} onFocusChange={setChildHasFocus} onExit={() => exit()} />
       </Box>
       <KeyHint hints={hints} />
     </Box>
@@ -90,9 +90,10 @@ interface PanelProps {
   tab: string;
   detection: ReturnType<typeof useDetection>;
   onFocusChange: (hasFocus: boolean) => void;
+  onExit: () => void;
 }
 
-function PanelContent({ tab, detection, onFocusChange }: PanelProps) {
+function PanelContent({ tab, detection, onFocusChange, onExit }: PanelProps) {
   switch (tab) {
     case 'Status':
       return (
@@ -108,7 +109,7 @@ function PanelContent({ tab, detection, onFocusChange }: PanelProps) {
     case 'Config':
       return <ConfigPanel onEditingChange={onFocusChange} />;
     case 'Actions':
-      return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} />;
+      return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} onExit={onExit} />;
     default:
       return null;
   }

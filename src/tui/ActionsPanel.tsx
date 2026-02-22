@@ -21,6 +21,8 @@ interface Action {
   description: string;
   run: () => Promise<string>;
   disabled?: string;
+  confirm?: string; // If set, show this prompt before running
+  exitAfter?: boolean; // If true, exit TUI after successful run
 }
 
 function buildActions(
@@ -60,6 +62,29 @@ function buildActions(
       },
     },
     {
+      label: 'Uninstall Plugin',
+      description: 'Remove Claude Code plugin',
+      confirm: 'Uninstall plugin and exit? (y/n)',
+      exitAfter: true,
+      run: async () => {
+        return new Promise<string>((resolve, reject) => {
+          const proc = spawn(process.execPath, [process.argv[1] ?? 'phone-a-friend', 'plugin', 'uninstall', '--claude'], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          processRef.current = proc;
+          let output = '';
+          proc.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.on('close', (code) => {
+            processRef.current = null;
+            if (code === 0) resolve(output.trim() || 'Plugin uninstalled');
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on('error', (err) => { processRef.current = null; reject(err); });
+        });
+      },
+    },
+    {
       label: 'Open Config',
       description: 'Open config in $EDITOR',
       run: async () => {
@@ -88,11 +113,13 @@ function buildActions(
 export interface ActionsPanelProps {
   report: DetectionReport | null;
   onRefresh: () => void;
+  onExit: () => void;
 }
 
-export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
+export function ActionsPanel({ report, onRefresh, onExit }: ActionsPanelProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [running, setRunning] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const mountedRef = useRef(true);
   const activeProcessRef = useRef<ChildProcess | null>(null);
@@ -100,7 +127,6 @@ export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
   useEffect(() => {
     return () => {
       mountedRef.current = false;
-      // Kill any orphan child process on unmount
       if (activeProcessRef.current) {
         activeProcessRef.current.kill();
         activeProcessRef.current = null;
@@ -110,8 +136,42 @@ export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
 
   const actions = buildActions(report, onRefresh, activeProcessRef);
 
-  useInput((_input, key) => {
+  const executeAction = (action: Action) => {
+    setRunning(true);
+    setConfirming(false);
+    setResult(null);
+    action.run()
+      .then((msg) => {
+        if (!mountedRef.current) return;
+        setResult({ success: true, message: msg });
+        if (action.exitAfter) {
+          // Brief delay so user sees the result before exit
+          setTimeout(() => { if (mountedRef.current) onExit(); }, 800);
+        }
+      })
+      .catch((err) => {
+        if (!mountedRef.current) return;
+        setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
+      })
+      .finally(() => {
+        if (!mountedRef.current) return;
+        setRunning(false);
+      });
+  };
+
+  useInput((input, key) => {
     if (running) return;
+
+    // Confirmation mode: y/n/Escape
+    if (confirming) {
+      if (input === 'y' || input === 'Y') {
+        executeAction(actions[selectedIndex]);
+      }
+      if (input === 'n' || input === 'N' || key.escape) {
+        setConfirming(false);
+      }
+      return;
+    }
 
     if (key.downArrow) {
       setSelectedIndex((i) => Math.min(i + 1, actions.length - 1));
@@ -125,21 +185,12 @@ export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
       const action = actions[selectedIndex];
       if (action.disabled) return;
 
-      setRunning(true);
-      setResult(null);
-      action.run()
-        .then((msg) => {
-          if (!mountedRef.current) return;
-          setResult({ success: true, message: msg });
-        })
-        .catch((err) => {
-          if (!mountedRef.current) return;
-          setResult({ success: false, message: err instanceof Error ? err.message : String(err) });
-        })
-        .finally(() => {
-          if (!mountedRef.current) return;
-          setRunning(false);
-        });
+      if (action.confirm) {
+        setConfirming(true);
+        setResult(null);
+      } else {
+        executeAction(action);
+      }
     }
   });
 
@@ -162,6 +213,12 @@ export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
         })}
       </Box>
 
+      {confirming && (
+        <Box marginTop={1}>
+          <Text color="yellow">{actions[selectedIndex]?.confirm}</Text>
+        </Box>
+      )}
+
       {running && <Text color="cyan">Running...</Text>}
 
       {result && (
@@ -173,7 +230,11 @@ export function ActionsPanel({ report, onRefresh }: ActionsPanelProps) {
       )}
 
       <Box marginTop={1}>
-        <Text dimColor>Enter to run  Arrow keys to navigate</Text>
+        {confirming ? (
+          <Text dimColor>y confirm  n/Esc cancel</Text>
+        ) : (
+          <Text dimColor>Enter to run  Arrow keys to navigate</Text>
+        )}
       </Box>
     </Box>
   );
