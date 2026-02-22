@@ -68,7 +68,7 @@ describe('TUI App', () => {
     // Jump to Actions (tab 4)
     stdin.write('4');
     await tick();
-    expect(lastFrame()).toContain('Actions Panel');
+    expect(lastFrame()).toContain('Actions');
   });
 
   it('Tab key cycles through tabs', async () => {
@@ -87,7 +87,7 @@ describe('TUI App', () => {
     // Tab to Actions (3)
     stdin.write('\t');
     await tick();
-    expect(lastFrame()).toContain('Actions Panel');
+    expect(lastFrame()).toContain('Actions');
 
     // Tab wraps to Status (0)
     stdin.write('\t');

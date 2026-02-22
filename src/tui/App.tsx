@@ -11,6 +11,7 @@ import type { Hint } from './components/KeyHint.js';
 import { StatusPanel } from './StatusPanel.js';
 import { BackendsPanel } from './BackendsPanel.js';
 import { ConfigPanel } from './ConfigPanel.js';
+import { ActionsPanel } from './ActionsPanel.js';
 import { useDetection } from './hooks/useDetection.js';
 
 const TABS = ['Status', 'Backends', 'Config', 'Actions'] as const;
@@ -101,7 +102,7 @@ function PanelContent({ tab, detection }: PanelProps) {
     case 'Config':
       return <ConfigPanel />;
     case 'Actions':
-      return <Text>Actions Panel</Text>;
+      return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} />;
     default:
       return null;
   }
