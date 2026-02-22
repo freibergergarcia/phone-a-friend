@@ -1,22 +1,12 @@
 /**
- * Tests for StatusPanel and useDetection hook.
+ * Tests for StatusPanel component (receives props from parent).
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { Text } from 'ink';
-
-// Mock detection module before importing components
-vi.mock('../../src/detection.js', () => ({
-  detectAll: vi.fn(),
-}));
-
-import { detectAll } from '../../src/detection.js';
-import type { DetectionReport } from '../../src/detection.js';
 import { StatusPanel } from '../../src/tui/StatusPanel.js';
-
-const mockDetectAll = vi.mocked(detectAll);
+import type { DetectionReport } from '../../src/detection.js';
 
 const MOCK_REPORT: DetectionReport = {
   cli: [
@@ -37,72 +27,74 @@ const MOCK_REPORT: DetectionReport = {
 };
 
 describe('StatusPanel', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('shows loading state initially', () => {
-    // Never resolve — stays in loading
-    mockDetectAll.mockReturnValue(new Promise(() => {}));
-    const { lastFrame } = render(<StatusPanel />);
+  it('shows loading state when report is null', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={null} loading={true} refreshing={false} error={null} />
+    );
     expect(lastFrame()).toContain('Scanning');
   });
 
-  it('shows system info after detection completes', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    // Wait for async state update
-    await vi.waitFor(() => {
-      const frame = lastFrame()!;
-      expect(frame).toContain('Node.js');
-      expect(frame).toContain('phone-a-friend');
-    });
+  it('shows system info after detection completes', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Node.js');
+    expect(frame).toContain('phone-a-friend');
   });
 
-  it('shows backend summary count', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    await vi.waitFor(() => {
-      const frame = lastFrame()!;
-      // 2 available (codex + openai) out of 3 non-planned (codex, gemini, ollama, openai minus 2 planned)
-      expect(frame).toMatch(/\d+ of \d+/);
-    });
+  it('shows backend summary count', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    const frame = lastFrame()!;
+    // 2 available (codex + openai) out of 4 non-planned
+    expect(frame).toMatch(/\d+ of \d+/);
   });
 
-  it('shows available backends with checkmark', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    await vi.waitFor(() => {
-      const frame = lastFrame()!;
-      expect(frame).toContain('codex');
-      expect(frame).toContain('openai');
-    });
+  it('shows available backends', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('codex');
+    expect(frame).toContain('openai');
   });
 
-  it('shows unavailable backends', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    await vi.waitFor(() => {
-      const frame = lastFrame()!;
-      expect(frame).toContain('gemini');
-      expect(frame).toContain('ollama');
-    });
+  it('shows unavailable backends', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('gemini');
+    expect(frame).toContain('ollama');
   });
 
-  it('shows planned backends', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    await vi.waitFor(() => {
-      const frame = lastFrame()!;
-      expect(frame).toContain('planned');
-    });
+  it('shows planned backends', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    expect(lastFrame()).toContain('planned');
   });
 
-  it('shows host integrations', async () => {
-    mockDetectAll.mockResolvedValue(MOCK_REPORT);
-    const { lastFrame } = render(<StatusPanel />);
-    await vi.waitFor(() => {
-      expect(lastFrame()).toContain('claude');
-    });
+  it('shows host integrations', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    expect(lastFrame()).toContain('claude');
+  });
+
+  it('shows error message when error is present', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={new Error('Network timeout')} />
+    );
+    expect(lastFrame()).toContain('Network timeout');
+  });
+
+  it('shows refreshing indicator', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={true} error={null} />
+    );
+    expect(lastFrame()).toContain('Refreshing');
   });
 });

@@ -11,7 +11,9 @@ export async function renderTui(): Promise<number> {
   try {
     await waitUntilExit();
     return 0;
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`TUI error: ${message}\n`);
     return 1;
   }
 }

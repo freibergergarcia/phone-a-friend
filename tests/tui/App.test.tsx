@@ -2,20 +2,43 @@
  * Tests for the TUI App shell and tab navigation.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
+
+// Mock detection so App doesn't do real system calls
+vi.mock('../../src/detection.js', () => ({
+  detectAll: vi.fn().mockResolvedValue({
+    cli: [],
+    local: [],
+    api: [],
+    host: [],
+  }),
+}));
+
+// Mock version to avoid FS reads
+vi.mock('../../src/version.js', () => ({
+  getVersion: vi.fn().mockReturnValue('1.0.0-test'),
+}));
+
 import { App } from '../../src/tui/App.js';
 
 const TAB_NAMES = ['Status', 'Backends', 'Config', 'Actions'];
 
+// Helper: wait for React state updates to flush
+const tick = () => new Promise((r) => setTimeout(r, 50));
+
 describe('TUI App', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('renders without crashing', () => {
     const { lastFrame } = render(<App />);
     expect(lastFrame()).toBeDefined();
   });
 
-  it('shows all 4 tab names', () => {
+  it('shows all 4 tab names in the tab bar', () => {
     const { lastFrame } = render(<App />);
     const frame = lastFrame()!;
     for (const name of TAB_NAMES) {
@@ -23,45 +46,53 @@ describe('TUI App', () => {
     }
   });
 
-  it('shows Status panel content by default', () => {
+  it('shows Status content by default (scanning or system info)', () => {
     const { lastFrame } = render(<App />);
-    // The Status placeholder should be visible initially
-    expect(lastFrame()).toContain('Status');
-  });
-
-  it('Tab key cycles to next tab', () => {
-    const { lastFrame, stdin } = render(<App />);
-    // Press Tab to move to Backends
-    stdin.write('\t');
     const frame = lastFrame()!;
-    // Backends panel placeholder should now be active
-    expect(frame).toContain('Backends');
+    expect(frame).toMatch(/Scanning|System|Node/);
   });
 
-  it('Tab wraps around from last to first', () => {
+  it('number keys jump to placeholder panels', async () => {
     const { lastFrame, stdin } = render(<App />);
-    // Press Tab 4 times to wrap around
-    stdin.write('\t');
-    stdin.write('\t');
-    stdin.write('\t');
-    stdin.write('\t');
-    // Should be back on Status
-    expect(lastFrame()).toContain('Status');
-  });
 
-  it('number keys 1-4 jump to specific tabs', () => {
-    const { lastFrame, stdin } = render(<App />);
-    stdin.write('3');
-    expect(lastFrame()).toContain('Config');
-
+    // Jump to Backends (tab 2) — shows placeholder
     stdin.write('2');
-    expect(lastFrame()).toContain('Backends');
+    await tick();
+    expect(lastFrame()).toContain('Backends Panel');
 
+    // Jump to Config (tab 3)
+    stdin.write('3');
+    await tick();
+    expect(lastFrame()).toContain('Config Panel');
+
+    // Jump to Actions (tab 4)
     stdin.write('4');
-    expect(lastFrame()).toContain('Actions');
+    await tick();
+    expect(lastFrame()).toContain('Actions Panel');
+  });
 
-    stdin.write('1');
-    expect(lastFrame()).toContain('Status');
+  it('Tab key cycles through tabs', async () => {
+    const { lastFrame, stdin } = render(<App />);
+
+    // Start at Status (0), Tab to Backends (1)
+    stdin.write('\t');
+    await tick();
+    expect(lastFrame()).toContain('Backends Panel');
+
+    // Tab to Config (2)
+    stdin.write('\t');
+    await tick();
+    expect(lastFrame()).toContain('Config Panel');
+
+    // Tab to Actions (3)
+    stdin.write('\t');
+    await tick();
+    expect(lastFrame()).toContain('Actions Panel');
+
+    // Tab wraps to Status (0)
+    stdin.write('\t');
+    await tick();
+    expect(lastFrame()).toMatch(/Scanning|System|Node/);
   });
 
   it('shows keyboard hints in footer', () => {
@@ -69,5 +100,26 @@ describe('TUI App', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('Tab');
     expect(frame).toContain('quit');
+  });
+
+  it('shows refresh hint only on Status and Backends tabs', async () => {
+    const { lastFrame, stdin } = render(<App />);
+    // Status tab — should show refresh
+    expect(lastFrame()).toContain('refresh');
+
+    // Config tab — should NOT show refresh
+    stdin.write('3');
+    await tick();
+    expect(lastFrame()).not.toContain('refresh');
+
+    // Backends tab — should show refresh
+    stdin.write('2');
+    await tick();
+    expect(lastFrame()).toContain('refresh');
+
+    // Actions tab — should NOT show refresh
+    stdin.write('4');
+    await tick();
+    expect(lastFrame()).not.toContain('refresh');
   });
 });

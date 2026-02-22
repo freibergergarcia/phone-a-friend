@@ -5,17 +5,22 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { useDetection } from './hooks/useDetection.js';
 import { Badge } from './components/Badge.js';
 import type { BadgeStatus } from './components/Badge.js';
-import type { BackendStatus } from '../detection.js';
+import type { BackendStatus, DetectionReport } from '../detection.js';
+
 import { getVersion } from '../version.js';
+
+// Cache version at module level to avoid sync FS reads in render
+const cachedVersion = getVersion();
 
 function backendBadgeStatus(b: BackendStatus): BadgeStatus {
   if (b.planned) return 'planned';
   if (b.available) return 'available';
-  // Partial: Ollama installed but no models or not running
-  if (b.name === 'ollama' && b.detail.includes('running')) return 'partial';
+  // Partial: Ollama with models array present but empty, or has models but isn't available
+  if (b.name === 'ollama' && b.models !== undefined) return 'partial';
+  // Ollama installed (has installHint for 'ollama serve') but not running
+  if (b.name === 'ollama' && b.installHint === 'ollama serve') return 'partial';
   return 'unavailable';
 }
 
@@ -44,9 +49,14 @@ function CategorySection({ label, backends }: { label: string; backends: Backend
   );
 }
 
-export function StatusPanel() {
-  const { report, loading } = useDetection();
+export interface StatusPanelProps {
+  report: DetectionReport | null;
+  loading: boolean;
+  refreshing: boolean;
+  error: Error | null;
+}
 
+export function StatusPanel({ report, loading, refreshing, error }: StatusPanelProps) {
   if (loading || !report) {
     return (
       <Box flexDirection="column">
@@ -67,8 +77,22 @@ export function StatusPanel() {
       <Box flexDirection="column">
         <Text bold underline>System</Text>
         <Text>  Node.js    {process.version}</Text>
-        <Text>  phone-a-friend  {getVersion()}</Text>
+        <Text>  phone-a-friend  {cachedVersion}</Text>
       </Box>
+
+      {/* Error display */}
+      {error && (
+        <Box>
+          <Text color="red">Detection error: {error.message}</Text>
+        </Box>
+      )}
+
+      {/* Refreshing indicator */}
+      {refreshing && (
+        <Box>
+          <Text color="cyan">Refreshing...</Text>
+        </Box>
+      )}
 
       {/* Backend summary */}
       <Box flexDirection="column">
