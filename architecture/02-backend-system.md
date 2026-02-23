@@ -179,7 +179,7 @@ sequenceDiagram
 | Sandbox: workspace-write | `--sandbox workspace-write` | `--sandbox` (boolean on) | N/A |
 | Sandbox: danger-full-access | `--sandbox danger-full-access` | (omit `--sandbox`) | N/A |
 | Auto-approve | N/A | `--yolo` | N/A |
-| Skip repo check | `--skip-git-repo-check` | N/A | N/A |
+| Skip repo check | `--skip-git-repo-check` (run() only) | N/A | N/A |
 | Output capture | `--output-last-message <file>` | `--output-format text` (stdout) | JSON `message.content` |
 | Model override | `-m <model>` | `-m <model>` | `body.model` or `OLLAMA_MODEL` env |
 | Model default | CLI default | CLI default | Server default (omit field) |
@@ -192,7 +192,7 @@ sequenceDiagram
 |-----------|------|
 | `Backend` interface | Async adapter contract with `run()` and optional `review()` |
 | `BackendResult` interface | Typed subprocess result: `{output, exitCode}` |
-| `ReviewOptions` interface | Options for native review: `{repoPath, base, sandbox, model, env, prompt?}` |
+| `ReviewOptions` interface | Options for native review: `{repoPath, timeoutSeconds, base, sandbox, model, env, prompt?}` |
 | `registerBackend()` | Self-registration called at module import |
 | `getBackend(name)` | Registry lookup — throws `BackendError` if not found |
 | `_resetRegistry()` | Clears registry — testing only |
