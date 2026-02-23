@@ -122,17 +122,32 @@ npm run build             # tsup (rebuilds dist/)
 - Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
 - Runtime access: reads `package.json` via `src/version.ts`
 - CLI: `phone-a-friend --version`
+- **Auto-bump**: version is bumped automatically after merge based on PR labels
 - **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
 - **npm publish**: after auto-release, publish to npm with `npm publish` (manual step, requires `npm login`)
-- To release: bump version in both `package.json` and `.claude-plugin/plugin.json`, merge to `main`, then `npm publish`
 
-### When to bump
+### PR labels
 
-**Every PR must bump the version.** Update both `package.json` and `.claude-plugin/plugin.json` before merging.
+**Every PR must have exactly one version label: `patch`, `minor`, or `major`.** The `label-check` CI job enforces this. Do NOT modify version fields in `package.json` or `.claude-plugin/plugin.json` manually — they are bumped automatically on merge by the `auto-bump` workflow.
 
-- **Patch** (`1.0.0` → `1.0.1`): bug fixes, docs, CI changes, refactoring
-- **Minor** (`1.0.0` → `1.1.0`): new features, new CLI flags, new backends
-- **Major** (`1.0.0` → `2.0.0`): breaking changes to CLI contract or relay API
+- **`patch`**: bug fixes, docs, CI changes, refactoring
+- **`minor`**: new features, new CLI flags, new backends
+- **`major`**: breaking changes to CLI contract or relay API
+
+### Branch naming convention
+
+Labels are auto-applied by the `auto-label` workflow when a PR is opened, based on the branch name prefix:
+
+| Prefix | Label |
+|--------|-------|
+| `fix/`, `bugfix/` | `patch` |
+| `chore/`, `docs/`, `ci/`, `refactor/` | `patch` |
+| `feat/`, `feature/` | `minor` |
+| `breaking/` | `major` |
+
+Unrecognized prefixes get no label — the contributor must add one manually. `label-check` blocks merge until a label is present.
+
+Local manual bump (if needed): `npm run bump:patch`, `npm run bump:minor`, `npm run bump:major`
 
 ## Build
 

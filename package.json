@@ -1,6 +1,6 @@
 {
   "name": "@freibergergarcia/phone-a-friend",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "CLI relay that lets AI coding agents collaborate",
   "keywords": [
     "ai-agent",
@@ -25,7 +25,10 @@
     "build": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "tsup src/index.ts --format esm --watch"
+    "dev": "tsup src/index.ts --format esm --watch",
+    "bump:patch": "node scripts/bump-version.mjs patch",
+    "bump:minor": "node scripts/bump-version.mjs minor",
+    "bump:major": "node scripts/bump-version.mjs major"
   },
   "files": [
     "dist/",

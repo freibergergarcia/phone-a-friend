@@ -104,11 +104,23 @@ Full usage guide, examples, CLI reference, and configuration details:
 
 All changes go through pull requests -- no direct pushes to `main`.
 
-1. **Branch off main** using a prefix: `feature/`, `fix/`, `improve/`, or `chore/`
-2. **Open a PR** against `main`
-3. **CI must pass** before merge
+1. **Branch off main** using a recognized prefix (see table below)
+2. **Open a PR** against `main` -- a version label is auto-applied from the branch name
+3. **CI must pass** before merge (includes label check)
 4. PRs are **squash-merged** (one commit per change, clean linear history)
 5. Head branches are auto-deleted after merge
+6. On merge, version is **auto-bumped** based on the label
+
+**Branch prefixes:**
+
+| Prefix | Label |
+|--------|-------|
+| `fix/`, `bugfix/` | `patch` |
+| `chore/`, `docs/`, `ci/`, `refactor/` | `patch` |
+| `feat/`, `feature/` | `minor` |
+| `breaking/` | `major` |
+
+Unrecognized prefixes require adding `patch`, `minor`, or `major` manually.
 
 ## Development
 

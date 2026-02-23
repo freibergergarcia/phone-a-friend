@@ -4327,9 +4327,9 @@ function resolveContextText(contextFile, contextText) {
   }
   return fileText;
 }
-function gitDiff(repoPath) {
+function tryGitDiff(repoPath, args) {
   try {
-    const result = execFileSync4("git", ["-C", repoPath, "diff", "--"], {
+    const result = execFileSync4("git", ["-C", repoPath, "diff", ...args], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4338,10 +4338,13 @@ function gitDiff(repoPath) {
     return diffText;
   } catch (err) {
     if (err instanceof RelayError) throw err;
-    const execErr = err;
-    const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || "git diff failed";
-    throw new RelayError(`Failed to collect git diff: ${detail}`);
+    return "";
   }
+}
+function gitDiff(repoPath) {
+  const uncommitted = tryGitDiff(repoPath, ["HEAD", "--"]);
+  if (uncommitted) return uncommitted;
+  return tryGitDiff(repoPath, ["HEAD~1", "HEAD", "--"]);
 }
 function detectDefaultBranch(repoPath) {
   for (const branch of ["main", "master"]) {
