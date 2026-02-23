@@ -100,65 +100,6 @@ describe('StatusPanel', () => {
     expect(frame).toContain('Node.js');
   });
 
-  // --- Environment section ---
-
-  it('shows environment section with tmux and agent teams', () => {
-    const { lastFrame } = render(
-      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
-    );
-    const frame = lastFrame()!;
-    expect(frame).toContain('Environment');
-    expect(frame).toContain('tmux');
-    expect(frame).toContain('Agent Teams');
-  });
-
-  it('shows tmux as active when in tmux session', () => {
-    const report = {
-      ...MOCK_REPORT,
-      environment: { tmux: { active: true, installed: true }, agentTeams: { enabled: false } },
-    };
-    const { lastFrame } = render(
-      <StatusPanel report={report} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('active session');
-  });
-
-  it('shows tmux as installed but not in session', () => {
-    const { lastFrame } = render(
-      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('installed (not in session)');
-  });
-
-  it('shows tmux as not installed', () => {
-    const report = {
-      ...MOCK_REPORT,
-      environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } },
-    };
-    const { lastFrame } = render(
-      <StatusPanel report={report} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('not installed');
-  });
-
-  it('shows agent teams as enabled when configured', () => {
-    const report = {
-      ...MOCK_REPORT,
-      environment: { tmux: { active: false, installed: true }, agentTeams: { enabled: true } },
-    };
-    const { lastFrame } = render(
-      <StatusPanel report={report} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('enabled');
-  });
-
-  it('shows agent teams as not enabled', () => {
-    const { lastFrame } = render(
-      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('not enabled');
-  });
-
   // --- Pro Tip ---
 
   it('shows pro tip when not fully configured', () => {
