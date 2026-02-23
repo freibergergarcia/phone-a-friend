@@ -17,6 +17,16 @@ export interface BackendResult {
   exitCode: number;
 }
 
+export interface ReviewOptions {
+  repoPath: string;
+  timeoutSeconds: number;
+  sandbox: SandboxMode;
+  model: string | null;
+  env: Record<string, string>;
+  base: string;
+  prompt?: string;
+}
+
 export interface Backend {
   name: string;
   allowedSandboxes: ReadonlySet<SandboxMode>;
@@ -28,6 +38,7 @@ export interface Backend {
     model: string | null;
     env: Record<string, string>;
   }): Promise<string>;
+  review?(opts: ReviewOptions): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 // Import AFTER mock is set up
 import { CODEX_BACKEND, CodexBackendError } from '../../src/backends/codex.js';
+import type { ReviewOptions, SandboxMode as SandboxModeType } from '../../src/backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -274,5 +275,135 @@ describe('CodexBackend', () => {
         env: {},
       }),
     ).rejects.toThrow(/Failed reading Codex output file/);
+  });
+
+  // --- review() method ---
+
+  describe('review()', () => {
+    const baseReviewOpts: ReviewOptions = {
+      repoPath: '/tmp/repo',
+      timeoutSeconds: 60,
+      sandbox: 'read-only' as SandboxModeType,
+      model: null,
+      env: {},
+      base: 'main',
+    };
+
+    it('builds correct codex exec review --base main args', async () => {
+      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'Review feedback');
+        return '';
+      });
+
+      const result = await CODEX_BACKEND.review!(baseReviewOpts);
+      expect(result).toBe('Review feedback');
+
+      const codexCall = mockExecFileSync.mock.calls.find(
+        (c: unknown[]) => c[0] === 'codex',
+      );
+      expect(codexCall).toBeDefined();
+      const args = codexCall![1] as string[];
+      expect(args[0]).toBe('exec');
+      expect(args[1]).toBe('review');
+      expect(args).toContain('-C');
+      expect(args).toContain('/tmp/repo');
+      expect(args).toContain('--base');
+      expect(args[args.indexOf('--base') + 1]).toBe('main');
+      expect(args).toContain('--sandbox');
+      expect(args).toContain('read-only');
+      expect(args).toContain('--output-last-message');
+    });
+
+    it('passes custom prompt as positional arg', async () => {
+      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+        return '';
+      });
+
+      await CODEX_BACKEND.review!({
+        ...baseReviewOpts,
+        prompt: 'Focus on security issues',
+      });
+
+      const codexCall = mockExecFileSync.mock.calls.find(
+        (c: unknown[]) => c[0] === 'codex',
+      );
+      const args = codexCall![1] as string[];
+      expect(args[args.length - 1]).toBe('Focus on security issues');
+    });
+
+    it('passes -m when model is set', async () => {
+      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+        return '';
+      });
+
+      await CODEX_BACKEND.review!({ ...baseReviewOpts, model: 'o3' });
+
+      const codexCall = mockExecFileSync.mock.calls.find(
+        (c: unknown[]) => c[0] === 'codex',
+      );
+      const args = codexCall![1] as string[];
+      const modelIdx = args.indexOf('-m');
+      expect(modelIdx).toBeGreaterThan(-1);
+      expect(args[modelIdx + 1]).toBe('o3');
+    });
+
+    it('throws on timeout', async () => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        const err = new Error('TIMEOUT') as Error & {
+          killed: boolean;
+          signal: string;
+          code: string;
+        };
+        err.killed = true;
+        err.signal = 'SIGTERM';
+        err.code = 'ETIMEDOUT';
+        throw err;
+      });
+
+      await expect(
+        CODEX_BACKEND.review!(baseReviewOpts),
+      ).rejects.toThrow(/codex exec review timed out/);
+    });
+
+    it('throws when codex not found in PATH', async () => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
+        if (cmd === 'which') throw new Error('not found');
+        return '';
+      });
+
+      await expect(
+        CODEX_BACKEND.review!(baseReviewOpts),
+      ).rejects.toThrow(/codex CLI not found/);
+    });
+
+    it('does not include prompt arg when prompt is undefined', async () => {
+      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+        return '';
+      });
+
+      await CODEX_BACKEND.review!(baseReviewOpts);
+
+      const codexCall = mockExecFileSync.mock.calls.find(
+        (c: unknown[]) => c[0] === 'codex',
+      );
+      const args = codexCall![1] as string[];
+      // Last arg should be the output path value, not a prompt
+      expect(args[args.length - 1]).not.toBe('main'); // base value
+      // The args should not contain any extra positional arg beyond flags
+      const outputIdx = args.indexOf('--output-last-message');
+      expect(outputIdx).toBeGreaterThan(-1);
+    });
   });
 });

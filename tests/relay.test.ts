@@ -16,6 +16,9 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 import {
   relay,
+  reviewRelay,
+  detectDefaultBranch,
+  gitDiffBase,
   RelayError,
   DEFAULT_TIMEOUT_SECONDS,
   DEFAULT_BACKEND,
@@ -26,6 +29,7 @@ import {
   MAX_RELAY_DEPTH,
 } from '../src/relay.js';
 import { registerBackend, _resetRegistry } from '../src/backends/index.js';
+import type { ReviewOptions } from '../src/backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +44,15 @@ function makeMockBackend(name: string): Backend {
     name,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
     run: vi.fn(async () => 'mock feedback'),
+  };
+}
+
+function makeMockBackendWithReview(name: string): Backend & { review: ReturnType<typeof vi.fn> } {
+  return {
+    name,
+    allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    run: vi.fn(async () => 'mock feedback'),
+    review: vi.fn(async () => 'mock review feedback'),
   };
 }
 
@@ -358,5 +371,261 @@ describe('relay', () => {
     (mockBackend.run as ReturnType<typeof vi.fn>).mockResolvedValue('Direct feedback');
     const result = await relay({ prompt: 'Review', repoPath: repo });
     expect(result).toBe('Direct feedback');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectDefaultBranch
+// ---------------------------------------------------------------------------
+
+describe('detectDefaultBranch', () => {
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns main when main exists', () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('main')) return 'sha\n';
+      throw new Error('not found');
+    });
+
+    expect(detectDefaultBranch('/tmp/repo')).toBe('main');
+  });
+
+  it('returns master when main does not exist but master does', () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('main')) throw new Error('not found');
+      if (args.includes('master')) return 'sha\n';
+      throw new Error('not found');
+    });
+
+    expect(detectDefaultBranch('/tmp/repo')).toBe('master');
+  });
+
+  it('returns HEAD~1 when neither main nor master exist', () => {
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+
+    expect(detectDefaultBranch('/tmp/repo')).toBe('HEAD~1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gitDiffBase
+// ---------------------------------------------------------------------------
+
+describe('gitDiffBase', () => {
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls git diff with correct base...HEAD args', () => {
+    mockExecFileSync.mockReturnValue('diff output');
+
+    const result = gitDiffBase('/tmp/repo', 'main');
+    expect(result).toBe('diff output');
+
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      'git',
+      ['-C', '/tmp/repo', 'diff', 'main...HEAD', '--'],
+      expect.any(Object),
+    );
+  });
+
+  it('throws RelayError when diff exceeds size limit', () => {
+    const bigDiff = 'a'.repeat(300_001);
+    mockExecFileSync.mockReturnValue(bigDiff);
+
+    expect(() => gitDiffBase('/tmp/repo', 'main')).toThrow(/too large/);
+  });
+
+  it('throws RelayError on git failure', () => {
+    mockExecFileSync.mockImplementation(() => {
+      const err = new Error('failed') as Error & {
+        status: number;
+        stderr: Buffer;
+        stdout: Buffer;
+      };
+      err.status = 1;
+      err.stderr = Buffer.from('fatal: bad revision');
+      err.stdout = Buffer.from('');
+      throw err;
+    });
+
+    expect(() => gitDiffBase('/tmp/repo', 'develop')).toThrow(
+      /Failed to collect git diff against develop/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reviewRelay
+// ---------------------------------------------------------------------------
+
+describe('reviewRelay', () => {
+  let repo: string;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('calls backend.review() when available', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    const result = await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      prompt: 'Check for bugs',
+    });
+
+    expect(result).toBe('mock review feedback');
+    expect(backend.review).toHaveBeenCalledOnce();
+    expect(backend.run).not.toHaveBeenCalled();
+
+    const callArgs = backend.review.mock.calls[0][0] as ReviewOptions;
+    expect(callArgs.base).toBe('main');
+    expect(callArgs.prompt).toBe('Check for bugs');
+    expect(callArgs.repoPath).toBe(repo);
+  });
+
+  it('falls back to run() with diff when review() is not available', async () => {
+    const backend = makeMockBackend('gemini');
+    registerBackend(backend);
+
+    // Mock git for detectDefaultBranch + gitDiffBase
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      // detectDefaultBranch won't be called since we provide base explicitly
+      // gitDiffBase
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) {
+        return 'diff --git a/file.ts b/file.ts\n+added line';
+      }
+      return '';
+    });
+
+    const result = await reviewRelay({
+      repoPath: repo,
+      backend: 'gemini',
+      base: 'main',
+      prompt: 'Review changes',
+    });
+
+    expect(result).toBe('mock feedback');
+    expect(backend.run).toHaveBeenCalledOnce();
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('Git Diff:');
+    expect(callArgs.prompt).toContain('diff --git');
+  });
+
+  it('falls back to run() when review() throws', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    backend.review.mockRejectedValue(new Error('codex exec review not supported'));
+    registerBackend(backend);
+
+    // Mock git for gitDiffBase fallback
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) {
+        return 'diff content here';
+      }
+      return '';
+    });
+
+    // Suppress the console.error warning
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+    });
+
+    expect(result).toBe('mock feedback');
+    expect(backend.review).toHaveBeenCalledOnce();
+    expect(backend.run).toHaveBeenCalledOnce();
+    expect(consoleErr).toHaveBeenCalledWith(
+      expect.stringContaining('review() failed, falling back'),
+    );
+  });
+
+  it('auto-detects base branch when not provided', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    // Mock git rev-parse --verify main to succeed
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      throw new Error('not found');
+    });
+
+    await reviewRelay({ repoPath: repo, backend: 'codex' });
+
+    const callArgs = backend.review.mock.calls[0][0] as ReviewOptions;
+    expect(callArgs.base).toBe('main');
+  });
+
+  it('uses default prompt when none provided (generic path)', async () => {
+    const backend = makeMockBackend('gemini');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) {
+        return 'some diff';
+      }
+      return '';
+    });
+
+    await reviewRelay({ repoPath: repo, backend: 'gemini', base: 'main' });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('Review the following changes.');
+  });
+
+  it('respects depth guard', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    process.env.PHONE_A_FRIEND_DEPTH = '1';
+    await expect(
+      reviewRelay({ repoPath: repo, backend: 'codex', base: 'main' }),
+    ).rejects.toThrow('Relay depth limit reached');
+  });
+
+  it('raises on missing repo path', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    const missingRepo = path.join(os.tmpdir(), `phone-a-friend-missing-${Date.now()}`);
+    await expect(
+      reviewRelay({ repoPath: missingRepo, backend: 'codex', base: 'main' }),
+    ).rejects.toThrow('Repository path does not exist');
+  });
+
+  it('raises on zero timeout', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    await expect(
+      reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', timeoutSeconds: 0 }),
+    ).rejects.toThrow('Timeout must be greater than zero');
   });
 });

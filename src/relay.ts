@@ -100,6 +100,41 @@ function gitDiff(repoPath: string): string {
   }
 }
 
+export function detectDefaultBranch(repoPath: string): string {
+  for (const branch of ['main', 'master']) {
+    try {
+      execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', branch], {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return branch;
+    } catch {
+      // Branch doesn't exist, try next
+    }
+  }
+  return 'HEAD~1';
+}
+
+export function gitDiffBase(repoPath: string, base: string): string {
+  try {
+    const result = execFileSync('git', ['-C', repoPath, 'diff', `${base}...HEAD`, '--'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const diffText = result.trim();
+    ensureSizeLimit('Git diff', diffText, MAX_DIFF_BYTES);
+    return diffText;
+  } catch (err: unknown) {
+    if (err instanceof RelayError) throw err;
+    const execErr = err as NodeJS.ErrnoException & {
+      stderr?: Buffer | string;
+      stdout?: Buffer | string;
+    };
+    const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || 'git diff failed';
+    throw new RelayError(`Failed to collect git diff against ${base}: ${detail}`);
+  }
+}
+
 function buildPrompt(opts: {
   prompt: string;
   repoPath: string;
@@ -147,6 +182,16 @@ function nextRelayEnv(): Record<string, string> {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+export interface ReviewRelayOptions {
+  repoPath: string;
+  backend?: string;
+  base?: string;
+  prompt?: string;
+  timeoutSeconds?: number;
+  model?: string | null;
+  sandbox?: SandboxMode;
+}
 
 export interface RelayOptions {
   prompt: string;
@@ -210,6 +255,94 @@ export async function relay(opts: RelayOptions): Promise<string> {
   ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
 
   const env = nextRelayEnv();
+
+  try {
+    return await selectedBackend.run({
+      prompt: fullPrompt,
+      repoPath: resolvedRepo,
+      timeoutSeconds,
+      sandbox,
+      model,
+      env,
+    });
+  } catch (err) {
+    if (err instanceof RelayError) throw err;
+    if (err instanceof BackendError) {
+      throw new RelayError(err.message);
+    }
+    throw err;
+  }
+}
+
+export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
+  const {
+    repoPath,
+    backend = DEFAULT_BACKEND,
+    prompt,
+    timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
+    model = null,
+    sandbox = DEFAULT_SANDBOX,
+  } = opts;
+
+  if (timeoutSeconds <= 0) {
+    throw new RelayError('Timeout must be greater than zero');
+  }
+
+  const resolvedRepo = resolve(repoPath);
+  if (!existsSync(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+    throw new RelayError(
+      `Repository path does not exist or is not a directory: ${resolvedRepo}`,
+    );
+  }
+
+  let selectedBackend;
+  try {
+    selectedBackend = getBackend(backend);
+  } catch (err) {
+    throw new RelayError(String((err as Error).message));
+  }
+
+  if (!selectedBackend.allowedSandboxes.has(sandbox)) {
+    const allowed = [...selectedBackend.allowedSandboxes].sort().join(', ');
+    throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
+  }
+
+  const base = opts.base ?? detectDefaultBranch(resolvedRepo);
+  const env = nextRelayEnv();
+
+  // If backend supports review(), use it directly
+  if (typeof selectedBackend.review === 'function') {
+    try {
+      return await selectedBackend.review({
+        repoPath: resolvedRepo,
+        timeoutSeconds,
+        sandbox,
+        model,
+        env,
+        base,
+        prompt,
+      });
+    } catch (err) {
+      // Fallback to run() with diff on review() failure
+      if (err instanceof RelayError) {
+        // Re-throw relay errors (depth limit, etc.)
+        throw err;
+      }
+      // Log warning and fall through to generic path
+      console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${(err as Error).message}`);
+    }
+  }
+
+  // Generic path: get diff and build prompt with it
+  const diffText = gitDiffBase(resolvedRepo, base);
+  const reviewPrompt = prompt ?? 'Review the following changes.';
+  const fullPrompt = buildPrompt({
+    prompt: reviewPrompt,
+    repoPath: resolvedRepo,
+    contextText: '',
+    diffText,
+  });
+  ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
 
   try {
     return await selectedBackend.run({

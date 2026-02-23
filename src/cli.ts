@@ -13,6 +13,7 @@ import { Command } from 'commander';
 import ora from 'ora';
 import {
   relay,
+  reviewRelay,
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
@@ -215,7 +216,12 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
+    .option('--review', 'Use review mode (scoped to diff against base branch)')
+    .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
     .action(async (opts) => {
+      // --base without --review implies review mode
+      const isReview = opts.review || opts.base !== undefined;
+
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig({
         to: opts.to,
@@ -223,9 +229,39 @@ export async function run(argv: string[]): Promise<number> {
         timeout: opts.timeout,
         includeDiff: opts.includeDiff !== undefined ? String(opts.includeDiff) : undefined,
         model: opts.model,
+        base: opts.base,
       });
 
       const backendName = resolved.backend;
+
+      if (isReview) {
+        const baseLabel = opts.base ?? resolved.reviewBase ?? 'auto-detect';
+        const spinner = ora({
+          text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+          spinner: 'dots',
+          color: 'cyan',
+          stream: process.stderr,
+        }).start();
+
+        try {
+          const feedback = await reviewRelay({
+            repoPath: opts.repo,
+            backend: backendName,
+            base: opts.base ?? resolved.reviewBase,
+            prompt: opts.prompt,
+            timeoutSeconds: resolved.timeout,
+            model: resolved.model ?? null,
+            sandbox: resolved.sandbox as SandboxMode,
+          });
+          spinner.succeed(`${theme.bold(backendName)} reviewed`);
+          process.stdout.write(feedback + '\n');
+        } catch (err) {
+          spinner.fail(`${theme.bold(backendName)} review failed`);
+          throw err;
+        }
+        return;
+      }
+
       const spinner = ora({
         text: `Relaying to ${theme.bold(backendName)}...`,
         spinner: 'dots',

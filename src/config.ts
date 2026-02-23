@@ -30,6 +30,7 @@ export interface PafConfig {
     sandbox: string;
     timeout: number;
     include_diff: boolean;
+    review_base?: string;
   };
   backends?: Record<string, BackendConfig>;
   [key: string]: unknown;
@@ -41,6 +42,7 @@ export interface ResolvedConfig {
   timeout: number;
   includeDiff: boolean;
   model?: string;
+  reviewBase?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,5 +253,11 @@ export function resolveConfig(
 
   const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? undefined;
 
-  return { backend, sandbox, timeout, includeDiff, model };
+  const reviewBase =
+    cliOpts.base ??
+    env.PHONE_A_FRIEND_REVIEW_BASE ??
+    cfg.defaults.review_base ??
+    undefined;
+
+  return { backend, sandbox, timeout, includeDiff, model, reviewBase };
 }

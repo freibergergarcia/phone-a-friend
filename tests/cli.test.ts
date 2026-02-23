@@ -6,6 +6,7 @@ import * as path from 'node:path';
 // vi.hoisted runs before vi.mock hoisting — safe to reference in factory
 const {
   mockRelay,
+  mockReviewRelay,
   mockInstallHosts,
   mockUninstallHosts,
   mockVerifyBackends,
@@ -20,6 +21,7 @@ const {
   mockResolveConfig,
 } = vi.hoisted(() => ({
   mockRelay: vi.fn(() => 'mock feedback'),
+  mockReviewRelay: vi.fn(() => 'mock review feedback'),
   mockInstallHosts: vi.fn(() => ['phone-a-friend installer', '- claude: installed']),
   mockUninstallHosts: vi.fn(() => ['phone-a-friend uninstaller', '- claude: removed']),
   mockVerifyBackends: vi.fn(() => [
@@ -50,6 +52,7 @@ vi.mock('../src/relay.js', async (importOriginal) => {
   return {
     ...actual,
     relay: mockRelay,
+    reviewRelay: mockReviewRelay,
   };
 });
 
@@ -184,6 +187,8 @@ describe('CLI', () => {
   beforeEach(() => {
     mockRelay.mockReset();
     mockRelay.mockReturnValue('mock feedback');
+    mockReviewRelay.mockReset();
+    mockReviewRelay.mockReturnValue('mock review feedback');
     mockInstallHosts.mockReset();
     mockInstallHosts.mockReturnValue(['phone-a-friend installer', '- claude: installed']);
     mockUninstallHosts.mockReset();
@@ -306,6 +311,63 @@ describe('CLI', () => {
     await run(['relay', '--to', 'gemini', '--prompt', 'Review', '--repo', tmpDir]);
     const opts = mockRelay.mock.calls[0][0];
     expect(opts.backend).toBe('gemini');
+  });
+
+  // --- Review mode ---
+
+  it('--review flag routes to reviewRelay()', async () => {
+    const code = await run([
+      'relay', '--review', '--prompt', 'Review changes', '--repo', tmpDir,
+    ]);
+
+    expect(code).toBe(0);
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    expect(mockRelay).not.toHaveBeenCalled();
+    const opts = mockReviewRelay.mock.calls[0][0];
+    expect(opts.prompt).toBe('Review changes');
+    expect(opts.repoPath).toBe(tmpDir);
+  });
+
+  it('--base main passes base to reviewRelay()', async () => {
+    const code = await run([
+      'relay', '--review', '--base', 'main', '--prompt', 'Review', '--repo', tmpDir,
+    ]);
+
+    expect(code).toBe(0);
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    const opts = mockReviewRelay.mock.calls[0][0];
+    expect(opts.base).toBe('main');
+  });
+
+  it('--base without --review implies review mode', async () => {
+    const code = await run([
+      'relay', '--base', 'develop', '--prompt', 'Review', '--repo', tmpDir,
+    ]);
+
+    expect(code).toBe(0);
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    expect(mockRelay).not.toHaveBeenCalled();
+    const opts = mockReviewRelay.mock.calls[0][0];
+    expect(opts.base).toBe('develop');
+  });
+
+  it('--review passes backend and model through', async () => {
+    await run([
+      'relay', '--review', '--to', 'gemini', '--model', 'gemini-2.5-flash',
+      '--prompt', 'Review', '--repo', tmpDir,
+    ]);
+
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    const opts = mockReviewRelay.mock.calls[0][0];
+    expect(opts.backend).toBe('gemini');
+    expect(opts.model).toBe('gemini-2.5-flash');
+  });
+
+  it('--review prints feedback to stdout', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      await run(['relay', '--review', '--prompt', 'Review', '--repo', tmpDir]);
+    });
+    expect(stdout.trim()).toBe('mock review feedback');
   });
 
   // --- Root relay backward compatibility ---

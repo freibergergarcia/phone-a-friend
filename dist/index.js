@@ -3846,7 +3846,10 @@ __export(relay_exports, {
   MAX_PROMPT_BYTES: () => MAX_PROMPT_BYTES,
   MAX_RELAY_DEPTH: () => MAX_RELAY_DEPTH,
   RelayError: () => RelayError,
-  relay: () => relay
+  detectDefaultBranch: () => detectDefaultBranch,
+  gitDiffBase: () => gitDiffBase,
+  relay: () => relay,
+  reviewRelay: () => reviewRelay
 });
 import { execFileSync as execFileSync4 } from "child_process";
 import { readFileSync as readFileSync2, existsSync as existsSync2, statSync } from "fs";
@@ -3905,6 +3908,35 @@ function gitDiff(repoPath) {
     const execErr = err;
     const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || "git diff failed";
     throw new RelayError(`Failed to collect git diff: ${detail}`);
+  }
+}
+function detectDefaultBranch(repoPath) {
+  for (const branch of ["main", "master"]) {
+    try {
+      execFileSync4("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      return branch;
+    } catch {
+    }
+  }
+  return "HEAD~1";
+}
+function gitDiffBase(repoPath, base) {
+  try {
+    const result = execFileSync4("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    const diffText = result.trim();
+    ensureSizeLimit("Git diff", diffText, MAX_DIFF_BYTES);
+    return diffText;
+  } catch (err) {
+    if (err instanceof RelayError) throw err;
+    const execErr = err;
+    const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || "git diff failed";
+    throw new RelayError(`Failed to collect git diff against ${base}: ${detail}`);
   }
 }
 function buildPrompt(opts) {
@@ -3982,6 +4014,80 @@ async function relay(opts) {
   });
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   const env3 = nextRelayEnv();
+  try {
+    return await selectedBackend.run({
+      prompt: fullPrompt,
+      repoPath: resolvedRepo,
+      timeoutSeconds,
+      sandbox,
+      model,
+      env: env3
+    });
+  } catch (err) {
+    if (err instanceof RelayError) throw err;
+    if (err instanceof BackendError) {
+      throw new RelayError(err.message);
+    }
+    throw err;
+  }
+}
+async function reviewRelay(opts) {
+  const {
+    repoPath,
+    backend = DEFAULT_BACKEND,
+    prompt,
+    timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
+    model = null,
+    sandbox = DEFAULT_SANDBOX
+  } = opts;
+  if (timeoutSeconds <= 0) {
+    throw new RelayError("Timeout must be greater than zero");
+  }
+  const resolvedRepo = resolve(repoPath);
+  if (!existsSync2(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+    throw new RelayError(
+      `Repository path does not exist or is not a directory: ${resolvedRepo}`
+    );
+  }
+  let selectedBackend;
+  try {
+    selectedBackend = getBackend(backend);
+  } catch (err) {
+    throw new RelayError(String(err.message));
+  }
+  if (!selectedBackend.allowedSandboxes.has(sandbox)) {
+    const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
+    throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
+  }
+  const base = opts.base ?? detectDefaultBranch(resolvedRepo);
+  const env3 = nextRelayEnv();
+  if (typeof selectedBackend.review === "function") {
+    try {
+      return await selectedBackend.review({
+        repoPath: resolvedRepo,
+        timeoutSeconds,
+        sandbox,
+        model,
+        env: env3,
+        base,
+        prompt
+      });
+    } catch (err) {
+      if (err instanceof RelayError) {
+        throw err;
+      }
+      console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${err.message}`);
+    }
+  }
+  const diffText = gitDiffBase(resolvedRepo, base);
+  const reviewPrompt = prompt ?? "Review the following changes.";
+  const fullPrompt = buildPrompt({
+    prompt: reviewPrompt,
+    repoPath: resolvedRepo,
+    contextText: "",
+    diffText
+  });
+  ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   try {
     return await selectedBackend.run({
       prompt: fullPrompt,
@@ -5553,7 +5659,8 @@ function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
   const includeDiffRaw = cliOpts.includeDiff ?? env3.PHONE_A_FRIEND_INCLUDE_DIFF;
   const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
   const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? void 0;
-  return { backend, sandbox, timeout, includeDiff, model };
+  const reviewBase = cliOpts.base ?? env3.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
+  return { backend, sandbox, timeout, includeDiff, model, reviewBase };
 }
 var DEFAULT_CONFIG;
 var init_config = __esm({
@@ -60059,6 +60166,70 @@ var CodexBackend = class {
       }
     }
   }
+  async review(opts) {
+    if (!isInPath("codex")) {
+      throw new CodexBackendError(
+        `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`
+      );
+    }
+    const tmpDir = mkdtempSync(join(tmpdir(), "phone-a-friend-"));
+    const outputPath = join(tmpDir, "codex-last-message.txt");
+    try {
+      const args = [
+        "exec",
+        "review",
+        "-C",
+        opts.repoPath,
+        "--base",
+        opts.base,
+        "--sandbox",
+        opts.sandbox,
+        "--output-last-message",
+        outputPath
+      ];
+      if (opts.model) {
+        args.push("-m", opts.model);
+      }
+      if (opts.prompt) {
+        args.push(opts.prompt);
+      }
+      let stdout = "";
+      try {
+        const result = execFileSync2("codex", args, {
+          timeout: opts.timeoutSeconds * 1e3,
+          env: opts.env,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+        stdout = result.trim();
+      } catch (err) {
+        const execErr = err;
+        if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
+          throw new CodexBackendError(
+            `codex exec review timed out after ${opts.timeoutSeconds}s`
+          );
+        }
+        const lastMessage2 = readOutputFile(outputPath);
+        const stderr = execErr.stderr?.toString().trim() ?? "";
+        const stdoutStr = execErr.stdout?.toString().trim() ?? "";
+        const detail = stderr || stdoutStr || lastMessage2 || `codex exec review exited with code ${execErr.status ?? 1}`;
+        throw new CodexBackendError(detail);
+      }
+      const lastMessage = readOutputFile(outputPath);
+      if (lastMessage) {
+        return lastMessage;
+      }
+      if (stdout) {
+        return stdout;
+      }
+      throw new CodexBackendError("codex exec review completed without producing feedback");
+    } finally {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+      }
+    }
+  }
 };
 function readOutputFile(outputPath) {
   if (!existsSync(outputPath)) {
@@ -64781,15 +64952,43 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action(async (opts) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts) => {
+    const isReview = opts.review || opts.base !== void 0;
     const resolved = resolveConfig({
       to: opts.to,
       sandbox: opts.sandbox,
       timeout: opts.timeout,
       includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
-      model: opts.model
+      model: opts.model,
+      base: opts.base
     });
     const backendName = resolved.backend;
+    if (isReview) {
+      const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
+      const spinner2 = ora({
+        text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+        spinner: "dots",
+        color: "cyan",
+        stream: process.stderr
+      }).start();
+      try {
+        const feedback = await reviewRelay({
+          repoPath: opts.repo,
+          backend: backendName,
+          base: opts.base ?? resolved.reviewBase,
+          prompt: opts.prompt,
+          timeoutSeconds: resolved.timeout,
+          model: resolved.model ?? null,
+          sandbox: resolved.sandbox
+        });
+        spinner2.succeed(`${theme.bold(backendName)} reviewed`);
+        process.stdout.write(feedback + "\n");
+      } catch (err) {
+        spinner2.fail(`${theme.bold(backendName)} review failed`);
+        throw err;
+      }
+      return;
+    }
     const spinner = ora({
       text: `Relaying to ${theme.bold(backendName)}...`,
       spinner: "dots",
