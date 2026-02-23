@@ -1,0 +1,60 @@
+name: Auto Label
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add version label from branch prefix
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const BRANCH_MAP = {
+              'fix/':       'patch',
+              'bugfix/':    'patch',
+              'chore/':     'patch',
+              'docs/':      'patch',
+              'ci/':        'patch',
+              'refactor/':  'patch',
+              'feat/':      'minor',
+              'feature/':   'minor',
+              'breaking/':  'major',
+            };
+
+            const branch = context.payload.pull_request.head.ref;
+            let label = null;
+
+            for (const [prefix, value] of Object.entries(BRANCH_MAP)) {
+              if (branch.startsWith(prefix)) {
+                label = value;
+                break;
+              }
+            }
+
+            if (label) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: [label],
+              });
+              core.info(`Added "${label}" label for branch "${branch}"`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: [
+                  '⚠️ Could not determine a version label from the branch name `' + branch + '`.',
+                  '',
+                  'Please add one of `patch`, `minor`, or `major` manually.',
+                  '',
+                  'Recognized branch prefixes: `fix/`, `bugfix/`, `chore/`, `docs/`, `ci/`, `refactor/` → **patch** | `feat/`, `feature/` → **minor** | `breaking/` → **major**',
+                ].join('\n'),
+              });
+              core.warning(`Branch "${branch}" does not match any prefix — commented reminder.`);
+            }

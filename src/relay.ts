@@ -80,9 +80,9 @@ function resolveContextText(contextFile: string | null, contextText: string | nu
   return fileText;
 }
 
-function gitDiff(repoPath: string): string {
+function tryGitDiff(repoPath: string, args: string[]): string {
   try {
-    const result = execFileSync('git', ['-C', repoPath, 'diff', '--'], {
+    const result = execFileSync('git', ['-C', repoPath, 'diff', ...args], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -90,14 +90,18 @@ function gitDiff(repoPath: string): string {
     ensureSizeLimit('Git diff', diffText, MAX_DIFF_BYTES);
     return diffText;
   } catch (err: unknown) {
-    if (err instanceof RelayError) throw err;
-    const execErr = err as NodeJS.ErrnoException & {
-      stderr?: Buffer | string;
-      stdout?: Buffer | string;
-    };
-    const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || 'git diff failed';
-    throw new RelayError(`Failed to collect git diff: ${detail}`);
+    if (err instanceof RelayError) throw err; // size limit — propagate
+    return ''; // git failure — treat as empty
   }
+}
+
+function gitDiff(repoPath: string): string {
+  // 1. Uncommitted changes (staged + unstaged) vs HEAD
+  const uncommitted = tryGitDiff(repoPath, ['HEAD', '--']);
+  if (uncommitted) return uncommitted;
+
+  // 2. Last commit's changes (for already-committed work)
+  return tryGitDiff(repoPath, ['HEAD~1', 'HEAD', '--']);
 }
 
 export function detectDefaultBranch(repoPath: string): string {
