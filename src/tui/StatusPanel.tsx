@@ -7,7 +7,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Badge } from './components/Badge.js';
 import type { BadgeStatus } from './components/Badge.js';
-import type { BackendStatus, DetectionReport } from '../detection.js';
+import type { BackendStatus, DetectionReport, EnvironmentStatus } from '../detection.js';
 
 import { getVersion } from '../version.js';
 
