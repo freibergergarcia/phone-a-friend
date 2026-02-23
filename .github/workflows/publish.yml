@@ -1,0 +1,66 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Check version sync
+        run: |
+          pkg_ver=$(node -e "console.log(require('./package.json').version)")
+          plugin_ver=$(node -e "console.log(require('./.claude-plugin/plugin.json').version)")
+          if [ "$pkg_ver" != "$plugin_ver" ]; then
+            echo "::error::Version mismatch: package.json=$pkg_ver plugin.json=$plugin_ver"
+            exit 1
+          fi
+      - run: npm run build
+      - name: Check dist is up to date
+        run: |
+          if ! git diff --quiet dist/; then
+            echo "::error::dist/ is out of date — run 'npm run build' and commit"
+            exit 1
+          fi
+      - run: npm test
+      - run: npm run typecheck
+      - name: Check if already published
+        id: check
+        run: |
+          ver=$(node -e "console.log(require('./package.json').version)")
+          if npm view "@freibergergarcia/phone-a-friend@$ver" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version $ver already published — skipping"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Determine npm dist-tag
+        if: steps.check.outputs.exists == 'false'
+        id: tag
+        run: |
+          ver=$(node -e "console.log(require('./package.json').version)")
+          if echo "$ver" | grep -q '-'; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish
+        if: steps.check.outputs.exists == 'false'
+        run: npm publish --access public --tag ${{ steps.tag.outputs.tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
