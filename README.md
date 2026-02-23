@@ -22,6 +22,10 @@
   Claude --> phone-a-team --> iterate with backend(s)        (iterative refinement)
 ```
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/screenshot.png" alt="phone-a-friend TUI dashboard" width="680">
+</div>
+
 ## Quick Start
 
 **Prerequisites:** Node.js 20+ and at least one backend:
