@@ -1,8 +1,8 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-    <img alt="phone-a-friend" src="assets/logo-dark.svg" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-light.svg">
+    <img alt="phone-a-friend" src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-dark.svg" width="480">
   </picture>
 
   <p><em>When your AI needs a second opinion.</em></p>
