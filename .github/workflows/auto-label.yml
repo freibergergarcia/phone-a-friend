@@ -5,6 +5,10 @@ on:
     types: [opened]
     branches: [main]
 
+permissions:
+  pull-requests: write
+  issues: write
+
 jobs:
   auto-label:
     runs-on: ubuntu-latest
