@@ -23,7 +23,7 @@
 ```
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/screenshot.png" alt="phone-a-friend TUI dashboard" width="680">
+  <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.png" alt="phone-a-friend TUI dashboard" width="680">
 </div>
 
 ## Quick Start
