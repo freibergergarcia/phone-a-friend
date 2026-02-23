@@ -1,148 +1,208 @@
-# Curiosity Engine — Session Analysis
+# Curiosity Engine — Cross-Backend Session Analysis
 
-> **Scope:** This research is based exclusively on two live Curiosity Engine sessions
-> run on February 23, 2026 between Claude (Sonnet 4.6) and Codex. No external
-> benchmarks or third-party data were used.
+> **Scope:** Based exclusively on four live Curiosity Engine sessions run on
+> February 23, 2026 between Claude (Sonnet 4.6) and three backends: Codex,
+> Gemini (gemini-2.5-flash), and Ollama (gemma3:4b). No external benchmarks
+> or third-party data were used.
 
 ---
 
 ## Sessions Analyzed
 
-| # | Topic | Rounds to convergence | Status |
-|---|---|---|---|
-| 1 | "which AI has the strongest reasoning" | **4** | Converged ✅ |
-| 2 | "how to climb to Machu Picchu the most efficiently" | **4** | Converged ✅ |
+| # | Topic | Backend | Rounds to convergence | Schema violations |
+|---|---|---|---|---|
+| 1 | "which AI has the strongest reasoning" | Codex | **4** | None |
+| 2 | "how to climb to Machu Picchu the most efficiently" | Codex | **4** | None |
+| 3 | "how to climb to Machu Picchu the most efficiently" | Gemini (gemini-2.5-flash) | **5** | None |
+| 4 | "how to climb to Machu Picchu the most efficiently" | Ollama (gemma3:4b) | **5** | None |
+
+All four sessions converged. No re-prompts were triggered in any session.
 
 ---
 
 ## Speed to Core Answer — Who Got There First?
 
-### Session 1: AI Reasoning
+In every session, the **backend model** (not Claude) delivered the core answer
+in Round 1. Claude served the opening question in all four sessions, giving the
+backend first-mover advantage on substantive claims.
 
-**Codex reached the core answer at Round 1.**
+| Session | Backend | Core answer delivered at | What they said |
+|---|---|---|---|
+| 1 | Codex | Round 1 | "o-series leads on benchmarks; for hard open-ended problems, trust model-plus-process, not a single model run" |
+| 2 | Codex | Round 1 | "Train + bus wins. Biggest mistake: not locking the entry circuit/slot first — that's what makes trips fail" |
+| 3 | Gemini | Round 1 | "Train to Aguas Calientes + bus. The bottleneck is booking train and entry tickets well in advance" |
+| 4 | Ollama | Round 1 | "Train-to-bus via Aguas Calientes minimizes elapsed time — 3-4 hours vs 4-5 days for the Inca Trail" |
 
-Claude served the opening question. Codex's first response contained the full
-directional answer:
-
-> *"On benchmark-heavy reasoning, I'd currently give the edge to OpenAI's
-> reasoning-focused o-series family, with top-tier Gemini and Claude variants
-> very close in specific domains. For genuinely hard open-ended problems, I
-> would not trust any single model run; I'd trust a model-plus-process setup."*
-
-Claude's subsequent rounds were spent probing and refining — asking about
-architectural differences, which lever matters most, and finally explicitly
-requesting a concrete verdict in Round 4. Claude did not independently assert
-a winner at any point; it validated and synthesized Codex's position.
-
-### Session 2: Machu Picchu
-
-**Codex reached the core answer at Round 1.**
-
-Again, Claude served. Codex's first response contained both the route decision
-and the most actionable insight of the entire session:
-
-> *"The train-to-Aguas Calientes plus shuttle bus is the clear winner. The
-> biggest planning mistake is obsessing over the route but not locking the
-> Machu Picchu entry circuit/time slot first — which is what actually makes
-> trips fail."*
-
-The remaining three rounds were refinements (on-site routing, acclimatization
-sequence, train operator choice, sleep location) that built on this foundation
-without overturning it.
+Claude did not independently assert a complete position until Round 2 (partial)
+or Round 3–5 (full synthesis) in every session.
 
 ---
 
-## Round-by-Round Agreement Progression
+## Rounds to Convergence — Cross-Backend
 
-### Session 1
-
-| Round | Agreement level | What changed |
+| Backend | Rounds | Pattern |
 |---|---|---|
-| 1 | **Partial** — Codex named o-series; Claude had not yet stated a position | Codex anchored the answer |
-| 2 | **Growing** — both agreed architectural diff is real but partly branding | Shared framing emerged |
-| 3 | **Strong** — both agreed test-time compute / verification is the key lever | Core mechanism aligned |
-| 4 | **Full** — Codex gave concrete verdict; Claude's implied position matched | Convergence declared |
+| Codex | **4** | Anchor (R1) → refinement (R2-3) → synthesis (R4) |
+| Gemini | **5** | Anchor (R1) → new angle introduced by Claude (R2-3) → validation (R4) → explicit synthesis (R5) |
+| Ollama | **5** | Anchor (R1) → progressive refinement (R2-4) → playbook confirmed (R5) |
 
-### Session 2
+Codex converged one round faster than the other two backends. Gemini and Ollama
+both required 5 rounds. The difference appears driven by conversational depth:
+Claude introduced more novel angles with Gemini (Ollantaytambo bypass, Santa
+Teresa backdoor route), extending the session productively. With Ollama, the
+extra round was needed to achieve an explicit synthesis rather than an implied one.
 
-| Round | Agreement level | What changed |
+---
+
+## Schema Compliance
+
+All three backends followed the `ANSWER:` / `QUESTION:` format correctly in
+every round across all four sessions. The enforcement mechanism (re-prompt on
+violation, early termination on second violation) was **never triggered**.
+
+This is a meaningful result: all three backends — a closed coding-optimized
+model (Codex), a frontier multimodal model (Gemini), and a 4B-parameter local
+model (Ollama) — reliably followed the strict two-field schema with no
+exceptions.
+
+---
+
+## Curiosity Quality — Which Model Asked Better Questions?
+
+### Claude (as server across all sessions)
+
+Claude's strongest questions introduced genuinely new angles rather than
+extending the prior thread:
+
+- "Is the o-series vs Claude extended thinking an architectural difference or
+  just branding?" (Session 1, R2) — forced Codex to take a precise stance
+- "Could a traveler route through Ollantaytambo (2,800m) instead of Cusco
+  (3,400m) to reduce peak altitude exposure?" (Session 3, R3) — a tactical
+  pivot neither model had raised; Gemini validated it strongly
+- "Is Inca Rail vs Peru Rail a meaningful quality difference or just
+  marketing?" (Session 2, R3) — challenged conventional travel advice
+- "Does hiking up from Aguas Calientes on foot beat queueing for the bus
+  during peak periods?" (Session 4, R4) — counterintuitive, with a
+  quantitative answer (depart 4:30 AM, arrive at gate before first bus wave)
+
+Claude's weakest questions were the synthesis prompts (e.g., "write the 3-day
+itinerary in one sentence per day") — useful for forcing closure but not
+genuinely curious.
+
+### Codex (Sessions 1 & 2)
+
+Codex asked the sharpest questions of any backend:
+
+- "What single evaluation best predicts real-world hard-problem reliability —
+  and how would you prevent leaderboard overfitting?" (S1, R1) — immediately
+  elevated from "which model wins" to "how do you even measure this"
+- "Which bottleneck matters most: search policies, verifiers/reward models, or
+  synthetic reasoning data?" (S1, R3) — three-way forced choice, precise
+
+Codex's questions were operationally tight and stress-tested the weakest point
+of each prior answer.
+
+### Gemini (Session 3)
+
+Gemini's questions were logically sequential and practically useful, but
+predictable — they followed the natural next step rather than introducing
+surprising constraints. Questions circled through: alternative routes →
+acclimatization → medications → non-pharmacological methods → booking
+strategies. Methodical, not inventive.
+
+### Ollama / gemma3:4b (Session 4)
+
+Ollama's questions were the least probing. Three out of five returned to
+acclimatization and fitness level variation, covering similar ground repeatedly.
+Questions were clarifying rather than drilling. Ollama never pushed into booking
+mechanics, crowd management policy, or entry circuit logistics — areas Codex
+and Gemini both surfaced unprompted.
+
+### Curiosity ranking
+
+| Rank | Model | Characterization |
 |---|---|---|
-| 1 | **Partial** — Codex gave route + key insight; Claude had not yet stated a position | Codex anchored the answer |
-| 2 | **Strong** — both aligned on Circuit 2A, early entry, Guardian's House first | On-site routing locked |
-| 3 | **Strong** — both agreed timing > train brand; late Circuit 2 > switching | Logistics aligned |
-| 4 | **Full** — identical 3-day plan produced independently | Convergence declared |
+| 1 | **Codex** | Operationally tight; immediately elevated to harder meta-problems |
+| 2 | **Claude** | Strategically inventive; introduced the sharpest new angles |
+| 3 | **Gemini** | Logically sequential; practically useful but predictable |
+| 4 | **Ollama (gemma3:4b)** | Topically relevant; repetitive; safe rather than probing |
 
 ---
 
-## Findings
+## What Each Backend Contributed Uniquely
 
-### 1. Codex consistently reached the core answer first
-
-In both sessions, Codex produced the key actionable insight in its **Round 1
-response** — before Claude had stated any position of its own. Claude's role
-across all 8 rounds was primarily to probe, challenge, and push for synthesis,
-not to anchor answers.
-
-This is consistent with the structural asymmetry of the Curiosity Engine: the
-**serving model** (Claude) asks questions; the **receiving model** (Codex)
-answers. Claude served in both sessions, giving Codex the first-mover advantage
-on substantive claims.
-
-### 2. Both sessions converged in exactly 4 rounds
-
-Neither session required more than 4 rounds. The minimum-bar convergence
-criterion ("same core conclusion") was met at Round 4 in both cases without
-forcing agreement — the models arrived there naturally through the Q&A loop.
-
-Rounds 1–2 established the anchor and first layer of refinement. Round 3
-stress-tested the position. Round 4 produced the synthesis.
-
-### 3. The most valuable insight appeared in Round 1 (not at convergence)
-
-In both sessions, the highest-signal moment was Codex's Round 1 answer, not the
-final convergence statement:
-
-- **Session 1:** "Model-plus-process, not a single model run, is what you trust
-  with a hard open-ended problem."
-- **Session 2:** "Obsessing over the route but not locking the entry
-  circuit/time slot first is what actually makes trips fail."
-
-By Round 4, both models were re-stating and elaborating on these insights.
-Convergence confirmed the answer — it did not discover it.
-
-### 4. Claude's probing improved answer quality across rounds
-
-While Codex landed the answer fastest, Claude's questioning improved the depth
-and specificity of Codex's responses across rounds. Without Claude's probes
-(on architectural differences, test-time compute, train operator choice,
-acclimatization sequencing), Codex's Round 1 answers would have remained at
-the directional level. The back-and-forth produced actionable detail that
-neither model would have generated alone.
+| Backend | Unique contribution |
+|---|---|
+| Codex | "Book the entry circuit/slot FIRST — that's what makes trips fail." Clean, counterintuitive, immediately actionable. Also: Guardian's House routing as the optimal first-stop on Circuit 2A. |
+| Gemini | Validated Claude's Ollantaytambo altitude bypass (2,800m vs 3,400m Cusco) as "highly viable and recommended." Confirmed Santa Teresa / Hidroelectrica as a structural alternative to the PeruRail/Inca Rail monopoly. |
+| Ollama | Consistently identified skipping Cusco acclimatization as the single most common traveler error — a physiological framing the other backends didn't foreground. |
 
 ---
 
-## Summary Table
+## Focus Divergence Across Backends
 
-| Metric | Session 1 (AI Reasoning) | Session 2 (Machu Picchu) |
-|---|---|---|
-| Rounds to convergence | 4 | 4 |
-| Model that answered first | **Codex** (Round 1) | **Codex** (Round 1) |
-| Round Claude first asserted a position | Round 2 (partial) | Round 2 (partial) |
-| Round full agreement reached | Round 4 | Round 4 |
-| Highest-signal round | Round 1 | Round 1 |
-| Did Claude's probing add value? | Yes — depth and specificity | Yes — logistics detail |
+The three backends on the Machu Picchu topic emphasized different failure modes,
+despite converging on the same core route recommendation:
+
+| Backend | Primary failure mode identified |
+|---|---|
+| Codex | **Booking logistics** — entry circuit/time slot not locked first |
+| Gemini | **Booking logistics** — train + entry ticket advance booking as binding constraint |
+| Ollama | **Physiological readiness** — skipping Cusco acclimatization |
+
+Codex and Gemini converged on the same failure mode (booking). Ollama diverged
+toward physiology. This may reflect gemma3:4b's training distribution — a 4B
+local model that skews toward health and fitness content in travel queries —
+rather than a difference in the underlying truth. Both failure modes are real;
+the backends simply had different priors about which was primary.
 
 ---
 
-## Conclusion
+## Summary Table — All Four Sessions
 
-Across both sessions, **Codex reached the core answer faster** — consistently
-in Round 1 — while **Claude drove the refinement** that turned a directional
-answer into an actionable one. Full agreement was reached in **4 rounds** in
-both cases, suggesting that 4 rounds is a natural convergence horizon for the
-minimum-bar agreement criterion on topics of moderate complexity.
+| Metric | S1 Codex (AI) | S2 Codex (MP) | S3 Gemini (MP) | S4 Ollama (MP) |
+|---|---|---|---|---|
+| Rounds to convergence | 4 | 4 | 5 | 5 |
+| Backend answered first | ✅ R1 | ✅ R1 | ✅ R1 | ✅ R1 |
+| Claude asserted position | R2 partial | R2 partial | R5 | R3 |
+| Schema violations | 0 | 0 | 0 | 0 |
+| Re-prompts needed | 0 | 0 | 0 | 0 |
+| Most curious questioner | Codex | Claude | Claude | Claude |
+| Most novel insight | Codex R1 | Codex R1 | Ollantaytambo bypass (Claude R3, Gemini validated) | Foot-trail beats bus queue (Claude R4) |
 
-The Curiosity Engine's structural asymmetry (server asks, receiver answers)
-gives the receiving model a systematic first-mover advantage on substantive
-claims. A future variant could rotate the serve to test whether this advantage
-holds when Claude answers first.
+---
+
+## Conclusions
+
+**1. All backends converged. Schema compliance was universal.**
+Codex, Gemini (7B-scale frontier), and Ollama (4B local) all followed the
+`ANSWER:` / `QUESTION:` schema without a single violation across 18 combined
+rounds. The curiosity engine's schema enforcement is robust across model scales
+and providers.
+
+**2. Codex converged fastest (4 rounds); Gemini and Ollama took 5.**
+The difference was not breakdown — all three converged cleanly. Codex's edge
+appears to come from answer precision: it gave the most complete and actionable
+Round 1 response, requiring less refinement across subsequent rounds.
+
+**3. The backend always answered first. Claude's structural role is probing.**
+In all four sessions, the backend delivered the core answer in Round 1. Claude's
+value was not speed — it was the quality of follow-up questions that extracted
+depth and novel angles. The curiosity engine's server/receiver asymmetry is a
+consistent structural feature, not a one-off artifact.
+
+**4. Model scale correlates with question quality, but not perfectly.**
+Codex > Claude > Gemini > Ollama on question curiosity. But Gemini (a larger,
+frontier-class model) ranked below Claude — suggesting that the question-asking
+role benefits more from creative framing than from raw model capability.
+
+**5. Small local models can participate meaningfully.**
+Ollama's gemma3:4b, running on local hardware, converged correctly, maintained
+schema discipline, and produced the session's most concise "most common mistake"
+answer. For low-stakes topics, small local models are viable curiosity engine
+participants — they simply probe less inventively than frontier models.
+
+**6. A serve-rotation variant would test whether backend first-mover advantage
+is structural or coincidental.** In all four sessions, Claude served (asked
+first). A future test should have the backend serve the first question to
+determine whether Claude would similarly anchor the answer in Round 1.
