@@ -101,7 +101,7 @@ interface ReviewRelayOptions {
 
 ## Git Diff Functions
 
-The relay module provides three git diff functions with different failure semantics:
+The relay module provides three git diff functions and a branch detection helper:
 
 | Function | Signature | Failure Behavior |
 |----------|-----------|-----------------|

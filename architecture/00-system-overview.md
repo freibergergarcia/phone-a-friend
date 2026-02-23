@@ -105,7 +105,7 @@ sequenceDiagram
 
 | Component | File | Role |
 |-----------|------|------|
-| One-shot slash command | `commands/phone-a-friend.md` | Prompt policy for single-relay review |
+| One-shot slash command | `commands/phone-a-friend.md` | Prompt policy for one-shot relay (with optional review mode) |
 | Iterative slash command | `commands/phone-a-team.md` | Prompt policy for multi-round refinement loop |
 | Entry point | `src/index.ts` | Imports backends (self-register), runs CLI |
 | CLI parser | `src/cli.ts` | Commander.js with subcommands: relay, setup, doctor, config, plugin |
