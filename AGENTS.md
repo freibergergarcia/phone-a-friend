@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama, OpenAI, Google, Anthropic).
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama). All backend `run()` methods are async (`Promise<string>`).
 
 ## Project Structure
 
@@ -15,7 +15,7 @@ src/
   relay.ts           Backend-agnostic relay core
   context.ts         RelayContext interface
   version.ts         Shared version reader
-  detection.ts       Three-category backend detection
+  detection.ts       Backend detection (CLI, Local, Host)
   config.ts          TOML configuration system
   doctor.ts          Health check command
   setup.ts           Interactive setup wizard
@@ -24,6 +24,7 @@ src/
     index.ts         Backend interface, registry, types
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
+    ollama.ts        Ollama HTTP API backend (native fetch)
   tui/
     App.tsx          Root TUI component — tab bar + panel routing
     render.tsx       Ink render entry point
@@ -32,12 +33,14 @@ src/
     ConfigPanel.tsx  Config view + inline editing
     ActionsPanel.tsx Async-wrapped executable actions
     hooks/
-      useDetection.ts  Async detection with throttled refresh
+      useDetection.ts    Async detection with throttled refresh
+      usePluginStatus.ts Plugin install status (sync FS check)
     components/
-      TabBar.tsx     Tab navigation bar
-      Badge.tsx      Status badges (✓ ✗ ! ·)
-      KeyHint.tsx    Footer keyboard hints
-      ListSelect.tsx Scrollable selectable list
+      TabBar.tsx             Tab navigation bar
+      PluginStatusBar.tsx    Persistent plugin install indicator
+      Badge.tsx              Status badges (✓ ✗ ! ·)
+      KeyHint.tsx            Footer keyboard hints
+      ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure)
 dist/                Built bundle (committed, self-contained)
 ```
@@ -48,7 +51,8 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts`
 - Codex backend in `src/backends/codex.ts`
 - Gemini backend in `src/backends/gemini.ts`
-- Three-category backend detection in `src/detection.ts`
+- Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434)
+- Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts`
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
 - Default sandbox: `read-only`
@@ -59,6 +63,7 @@ dist/                Built bundle (committed, self-contained)
 # Relay
 ./phone-a-friend --to codex --repo <path> --prompt "..."
 ./phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
+./phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 ./phone-a-friend --prompt "..."               # Uses default backend from config
 
 # Setup & diagnostics
@@ -93,6 +98,10 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 4 tabs:
 - **Backends** — navigable backend list with detail pane
 - **Config** — inline config editing with focus model (nav/edit modes)
 - **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+
+A persistent plugin status bar sits between the tab bar and panel content,
+showing `✓ Claude Plugin: Installed` (green) or `! Claude Plugin: Not Installed` (yellow).
+It updates instantly after Reinstall/Uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
 Global keys: `q` quit, `Tab`/`1-4` switch tabs, `r` refresh detection.

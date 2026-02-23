@@ -215,7 +215,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
-    .action((opts) => {
+    .action(async (opts) => {
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig({
         to: opts.to,
@@ -234,7 +234,7 @@ export async function run(argv: string[]): Promise<number> {
       }).start();
 
       try {
-        const feedback = relay({
+        const feedback = await relay({
           prompt: opts.prompt,
           repoPath: opts.repo,
           backend: backendName,

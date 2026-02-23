@@ -1,9 +1,8 @@
 /**
- * Three-category backend detection system.
+ * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (codex/gemini), Local (ollama), API (openai/anthropic/google),
- * plus host integrations (claude).
+ * backends: CLI (codex/gemini), Local (ollama), plus host integrations (claude).
  */
 
 import { isInPath } from './backends/index.js';
@@ -14,7 +13,7 @@ import { isInPath } from './backends/index.js';
 
 export interface BackendStatus {
   name: string;
-  category: 'cli' | 'local' | 'api' | 'host';
+  category: 'cli' | 'local' | 'host';
   available: boolean;
   detail: string;
   installHint: string;
@@ -25,7 +24,6 @@ export interface BackendStatus {
 export interface DetectionReport {
   cli: BackendStatus[];
   local: BackendStatus[];
-  api: BackendStatus[];
   host: BackendStatus[];
 }
 
@@ -40,12 +38,6 @@ const CLI_BACKENDS: { name: string; installHint: string; label: string }[] = [
 
 const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
 const OLLAMA_INSTALL_HINT = 'brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh';
-
-const API_BACKENDS: { name: string; envVar: string; installHint: string; planned: boolean }[] = [
-  { name: 'openai', envVar: 'OPENAI_API_KEY', installHint: 'export OPENAI_API_KEY=sk-...', planned: false },
-  { name: 'anthropic', envVar: 'ANTHROPIC_API_KEY', installHint: 'export ANTHROPIC_API_KEY=sk-ant-...', planned: true },
-  { name: 'google', envVar: 'GOOGLE_API_KEY', installHint: 'export GOOGLE_API_KEY=...', planned: true },
-];
 
 const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] = [
   { name: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code', label: 'Claude Code CLI' },
@@ -136,24 +128,6 @@ export async function detectLocalBackends(
 }
 
 // ---------------------------------------------------------------------------
-// API backend detection
-// ---------------------------------------------------------------------------
-
-export function detectApiBackends(): BackendStatus[] {
-  return API_BACKENDS.map(({ name, envVar, installHint, planned }) => {
-    const keySet = !!process.env[envVar];
-    return {
-      name,
-      category: 'api' as const,
-      available: keySet && !planned,
-      detail: keySet ? `${envVar} set` : `${envVar} not set`,
-      installHint,
-      planned,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Host integration detection
 // ---------------------------------------------------------------------------
 
@@ -185,7 +159,6 @@ export async function detectAll(
     detectLocalBackends(whichFn, fetchFn),
     detectHostIntegrations(whichFn),
   ]);
-  const api = detectApiBackends();
 
-  return { cli, local, api, host };
+  return { cli, local, host };
 }

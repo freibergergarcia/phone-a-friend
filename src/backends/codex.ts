@@ -32,14 +32,14 @@ export class CodexBackend implements Backend {
     'danger-full-access',
   ]);
 
-  run(opts: {
+  async run(opts: {
     prompt: string;
     repoPath: string;
     timeoutSeconds: number;
     sandbox: SandboxMode;
     model: string | null;
     env: Record<string, string>;
-  }): string {
+  }): Promise<string> {
     if (!isInPath('codex')) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`,

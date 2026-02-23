@@ -81,7 +81,6 @@ export function BackendsPanel({ report }: BackendsPanelProps) {
   const allBackends = [
     ...report.cli,
     ...report.local,
-    ...report.api,
     ...report.host,
   ];
 

@@ -13,7 +13,6 @@ vi.mock('../../src/config.js', () => ({
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     backends: {
       codex: { model: 'o3' },
-      openai: { model: 'gpt-4o', api_key_env: 'OPENAI_API_KEY' },
       ollama: { host: 'http://localhost:11434', model: 'qwen3' },
     },
   }),
@@ -26,11 +25,6 @@ const MOCK_REPORT: DetectionReport = {
   ],
   local: [
     { name: 'ollama', category: 'local', available: true, detail: 'http://localhost:11434 (3 models)', installHint: '', models: ['qwen3', 'llama3', 'phi3'] },
-  ],
-  api: [
-    { name: 'openai', category: 'api', available: true, detail: 'OPENAI_API_KEY set', installHint: '' },
-    { name: 'anthropic', category: 'api', available: false, detail: 'ANTHROPIC_API_KEY not set', installHint: 'export ANTHROPIC_API_KEY=sk-ant-...', planned: true },
-    { name: 'google', category: 'api', available: false, detail: 'GOOGLE_API_KEY not set', installHint: 'export GOOGLE_API_KEY=...', planned: true },
   ],
   host: [
     { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: '' },
@@ -46,7 +40,6 @@ describe('BackendsPanel', () => {
     expect(frame).toContain('codex');
     expect(frame).toContain('gemini');
     expect(frame).toContain('ollama');
-    expect(frame).toContain('openai');
   });
 
   it('shows detail for the first backend by default', () => {
@@ -77,18 +70,13 @@ describe('BackendsPanel', () => {
     expect(frame).toContain('llama3');
   });
 
-  it('shows planned badge for planned backends', () => {
-    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
-    expect(lastFrame()).toContain('planned');
-  });
-
   it('shows host integrations', () => {
     const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
     expect(lastFrame()).toContain('claude');
   });
 
   it('handles empty backend list without crashing', () => {
-    const emptyReport: DetectionReport = { cli: [], local: [], api: [], host: [] };
+    const emptyReport: DetectionReport = { cli: [], local: [], host: [] };
     const { lastFrame } = render(<BackendsPanel report={emptyReport} />);
     const frame = lastFrame()!;
     expect(frame).toContain('Backends');

@@ -3,6 +3,7 @@
 // Import all backends so they self-register
 import './backends/codex.js';
 import './backends/gemini.js';
+import './backends/ollama.js';
 
 import { run } from './cli.js';
 

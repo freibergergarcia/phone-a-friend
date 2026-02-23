@@ -27,7 +27,7 @@ export interface Backend {
     sandbox: SandboxMode;
     model: string | null;
     env: Record<string, string>;
-  }): string;
+  }): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,7 @@ export class BackendError extends Error {
 export const INSTALL_HINTS: Record<string, string> = {
   codex: 'npm install -g @openai/codex',
   gemini: 'npm install -g @google/gemini-cli',
+  ollama: 'https://ollama.com/download',
 };
 
 // ---------------------------------------------------------------------------

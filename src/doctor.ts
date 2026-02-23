@@ -65,14 +65,6 @@ function formatHumanReadable(
     }
   }
 
-  // API
-  if (report.api.length > 0) {
-    lines.push('    API:');
-    for (const b of report.api) {
-      lines.push(`  ${formatBackendLine(b)}`);
-    }
-  }
-
   lines.push('');
 
   // Host Integrations
@@ -88,7 +80,7 @@ function formatHumanReadable(
   lines.push('');
 
   // Summary count — colored by health status
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter(b => b.available).length;
   const total = allRelay.length;
   const summaryColor = available === total ? theme.success :
@@ -108,7 +100,7 @@ function formatJson(
   config: PafConfig,
   exitCode: number,
 ): string {
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter(b => b.available).length;
   const total = allRelay.length;
 
@@ -120,7 +112,6 @@ function formatJson(
     backends: {
       cli: report.cli,
       local: report.local,
-      api: report.api,
     },
     host: report.host,
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
@@ -135,7 +126,7 @@ function formatJson(
 
 function computeExitCode(report: DetectionReport): number {
   // Only count implemented (non-planned) backends for exit code
-  const allRelay = [...report.cli, ...report.local, ...report.api].filter(b => !b.planned);
+  const allRelay = [...report.cli, ...report.local].filter(b => !b.planned);
   const available = allRelay.filter(b => b.available).length;
 
   if (available === 0) return 2;

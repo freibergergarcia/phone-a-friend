@@ -55,11 +55,6 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
     local: [
       { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'brew install ollama' },
     ],
-    api: [
-      { name: 'openai', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: false },
-      { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
-      { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
-    ],
     host: [
       { name: 'claude', category: 'host' as 'cli', available: true, detail: 'found', installHint: '' },
     ],
@@ -144,11 +139,6 @@ describe('setup', () => {
       local: [
         { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'install' },
       ],
-      api: [
-        { name: 'openai', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: false },
-        { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: true },
-        { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: true },
-      ],
     });
     mockDetectAll.mockResolvedValue(report);
 
@@ -163,22 +153,6 @@ describe('setup', () => {
       }),
       expect.any(String),
     );
-  });
-
-  it('does not offer planned backends as default selection', async () => {
-    mockDetectAll.mockResolvedValue(makeReport());
-    mockSelect.mockResolvedValue('codex');
-
-    await setup.setup();
-
-    // If select was called, verify the choices don't include planned backends
-    if (mockSelect.mock.calls.length > 0) {
-      const selectCall = mockSelect.mock.calls[0][0];
-      const choices = selectCall.choices as { value: string }[];
-      const names = choices.map((c: { value: string }) => c.value);
-      expect(names).not.toContain('anthropic');
-      expect(names).not.toContain('google');
-    }
   });
 
   it('offers Claude plugin install when claude is in PATH', async () => {
@@ -234,11 +208,6 @@ describe('setup', () => {
       ],
       local: [
         { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'install' },
-      ],
-      api: [
-        { name: 'openai', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: false },
-        { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: true },
-        { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export', planned: true },
       ],
     });
     mockDetectAll.mockResolvedValue(report);

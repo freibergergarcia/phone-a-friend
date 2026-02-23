@@ -10,7 +10,6 @@ vi.mock('../../src/detection.js', () => ({
   detectAll: vi.fn().mockResolvedValue({
     cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
     local: [],
-    api: [],
     host: [],
   }),
 }));

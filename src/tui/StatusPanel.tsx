@@ -82,7 +82,7 @@ export function StatusPanel({ report, loading, refreshing, error }: StatusPanelP
   }
 
   // Count available relay backends (exclude host integrations and planned)
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const nonPlanned = allRelay.filter((b) => !b.planned);
   const available = nonPlanned.filter((b) => b.available).length;
   const total = nonPlanned.length;
@@ -115,7 +115,6 @@ export function StatusPanel({ report, loading, refreshing, error }: StatusPanelP
         <Text bold underline>Relay Backends ({available} of {total} ready)</Text>
         <CategorySection label="CLI" backends={report.cli} />
         <CategorySection label="Local" backends={report.local} />
-        <CategorySection label="API" backends={report.api} />
       </Box>
 
       {/* Host integrations */}

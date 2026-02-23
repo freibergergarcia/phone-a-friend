@@ -127,54 +127,6 @@ describe('detection', () => {
     });
   });
 
-  describe('detectApiBackends', () => {
-    const originalEnv = process.env;
-
-    beforeEach(() => {
-      process.env = { ...originalEnv };
-    });
-
-    afterEach(() => {
-      process.env = originalEnv;
-    });
-
-    it('marks openai as available when OPENAI_API_KEY is set', () => {
-      process.env.OPENAI_API_KEY = 'sk-test-123';
-      const results = detection.detectApiBackends();
-      const openai = results.find(b => b.name === 'openai');
-
-      expect(openai!.available).toBe(true);
-      expect(openai!.category).toBe('api');
-      expect(openai!.detail).toContain('set');
-    });
-
-    it('marks openai as unavailable when env var not set', () => {
-      delete process.env.OPENAI_API_KEY;
-      const results = detection.detectApiBackends();
-      const openai = results.find(b => b.name === 'openai');
-
-      expect(openai!.available).toBe(false);
-      expect(openai!.installHint).toContain('OPENAI_API_KEY');
-    });
-
-    it('marks anthropic and google as planned', () => {
-      const results = detection.detectApiBackends();
-      const anthropic = results.find(b => b.name === 'anthropic');
-      const google = results.find(b => b.name === 'google');
-
-      expect(anthropic!.planned).toBe(true);
-      expect(google!.planned).toBe(true);
-    });
-
-    it('returns all three API backends', () => {
-      const results = detection.detectApiBackends();
-      const names = results.map(b => b.name);
-      expect(names).toContain('openai');
-      expect(names).toContain('anthropic');
-      expect(names).toContain('google');
-    });
-  });
-
   describe('detectHostIntegrations', () => {
     it('detects claude binary in PATH', async () => {
       const whichFn = vi.fn(() => true);
@@ -197,7 +149,7 @@ describe('detection', () => {
   });
 
   describe('detectAll', () => {
-    it('returns a complete DetectionReport with all four categories', async () => {
+    it('returns a complete DetectionReport with all categories', async () => {
       const whichFn = vi.fn((name: string) => name === 'codex');
       const fetchFn = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
 
@@ -205,12 +157,10 @@ describe('detection', () => {
 
       expect(report.cli).toBeDefined();
       expect(report.local).toBeDefined();
-      expect(report.api).toBeDefined();
       expect(report.host).toBeDefined();
 
       expect(report.cli.length).toBeGreaterThan(0);
       expect(report.local.length).toBeGreaterThan(0);
-      expect(report.api.length).toBeGreaterThan(0);
       expect(report.host.length).toBeGreaterThan(0);
     });
 
@@ -220,7 +170,7 @@ describe('detection', () => {
 
       const report = await detection.detectAll(whichFn, fetchFn);
 
-      const allRelay = [...report.cli, ...report.local, ...report.api];
+      const allRelay = [...report.cli, ...report.local];
       const available = allRelay.filter(b => b.available);
       expect(available.length).toBe(2); // codex + gemini
     });

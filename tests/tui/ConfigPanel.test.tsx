@@ -11,7 +11,6 @@ vi.mock('../../src/config.js', () => ({
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     backends: {
       codex: { model: 'o3' },
-      openai: { model: 'gpt-4o', api_key_env: 'OPENAI_API_KEY' },
       ollama: { host: 'http://localhost:11434', model: 'qwen3' },
     },
   }),
@@ -53,7 +52,6 @@ describe('ConfigPanel', () => {
     const { lastFrame } = render(<ConfigPanel />);
     const frame = lastFrame()!;
     expect(frame).toContain('o3');
-    expect(frame).toContain('gpt-4o');
     expect(frame).toContain('qwen3');
   });
 

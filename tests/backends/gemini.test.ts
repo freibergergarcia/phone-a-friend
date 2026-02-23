@@ -33,7 +33,7 @@ describe('GeminiBackend', () => {
     expect(GEMINI_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
   });
 
-  it('builds correct gemini CLI args and reads stdout', () => {
+  it('builds correct gemini CLI args and reads stdout', async () => {
     let observedOpts: Record<string, unknown> = {};
 
     mockExecFileSync.mockImplementation(
@@ -44,7 +44,7 @@ describe('GeminiBackend', () => {
       },
     );
 
-    const result = GEMINI_BACKEND.run({
+    const result = await GEMINI_BACKEND.run({
       prompt: 'Review implementation.',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -77,13 +77,13 @@ describe('GeminiBackend', () => {
     expect(observedOpts.cwd).toBe('/tmp/repo');
   });
 
-  it('omits --sandbox for danger-full-access', () => {
+  it('omits --sandbox for danger-full-access', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'ok';
     });
 
-    GEMINI_BACKEND.run({
+    await GEMINI_BACKEND.run({
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -101,13 +101,13 @@ describe('GeminiBackend', () => {
     expect(args).toContain('--yolo');
   });
 
-  it('passes --sandbox for read-only', () => {
+  it('passes --sandbox for read-only', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'ok';
     });
 
-    GEMINI_BACKEND.run({
+    await GEMINI_BACKEND.run({
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -123,13 +123,13 @@ describe('GeminiBackend', () => {
     expect(args).toContain('--sandbox');
   });
 
-  it('passes --sandbox for workspace-write', () => {
+  it('passes --sandbox for workspace-write', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'ok';
     });
 
-    GEMINI_BACKEND.run({
+    await GEMINI_BACKEND.run({
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -145,13 +145,13 @@ describe('GeminiBackend', () => {
     expect(args).toContain('--sandbox');
   });
 
-  it('passes -m when model is provided', () => {
+  it('passes -m when model is provided', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'model feedback';
     });
 
-    GEMINI_BACKEND.run({
+    await GEMINI_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -169,13 +169,13 @@ describe('GeminiBackend', () => {
     expect(args[modelIdx + 1]).toBe('gemini-2.5-flash');
   });
 
-  it('does not pass -m when model is null', () => {
+  it('does not pass -m when model is null', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'ok';
     });
 
-    GEMINI_BACKEND.run({
+    await GEMINI_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -191,13 +191,13 @@ describe('GeminiBackend', () => {
     expect(args).not.toContain('-m');
   });
 
-  it('throws GeminiBackendError when gemini not found in PATH', () => {
+  it('throws GeminiBackendError when gemini not found in PATH', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') throw new Error('not found');
       return '';
     });
 
-    expect(() =>
+    await expect(
       GEMINI_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -206,10 +206,10 @@ describe('GeminiBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/gemini CLI not found/);
+    ).rejects.toThrow(/gemini CLI not found/);
   });
 
-  it('throws on timeout', () => {
+  it('throws on timeout', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       const err = new Error('TIMEOUT') as Error & {
@@ -223,7 +223,7 @@ describe('GeminiBackend', () => {
       throw err;
     });
 
-    expect(() =>
+    await expect(
       GEMINI_BACKEND.run({
         prompt: 'x',
         repoPath: '/tmp/repo',
@@ -232,10 +232,10 @@ describe('GeminiBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/timed out/);
+    ).rejects.toThrow(/timed out/);
   });
 
-  it('throws on non-zero exit code with stderr', () => {
+  it('throws on non-zero exit code with stderr', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       const err = new Error('command failed') as Error & {
@@ -249,7 +249,7 @@ describe('GeminiBackend', () => {
       throw err;
     });
 
-    expect(() =>
+    await expect(
       GEMINI_BACKEND.run({
         prompt: 'x',
         repoPath: '/tmp/repo',
@@ -258,16 +258,16 @@ describe('GeminiBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow('something went wrong');
+    ).rejects.toThrow('something went wrong');
   });
 
-  it('throws when gemini produces no output', () => {
+  it('throws when gemini produces no output', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return '';
     });
 
-    expect(() =>
+    await expect(
       GEMINI_BACKEND.run({
         prompt: 'x',
         repoPath: '/tmp/repo',
@@ -276,10 +276,10 @@ describe('GeminiBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/without producing output/);
+    ).rejects.toThrow(/without producing output/);
   });
 
-  it('always passes --yolo flag', () => {
+  it('always passes --yolo flag', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       return 'ok';
@@ -293,7 +293,7 @@ describe('GeminiBackend', () => {
         return 'ok';
       });
 
-      GEMINI_BACKEND.run({
+      await GEMINI_BACKEND.run({
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,

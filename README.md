@@ -9,41 +9,89 @@
 
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/github/license/freibergergarcia/phone-a-friend)](LICENSE)
-  ![Python 3.10+](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
+  ![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520.12-green)
   [![Website](https://img.shields.io/badge/website-phone--a--friend-blue)](https://freibergergarcia.github.io/phone-a-friend/)
 
 </div>
 
-`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks — code reviews, file edits, analysis, refactoring — to a backend AI (Codex or Gemini) and brings the results back into the current session.
+`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks -- code reviews, file edits, analysis, refactoring -- to a backend AI (Codex, Gemini, or Ollama) and brings the results back into the current session.
 
 ```
-  Claude ──> phone-a-friend ──> Codex / Gemini          (one-shot relay)
-  Claude ──> phone-a-team ──> iterate with backend(s)   (iterative refinement)
+  Claude --> phone-a-friend --> Codex / Gemini / Ollama     (one-shot relay)
+  Claude --> phone-a-team --> iterate with backend(s)        (iterative refinement)
 ```
 
 ## Quick Start
 
-**Prerequisites:** Python 3.10+ and at least one backend CLI:
+**Prerequisites:** Node.js 20+ and at least one backend:
 
 ```bash
-npm install -g @openai/codex       # Codex
-npm install -g @google/gemini-cli  # Gemini (or both)
+npm install -g @openai/codex       # Codex CLI
+npm install -g @google/gemini-cli  # Gemini CLI (or both)
+# Ollama: https://ollama.com/download (local HTTP API, no npm needed)
 ```
 
-**Install & use:**
+**Install as Claude Code plugin:**
 
 ```bash
 git clone https://github.com/freibergergarcia/phone-a-friend.git
 cd phone-a-friend
-./phone-a-friend install --claude
+npm install && npm run build
+./dist/index.js plugin install --claude
+```
+
+**Or install globally via npm:**
+
+```bash
+npm install -g phone-a-friend
+phone-a-friend plugin install --claude
 ```
 
 Then from Claude Code:
 
 ```
-/phone-a-friend Ask codex to review the error handling in relay.py
+/phone-a-friend Ask codex to review the error handling in relay.ts
 /phone-a-team Refactor the backend registry for extensibility
 ```
+
+## CLI Usage
+
+```bash
+# Relay to a backend
+phone-a-friend --to codex --prompt "Review this code"
+phone-a-friend --to gemini --prompt "Analyze the architecture" --model gemini-2.5-flash
+phone-a-friend --to ollama --prompt "Explain this function"
+
+# Interactive TUI dashboard (launch with no args in a terminal)
+phone-a-friend
+
+# Setup & diagnostics
+phone-a-friend setup          # Interactive setup wizard
+phone-a-friend doctor         # Health check all backends
+phone-a-friend doctor --json  # Machine-readable health check
+
+# Configuration (TOML)
+phone-a-friend config init    # Create default config
+phone-a-friend config show    # Show resolved config
+phone-a-friend config edit    # Open in $EDITOR
+
+# Plugin management
+phone-a-friend plugin install --claude
+phone-a-friend plugin update --claude
+phone-a-friend plugin uninstall --claude
+```
+
+## Backends
+
+| Backend | Type | How it works |
+|---------|------|-------------|
+| **Codex** | CLI subprocess | Runs `codex exec` with sandbox and repo context |
+| **Gemini** | CLI subprocess | Runs `gemini --prompt` with `--yolo` auto-approve |
+| **Ollama** | HTTP API | POSTs to `localhost:11434/api/chat` via native fetch |
+
+Ollama configuration via environment variables:
+- `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
+- `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
 
 ## Documentation
 
@@ -53,7 +101,7 @@ Full usage guide, examples, CLI reference, and configuration details:
 
 ## Contributing
 
-All changes go through pull requests — no direct pushes to `main`.
+All changes go through pull requests -- no direct pushes to `main`.
 
 1. **Branch off main** using a prefix: `feature/`, `fix/`, `improve/`, or `chore/`
 2. **Open a PR** against `main`
@@ -61,10 +109,13 @@ All changes go through pull requests — no direct pushes to `main`.
 4. PRs are **squash-merged** (one commit per change, clean linear history)
 5. Head branches are auto-deleted after merge
 
-## Tests
+## Development
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py' -v
+npm install              # Install dependencies
+npm run build            # Build dist/ (tsup)
+npm test                 # Run tests (vitest)
+npm run typecheck        # Type check (tsc --noEmit)
 ```
 
 ## License

@@ -205,9 +205,23 @@ function unsyncClaudePluginRegistration(
   return lines;
 }
 
-function claudeTarget(claudeHome?: string): string {
+export function claudeTarget(claudeHome?: string): string {
   const base = claudeHome ?? join(homedir(), '.claude');
   return join(base, 'plugins', PLUGIN_NAME);
+}
+
+export function isPluginInstalled(claudeHome?: string): boolean {
+  const target = claudeTarget(claudeHome);
+  try {
+    // For symlinks: check that it exists and is not dangling
+    if (isSymlink(target)) {
+      return existsSync(target);
+    }
+    // For copies: check directory exists
+    return existsSync(target);
+  } catch {
+    return false;
+  }
 }
 
 function installClaude(

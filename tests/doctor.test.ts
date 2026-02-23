@@ -30,11 +30,6 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
     local: [
       { name: 'ollama', category: 'local', available: true, detail: 'http://localhost:11434 (2 models)', installHint: '', models: ['qwen3:latest', 'llama3.2:latest'] },
     ],
-    api: [
-      { name: 'openai', category: 'api', available: true, detail: 'OPENAI_API_KEY set', installHint: 'export OPENAI_API_KEY=sk-...' },
-      { name: 'anthropic', category: 'api', available: false, detail: 'ANTHROPIC_API_KEY not set', installHint: 'export ANTHROPIC_API_KEY=sk-ant-...', planned: true },
-      { name: 'google', category: 'api', available: false, detail: 'GOOGLE_API_KEY not set', installHint: 'export GOOGLE_API_KEY=...', planned: true },
-    ],
     host: [
       { name: 'claude', category: 'host' as 'cli', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: 'npm install -g @anthropic-ai/claude-code' },
     ],
@@ -84,21 +79,6 @@ describe('doctor', () => {
       expect(result.output).toContain('2 models');
     });
 
-    it('shows API backends with env var status', async () => {
-      mockDetectAll.mockResolvedValue(makeReport());
-      const result = await doctor.doctor();
-
-      expect(result.output).toContain('openai');
-      expect(result.output).toContain('OPENAI_API_KEY');
-    });
-
-    it('shows planned backends with planned marker', async () => {
-      mockDetectAll.mockResolvedValue(makeReport());
-      const result = await doctor.doctor();
-
-      expect(result.output).toContain('planned');
-    });
-
     it('shows host integrations separately', async () => {
       mockDetectAll.mockResolvedValue(makeReport());
       const result = await doctor.doctor();
@@ -126,8 +106,8 @@ describe('doctor', () => {
       mockDetectAll.mockResolvedValue(makeReport());
       const result = await doctor.doctor();
 
-      // codex + ollama + openai = 3 available out of 6 total relay backends
-      expect(result.output).toContain('3');
+      // codex + ollama = 2 available out of 3 total relay backends
+      expect(result.output).toContain('2');
     });
   });
 
@@ -141,42 +121,16 @@ describe('doctor', () => {
         local: [
           { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
         ],
-        api: [
-          { name: 'openai', category: 'api', available: true, detail: 'set', installHint: '' },
-          { name: 'anthropic', category: 'api', available: true, detail: 'set', installHint: '' },
-          { name: 'google', category: 'api', available: true, detail: 'set', installHint: '' },
-        ],
       });
       mockDetectAll.mockResolvedValue(report);
       const result = await doctor.doctor();
-      expect(result.exitCode).toBe(0);
-    });
-
-    it('returns 0 when all implemented backends are healthy (planned excluded)', async () => {
-      const report = makeReport({
-        cli: [
-          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
-          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
-        ],
-        local: [
-          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
-        ],
-        api: [
-          { name: 'openai', category: 'api', available: true, detail: 'set', installHint: '' },
-          { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
-          { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
-        ],
-      });
-      mockDetectAll.mockResolvedValue(report);
-      const result = await doctor.doctor();
-      // Planned backends should not affect exit code
       expect(result.exitCode).toBe(0);
     });
 
     it('returns 1 when some implemented backends have issues', async () => {
       mockDetectAll.mockResolvedValue(makeReport());
       const result = await doctor.doctor();
-      // gemini unavailable → exit 1 (planned backends excluded from calculation)
+      // gemini unavailable -> exit 1
       expect(result.exitCode).toBe(1);
     });
 
@@ -188,11 +142,6 @@ describe('doctor', () => {
         ],
         local: [
           { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'install ollama' },
-        ],
-        api: [
-          { name: 'openai', category: 'api', available: false, detail: 'not set', installHint: 'export key' },
-          { name: 'anthropic', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
-          { name: 'google', category: 'api', available: false, detail: 'not set', installHint: 'export key', planned: true },
         ],
       });
       mockDetectAll.mockResolvedValue(report);
@@ -211,7 +160,6 @@ describe('doctor', () => {
       expect(parsed.backends).toBeDefined();
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
-      expect(parsed.backends.api).toBeDefined();
       expect(parsed.host).toBeDefined();
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
@@ -222,8 +170,8 @@ describe('doctor', () => {
       const result = await doctor.doctor({ json: true });
       const parsed = JSON.parse(result.output);
 
-      expect(parsed.summary.available).toBe(3);
-      expect(parsed.summary.total).toBe(6);
+      expect(parsed.summary.available).toBe(2);
+      expect(parsed.summary.total).toBe(3);
     });
   });
 });

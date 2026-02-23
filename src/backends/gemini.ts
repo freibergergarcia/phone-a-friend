@@ -37,14 +37,14 @@ export class GeminiBackend implements Backend {
     'danger-full-access',
   ]);
 
-  run(opts: {
+  async run(opts: {
     prompt: string;
     repoPath: string;
     timeoutSeconds: number;
     sandbox: SandboxMode;
     model: string | null;
     env: Record<string, string>;
-  }): string {
+  }): Promise<string> {
     if (!isInPath('gemini')) {
       throw new GeminiBackendError(
         `gemini CLI not found in PATH. Install it: ${INSTALL_HINTS.gemini}`,

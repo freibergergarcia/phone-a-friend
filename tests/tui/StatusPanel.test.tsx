@@ -16,11 +16,6 @@ const MOCK_REPORT: DetectionReport = {
   local: [
     { name: 'ollama', category: 'local', available: false, detail: 'installed but not running', installHint: 'ollama serve' },
   ],
-  api: [
-    { name: 'openai', category: 'api', available: true, detail: 'OPENAI_API_KEY set', installHint: '' },
-    { name: 'anthropic', category: 'api', available: false, detail: 'ANTHROPIC_API_KEY not set', installHint: 'export ANTHROPIC_API_KEY=sk-ant-...', planned: true },
-    { name: 'google', category: 'api', available: false, detail: 'GOOGLE_API_KEY not set', installHint: 'export GOOGLE_API_KEY=...', planned: true },
-  ],
   host: [
     { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: '' },
   ],
@@ -48,7 +43,7 @@ describe('StatusPanel', () => {
       <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
     );
     const frame = lastFrame()!;
-    // 2 available (codex + openai) out of 4 non-planned
+    // 1 available (codex) out of 3 non-planned (codex + gemini + ollama)
     expect(frame).toMatch(/\d+ of \d+/);
   });
 
@@ -58,7 +53,6 @@ describe('StatusPanel', () => {
     );
     const frame = lastFrame()!;
     expect(frame).toContain('codex');
-    expect(frame).toContain('openai');
   });
 
   it('shows unavailable backends', () => {
@@ -68,13 +62,6 @@ describe('StatusPanel', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('gemini');
     expect(frame).toContain('ollama');
-  });
-
-  it('shows planned backends', () => {
-    const { lastFrame } = render(
-      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
-    );
-    expect(lastFrame()).toContain('planned');
   });
 
   it('shows host integrations', () => {

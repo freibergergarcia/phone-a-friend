@@ -11,7 +11,6 @@ vi.mock('../../src/detection.js', () => ({
   detectAll: vi.fn().mockResolvedValue({
     cli: [],
     local: [],
-    api: [],
     host: [],
   }),
 }));

@@ -160,7 +160,7 @@ export interface RelayOptions {
   sandbox?: SandboxMode;
 }
 
-export function relay(opts: RelayOptions): string {
+export async function relay(opts: RelayOptions): Promise<string> {
   const {
     prompt,
     repoPath,
@@ -212,7 +212,7 @@ export function relay(opts: RelayOptions): string {
   const env = nextRelayEnv();
 
   try {
-    return selectedBackend.run({
+    return await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,

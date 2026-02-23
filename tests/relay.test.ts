@@ -39,7 +39,7 @@ function makeMockBackend(name: string): Backend {
   return {
     name,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
-    run: vi.fn(() => 'mock feedback'),
+    run: vi.fn(async () => 'mock feedback'),
   };
 }
 
@@ -81,8 +81,8 @@ describe('relay', () => {
     try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
   });
 
-  it('calls backend with correct args and returns result', () => {
-    const result = relay({
+  it('calls backend with correct args and returns result', async () => {
+    const result = await relay({
       prompt: 'Review the latest implementation.',
       repoPath: repo,
     });
@@ -96,55 +96,55 @@ describe('relay', () => {
     expect(callArgs.model).toBeNull();
   });
 
-  it('uses default backend (codex)', () => {
-    relay({ prompt: 'Review', repoPath: repo });
+  it('uses default backend (codex)', async () => {
+    await relay({ prompt: 'Review', repoPath: repo });
     expect(mockBackend.run).toHaveBeenCalledOnce();
   });
 
-  it('uses default sandbox (read-only)', () => {
-    relay({ prompt: 'Review', repoPath: repo });
+  it('uses default sandbox (read-only)', async () => {
+    await relay({ prompt: 'Review', repoPath: repo });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.sandbox).toBe('read-only');
   });
 
-  it('passes custom sandbox', () => {
-    relay({ prompt: 'Review', repoPath: repo, sandbox: 'workspace-write' });
+  it('passes custom sandbox', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, sandbox: 'workspace-write' });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.sandbox).toBe('workspace-write');
   });
 
-  it('passes model when provided', () => {
-    relay({ prompt: 'Review', repoPath: repo, model: 'o3' });
+  it('passes model when provided', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, model: 'o3' });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.model).toBe('o3');
   });
 
-  it('passes timeout', () => {
-    relay({ prompt: 'Review', repoPath: repo, timeoutSeconds: 120 });
+  it('passes timeout', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, timeoutSeconds: 120 });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.timeoutSeconds).toBe(120);
   });
 
   // --- Prompt building ---
 
-  it('includes context text in prompt', () => {
-    relay({ prompt: 'Review', repoPath: repo, contextText: 'This is inline context.' });
+  it('includes context text in prompt', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, contextText: 'This is inline context.' });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Additional Context:');
     expect(callArgs.prompt).toContain('This is inline context.');
   });
 
-  it('includes context file in prompt', () => {
+  it('includes context file in prompt', async () => {
     const contextPath = path.join(repo, 'context.md');
     fs.writeFileSync(contextPath, 'File-based context content');
 
-    relay({ prompt: 'Review', repoPath: repo, contextFile: contextPath });
+    await relay({ prompt: 'Review', repoPath: repo, contextFile: contextPath });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Additional Context:');
     expect(callArgs.prompt).toContain('File-based context content');
   });
 
-  it('includes git diff in prompt when include_diff is true', () => {
+  it('includes git diff in prompt when include_diff is true', async () => {
     // Mock git diff call
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/bin/git';
@@ -152,7 +152,7 @@ describe('relay', () => {
       return '';
     });
 
-    relay({ prompt: 'Review this diff.', repoPath: repo, includeDiff: true });
+    await relay({ prompt: 'Review this diff.', repoPath: repo, includeDiff: true });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Git Diff:');
     expect(callArgs.prompt).toContain('diff --git a/a.py b/a.py');
@@ -160,91 +160,91 @@ describe('relay', () => {
 
   // --- Error cases ---
 
-  it('raises on empty prompt', () => {
-    expect(() => relay({ prompt: '   ', repoPath: repo })).toThrow(RelayError);
-    expect(() => relay({ prompt: '   ', repoPath: repo })).toThrow('Prompt is required');
+  it('raises on empty prompt', async () => {
+    await expect(relay({ prompt: '   ', repoPath: repo })).rejects.toThrow(RelayError);
+    await expect(relay({ prompt: '   ', repoPath: repo })).rejects.toThrow('Prompt is required');
   });
 
-  it('raises on missing repo path', () => {
+  it('raises on missing repo path', async () => {
     const missingRepo = path.join(os.tmpdir(), `phone-a-friend-missing-${Date.now()}`);
-    expect(() => relay({ prompt: 'test', repoPath: missingRepo })).toThrow(RelayError);
-    expect(() => relay({ prompt: 'test', repoPath: missingRepo })).toThrow(
+    await expect(relay({ prompt: 'test', repoPath: missingRepo })).rejects.toThrow(RelayError);
+    await expect(relay({ prompt: 'test', repoPath: missingRepo })).rejects.toThrow(
       'Repository path does not exist',
     );
   });
 
-  it('raises on zero timeout', () => {
-    expect(() => relay({ prompt: 'test', repoPath: repo, timeoutSeconds: 0 })).toThrow(
+  it('raises on zero timeout', async () => {
+    await expect(relay({ prompt: 'test', repoPath: repo, timeoutSeconds: 0 })).rejects.toThrow(
       'Timeout must be greater than zero',
     );
   });
 
-  it('raises on unsupported backend', () => {
-    expect(() =>
+  it('raises on unsupported backend', async () => {
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, backend: 'unknown' }),
-    ).toThrow(/Unsupported relay backend/);
+    ).rejects.toThrow(/Unsupported relay backend/);
   });
 
-  it('raises on invalid sandbox mode', () => {
-    expect(() =>
+  it('raises on invalid sandbox mode', async () => {
+    await expect(
       relay({
         prompt: 'Review',
         repoPath: repo,
         sandbox: 'totally-unsafe' as SandboxMode,
       }),
-    ).toThrow(/Invalid sandbox mode/);
+    ).rejects.toThrow(/Invalid sandbox mode/);
   });
 
-  it('raises when context file does not exist', () => {
+  it('raises when context file does not exist', async () => {
     const missingContext = path.join(repo, 'missing.md');
-    expect(() =>
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, contextFile: missingContext }),
-    ).toThrow('Context file does not exist');
+    ).rejects.toThrow('Context file does not exist');
   });
 
-  it('raises when context path is a directory', () => {
+  it('raises when context path is a directory', async () => {
     const ctxDir = path.join(repo, 'ctx');
     fs.mkdirSync(ctxDir);
-    expect(() =>
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, contextFile: ctxDir }),
-    ).toThrow('Context path is not a file');
+    ).rejects.toThrow('Context path is not a file');
   });
 
-  it('raises when both context_file and context_text are provided', () => {
+  it('raises when both context_file and context_text are provided', async () => {
     const contextPath = path.join(repo, 'context.md');
     fs.writeFileSync(contextPath, 'from file');
 
-    expect(() =>
+    await expect(
       relay({
         prompt: 'Review',
         repoPath: repo,
         contextFile: contextPath,
         contextText: 'from inline',
       }),
-    ).toThrow('either context_file or context_text');
+    ).rejects.toThrow('either context_file or context_text');
   });
 
   // --- Size limits ---
 
-  it('raises when context text exceeds size limit', () => {
+  it('raises when context text exceeds size limit', async () => {
     const bigContext = 'a'.repeat(200_001);
-    expect(() =>
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, contextText: bigContext }),
-    ).toThrow(/too large/);
+    ).rejects.toThrow(/too large/);
   });
 
-  it('accepts context text at exactly the size limit', () => {
+  it('accepts context text at exactly the size limit', async () => {
     const context = 'a'.repeat(200_000);
-    relay({ prompt: 'Review', repoPath: repo, contextText: context });
+    await relay({ prompt: 'Review', repoPath: repo, contextText: context });
     expect(mockBackend.run).toHaveBeenCalledOnce();
   });
 
-  it('raises when full prompt exceeds size limit', () => {
+  it('raises when full prompt exceeds size limit', async () => {
     const bigPrompt = 'a'.repeat(500_001);
-    expect(() => relay({ prompt: bigPrompt, repoPath: repo })).toThrow(/too large/);
+    await expect(relay({ prompt: bigPrompt, repoPath: repo })).rejects.toThrow(/too large/);
   });
 
-  it('raises when git diff exceeds size limit', () => {
+  it('raises when git diff exceeds size limit', async () => {
     const bigDiff = 'a'.repeat(300_001);
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/bin/git';
@@ -252,46 +252,46 @@ describe('relay', () => {
       return '';
     });
 
-    expect(() =>
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, includeDiff: true }),
-    ).toThrow(/too large/);
+    ).rejects.toThrow(/too large/);
   });
 
   // --- Depth guard ---
 
-  it('raises when relay depth limit is reached', () => {
+  it('raises when relay depth limit is reached', async () => {
     process.env.PHONE_A_FRIEND_DEPTH = '1';
-    expect(() => relay({ prompt: 'Review', repoPath: repo })).toThrow(
+    await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow(
       'Relay depth limit reached',
     );
     // Backend should NOT have been called
     expect(mockBackend.run).not.toHaveBeenCalled();
   });
 
-  it('increments depth in env passed to backend', () => {
+  it('increments depth in env passed to backend', async () => {
     process.env.PHONE_A_FRIEND_DEPTH = '0';
-    relay({ prompt: 'Review', repoPath: repo });
+    await relay({ prompt: 'Review', repoPath: repo });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.env.PHONE_A_FRIEND_DEPTH).toBe('1');
   });
 
-  it('handles non-numeric depth gracefully', () => {
+  it('handles non-numeric depth gracefully', async () => {
     process.env.PHONE_A_FRIEND_DEPTH = 'garbage';
     // Should treat as 0, not throw
-    relay({ prompt: 'Review', repoPath: repo });
+    await relay({ prompt: 'Review', repoPath: repo });
     expect(mockBackend.run).toHaveBeenCalledOnce();
   });
 
-  it('treats partial numeric depth "1abc" as 0 (matches Python int())', () => {
+  it('treats partial numeric depth "1abc" as 0 (matches Python int())', async () => {
     process.env.PHONE_A_FRIEND_DEPTH = '1abc';
     // Python int("1abc") raises ValueError, falls to 0. We should too.
-    relay({ prompt: 'Review', repoPath: repo });
+    await relay({ prompt: 'Review', repoPath: repo });
     expect(mockBackend.run).toHaveBeenCalledOnce();
   });
 
   // --- Git diff errors ---
 
-  it('raises on git diff failure', () => {
+  it('raises on git diff failure', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/bin/git';
       if (cmd === 'git') {
@@ -308,63 +308,55 @@ describe('relay', () => {
       return '';
     });
 
-    expect(() =>
+    await expect(
       relay({ prompt: 'Review', repoPath: repo, includeDiff: true }),
-    ).toThrow('Failed to collect git diff');
+    ).rejects.toThrow('Failed to collect git diff');
   });
 
   // --- Backend error wrapping ---
 
-  it('wraps BackendError as RelayError', () => {
+  it('wraps BackendError as RelayError', async () => {
     const failingBackend = makeMockBackend('codex');
-    (failingBackend.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new BackendError('codex exploded');
-    });
+    (failingBackend.run as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new BackendError('codex exploded'),
+    );
     _resetRegistry();
     registerBackend(failingBackend);
 
-    expect(() => relay({ prompt: 'Review', repoPath: repo })).toThrow(RelayError);
-    expect(() => {
-      _resetRegistry();
-      registerBackend(failingBackend);
-      relay({ prompt: 'Review', repoPath: repo });
-    }).toThrow('codex exploded');
+    await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow(RelayError);
+    await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow('codex exploded');
   });
 
-  it('lets unexpected (non-BackendError) errors propagate unwrapped', () => {
+  it('lets unexpected (non-BackendError) errors propagate unwrapped', async () => {
     const failingBackend = makeMockBackend('codex');
-    (failingBackend.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new TypeError('unexpected bug');
-    });
+    (failingBackend.run as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new TypeError('unexpected bug'),
+    );
     _resetRegistry();
     registerBackend(failingBackend);
 
-    expect(() => relay({ prompt: 'Review', repoPath: repo })).toThrow(TypeError);
-    expect(() => {
-      _resetRegistry();
-      registerBackend(failingBackend);
-      relay({ prompt: 'Review', repoPath: repo });
-    }).toThrow('unexpected bug');
+    await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow(TypeError);
+    await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow('unexpected bug');
   });
 
   // --- Backend dispatch ---
 
-  it('dispatches to gemini backend when specified', () => {
+  it('dispatches to gemini backend when specified', async () => {
     const geminiBackend = makeMockBackend('gemini');
-    (geminiBackend.run as ReturnType<typeof vi.fn>).mockReturnValue('Gemini says hi');
+    (geminiBackend.run as ReturnType<typeof vi.fn>).mockResolvedValue('Gemini says hi');
     _resetRegistry();
     registerBackend(mockBackend);
     registerBackend(geminiBackend);
 
-    const result = relay({ prompt: 'Hello Gemini', repoPath: repo, backend: 'gemini' });
+    const result = await relay({ prompt: 'Hello Gemini', repoPath: repo, backend: 'gemini' });
     expect(result).toBe('Gemini says hi');
     expect(geminiBackend.run).toHaveBeenCalledOnce();
     expect(mockBackend.run).not.toHaveBeenCalled();
   });
 
-  it('returns backend output directly', () => {
-    (mockBackend.run as ReturnType<typeof vi.fn>).mockReturnValue('Direct feedback');
-    const result = relay({ prompt: 'Review', repoPath: repo });
+  it('returns backend output directly', async () => {
+    (mockBackend.run as ReturnType<typeof vi.fn>).mockResolvedValue('Direct feedback');
+    const result = await relay({ prompt: 'Review', repoPath: repo });
     expect(result).toBe('Direct feedback');
   });
 });

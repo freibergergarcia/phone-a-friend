@@ -35,7 +35,7 @@ describe('CodexBackend', () => {
     expect(CODEX_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
   });
 
-  it('builds correct codex exec args', () => {
+  it('builds correct codex exec args', async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       // which check
       if (cmd === 'which') return '/usr/local/bin/codex';
@@ -47,7 +47,7 @@ describe('CodexBackend', () => {
       return '';
     });
 
-    const result = CODEX_BACKEND.run({
+    const result = await CODEX_BACKEND.run({
       prompt: 'Review this code',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -75,7 +75,7 @@ describe('CodexBackend', () => {
     expect(args[args.length - 1]).toContain('Review this code');
   });
 
-  it('passes -m when model is provided', () => {
+  it('passes -m when model is provided', async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
@@ -83,7 +83,7 @@ describe('CodexBackend', () => {
       return '';
     });
 
-    CODEX_BACKEND.run({
+    await CODEX_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -101,7 +101,7 @@ describe('CodexBackend', () => {
     expect(args[modelIdx + 1]).toBe('o3');
   });
 
-  it('does not pass -m when model is null', () => {
+  it('does not pass -m when model is null', async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
@@ -109,7 +109,7 @@ describe('CodexBackend', () => {
       return '';
     });
 
-    CODEX_BACKEND.run({
+    await CODEX_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -125,7 +125,7 @@ describe('CodexBackend', () => {
     expect(args).not.toContain('-m');
   });
 
-  it('reads result from temp output file', () => {
+  it('reads result from temp output file', async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       const outputIdx = args.indexOf('--output-last-message') + 1;
@@ -133,7 +133,7 @@ describe('CodexBackend', () => {
       return '';
     });
 
-    const result = CODEX_BACKEND.run({
+    const result = await CODEX_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -145,14 +145,14 @@ describe('CodexBackend', () => {
     expect(result).toBe('File-based output');
   });
 
-  it('falls back to stdout when output file is missing', () => {
+  it('falls back to stdout when output file is missing', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       // Don't write output file — return stdout
       return 'stdout feedback';
     });
 
-    const result = CODEX_BACKEND.run({
+    const result = await CODEX_BACKEND.run({
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -164,13 +164,13 @@ describe('CodexBackend', () => {
     expect(result).toBe('stdout feedback');
   });
 
-  it('throws CodexBackendError when codex not found in PATH', () => {
+  it('throws CodexBackendError when codex not found in PATH', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') throw new Error('not found');
       return '';
     });
 
-    expect(() =>
+    await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -179,10 +179,10 @@ describe('CodexBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/codex CLI not found/);
+    ).rejects.toThrow(/codex CLI not found/);
   });
 
-  it('throws on non-zero exit code with stderr', () => {
+  it('throws on non-zero exit code with stderr', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       const err = new Error('command failed') as Error & {
@@ -196,7 +196,7 @@ describe('CodexBackend', () => {
       throw err;
     });
 
-    expect(() =>
+    await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -205,10 +205,10 @@ describe('CodexBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow('codex failed');
+    ).rejects.toThrow('codex failed');
   });
 
-  it('throws on timeout', () => {
+  it('throws on timeout', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       const err = new Error('TIMEOUT') as Error & {
@@ -222,7 +222,7 @@ describe('CodexBackend', () => {
       throw err;
     });
 
-    expect(() =>
+    await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -231,17 +231,17 @@ describe('CodexBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/timed out/);
+    ).rejects.toThrow(/timed out/);
   });
 
-  it('throws when codex produces no output', () => {
+  it('throws when codex produces no output', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       // No output file, empty stdout
       return '';
     });
 
-    expect(() =>
+    await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -250,10 +250,10 @@ describe('CodexBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/without producing feedback/);
+    ).rejects.toThrow(/without producing feedback/);
   });
 
-  it('throws on output file read failure (OSError parity)', () => {
+  it('throws on output file read failure (OSError parity)', async () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
       // Write a directory where the output file should be, causing read failure
@@ -264,7 +264,7 @@ describe('CodexBackend', () => {
       return '';
     });
 
-    expect(() =>
+    await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
@@ -273,6 +273,6 @@ describe('CodexBackend', () => {
         model: null,
         env: {},
       }),
-    ).toThrow(/Failed reading Codex output file/);
+    ).rejects.toThrow(/Failed reading Codex output file/);
   });
 });
