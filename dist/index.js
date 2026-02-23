@@ -59357,20 +59357,37 @@ function CategorySection({ label, backends }) {
     backends.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BackendRow, { backend: b }, b.name))
   ] });
 }
-function StatusPanel({ report, loading, refreshing, error: error2 }) {
+function StatusPanel({ report, loading, refreshing, error: error2, pluginInstalled }) {
   if (!report) {
     if (error2) {
       return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "System" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
-            "  Node.js    ",
-            process.version
+            "    ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "\u2572 \u2502 \u2571" }),
+            "    ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", bold: true, children: "phone-a-friend" }),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, children: [
+              "v",
+              cachedVersion
+            ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
-            "  phone-a-friend  ",
-            cachedVersion
-          ] })
+            "     ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", bold: true, children: "\u2590\u2588\u258C" }),
+            "     ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, children: [
+              "Node.js ",
+              process.version
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
+            "    ",
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "\u2571 \u2502 \u2572" })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
           "Detection failed: ",
@@ -59386,15 +59403,37 @@ function StatusPanel({ report, loading, refreshing, error: error2 }) {
   const total = nonPlanned.length;
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "System" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
-        "  Node.js    ",
-        process.version
+        "    ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "\u2572 \u2502 \u2571" }),
+        "    ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", bold: true, children: "phone-a-friend" }),
+        " ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, children: [
+          "v",
+          cachedVersion
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
-        "  phone-a-friend  ",
-        cachedVersion
-      ] })
+        "     ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", bold: true, children: "\u2590\u2588\u258C" }),
+        "     ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { dimColor: true, children: [
+          "Node.js ",
+          process.version
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { children: [
+        "    ",
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "\u2571 \u2502 \u2572" }),
+        "    ",
+        pluginInstalled ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "green", children: [
+          "\u2713",
+          " Claude Plugin"
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "yellow", children: "! Plugin: Not Installed" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" })
     ] }),
     error2 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
       "Detection error: ",
@@ -60023,12 +60062,12 @@ function App2() {
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PanelContent, { tab: currentTab, detection, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
+    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
     /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection, onPluginRecheck, onFocusChange, onExit: onExit2 }) {
+function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2 }) {
   switch (tab2) {
     case "Status":
       return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
@@ -60037,7 +60076,8 @@ function PanelContent({ tab: tab2, detection, onPluginRecheck, onFocusChange, on
           report: detection.report,
           loading: detection.loading,
           refreshing: detection.refreshing,
-          error: detection.error
+          error: detection.error,
+          pluginInstalled
         }
       );
     case "Backends":
@@ -63185,7 +63225,19 @@ var theme = {
 };
 function banner(title) {
   const v = getVersion();
-  return `  ${theme.brand("phone-a-friend")} ${theme.version(`v${v}`)} \u2014 ${theme.heading(title)}`;
+  const dot = source_default.cyan("\xB7");
+  const ln = source_default.dim;
+  const hub = source_default.cyan.bold("\u2590\u2588\u258C");
+  const name = theme.brand("phone-a-friend");
+  const ver = theme.version(`v${v}`);
+  const sub = theme.heading(title);
+  return [
+    `   ${dot}  ${dot}  ${dot}`,
+    `    ${ln("\u2572")} ${ln("\u2502")} ${ln("\u2571")}    ${name} ${ver}`,
+    `     ${hub}     ${sub}`,
+    `    ${ln("\u2571")} ${ln("\u2502")} ${ln("\u2572")}`,
+    `   ${dot}  ${dot}  ${dot}`
+  ].join("\n");
 }
 
 // src/cli.ts

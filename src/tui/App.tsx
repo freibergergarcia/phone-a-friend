@@ -81,9 +81,9 @@ export function App() {
   return (
     <Box flexDirection="column" padding={1}>
       <TabBar tabs={[...TABS]} activeIndex={activeTab} />
-      <PluginStatusBar installed={pluginStatus.installed} />
+      {activeTab !== 0 && <PluginStatusBar installed={pluginStatus.installed} />}
       <Box flexDirection="column" minHeight={10}>
-        <PanelContent tab={currentTab} detection={detection} onPluginRecheck={pluginStatus.recheck} onFocusChange={setChildHasFocus} onExit={() => exit()} />
+        <PanelContent tab={currentTab} detection={detection} pluginInstalled={pluginStatus.installed} onPluginRecheck={pluginStatus.recheck} onFocusChange={setChildHasFocus} onExit={() => exit()} />
       </Box>
       <KeyHint hints={hints} />
     </Box>
@@ -93,12 +93,13 @@ export function App() {
 interface PanelProps {
   tab: string;
   detection: ReturnType<typeof useDetection>;
+  pluginInstalled: boolean;
   onPluginRecheck: () => void;
   onFocusChange: (hasFocus: boolean) => void;
   onExit: () => void;
 }
 
-function PanelContent({ tab, detection, onPluginRecheck, onFocusChange, onExit }: PanelProps) {
+function PanelContent({ tab, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit }: PanelProps) {
   switch (tab) {
     case 'Status':
       return (
@@ -107,6 +108,7 @@ function PanelContent({ tab, detection, onPluginRecheck, onFocusChange, onExit }
           loading={detection.loading}
           refreshing={detection.refreshing}
           error={detection.error}
+          pluginInstalled={pluginInstalled}
         />
       );
     case 'Backends':

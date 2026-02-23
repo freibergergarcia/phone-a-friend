@@ -54,9 +54,10 @@ export interface StatusPanelProps {
   loading: boolean;
   refreshing: boolean;
   error: Error | null;
+  pluginInstalled?: boolean;
 }
 
-export function StatusPanel({ report, loading, refreshing, error }: StatusPanelProps) {
+export function StatusPanel({ report, loading, refreshing, error, pluginInstalled }: StatusPanelProps) {
   // Initial load with no report yet
   if (!report) {
     // Show error if detection failed before producing any report
@@ -64,9 +65,11 @@ export function StatusPanel({ report, loading, refreshing, error }: StatusPanelP
       return (
         <Box flexDirection="column" gap={1}>
           <Box flexDirection="column">
-            <Text bold underline>System</Text>
-            <Text>  Node.js    {process.version}</Text>
-            <Text>  phone-a-friend  {cachedVersion}</Text>
+            <Text color="cyan">   ·  ·  ·</Text>
+            <Text>    <Text dimColor>╲ │ ╱</Text>    <Text color="cyan" bold>phone-a-friend</Text> <Text dimColor>v{cachedVersion}</Text></Text>
+            <Text>     <Text color="cyan" bold>▐█▌</Text>     <Text dimColor>Node.js {process.version}</Text></Text>
+            <Text>    <Text dimColor>╱ │ ╲</Text></Text>
+            <Text color="cyan">   ·  ·  ·</Text>
           </Box>
           <Box>
             <Text color="red">Detection failed: {error.message}</Text>
@@ -89,11 +92,13 @@ export function StatusPanel({ report, loading, refreshing, error }: StatusPanelP
 
   return (
     <Box flexDirection="column" gap={1}>
-      {/* System info */}
+      {/* Banner */}
       <Box flexDirection="column">
-        <Text bold underline>System</Text>
-        <Text>  Node.js    {process.version}</Text>
-        <Text>  phone-a-friend  {cachedVersion}</Text>
+        <Text color="cyan">   ·  ·  ·</Text>
+        <Text>    <Text dimColor>╲ │ ╱</Text>    <Text color="cyan" bold>phone-a-friend</Text> <Text dimColor>v{cachedVersion}</Text></Text>
+        <Text>     <Text color="cyan" bold>▐█▌</Text>     <Text dimColor>Node.js {process.version}</Text></Text>
+        <Text>    <Text dimColor>╱ │ ╲</Text>    {pluginInstalled ? <Text color="green">{'\u2713'} Claude Plugin</Text> : <Text color="yellow">! Plugin: Not Installed</Text>}</Text>
+        <Text color="cyan">   ·  ·  ·</Text>
       </Box>
 
       {/* Error display */}

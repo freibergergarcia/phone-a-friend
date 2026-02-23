@@ -32,5 +32,22 @@ export const theme = {
 
 export function banner(title: string): string {
   const v = getVersion();
-  return `  ${theme.brand('phone-a-friend')} ${theme.version(`v${v}`)} \u2014 ${theme.heading(title)}`;
+
+  // Art elements
+  const dot = chalk.cyan('\u00b7');
+  const ln = chalk.dim;
+  const hub = chalk.cyan.bold('\u2590\u2588\u258c');
+
+  // Info
+  const name = theme.brand('phone-a-friend');
+  const ver = theme.version(`v${v}`);
+  const sub = theme.heading(title);
+
+  return [
+    `   ${dot}  ${dot}  ${dot}`,
+    `    ${ln('\u2572')} ${ln('\u2502')} ${ln('\u2571')}    ${name} ${ver}`,
+    `     ${hub}     ${sub}`,
+    `    ${ln('\u2571')} ${ln('\u2502')} ${ln('\u2572')}`,
+    `   ${dot}  ${dot}  ${dot}`,
+  ].join('\n');
 }
