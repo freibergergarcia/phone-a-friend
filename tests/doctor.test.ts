@@ -33,6 +33,10 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
     host: [
       { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: 'npm install -g @anthropic-ai/claude-code' },
     ],
+    environment: {
+      tmux: { active: false, installed: true },
+      agentTeams: { enabled: false },
+    },
     ...overrides,
   };
 }

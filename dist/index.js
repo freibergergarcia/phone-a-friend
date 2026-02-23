@@ -4625,13 +4625,25 @@ async function detectHostIntegrations(whichFn = isInPath) {
     };
   });
 }
+function detectEnvironment(whichFn = isInPath) {
+  return {
+    tmux: {
+      active: !!process.env.TMUX,
+      installed: whichFn("tmux")
+    },
+    agentTeams: {
+      enabled: process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === "1"
+    }
+  };
+}
 async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
   const [cli, local, host] = await Promise.all([
     detectCliBackends(whichFn),
     detectLocalBackends(whichFn, fetchFn),
     detectHostIntegrations(whichFn)
   ]);
-  return { cli, local, host };
+  const environment = detectEnvironment(whichFn);
+  return { cli, local, host, environment };
 }
 var CLI_BACKENDS, OLLAMA_DEFAULT_HOST, OLLAMA_INSTALL_HINT, HOST_INTEGRATIONS;
 var init_detection = __esm({
@@ -59403,7 +59415,38 @@ function StatusPanel({ report, loading, refreshing, error: error2 }) {
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "Host Integrations" }),
       report.host.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BackendRow, { backend: b }, b.name))
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(EnvironmentSection, { environment: report.environment }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ProTip, { environment: report.environment })
+  ] });
+}
+function EnvironmentSection({ environment }) {
+  const tmuxStatus = environment.tmux.active ? "available" : environment.tmux.installed ? "partial" : "unavailable";
+  const tmuxDetail = environment.tmux.active ? "active session" : environment.tmux.installed ? "installed (not in session)" : "not installed";
+  const teamsStatus = environment.agentTeams.enabled ? "available" : "unavailable";
+  const teamsDetail = environment.agentTeams.enabled ? "enabled" : "not enabled";
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "Environment" }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { children: "  " }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Badge, { status: tmuxStatus }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, children: "tmux" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: tmuxDetail })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { children: "  " }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Badge, { status: teamsStatus }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, children: "Agent Teams" }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: teamsDetail })
     ] })
+  ] });
+}
+function ProTip({ environment }) {
+  if (environment.tmux.active && environment.agentTeams.enabled) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, color: "yellow", children: "Pro Tip" }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "  Use tmux + Claude Code Agent Teams for parallel agent collaboration." }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "  \u2192 https://docs.claude.com/en/docs/agent-teams" })
   ] });
 }
 var import_jsx_runtime4, cachedVersion;

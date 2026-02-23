@@ -164,6 +164,62 @@ describe('detection', () => {
     });
   });
 
+  describe('detectEnvironment', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('detects active tmux session via TMUX env var', () => {
+      process.env.TMUX = '/private/tmp/tmux-501/default,12345,0';
+      const result = detection.detectEnvironment();
+      expect(result.tmux.active).toBe(true);
+    });
+
+    it('reports tmux inactive when TMUX env var is unset', () => {
+      delete process.env.TMUX;
+      const result = detection.detectEnvironment();
+      expect(result.tmux.active).toBe(false);
+    });
+
+    it('reports tmux inactive when TMUX env var is empty', () => {
+      process.env.TMUX = '';
+      const result = detection.detectEnvironment();
+      expect(result.tmux.active).toBe(false);
+    });
+
+    it('detects tmux installed via whichFn', () => {
+      const whichFn = vi.fn((name: string) => name === 'tmux');
+      const result = detection.detectEnvironment(whichFn);
+      expect(result.tmux.installed).toBe(true);
+    });
+
+    it('reports tmux not installed when not in PATH', () => {
+      const whichFn = vi.fn(() => false);
+      const result = detection.detectEnvironment(whichFn);
+      expect(result.tmux.installed).toBe(false);
+    });
+
+    it('detects agent teams enabled via env var', () => {
+      process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
+      const result = detection.detectEnvironment();
+      expect(result.agentTeams.enabled).toBe(true);
+    });
+
+    it('reports agent teams not enabled when env var is unset', () => {
+      delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
+      const result = detection.detectEnvironment();
+      expect(result.agentTeams.enabled).toBe(false);
+    });
+
+    it('reports agent teams not enabled when env var is not "1"', () => {
+      process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '0';
+      const result = detection.detectEnvironment();
+      expect(result.agentTeams.enabled).toBe(false);
+    });
+  });
+
   describe('detectAll', () => {
     it('returns a complete DetectionReport with all categories', async () => {
       const whichFn = vi.fn((name: string) => name === 'codex');
@@ -174,6 +230,7 @@ describe('detection', () => {
       expect(report.cli).toBeDefined();
       expect(report.local).toBeDefined();
       expect(report.host).toBeDefined();
+      expect(report.environment).toBeDefined();
 
       expect(report.cli.length).toBeGreaterThan(0);
       expect(report.local.length).toBeGreaterThan(0);
@@ -189,6 +246,18 @@ describe('detection', () => {
       const allRelay = [...report.cli, ...report.local];
       const available = allRelay.filter(b => b.available);
       expect(available.length).toBe(2); // codex + gemini
+    });
+
+    it('includes environment detection in report', async () => {
+      const whichFn = vi.fn((name: string) => name === 'tmux');
+      const fetchFn = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const report = await detection.detectAll(whichFn, fetchFn);
+
+      expect(report.environment).toBeDefined();
+      expect(report.environment.tmux).toBeDefined();
+      expect(report.environment.agentTeams).toBeDefined();
+      expect(report.environment.tmux.installed).toBe(true);
     });
   });
 });

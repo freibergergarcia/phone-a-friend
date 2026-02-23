@@ -11,6 +11,7 @@ vi.mock('../../src/detection.js', () => ({
     cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
     local: [],
     host: [],
+    environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } },
   }),
 }));
 
@@ -49,6 +50,7 @@ const MOCK_REPORT: DetectionReport = {
   cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
   local: [],
   host: [{ name: 'claude', category: 'host', available: true, detail: 'found', installHint: '' }],
+  environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } },
 };
 
 describe('ActionsPanel', () => {

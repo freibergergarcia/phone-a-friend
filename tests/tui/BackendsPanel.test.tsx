@@ -29,6 +29,10 @@ const MOCK_REPORT: DetectionReport = {
   host: [
     { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: '' },
   ],
+  environment: {
+    tmux: { active: false, installed: true },
+    agentTeams: { enabled: false },
+  },
 };
 
 const tick = () => new Promise((r) => setTimeout(r, 50));
@@ -76,7 +80,7 @@ describe('BackendsPanel', () => {
   });
 
   it('handles empty backend list without crashing', () => {
-    const emptyReport: DetectionReport = { cli: [], local: [], host: [] };
+    const emptyReport: DetectionReport = { cli: [], local: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
     const { lastFrame } = render(<BackendsPanel report={emptyReport} />);
     const frame = lastFrame()!;
     expect(frame).toContain('Backends');

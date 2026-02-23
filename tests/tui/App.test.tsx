@@ -12,6 +12,7 @@ vi.mock('../../src/detection.js', () => ({
     cli: [],
     local: [],
     host: [],
+    environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } },
   }),
 }));
 

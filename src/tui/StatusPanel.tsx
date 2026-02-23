@@ -7,7 +7,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Badge } from './components/Badge.js';
 import type { BadgeStatus } from './components/Badge.js';
-import type { BackendStatus, DetectionReport } from '../detection.js';
+import type { BackendStatus, DetectionReport, EnvironmentStatus } from '../detection.js';
 
 import { getVersion } from '../version.js';
 
@@ -124,6 +124,59 @@ export function StatusPanel({ report, loading, refreshing, error }: StatusPanelP
           <BackendRow key={b.name} backend={b} />
         ))}
       </Box>
+
+      {/* Environment */}
+      <EnvironmentSection environment={report.environment} />
+
+      {/* Pro Tip */}
+      <ProTip environment={report.environment} />
+    </Box>
+  );
+}
+
+function EnvironmentSection({ environment }: { environment: EnvironmentStatus }) {
+  const tmuxStatus: BadgeStatus = environment.tmux.active
+    ? 'available'
+    : environment.tmux.installed
+      ? 'partial'
+      : 'unavailable';
+  const tmuxDetail = environment.tmux.active
+    ? 'active session'
+    : environment.tmux.installed
+      ? 'installed (not in session)'
+      : 'not installed';
+
+  const teamsStatus: BadgeStatus = environment.agentTeams.enabled ? 'available' : 'unavailable';
+  const teamsDetail = environment.agentTeams.enabled ? 'enabled' : 'not enabled';
+
+  return (
+    <Box flexDirection="column">
+      <Text bold underline>Environment</Text>
+      <Box gap={1}>
+        <Text>  </Text>
+        <Badge status={tmuxStatus} />
+        <Text bold>tmux</Text>
+        <Text dimColor>{tmuxDetail}</Text>
+      </Box>
+      <Box gap={1}>
+        <Text>  </Text>
+        <Badge status={teamsStatus} />
+        <Text bold>Agent Teams</Text>
+        <Text dimColor>{teamsDetail}</Text>
+      </Box>
+    </Box>
+  );
+}
+
+function ProTip({ environment }: { environment: EnvironmentStatus }) {
+  // Hide when user is actively in tmux + has agent teams enabled (optimal setup)
+  if (environment.tmux.active && environment.agentTeams.enabled) return null;
+
+  return (
+    <Box flexDirection="column">
+      <Text bold underline color="yellow">Pro Tip</Text>
+      <Text dimColor>  Use tmux + Claude Code Agent Teams for parallel agent collaboration.</Text>
+      <Text color="cyan">  → https://docs.claude.com/en/docs/agent-teams</Text>
     </Box>
   );
 }

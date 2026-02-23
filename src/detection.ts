@@ -21,10 +21,16 @@ export interface BackendStatus {
   planned?: boolean;
 }
 
+export interface EnvironmentStatus {
+  tmux: { active: boolean; installed: boolean };
+  agentTeams: { enabled: boolean };
+}
+
 export interface DetectionReport {
   cli: BackendStatus[];
   local: BackendStatus[];
   host: BackendStatus[];
+  environment: EnvironmentStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +153,24 @@ export async function detectHostIntegrations(
 }
 
 // ---------------------------------------------------------------------------
+// Environment detection
+// ---------------------------------------------------------------------------
+
+export function detectEnvironment(
+  whichFn: WhichFn = isInPath,
+): EnvironmentStatus {
+  return {
+    tmux: {
+      active: !!process.env.TMUX,
+      installed: whichFn('tmux'),
+    },
+    agentTeams: {
+      enabled: process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === '1',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Full detection
 // ---------------------------------------------------------------------------
 
@@ -160,5 +184,7 @@ export async function detectAll(
     detectHostIntegrations(whichFn),
   ]);
 
-  return { cli, local, host };
+  const environment = detectEnvironment(whichFn);
+
+  return { cli, local, host, environment };
 }

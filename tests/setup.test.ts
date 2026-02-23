@@ -58,6 +58,10 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
     host: [
       { name: 'claude', category: 'host', available: true, detail: 'found', installHint: '' },
     ],
+    environment: {
+      tmux: { active: false, installed: true },
+      agentTeams: { enabled: false },
+    },
     ...overrides,
   };
 }
