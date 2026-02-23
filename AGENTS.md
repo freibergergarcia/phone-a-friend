@@ -4,59 +4,150 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a standalone CLI for relaying prompts + repository context to Codex.
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`).
+
+## Project Structure
+
+```
+src/
+  index.ts           Entry point — imports backends, runs CLI
+  cli.ts             Commander.js CLI with subcommands
+  relay.ts           Backend-agnostic relay core
+  context.ts         RelayContext interface
+  version.ts         Shared version reader
+  detection.ts       Backend detection (CLI, Local, Host)
+  config.ts          TOML configuration system
+  doctor.ts          Health check command
+  setup.ts           Interactive setup wizard
+  installer.ts       Claude plugin installer (symlink/copy)
+  backends/
+    index.ts         Backend interface, registry, types
+    codex.ts         Codex subprocess backend
+    gemini.ts        Gemini subprocess backend
+    ollama.ts        Ollama HTTP API backend (native fetch)
+  tui/
+    App.tsx          Root TUI component — tab bar + panel routing
+    render.tsx       Ink render entry point
+    StatusPanel.tsx  System info + backend detection display
+    BackendsPanel.tsx Per-backend list with detail pane
+    ConfigPanel.tsx  Config view + inline editing
+    ActionsPanel.tsx Async-wrapped executable actions
+    hooks/
+      useDetection.ts    Async detection with throttled refresh
+      usePluginStatus.ts Plugin install status (sync FS check)
+    components/
+      TabBar.tsx             Tab navigation bar
+      PluginStatusBar.tsx    Persistent plugin install indicator
+      Badge.tsx              Status badges (✓ ✗ ! ·)
+      KeyHint.tsx            Footer keyboard hints
+      ListSelect.tsx         Scrollable selectable list
+tests/               Vitest tests (mirrors src/ structure)
+dist/                Built bundle (committed, self-contained)
+```
 
 ## Core Behavior
 
-- Relay core is backend-agnostic in `phone_a_friend/relay.py`
-- Backend interface/registry in `phone_a_friend/backends/__init__.py`
-- Codex backend in `phone_a_friend/backends/codex.py`
+- Relay core is backend-agnostic in `src/relay.ts`
+- Backend interface/registry in `src/backends/index.ts`
+- Codex backend in `src/backends/codex.ts`
+- Gemini backend in `src/backends/gemini.ts`
+- Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434)
+- Backend detection (CLI + Local + Host) in `src/detection.ts`
+- TOML config system in `src/config.ts`
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
 - Default sandbox: `read-only`
 
 ## CLI Contract
 
-```bash
-./phone-a-friend --to codex --repo <path> --prompt "..."
-```
-
-Claude install commands:
+After `npm install -g @freibergergarcia/phone-a-friend`, the `phone-a-friend` command is available globally. From the repo root, `./phone-a-friend` also works.
 
 ```bash
-./phone-a-friend install --claude
-./phone-a-friend update
-./phone-a-friend uninstall --claude
+# Relay
+phone-a-friend --to codex --repo <path> --prompt "..."
+phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
+phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
+phone-a-friend --prompt "..."               # Uses default backend from config
+
+# Setup & diagnostics
+phone-a-friend setup                        # Interactive setup wizard
+phone-a-friend doctor                       # Health check (human-readable)
+phone-a-friend doctor --json                # Health check (machine-readable)
+
+# Configuration
+phone-a-friend config init                  # Create default config
+phone-a-friend config show                  # Show resolved config
+phone-a-friend config paths                 # Show config file paths
+phone-a-friend config set <key> <value>     # Set a value (dot-notation)
+phone-a-friend config get <key>             # Get a value
+phone-a-friend config edit                  # Open in $EDITOR
+
+# Plugin management
+phone-a-friend plugin install --claude      # Install as Claude plugin
+phone-a-friend plugin update --claude       # Update Claude plugin
+phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 ```
 
-Codex invocation contract:
+Backward-compatible aliases: `install`, `update`, `uninstall` still work.
+
+### Interactive TUI
 
 ```bash
-codex exec -C <repo> --skip-git-repo-check --sandbox <mode> --output-last-message <file> <prompt>
+phone-a-friend                                # Launches TUI dashboard (TTY only)
 ```
+
+No-args in a TTY launches a full-screen Ink (React) dashboard with 4 tabs:
+- **Status** — system info + live backend detection (auto-refreshes)
+- **Backends** — navigable backend list with detail pane
+- **Config** — inline config editing with focus model (nav/edit modes)
+- **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+
+A persistent plugin status bar sits between the tab bar and panel content,
+showing `✓ Claude Plugin: Installed` (green) or `! Claude Plugin: Not Installed` (yellow).
+It updates instantly after Reinstall/Uninstall actions complete.
+
+TTY guard: non-interactive terminals fall back to help/setup nudge.
+Global keys: `q` quit, `Tab`/`1-4` switch tabs, `r` refresh detection.
 
 ## Running Tests
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py' -v
+npm test                  # vitest run
+npm run typecheck         # tsc --noEmit
+npm run build             # tsup (rebuilds dist/)
 ```
 
 ## Versioning
 
-- Source of truth: `version` in `pyproject.toml`
+- Source of truth: `version` in `package.json`
 - Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
-- Runtime access: `phone_a_friend.__version__` (via `importlib.metadata`)
-- CLI: `./phone-a-friend --version`
+- Runtime access: reads `package.json` via `src/version.ts`
+- CLI: `phone-a-friend --version`
 - **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
-- To release: bump version in both `pyproject.toml` and `.claude-plugin/plugin.json`, merge to `main`
+- **npm publish**: after auto-release, publish to npm with `npm publish` (manual step, requires `npm login`)
+- To release: bump version in both `package.json` and `.claude-plugin/plugin.json`, merge to `main`, then `npm publish`
 
 ### When to bump
 
-**Every PR must bump the version.** Update both `pyproject.toml` and `.claude-plugin/plugin.json` before merging.
+**Every PR must bump the version.** Update both `package.json` and `.claude-plugin/plugin.json` before merging.
 
-- **Patch** (`0.1.0` → `0.1.1`): bug fixes, docs, CI changes, refactoring
-- **Minor** (`0.1.0` → `0.2.0`): new features, new CLI flags, new backends
-- **Major** (`0.2.0` → `1.0.0`): breaking changes to CLI contract or relay API
+- **Patch** (`1.0.0` → `1.0.1`): bug fixes, docs, CI changes, refactoring
+- **Minor** (`1.0.0` → `1.1.0`): new features, new CLI flags, new backends
+- **Major** (`1.0.0` → `2.0.0`): breaking changes to CLI contract or relay API
+
+## Build
+
+`dist/` is committed to git for symlink plugin installs. It must stay self-contained (runs without `node_modules/`). CI verifies this.
+
+After changing source: `npm run build && git add dist/`
+
+## Configuration
+
+Config files (TOML format):
+- User: `~/.config/phone-a-friend/config.toml`
+- Repo: `.phone-a-friend.toml` (optional, merges over user config)
+
+Precedence: CLI flags > env vars > repo config > user config > defaults
 
 ## Scope
 
-This repository only contains relay functionality. Policy engines, hooks, approvals, trusted scripts, and installer logic are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, and interactive TUI dashboard. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

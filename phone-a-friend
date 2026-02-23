@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Python 3 is required to run phone-a-friend. Install it from https://www.python.org/downloads/ or your package manager (macOS: brew install python)." >&2
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Error: Node.js >= 18 is required. Install: https://nodejs.org/" >&2
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
-exec python3 -m phone_a_friend.cli "$@"
+NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])")
+if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+  echo "Error: Node.js >= 18 required (found v$(node -v)). Update: https://nodejs.org/" >&2
+  exit 1
+fi
+
+if [ ! -f "${SCRIPT_DIR}/dist/index.js" ]; then
+  echo "Error: dist/index.js not found. Run 'npm run build' in ${SCRIPT_DIR}" >&2
+  exit 1
+fi
+
+exec node "${SCRIPT_DIR}/dist/index.js" "$@"

@@ -1,17 +1,17 @@
 # Phone-a-Team Iterative Loop
 
-`/phone-a-team` (v0.2.0) is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (default 3 rounds, configurable 1–5 via `--max-rounds`) over one or both backends via `./phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
+`/phone-a-team` (v0.2.0) is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (default 3 rounds, configurable 1–5 via `--max-rounds`) over one or more backends via `phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
 
 ## Loop Architecture
 
 ```mermaid
 flowchart TD
   A["Parse ARGUMENTS"] --> B{"Valid --backend?"}
-  B -- invalid value --> E1["Abort: valid values are codex, gemini, both"]
+  B -- invalid value --> E1["Abort: valid values are codex, gemini, ollama, both"]
   B -- valid/default --> C["Extract TASK_DESCRIPTION"]
   C --> D{Task empty?}
   D -- yes --> E2[Ask user for task]
-  D -- no --> F["Preflight: command -v checks"]
+  D -- no --> F["Preflight: which checks"]
 
   F --> G{Requested backend availability}
   G -- "single, missing" --> E3[Abort with install hint]
@@ -79,9 +79,10 @@ stateDiagram-v2
 sequenceDiagram
   participant Lead as Claude Lead
   participant Team as Agent Team (optional)
-  participant PAF as ./phone-a-friend
+  participant PAF as phone-a-friend
   participant Codex as codex backend
   participant Gemini as gemini backend
+  participant Ollama as ollama backend
 
   Lead->>Lead: Parse --backend and task
   Lead->>Lead: Preflight backend checks
@@ -93,7 +94,7 @@ sequenceDiagram
     Lead->>PAF: Run sequentially in current session
   end
 
-  alt backend=both
+  alt backend=both (codex + gemini)
     par Backend lane 1
       PAF->>Codex: relay call
       Codex-->>PAF: output/error
@@ -102,7 +103,7 @@ sequenceDiagram
       Gemini-->>PAF: output/error
     end
   else single backend
-    PAF->>Codex: relay call (or Gemini)
+    PAF->>Codex: relay call (or Gemini/Ollama)
     Codex-->>PAF: output
   end
 
@@ -116,6 +117,7 @@ sequenceDiagram
 |-------|--------|
 | `--backend codex` | BACKEND = `codex` |
 | `--backend gemini` | BACKEND = `gemini` |
+| `--backend ollama` | BACKEND = `ollama` |
 | `--backend both` | BACKEND = `both` |
 | No `--backend` flag | BACKEND = `codex` (default) |
 | `--backend invalid` | Error and stop |
@@ -129,6 +131,7 @@ sequenceDiagram
 | `codex` | no | -- | Abort with install hint |
 | `gemini` | -- | yes | Proceed |
 | `gemini` | -- | no | Abort with install hint |
+| `ollama` | -- | -- | Proceed (HTTP, no binary check) |
 | `both` | yes | yes | Proceed with both |
 | `both` | yes | no | Degrade to codex + warn |
 | `both` | no | yes | Degrade to gemini + warn |

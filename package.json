@@ -1,0 +1,45 @@
+{
+  "name": "@freibergergarcia/phone-a-friend",
+  "version": "1.2.1-alpha.1",
+  "description": "CLI relay that lets AI coding agents collaborate",
+  "type": "module",
+  "bin": {
+    "phone-a-friend": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup src/index.ts --format esm --watch"
+  },
+  "files": [
+    "dist/",
+    ".claude-plugin/",
+    "commands/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "license": "MIT",
+  "author": "Bruno Freiberger",
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1",
+    "chalk": "^5.6.2",
+    "commander": "^12.0.0",
+    "ink": "^6.8.0",
+    "ora": "^9.3.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1",
+    "smol-toml": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "@types/react": "^19.2.14",
+    "ink-testing-library": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0"
+  }
+}

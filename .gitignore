@@ -13,3 +13,5 @@ htmlcov/
 .idea/
 .vscode/
 plans/
+node_modules/
+*.tsbuildinfo
