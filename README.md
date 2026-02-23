@@ -7,6 +7,7 @@
 
   <p><em>When your AI needs a second opinion.</em></p>
 
+  [![npm](https://img.shields.io/npm/v/%40freibergergarcia%2Fphone-a-friend)](https://www.npmjs.com/package/@freibergergarcia/phone-a-friend)
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
   [![License: MIT](https://img.shields.io/github/license/freibergergarcia/phone-a-friend)](LICENSE)
   ![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520.12-green)
@@ -31,20 +32,20 @@ npm install -g @google/gemini-cli  # Gemini CLI (or both)
 # Ollama: https://ollama.com/download (local HTTP API, no npm needed)
 ```
 
-**Install as Claude Code plugin:**
+**Install globally via npm:**
+
+```bash
+npm install -g @freibergergarcia/phone-a-friend
+phone-a-friend plugin install --claude
+```
+
+**Or install from source:**
 
 ```bash
 git clone https://github.com/freibergergarcia/phone-a-friend.git
 cd phone-a-friend
 npm install && npm run build
 ./dist/index.js plugin install --claude
-```
-
-**Or install globally via npm:**
-
-```bash
-npm install -g phone-a-friend
-phone-a-friend plugin install --claude
 ```
 
 Then from Claude Code:

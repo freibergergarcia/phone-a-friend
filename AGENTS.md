@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama). All backend `run()` methods are async (`Promise<string>`).
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`).
 
 ## Project Structure
 
@@ -59,30 +59,32 @@ dist/                Built bundle (committed, self-contained)
 
 ## CLI Contract
 
+After `npm install -g @freibergergarcia/phone-a-friend`, the `phone-a-friend` command is available globally. From the repo root, `./phone-a-friend` also works.
+
 ```bash
 # Relay
-./phone-a-friend --to codex --repo <path> --prompt "..."
-./phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
-./phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
-./phone-a-friend --prompt "..."               # Uses default backend from config
+phone-a-friend --to codex --repo <path> --prompt "..."
+phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
+phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
+phone-a-friend --prompt "..."               # Uses default backend from config
 
 # Setup & diagnostics
-./phone-a-friend setup                        # Interactive setup wizard
-./phone-a-friend doctor                       # Health check (human-readable)
-./phone-a-friend doctor --json                # Health check (machine-readable)
+phone-a-friend setup                        # Interactive setup wizard
+phone-a-friend doctor                       # Health check (human-readable)
+phone-a-friend doctor --json                # Health check (machine-readable)
 
 # Configuration
-./phone-a-friend config init                  # Create default config
-./phone-a-friend config show                  # Show resolved config
-./phone-a-friend config paths                 # Show config file paths
-./phone-a-friend config set <key> <value>     # Set a value (dot-notation)
-./phone-a-friend config get <key>             # Get a value
-./phone-a-friend config edit                  # Open in $EDITOR
+phone-a-friend config init                  # Create default config
+phone-a-friend config show                  # Show resolved config
+phone-a-friend config paths                 # Show config file paths
+phone-a-friend config set <key> <value>     # Set a value (dot-notation)
+phone-a-friend config get <key>             # Get a value
+phone-a-friend config edit                  # Open in $EDITOR
 
 # Plugin management
-./phone-a-friend plugin install --claude      # Install as Claude plugin
-./phone-a-friend plugin update --claude       # Update Claude plugin
-./phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
+phone-a-friend plugin install --claude      # Install as Claude plugin
+phone-a-friend plugin update --claude       # Update Claude plugin
+phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 ```
 
 Backward-compatible aliases: `install`, `update`, `uninstall` still work.
@@ -90,7 +92,7 @@ Backward-compatible aliases: `install`, `update`, `uninstall` still work.
 ### Interactive TUI
 
 ```bash
-./phone-a-friend                              # Launches TUI dashboard (TTY only)
+phone-a-friend                                # Launches TUI dashboard (TTY only)
 ```
 
 No-args in a TTY launches a full-screen Ink (React) dashboard with 4 tabs:
@@ -119,9 +121,10 @@ npm run build             # tsup (rebuilds dist/)
 - Source of truth: `version` in `package.json`
 - Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
 - Runtime access: reads `package.json` via `src/version.ts`
-- CLI: `./phone-a-friend --version`
+- CLI: `phone-a-friend --version`
 - **Auto-release**: merging to `main` with a new version automatically creates a git tag and GitHub Release
-- To release: bump version in both `package.json` and `.claude-plugin/plugin.json`, merge to `main`
+- **npm publish**: after auto-release, publish to npm with `npm publish` (manual step, requires `npm login`)
+- To release: bump version in both `package.json` and `.claude-plugin/plugin.json`, merge to `main`, then `npm publish`
 
 ### When to bump
 
