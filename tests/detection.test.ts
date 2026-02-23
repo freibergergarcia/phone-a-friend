@@ -141,6 +141,30 @@ describe('detection', () => {
       expect(ollama!.detail).toContain('no models');
       expect(ollama!.installHint).toContain('ollama pull');
     });
+
+    it('returns models as empty array (not undefined) when server reachable but has 0 models', async () => {
+      const whichFn = vi.fn(() => true);
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [] }),
+      });
+
+      const results = await detection.detectLocalBackends(whichFn, fetchFn);
+      const ollama = results.find(b => b.name === 'ollama');
+
+      expect(ollama!.models).toEqual([]);
+      expect(ollama!.models).not.toBeUndefined();
+    });
+
+    it('returns models as undefined when server is not reachable', async () => {
+      const whichFn = vi.fn(() => false);
+      const fetchFn = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const results = await detection.detectLocalBackends(whichFn, fetchFn);
+      const ollama = results.find(b => b.name === 'ollama');
+
+      expect(ollama!.models).toBeUndefined();
+    });
   });
 
   describe('detectHostIntegrations', () => {

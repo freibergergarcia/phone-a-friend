@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N]
+argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N] [--model <name>]
 ---
 
 # /phone-a-team
@@ -54,11 +54,43 @@ separate single-backend option. To use all three, run separate sessions.
   unambiguous round caps.
 - If neither is present: set `MAX_ROUNDS = 3` (default).
 
+### Model override parsing
+
+Extract a model name from the task arguments.
+
+**Explicit flag (highest priority, all backends):**
+- If `$ARGUMENTS` contains `--model <name>`: set `MODEL_OVERRIDE = <name>`.
+  Remove the `--model <name>` pair from TASK_DESCRIPTION.
+- This applies to all backends (codex, gemini, ollama, both).
+
+**Natural language extraction (Ollama only, lower priority):**
+- Only attempt NL extraction when BACKEND is exactly `ollama` and no
+  `--model` flag was found.
+- Do NOT attempt NL extraction for `codex`, `gemini`, or `both` backends.
+- Look for patterns: "use <name>", "with <name> model", "using <name>",
+  "via <name>", "the <name> model".
+- Only extract when the phrase is clearly a meta-instruction about which
+  model to use, not part of the task content itself.
+- If multiple candidate models are found, do not guess — leave in
+  TASK_DESCRIPTION.
+- If the candidate appears inside quotes, backticks, or code blocks, do
+  NOT extract (it's an example or reference, not a meta-instruction).
+
+**Examples:**
+- "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
+- "analyze using qwen3-coder" (backend=ollama) → extract "qwen3-coder" ✓
+- "debug the deepseek integration" → do NOT extract (task content) ✗
+- "Fix the domain model" → do NOT extract ("model" is task content) ✗
+- "Compare qwen3 vs llama3" → do NOT extract (multiple candidates) ✗
+- "Write docs showing --model qwen3 usage" → do NOT extract (inside example) ✗
+- "use deepseek" (backend=both) → do NOT extract (NL only for ollama) ✗
+- When in doubt, do not extract.
+
 ### Task description
 
-- Everything in `$ARGUMENTS` that is NOT the `--backend <value>` pair or
-  `--max-rounds <value>` pair (or the natural language round-cap phrase) is
-  the TASK_DESCRIPTION.
+- Everything in `$ARGUMENTS` that is NOT the `--backend <value>` pair,
+  `--max-rounds <value>` pair, `--model <value>` pair, (or the natural
+  language round-cap/model phrase) is the TASK_DESCRIPTION.
 - If TASK_DESCRIPTION is empty after parsing, ask the user what task they want
   to work on. Do not proceed until you have a task.
 
@@ -78,27 +110,56 @@ command -v gemini  # check if gemini CLI is available
 ### Ollama backend
 
 Ollama is an HTTP backend — the local binary is optional. Check server
-reachability instead:
+reachability **and discover available models**:
 
 ```bash
-curl -sf http://localhost:11434/api/tags > /dev/null 2>&1
+curl -sf http://localhost:11434/api/tags
 # Or if OLLAMA_HOST is set: curl -sf "$OLLAMA_HOST/api/tags"
 ```
 
+Parse the JSON response to extract model names from the `models[].name`
+array. Store the list as `OLLAMA_AVAILABLE_MODELS` and select a model as
+`OLLAMA_SELECTED_MODEL` using this logic:
+
+**Model selection (precedence order):**
+
+**First, check for empty models — this takes priority over all selection
+rules.** If `OLLAMA_AVAILABLE_MODELS` is empty (server running but no models
+pulled): **Abort**, even if `MODEL_OVERRIDE` or config specifies a model.
+Tell user: "Ollama server is running but has no models pulled. Install one
+with: `ollama pull <model-name>`". Rationale: an empty model list means the
+server has nothing to run — proceeding would always fail.
+
+If models are available, select using this precedence:
+1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
+   Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
+   in `OLLAMA_AVAILABLE_MODELS`. If not found, **warn** (e.g., "Model 'foo'
+   not found in local models: [bar, baz]. Proceeding anyway — it may be a
+   tag variant.") but proceed.
+2. If no override, check config: run
+   `./phone-a-friend config get backends.ollama.model`. If a value is
+   returned, set `OLLAMA_SELECTED_MODEL` to that value. Validate against
+   `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
+3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
+   model in `OLLAMA_AVAILABLE_MODELS`.
+
+Report the selected model to the user: "Ollama: using model `<name>`"
+
 ### Decision table
 
-| BACKEND   | codex available | gemini available | ollama reachable | Action                                                    |
-|-----------|-----------------|------------------|------------------|-----------------------------------------------------------|
-| `codex`   | yes             | —                | —                | Proceed normally                                          |
-| `codex`   | no              | —                | —                | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
-| `gemini`  | —               | yes              | —                | Proceed normally                                          |
-| `gemini`  | —               | no               | —                | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
-| `ollama`  | —               | —                | yes              | Proceed normally                                          |
-| `ollama`  | —               | —                | no               | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
-| `both`    | yes             | yes              | —                | Proceed with both backends                                |
-| `both`    | yes             | no               | —                | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
-| `both`    | no              | yes              | —                | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
-| `both`    | no              | no               | —                | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
+| BACKEND   | codex available | gemini available | ollama reachable | ollama models | Action                                                    |
+|-----------|-----------------|------------------|------------------|---------------|-----------------------------------------------------------|
+| `codex`   | yes             | —                | —                | —             | Proceed normally                                          |
+| `codex`   | no              | —                | —                | —             | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
+| `gemini`  | —               | yes              | —                | —             | Proceed normally                                          |
+| `gemini`  | —               | no               | —                | —             | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
+| `ollama`  | —               | —                | yes              | > 0           | Proceed with auto-selected model                          |
+| `ollama`  | —               | —                | yes              | 0             | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
+| `ollama`  | —               | —                | no               | —             | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
+| `both`    | yes             | yes              | —                | —             | Proceed with both backends                                |
+| `both`    | yes             | no               | —                | —             | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
+| `both`    | no              | yes              | —                | —             | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
+| `both`    | no              | no               | —                | —             | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
 
 After degradation, update BACKEND to the single available backend and continue.
 
@@ -114,6 +175,8 @@ command:
 - `TEAM_ACTIVE` = true | false
 - `TEAM_NAME` = string (if team created)
 - `WORKERS` = list of teammate names (if team created)
+- `OLLAMA_SELECTED_MODEL` = string (set during Step 2 preflight if Ollama
+  is a requested backend; used in all Ollama relay calls)
 
 ### Algorithm
 
@@ -158,9 +221,10 @@ command:
    Backend-specific additions:
    - For **gemini** workers: always include `--model` per the Gemini Model
      Priority section below.
-   - For **ollama** workers: include `--model` if the user specified one.
-     Otherwise omit `--model` and let Ollama use `OLLAMA_MODEL` env or its
-     server default.
+   - For **ollama** workers: always include `--model` using
+     `OLLAMA_SELECTED_MODEL` discovered during preflight (Step 2). Never
+     omit `--model` for Ollama — the API returns HTTP 400 when no model is
+     specified and no server default is configured.
 
 4. **Seed first task immediately** after spawning — include the Round 1
    relay command directly in the teammate's spawn prompt. Do NOT just say
@@ -229,7 +293,7 @@ Delegate the task to the backend via the relay. The lead's job is to
   ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
   ```
   For gemini, always include `--model` per the Gemini Model Priority section.
-  For ollama, include `--model` only if the user specified one.
+  For ollama, always include `--model` using `OLLAMA_SELECTED_MODEL` from preflight.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
@@ -494,16 +558,29 @@ This does NOT apply to `--to codex` or `--to ollama`.
 
 When using `--to ollama`:
 
-- **If the user specified a model** (via `--model` in the task or
-  conversation): pass `--model <name>` to the relay call.
-- **If no model was specified**: omit `--model` entirely. Ollama will use the
-  `OLLAMA_MODEL` environment variable if set, or the server's default model.
+- **Always pass `--model`** in relay calls. Use `OLLAMA_SELECTED_MODEL`
+  discovered during preflight (Step 2). Never omit `--model` — the Ollama
+  API returns HTTP 400 when no model is specified and no server default is
+  configured.
+
+### Model selection precedence
+
+The following precedence determines `OLLAMA_SELECTED_MODEL` during preflight:
+
+1. **`MODEL_OVERRIDE`** (from `--model` flag or NL extraction in Step 1) —
+   highest priority. Validate against `OLLAMA_AVAILABLE_MODELS`. If not
+   found, warn but proceed.
+2. **Config `backends.ollama.model`** — set via TUI model picker or
+   `phone-a-friend config set`. Validate against available models, warn if
+   not found.
+3. **First model from `/api/tags`** — fallback auto-selection.
+
 - **Do NOT maintain a model priority list** for Ollama. Unlike Gemini, Ollama
-  models are locally installed and user-specific. There is no universal
-  fallback order.
-- **If "model not found" error occurs**: report the error in synthesis and
-  suggest the user run `ollama pull <model>` or check available models with
-  `ollama list`.
+  models are locally installed and user-specific. The preflight query
+  discovers what's actually available.
+- **If "model not found" error occurs mid-loop**: report the error in
+  synthesis and suggest the user run `ollama pull <model>` or check available
+  models with `ollama list`.
 
 ## Notes
 

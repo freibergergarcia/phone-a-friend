@@ -129,7 +129,7 @@ export async function detectLocalBackends(
     available,
     detail,
     installHint,
-    models: models.length > 0 ? models : undefined,
+    models: serverResponding ? models : undefined,
   }];
 }
 

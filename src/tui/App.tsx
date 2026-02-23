@@ -112,7 +112,7 @@ function PanelContent({ tab, detection, pluginInstalled, onPluginRecheck, onFocu
         />
       );
     case 'Backends':
-      return <BackendsPanel report={detection.report} />;
+      return <BackendsPanel report={detection.report} onEditingChange={onFocusChange} />;
     case 'Config':
       return <ConfigPanel onEditingChange={onFocusChange} />;
     case 'Actions':
