@@ -1,0 +1,76 @@
+name: Auto Bump
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[auto-bump]')"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.AUTO_BUMP_TOKEN }}
+          fetch-depth: 0
+
+      - name: Find merged PR and version label
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="${{ github.sha }}"
+          pr_json=$(gh pr list --state merged --search "$sha" --json number,labels --limit 1)
+          if [ "$pr_json" = "[]" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No merged PR found for $sha — skipping."
+            exit 0
+          fi
+
+          label=$(echo "$pr_json" | node -e "
+            const pr = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))[0];
+            const found = (pr.labels || []).map(l => l.name).filter(l => ['patch','minor','major'].includes(l));
+            console.log(found[0] || '');
+          ")
+
+          if [ -z "$label" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No version label found — skipping."
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Found label: $label"
+
+      - uses: actions/setup-node@v6
+        if: steps.pr.outputs.skip != 'true'
+        with:
+          node-version: "22"
+
+      - name: Bump version
+        if: steps.pr.outputs.skip != 'true'
+        id: bump
+        run: |
+          new_ver=$(node scripts/bump-version.mjs ${{ steps.pr.outputs.label }})
+          echo "version=$new_ver" >> "$GITHUB_OUTPUT"
+          echo "Bumped to $new_ver"
+
+      - name: Rebuild dist
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit and push
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json .claude-plugin/plugin.json dist/
+          git commit -m "chore: bump to v${{ steps.bump.outputs.version }} [auto-bump]"
+          git push

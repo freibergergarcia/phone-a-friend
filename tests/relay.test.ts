@@ -158,10 +158,11 @@ describe('relay', () => {
   });
 
   it('includes git diff in prompt when include_diff is true', async () => {
-    // Mock git diff call
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/bin/git';
-      if (cmd === 'git') return 'diff --git a/a.py b/a.py';
+    // Mock git diff HEAD -- returning content (uncommitted changes)
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.includes('HEAD')) {
+        return 'diff --git a/a.py b/a.py';
+      }
       return '';
     });
 
@@ -169,6 +170,67 @@ describe('relay', () => {
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Git Diff:');
     expect(callArgs.prompt).toContain('diff --git a/a.py b/a.py');
+  });
+
+  it('falls back to HEAD~1 diff when working tree is clean', async () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      // git diff HEAD -- returns empty (no uncommitted changes)
+      if (args.includes('diff') && args.includes('HEAD') && !args.includes('HEAD~1')) {
+        return '';
+      }
+      // git diff HEAD~1 HEAD -- returns last commit diff
+      if (args.includes('diff') && args.includes('HEAD~1')) {
+        return 'diff --git a/b.ts b/b.ts\n+committed line';
+      }
+      return '';
+    });
+
+    await relay({ prompt: 'What changed?', repoPath: repo, includeDiff: true });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('Git Diff:');
+    expect(callArgs.prompt).toContain('diff --git a/b.ts b/b.ts');
+    expect(callArgs.prompt).toContain('+committed line');
+  });
+
+  it('returns empty when both HEAD and HEAD~1 diffs are empty', async () => {
+    mockExecFileSync.mockReturnValue('');
+
+    await relay({ prompt: 'Check diff', repoPath: repo, includeDiff: true });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).not.toContain('Git Diff:');
+  });
+
+  it('handles HEAD~1 failure gracefully (e.g. single-commit repo)', async () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      // git diff HEAD -- returns empty
+      if (args.includes('diff') && args.includes('HEAD') && !args.includes('HEAD~1')) {
+        return '';
+      }
+      // git diff HEAD~1 HEAD -- fails (no parent commit)
+      if (args.includes('diff') && args.includes('HEAD~1')) {
+        throw new Error('fatal: bad revision HEAD~1');
+      }
+      return '';
+    });
+
+    await relay({ prompt: 'Check diff', repoPath: repo, includeDiff: true });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // Should proceed without diff, not throw
+    expect(callArgs.prompt).not.toContain('Git Diff:');
+  });
+
+  it('propagates size limit error from diff source', async () => {
+    const bigDiff = 'a'.repeat(300_001);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.includes('HEAD')) {
+        return bigDiff;
+      }
+      return '';
+    });
+
+    await expect(
+      relay({ prompt: 'Review', repoPath: repo, includeDiff: true }),
+    ).rejects.toThrow(/too large/);
   });
 
   // --- Error cases ---
@@ -259,9 +321,8 @@ describe('relay', () => {
 
   it('raises when git diff exceeds size limit', async () => {
     const bigDiff = 'a'.repeat(300_001);
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/bin/git';
-      if (cmd === 'git') return bigDiff;
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.includes('HEAD')) return bigDiff;
       return '';
     });
 
@@ -304,10 +365,9 @@ describe('relay', () => {
 
   // --- Git diff errors ---
 
-  it('raises on git diff failure', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/bin/git';
-      if (cmd === 'git') {
+  it('treats git diff failure as empty diff (does not throw)', async () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff')) {
         const err = new Error('not a git repository') as Error & {
           status: number;
           stdout: Buffer;
@@ -321,9 +381,10 @@ describe('relay', () => {
       return '';
     });
 
-    await expect(
-      relay({ prompt: 'Review', repoPath: repo, includeDiff: true }),
-    ).rejects.toThrow('Failed to collect git diff');
+    // Should not throw — git failure is treated as empty diff
+    await relay({ prompt: 'Review', repoPath: repo, includeDiff: true });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).not.toContain('Git Diff:');
   });
 
   // --- Backend error wrapping ---
