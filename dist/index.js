@@ -5046,7 +5046,7 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
     available,
     detail,
     installHint,
-    models: models.length > 0 ? models : void 0
+    models: serverResponding ? models : void 0
   }];
 }
 async function detectHostIntegrations(whichFn = isInPath) {
@@ -37827,7 +37827,7 @@ var require_backend = __commonJS({
                     }
                     throw Error("An unsupported type was passed to use(): " + String(usable));
                   },
-                  useCallback: function useCallback7(callback) {
+                  useCallback: function useCallback8(callback) {
                     var hook = nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37851,7 +37851,7 @@ var require_backend = __commonJS({
                     });
                     return value;
                   },
-                  useEffect: function useEffect7(create3) {
+                  useEffect: function useEffect9(create3) {
                     nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37897,7 +37897,7 @@ var require_backend = __commonJS({
                       dispatcherHookName: "InsertionEffect"
                     });
                   },
-                  useMemo: function useMemo6(nextCreate) {
+                  useMemo: function useMemo5(nextCreate) {
                     var hook = nextHook();
                     nextCreate = null !== hook ? hook.memoizedState[0] : nextCreate();
                     hookLog.push({
@@ -59920,30 +59920,45 @@ function ListSelect({
   renderItem,
   onSelect,
   onChange,
-  isActive = true
+  onCancel,
+  isActive = true,
+  selectedIndex: controlledIndex,
+  getKey
 }) {
-  const [selectedIndex, setSelectedIndex] = (0, import_react29.useState)(0);
+  const [internalIndex, setInternalIndex] = (0, import_react29.useState)(0);
+  const isControlled = controlledIndex !== void 0;
+  const selectedIndex = isControlled ? controlledIndex : internalIndex;
+  (0, import_react29.useEffect)(() => {
+    if (!isControlled && items.length > 0 && internalIndex >= items.length) {
+      const clamped = items.length - 1;
+      setInternalIndex(clamped);
+      onChange?.(clamped);
+    }
+  }, [items.length, internalIndex, isControlled, onChange]);
   use_input_default(
     (input, key) => {
       if (items.length === 0) return;
       if (key.downArrow) {
         const next = Math.min(selectedIndex + 1, items.length - 1);
-        setSelectedIndex(next);
+        if (!isControlled) setInternalIndex(next);
         onChange?.(next);
       }
       if (key.upArrow) {
         const prev = Math.max(selectedIndex - 1, 0);
-        setSelectedIndex(prev);
+        if (!isControlled) setInternalIndex(prev);
         onChange?.(prev);
       }
       if (key.return) {
         const item = items[selectedIndex];
         if (item !== void 0) onSelect?.(item, selectedIndex);
       }
+      if (key.escape) {
+        onCancel?.();
+      }
     },
     { isActive }
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", children: items.map((item, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { children: renderItem(item, i, i === selectedIndex) }, i)) });
+  return /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { flexDirection: "column", children: items.map((item, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(Box_default, { children: renderItem(item, i, i === selectedIndex) }, getKey ? getKey(item, i) : i)) });
 }
 var import_react29, import_jsx_runtime5;
 var init_ListSelect = __esm({
@@ -59956,14 +59971,26 @@ var init_ListSelect = __esm({
 });
 
 // src/tui/BackendsPanel.tsx
+import { existsSync as existsSync6 } from "fs";
 function badgeStatus(b) {
   if (b.planned) return "planned";
   if (b.available) return "available";
   if (b.name === "ollama" && (b.models !== void 0 || b.installHint === "ollama serve")) return "partial";
   return "unavailable";
 }
-function BackendDetail({ backend, config }) {
+function BackendDetail({
+  backend,
+  config,
+  mode,
+  modelSelectedIndex,
+  onModelSelectedIndexChange
+}) {
   const backendConfig = config.backends?.[backend.name];
+  const configuredModel = config.backends?.ollama?.model;
+  const isOllama = backend.name === "ollama";
+  const models = backend.models ?? [];
+  const hasModels = models.length > 0;
+  const modelMismatch = isOllama && configuredModel && hasModels && !models.includes(configuredModel);
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", paddingLeft: 2, borderStyle: "single", borderColor: "gray", paddingRight: 2, children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: " " }),
@@ -59972,13 +59999,43 @@ function BackendDetail({ backend, config }) {
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: backend.detail })
     ] }),
     backend.planned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "[planned \u2014 not yet implemented]" }),
-    backend.models && backend.models.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Models:" }),
-      backend.models.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
+    isOllama && hasModels && mode === "nav" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 2, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Models:" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "Enter to pick default" })
+      ] }),
+      models.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
         "  ",
-        m
-      ] }, m))
+        m,
+        configuredModel === m ? "  \u2605 (default)" : ""
+      ] }, m)),
+      modelMismatch && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { color: "yellow", children: [
+        "\u26A0",
+        ' Configured model "',
+        configuredModel,
+        '" not detected'
+      ] })
     ] }),
+    isOllama && hasModels && mode === "modelSelect" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Select default model:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        ListSelect,
+        {
+          items: models,
+          isActive: true,
+          selectedIndex: modelSelectedIndex,
+          onChange: onModelSelectedIndexChange,
+          getKey: (m) => m,
+          renderItem: (m, _i, isSelected) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: m }),
+            configuredModel === m && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "green", children: " \u2605" })
+          ] })
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "Enter select  Esc cancel" }) })
+    ] }),
+    isOllama && backend.models !== void 0 && models.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "No models pulled. Run: ollama pull <model-name>" }) }),
     backendConfig && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Config:" }),
       Object.entries(backendConfig).map(([key, val]) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
@@ -59997,9 +60054,84 @@ function BackendDetail({ backend, config }) {
     ] })
   ] });
 }
-function BackendsPanel({ report }) {
+function BackendsPanel({ report, onEditingChange }) {
   const [selectedIndex, setSelectedIndex] = (0, import_react30.useState)(0);
-  const config = (0, import_react30.useMemo)(() => loadConfig(), []);
+  const [mode, setMode] = (0, import_react30.useState)("nav");
+  const [modelSelectedIndex, setModelSelectedIndex] = (0, import_react30.useState)(0);
+  const [config, setConfig] = (0, import_react30.useState)(() => loadConfig());
+  const [saveMessage, setSaveMessage] = (0, import_react30.useState)(null);
+  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.host] : [];
+  const currentModels = allBackendsForClamp[selectedIndex]?.models ?? [];
+  (0, import_react30.useEffect)(() => {
+    if (mode === "modelSelect" && currentModels.length > 0 && modelSelectedIndex >= currentModels.length) {
+      setModelSelectedIndex(currentModels.length - 1);
+    } else if (mode === "modelSelect" && currentModels.length === 0) {
+      setMode("nav");
+      onEditingChange?.(false);
+    }
+  }, [mode, currentModels.length, modelSelectedIndex, onEditingChange]);
+  const modeRef = import_react30.default.useRef(mode);
+  modeRef.current = mode;
+  const onEditingChangeRef = import_react30.default.useRef(onEditingChange);
+  onEditingChangeRef.current = onEditingChange;
+  (0, import_react30.useEffect)(() => {
+    return () => {
+      if (modeRef.current === "modelSelect") {
+        onEditingChangeRef.current?.(false);
+      }
+    };
+  }, []);
+  const enterModelSelect = (0, import_react30.useCallback)((models) => {
+    const configuredModel = config.backends?.ollama?.model;
+    const preselect = configuredModel ? models.indexOf(configuredModel) : -1;
+    setModelSelectedIndex(preselect >= 0 ? preselect : 0);
+    setMode("modelSelect");
+    setSaveMessage(null);
+    onEditingChange?.(true);
+  }, [config, onEditingChange]);
+  const exitModelSelect = (0, import_react30.useCallback)(() => {
+    setMode("nav");
+    onEditingChange?.(false);
+  }, [onEditingChange]);
+  const saveModel = (0, import_react30.useCallback)((modelName) => {
+    try {
+      const paths = configPaths();
+      const userPath = paths.user;
+      if (!existsSync6(userPath)) {
+        configInit(userPath, true);
+      }
+      configSet("backends.ollama.model", modelName, userPath);
+      setConfig(loadConfig());
+      setSaveMessage(`Default model set to ${modelName}`);
+    } catch (err) {
+      setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    exitModelSelect();
+  }, [exitModelSelect]);
+  use_input_default((input, key) => {
+    if (mode === "modelSelect") {
+      if (key.return) {
+        const allBackends2 = report ? [...report.cli, ...report.local, ...report.host] : [];
+        const selected2 = allBackends2[selectedIndex];
+        const models = selected2?.models ?? [];
+        const model = models[modelSelectedIndex];
+        if (model) saveModel(model);
+        return;
+      }
+      if (key.escape) {
+        exitModelSelect();
+        return;
+      }
+      return;
+    }
+    if (key.return) {
+      const allBackends2 = report ? [...report.cli, ...report.local, ...report.host] : [];
+      const selected2 = allBackends2[selectedIndex];
+      if (selected2?.name === "ollama" && (selected2.models?.length ?? 0) > 0) {
+        enterModelSelect(selected2.models);
+      }
+    }
+  }, { isActive: mode === "nav" || mode === "modelSelect" });
   if (!report) {
     return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "cyan", children: "Loading backends..." });
   }
@@ -60009,24 +60141,38 @@ function BackendsPanel({ report }) {
     ...report.host
   ];
   const selected = allBackends[selectedIndex];
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", gap: 2, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", width: 30, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, underline: true, children: "Backends" }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
-        ListSelect,
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "row", gap: 2, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", width: 30, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, underline: true, children: "Backends" }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+          ListSelect,
+          {
+            items: allBackends,
+            onChange: setSelectedIndex,
+            isActive: mode === "nav",
+            getKey: (b) => b.name,
+            renderItem: (b, _i, isSelected) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { status: badgeStatus(b) }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: b.name }),
+              b.planned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "[planned]" })
+            ] })
+          }
+        )
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, children: selected && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+        BackendDetail,
         {
-          items: allBackends,
-          onChange: setSelectedIndex,
-          renderItem: (b, _i, isSelected) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { status: badgeStatus(b) }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: b.name }),
-            b.planned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "[planned]" })
-          ] })
+          backend: selected,
+          config,
+          mode,
+          modelSelectedIndex,
+          onModelSelectedIndexChange: setModelSelectedIndex
         }
-      )
+      ) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { flexDirection: "column", flexGrow: 1, children: selected && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(BackendDetail, { backend: selected, config }) })
+    saveMessage && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: saveMessage.startsWith("Error") ? "red" : "green", children: saveMessage }) })
   ] });
 }
 var import_react30, import_jsx_runtime6;
@@ -60043,7 +60189,7 @@ var init_BackendsPanel = __esm({
 });
 
 // src/tui/ConfigPanel.tsx
-import { existsSync as existsSync6 } from "fs";
+import { existsSync as existsSync7 } from "fs";
 function buildRows(config) {
   const rows = [];
   rows.push({ dotKey: "defaults.backend", label: "backend", value: config.defaults.backend, section: "Defaults" });
@@ -60083,7 +60229,7 @@ function ConfigPanel({ onEditingChange } = {}) {
         }
         try {
           const userPath = paths.user;
-          if (!existsSync6(userPath)) {
+          if (!existsSync7(userPath)) {
             configInit(userPath, true);
           }
           configSet(row.dotKey, editValue, userPath);
@@ -60167,7 +60313,7 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn } from "child_process";
-import { mkdirSync as mkdirSync3, existsSync as existsSync7 } from "fs";
+import { mkdirSync as mkdirSync3, existsSync as existsSync8 } from "fs";
 import { dirname as dirname4 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
@@ -60242,7 +60388,7 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        if (!existsSync7(paths.user)) {
+        if (!existsSync8(paths.user)) {
           mkdirSync3(dirname4(paths.user), { recursive: true });
           configInit(paths.user, true);
         }
@@ -60517,7 +60663,7 @@ function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, 
         }
       );
     case "Backends":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BackendsPanel, { report: detection.report });
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BackendsPanel, { report: detection.report, onEditingChange: onFocusChange });
     case "Config":
       return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
     case "Actions":
@@ -60906,7 +61052,7 @@ registerBackend(OLLAMA_BACKEND);
 
 // src/cli.ts
 import { resolve as resolve4, dirname as dirname5 } from "path";
-import { existsSync as existsSync8 } from "fs";
+import { existsSync as existsSync9 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 import { spawnSync } from "child_process";
 
@@ -65341,6 +65487,15 @@ function formatHumanReadable(report, config, paths) {
   lines.push("");
   return lines.join("\n");
 }
+function normalizeForJson(backends) {
+  return backends.map((b) => {
+    if (b.models && b.models.length === 0) {
+      const { models: _, ...rest } = b;
+      return rest;
+    }
+    return b;
+  });
+}
 function formatJson(report, config, exitCode) {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
@@ -65351,10 +65506,10 @@ function formatJson(report, config, exitCode) {
       version: getVersion()
     },
     backends: {
-      cli: report.cli,
-      local: report.local
+      cli: normalizeForJson(report.cli),
+      local: normalizeForJson(report.local)
     },
-    host: report.host,
+    host: normalizeForJson(report.host),
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     exitCode
@@ -65465,7 +65620,7 @@ async function run(argv) {
       return await renderTui2();
     }
     const paths = configPaths();
-    if (!existsSync8(paths.user)) {
+    if (!existsSync9(paths.user)) {
       console.log("");
       console.log(banner("AI coding agent relay"));
       console.log("");
@@ -65582,7 +65737,7 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync8(paths.user)) {
+    if (!existsSync9(paths.user)) {
       configInit(paths.user, true);
     }
     const parts = editorEnv.split(/\s+/);
@@ -65590,7 +65745,7 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync8(paths.user)) {
+    if (!existsSync9(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);

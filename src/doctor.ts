@@ -95,6 +95,18 @@ function formatHumanReadable(
 // JSON output
 // ---------------------------------------------------------------------------
 
+// Normalize backend status for JSON output: omit empty models arrays
+// so the shape stays backward-compatible (models key only present when non-empty).
+function normalizeForJson(backends: import('./detection.js').BackendStatus[]) {
+  return backends.map(b => {
+    if (b.models && b.models.length === 0) {
+      const { models: _, ...rest } = b;
+      return rest;
+    }
+    return b;
+  });
+}
+
 function formatJson(
   report: DetectionReport,
   config: PafConfig,
@@ -110,10 +122,10 @@ function formatJson(
       version: getVersion(),
     },
     backends: {
-      cli: report.cli,
-      local: report.local,
+      cli: normalizeForJson(report.cli),
+      local: normalizeForJson(report.local),
     },
-    host: report.host,
+    host: normalizeForJson(report.host),
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     exitCode,
