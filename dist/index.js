@@ -81,7 +81,8 @@ var init_backends = __esm({
     };
     INSTALL_HINTS = {
       codex: "npm install -g @openai/codex",
-      gemini: "npm install -g @google/gemini-cli"
+      gemini: "npm install -g @google/gemini-cli",
+      ollama: "https://ollama.com/download"
     };
     registry = /* @__PURE__ */ new Map();
   }
@@ -3937,7 +3938,7 @@ function nextRelayEnv() {
   env3.PHONE_A_FRIEND_DEPTH = String(depth + 1);
   return env3;
 }
-function relay(opts) {
+async function relay(opts) {
   const {
     prompt,
     repoPath,
@@ -3982,7 +3983,7 @@ function relay(opts) {
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   const env3 = nextRelayEnv();
   try {
-    return selectedBackend.run({
+    return await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,
@@ -4262,19 +4263,6 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
     models: models.length > 0 ? models : void 0
   }];
 }
-function detectApiBackends() {
-  return API_BACKENDS.map(({ name, envVar, installHint, planned }) => {
-    const keySet = !!process.env[envVar];
-    return {
-      name,
-      category: "api",
-      available: keySet && !planned,
-      detail: keySet ? `${envVar} set` : `${envVar} not set`,
-      installHint,
-      planned
-    };
-  });
-}
 async function detectHostIntegrations(whichFn = isInPath) {
   return HOST_INTEGRATIONS.map(({ name, installHint, label }) => {
     const found = whichFn(name);
@@ -4293,10 +4281,9 @@ async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
     detectLocalBackends(whichFn, fetchFn),
     detectHostIntegrations(whichFn)
   ]);
-  const api = detectApiBackends();
-  return { cli, local, api, host };
+  return { cli, local, host };
 }
-var CLI_BACKENDS, OLLAMA_DEFAULT_HOST, OLLAMA_INSTALL_HINT, API_BACKENDS, HOST_INTEGRATIONS;
+var CLI_BACKENDS, OLLAMA_DEFAULT_HOST, OLLAMA_INSTALL_HINT, HOST_INTEGRATIONS;
 var init_detection = __esm({
   "src/detection.ts"() {
     "use strict";
@@ -4307,11 +4294,6 @@ var init_detection = __esm({
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
-    API_BACKENDS = [
-      { name: "openai", envVar: "OPENAI_API_KEY", installHint: "export OPENAI_API_KEY=sk-...", planned: false },
-      { name: "anthropic", envVar: "ANTHROPIC_API_KEY", installHint: "export ANTHROPIC_API_KEY=sk-ant-...", planned: true },
-      { name: "google", envVar: "GOOGLE_API_KEY", installHint: "export GOOGLE_API_KEY=...", planned: true }
-    ];
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" }
     ];
@@ -59035,7 +59017,7 @@ function StatusPanel({ report, loading, refreshing, error: error2 }) {
     }
     return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "Scanning backends..." }) });
   }
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const nonPlanned = allRelay.filter((b) => !b.planned);
   const available = nonPlanned.filter((b) => b.available).length;
   const total = nonPlanned.length;
@@ -59065,8 +59047,7 @@ function StatusPanel({ report, loading, refreshing, error: error2 }) {
         " ready)"
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "CLI", backends: report.cli }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "Local", backends: report.local }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "API", backends: report.api })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "Local", backends: report.local })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "Host Integrations" }),
@@ -59178,7 +59159,6 @@ function BackendsPanel({ report }) {
   const allBackends = [
     ...report.cli,
     ...report.local,
-    ...report.api,
     ...report.host
   ];
   const selected = allBackends[selectedIndex];
@@ -59737,7 +59717,7 @@ var CodexBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
-  run(opts) {
+  async run(opts) {
     if (!isInPath("codex")) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`
@@ -59829,7 +59809,7 @@ var GeminiBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
-  run(opts) {
+  async run(opts) {
     if (!isInPath("gemini")) {
       throw new GeminiBackendError(
         `gemini CLI not found in PATH. Install it: ${INSTALL_HINTS.gemini}`
@@ -59877,6 +59857,93 @@ var GeminiBackend = class {
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
+// src/backends/ollama.ts
+init_backends();
+var DEFAULT_HOST = "http://localhost:11434";
+var OllamaBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "OllamaBackendError";
+  }
+};
+var OllamaBackend = class {
+  name = "ollama";
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  async run(opts) {
+    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
+    const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+    const body = {
+      messages: [{ role: "user", content: opts.prompt }],
+      stream: false
+    };
+    if (model) body.model = model;
+    const url = `${host}/api/chat`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
+    let data;
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      let raw;
+      try {
+        raw = await resp.json();
+      } catch {
+        throw new OllamaBackendError(
+          `Ollama returned invalid JSON (HTTP ${resp.status})`
+        );
+      }
+      data = raw;
+    } catch (err) {
+      if (err instanceof OllamaBackendError) throw err;
+      clearTimeout(timer);
+      return this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (data.error) {
+      throw new OllamaBackendError(`Ollama error: ${data.error}`);
+    }
+    const message = data.message;
+    const content = (message?.content ?? "").trim();
+    if (!content) {
+      throw new OllamaBackendError(
+        "Ollama completed without producing output"
+      );
+    }
+    return content;
+  }
+  async diagnoseAndThrow(host, originalErr, timeout) {
+    if (originalErr instanceof DOMException || originalErr instanceof Error && originalErr.name === "AbortError") {
+      throw new OllamaBackendError(
+        `Ollama timed out after ${timeout}s`
+      );
+    }
+    const controller = new AbortController();
+    const probeTimer = setTimeout(() => controller.abort(), 3e3);
+    try {
+      await fetch(`${host}/api/tags`, { signal: controller.signal });
+    } catch {
+      throw new OllamaBackendError(
+        `Ollama server not reachable at ${host}. Is Ollama running? Install: https://ollama.com/download`
+      );
+    } finally {
+      clearTimeout(probeTimer);
+    }
+    const detail = originalErr instanceof Error ? originalErr.message : String(originalErr);
+    throw new OllamaBackendError(`Ollama request failed: ${detail}`);
+  }
+};
+var OLLAMA_BACKEND = new OllamaBackend();
+registerBackend(OLLAMA_BACKEND);
+
 // src/cli.ts
 import { resolve as resolve4, dirname as dirname5 } from "path";
 import { existsSync as existsSync8 } from "fs";
@@ -59884,7 +59951,7 @@ import { fileURLToPath as fileURLToPath2 } from "url";
 import { spawnSync } from "child_process";
 
 // node_modules/commander/esm.mjs
-var import_index3 = __toESM(require_commander(), 1);
+var import_index4 = __toESM(require_commander(), 1);
 var {
   program,
   createCommand,
@@ -59898,7 +59965,7 @@ var {
   Argument,
   Option,
   Help
-} = import_index3.default;
+} = import_index4.default;
 
 // node_modules/ora/index.js
 init_source();
@@ -64336,16 +64403,12 @@ function printReport(report) {
     console.log("    Local:");
     for (const b of report.local) printBackendLine(b);
   }
-  if (report.api.length > 0) {
-    console.log("    API:");
-    for (const b of report.api) printBackendLine(b);
-  }
   console.log("");
   console.log("  Host Integrations:");
   for (const b of report.host) printBackendLine(b);
 }
 function getSelectableBackends(report) {
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   return allRelay.filter((b) => b.available && !b.planned);
 }
 async function setup(opts) {
@@ -64370,7 +64433,7 @@ async function setup(opts) {
   if (selectable.length === 0) {
     console.log(theme.warning("  No relay backends available."));
     console.log("  Install at least one backend to get started:");
-    const allRelay = [...report.cli, ...report.local, ...report.api];
+    const allRelay = [...report.cli, ...report.local];
     for (const b of allRelay) {
       if (!b.planned && b.installHint) {
         console.log(`    ${b.name}: ${theme.hint(b.installHint)}`);
@@ -64489,12 +64552,6 @@ function formatHumanReadable(report, config, paths) {
       if (modelsLine) lines.push(modelsLine);
     }
   }
-  if (report.api.length > 0) {
-    lines.push("    API:");
-    for (const b of report.api) {
-      lines.push(`  ${formatBackendLine(b)}`);
-    }
-  }
   lines.push("");
   lines.push(`  ${theme.label("Host Integrations:")}`);
   for (const b of report.host) {
@@ -64504,7 +64561,7 @@ function formatHumanReadable(report, config, paths) {
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
   lines.push("");
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
   const total = allRelay.length;
   const summaryColor = available === total ? theme.success : available > 0 ? theme.warning : theme.error;
@@ -64513,7 +64570,7 @@ function formatHumanReadable(report, config, paths) {
   return lines.join("\n");
 }
 function formatJson(report, config, exitCode) {
-  const allRelay = [...report.cli, ...report.local, ...report.api];
+  const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
   const total = allRelay.length;
   return JSON.stringify({
@@ -64523,8 +64580,7 @@ function formatJson(report, config, exitCode) {
     },
     backends: {
       cli: report.cli,
-      local: report.local,
-      api: report.api
+      local: report.local
     },
     host: report.host,
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
@@ -64533,7 +64589,7 @@ function formatJson(report, config, exitCode) {
   }, null, 2);
 }
 function computeExitCode(report) {
-  const allRelay = [...report.cli, ...report.local, ...report.api].filter((b) => !b.planned);
+  const allRelay = [...report.cli, ...report.local].filter((b) => !b.planned);
   const available = allRelay.filter((b) => b.available).length;
   if (available === 0) return 2;
   const total = allRelay.length;
@@ -64656,7 +64712,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, openai").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action((opts) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, openai").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action(async (opts) => {
     const resolved = resolveConfig({
       to: opts.to,
       sandbox: opts.sandbox,
@@ -64672,7 +64728,7 @@ ${banner("AI coding agent relay")}
       stream: process.stderr
     }).start();
     try {
-      const feedback = relay({
+      const feedback = await relay({
         prompt: opts.prompt,
         repoPath: opts.repo,
         backend: backendName,
