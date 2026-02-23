@@ -13,6 +13,8 @@ import { BackendsPanel } from './BackendsPanel.js';
 import { ConfigPanel } from './ConfigPanel.js';
 import { ActionsPanel } from './ActionsPanel.js';
 import { useDetection } from './hooks/useDetection.js';
+import { PluginStatusBar } from './components/PluginStatusBar.js';
+import { usePluginStatus } from './hooks/usePluginStatus.js';
 
 const TABS = ['Status', 'Backends', 'Config', 'Actions'] as const;
 
@@ -39,6 +41,7 @@ export function App() {
 
   // Detection state lifted here — persists across tab switches
   const detection = useDetection();
+  const pluginStatus = usePluginStatus();
 
   const nextTab = useCallback(() => {
     setActiveTab((prev) => (prev + 1) % TABS.length);
@@ -78,8 +81,9 @@ export function App() {
   return (
     <Box flexDirection="column" padding={1}>
       <TabBar tabs={[...TABS]} activeIndex={activeTab} />
+      <PluginStatusBar installed={pluginStatus.installed} />
       <Box flexDirection="column" minHeight={10}>
-        <PanelContent tab={currentTab} detection={detection} onFocusChange={setChildHasFocus} onExit={() => exit()} />
+        <PanelContent tab={currentTab} detection={detection} onPluginRecheck={pluginStatus.recheck} onFocusChange={setChildHasFocus} onExit={() => exit()} />
       </Box>
       <KeyHint hints={hints} />
     </Box>
@@ -89,11 +93,12 @@ export function App() {
 interface PanelProps {
   tab: string;
   detection: ReturnType<typeof useDetection>;
+  onPluginRecheck: () => void;
   onFocusChange: (hasFocus: boolean) => void;
   onExit: () => void;
 }
 
-function PanelContent({ tab, detection, onFocusChange, onExit }: PanelProps) {
+function PanelContent({ tab, detection, onPluginRecheck, onFocusChange, onExit }: PanelProps) {
   switch (tab) {
     case 'Status':
       return (
@@ -109,7 +114,7 @@ function PanelContent({ tab, detection, onFocusChange, onExit }: PanelProps) {
     case 'Config':
       return <ConfigPanel onEditingChange={onFocusChange} />;
     case 'Actions':
-      return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} onExit={onExit} />;
+      return <ActionsPanel report={detection.report} onRefresh={() => detection.refresh({ force: true })} onPluginRecheck={onPluginRecheck} onExit={onExit} />;
     default:
       return null;
   }

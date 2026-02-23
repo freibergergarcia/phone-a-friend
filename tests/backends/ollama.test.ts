@@ -27,6 +27,7 @@ function mockResponse(body: unknown, ok = true, status = 200) {
     ok,
     status,
     json: async () => body,
+    text: async () => JSON.stringify(body),
   };
 }
 
@@ -143,6 +144,26 @@ describe('OllamaBackend', () => {
 
     await expect(backend.run(makeOpts())).rejects.toThrow(OllamaBackendError);
     await expect(backend.run(makeOpts())).rejects.toThrow('model "nonexistent" not found');
+  });
+
+  it('throws on non-2xx HTTP response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      text: async () => 'Service Unavailable',
+    });
+
+    await expect(backend.run(makeOpts())).rejects.toThrow(/HTTP 503/);
+  });
+
+  it('throws on non-2xx with empty body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => { throw new Error('read failed'); },
+    });
+
+    await expect(backend.run(makeOpts())).rejects.toThrow('HTTP 500');
   });
 
   it('throws on invalid JSON response', async () => {

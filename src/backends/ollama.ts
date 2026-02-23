@@ -61,6 +61,14 @@ export class OllamaBackend implements Backend {
         signal: controller.signal,
       });
 
+      if (!resp.ok) {
+        let body = '';
+        try { body = await resp.text(); } catch { /* ignore */ }
+        throw new OllamaBackendError(
+          `Ollama returned HTTP ${resp.status}${body ? `: ${body.slice(0, 200)}` : ''}`,
+        );
+      }
+
       let raw: unknown;
       try {
         raw = await resp.json();

@@ -207,7 +207,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .requiredOption('--prompt <text>', 'Prompt to relay')
-    .option('--to <backend>', 'Target backend: codex, gemini, ollama, openai')
+    .option('--to <backend>', 'Target backend: codex, gemini, ollama')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')

@@ -31,7 +31,7 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
       { name: 'ollama', category: 'local', available: true, detail: 'http://localhost:11434 (2 models)', installHint: '', models: ['qwen3:latest', 'llama3.2:latest'] },
     ],
     host: [
-      { name: 'claude', category: 'host' as 'cli', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: 'npm install -g @anthropic-ai/claude-code' },
+      { name: 'claude', category: 'host', available: true, detail: 'Claude Code CLI (found in PATH)', installHint: 'npm install -g @anthropic-ai/claude-code' },
     ],
     ...overrides,
   };

@@ -174,7 +174,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
       try {
         // Dynamic import to avoid circular dependency
         const { relay } = await import('./relay.js');
-        relay({
+        await relay({
           prompt: 'Say hello in one sentence.',
           repoPath: process.cwd(),
           backend: selectedBackend,

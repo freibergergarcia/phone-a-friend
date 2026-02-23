@@ -56,7 +56,7 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
       { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'brew install ollama' },
     ],
     host: [
-      { name: 'claude', category: 'host' as 'cli', available: true, detail: 'found', installHint: '' },
+      { name: 'claude', category: 'host', available: true, detail: 'found', installHint: '' },
     ],
     ...overrides,
   };
@@ -170,7 +170,7 @@ describe('setup', () => {
   it('does not offer Claude plugin install when claude is not in PATH', async () => {
     const report = makeReport({
       host: [
-        { name: 'claude', category: 'host' as 'cli', available: false, detail: 'not found', installHint: 'install' },
+        { name: 'claude', category: 'host', available: false, detail: 'not found', installHint: 'install' },
       ],
     });
     mockDetectAll.mockResolvedValue(report);

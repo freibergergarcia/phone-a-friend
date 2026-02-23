@@ -113,10 +113,11 @@ function buildActions(
 export interface ActionsPanelProps {
   report: DetectionReport | null;
   onRefresh: () => void;
+  onPluginRecheck: () => void;
   onExit: () => void;
 }
 
-export function ActionsPanel({ report, onRefresh, onExit }: ActionsPanelProps) {
+export function ActionsPanel({ report, onRefresh, onPluginRecheck, onExit }: ActionsPanelProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [running, setRunning] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -144,6 +145,8 @@ export function ActionsPanel({ report, onRefresh, onExit }: ActionsPanelProps) {
       .then((msg) => {
         if (!mountedRef.current) return;
         setResult({ success: true, message: msg });
+        // Refresh plugin status bar after install/uninstall actions
+        onPluginRecheck();
         if (action.exitAfter) {
           // Keep running=true to lock input until exit fires
           setTimeout(() => { if (mountedRef.current) onExit(); }, 800);

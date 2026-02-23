@@ -111,6 +111,22 @@ describe('detection', () => {
       expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
+    it('marks Ollama available when server responds with models even without local binary', async () => {
+      const whichFn = vi.fn(() => false);
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          models: [{ name: 'qwen3:latest' }],
+        }),
+      });
+
+      const results = await detection.detectLocalBackends(whichFn, fetchFn);
+      const ollama = results.find(b => b.name === 'ollama');
+
+      expect(ollama!.available).toBe(true);
+      expect(ollama!.models).toEqual(['qwen3:latest']);
+    });
+
     it('marks Ollama unavailable when running but has no models', async () => {
       const whichFn = vi.fn(() => true);
       const fetchFn = vi.fn().mockResolvedValue({

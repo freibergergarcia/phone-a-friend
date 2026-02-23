@@ -4040,6 +4040,250 @@ var init_version = __esm({
   }
 });
 
+// src/installer.ts
+import { execFileSync as execFileSync5 } from "child_process";
+import {
+  existsSync as existsSync3,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  rmSync as rmSync2,
+  symlinkSync,
+  cpSync,
+  unlinkSync
+} from "fs";
+import { resolve as resolve3, join as join2, dirname as dirname2 } from "path";
+import { homedir } from "os";
+function ensureParent(filePath) {
+  mkdirSync(dirname2(filePath), { recursive: true });
+}
+function removePath(filePath) {
+  let stat;
+  try {
+    stat = lstatSync(filePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+  if (stat.isSymbolicLink() || stat.isFile()) {
+    unlinkSync(filePath);
+  } else if (stat.isDirectory()) {
+    rmSync2(filePath, { recursive: true, force: true });
+  }
+}
+function installPath(src, dst, mode, force) {
+  const dstExists = existsSync3(dst) || isSymlink(dst);
+  if (dstExists) {
+    if (isSymlink(dst)) {
+      try {
+        if (realpathSync(dst) === realpathSync(src)) {
+          return "already-installed";
+        }
+      } catch {
+      }
+    }
+    if (!force) {
+      throw new InstallerError(`Destination already exists: ${dst}`);
+    }
+    removePath(dst);
+  }
+  ensureParent(dst);
+  if (mode === "symlink") {
+    symlinkSync(src, dst);
+  } else {
+    cpSync(src, dst, { recursive: true });
+  }
+  return "installed";
+}
+function isSymlink(filePath) {
+  try {
+    return lstatSync(filePath).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+function runClaudeCommand(args) {
+  try {
+    const result = execFileSync5(args[0], args.slice(1), {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    return { code: 0, output: result.trim() };
+  } catch (err) {
+    const execErr = err;
+    const stdout = execErr.stdout?.toString() ?? "";
+    const stderr = execErr.stderr?.toString() ?? "";
+    return {
+      code: execErr.status ?? 1,
+      output: (stdout + stderr).trim()
+    };
+  }
+}
+function looksLikeOkIfAlready(output) {
+  const text = output.toLowerCase();
+  return [
+    "already configured",
+    "already added",
+    "already installed",
+    "already enabled",
+    "already up to date"
+  ].some((token) => text.includes(token));
+}
+function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
+  const lines = [];
+  try {
+    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    lines.push("- claude_cli: skipped (claude binary not found)");
+    return lines;
+  }
+  const commands = [
+    [["claude", "plugin", "marketplace", "add", repoRoot], "marketplace_add"],
+    [["claude", "plugin", "marketplace", "update", marketplaceName], "marketplace_update"],
+    [["claude", "plugin", "install", `${pluginName}@${marketplaceName}`, "-s", scope], "install"],
+    [["claude", "plugin", "enable", `${pluginName}@${marketplaceName}`, "-s", scope], "enable"],
+    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`], "update"]
+  ];
+  for (const [cmd, label] of commands) {
+    const { code, output } = runClaudeCommand(cmd);
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- claude_cli_${label}: ok`);
+    } else {
+      lines.push(`- claude_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+  return lines;
+}
+function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME) {
+  const lines = [];
+  try {
+    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    lines.push("- claude_cli: skipped (claude binary not found)");
+    return lines;
+  }
+  const commands = [
+    [["claude", "plugin", "disable", `${pluginName}@${marketplaceName}`, "-s", "user"], "disable"],
+    [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"]
+  ];
+  for (const [cmd, label] of commands) {
+    const { code, output } = runClaudeCommand(cmd);
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- claude_cli_${label}: ok`);
+    } else {
+      lines.push(`- claude_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+  return lines;
+}
+function claudeTarget(claudeHome) {
+  const base = claudeHome ?? join2(homedir(), ".claude");
+  return join2(base, "plugins", PLUGIN_NAME);
+}
+function isPluginInstalled(claudeHome) {
+  const target = claudeTarget(claudeHome);
+  try {
+    if (isSymlink(target)) {
+      return existsSync3(target);
+    }
+    return existsSync3(target);
+  } catch {
+    return false;
+  }
+}
+function installClaude(repoRoot, mode, force, claudeHome) {
+  const target = claudeTarget(claudeHome);
+  const status = installPath(repoRoot, target, mode, force);
+  return { status, targetPath: target };
+}
+function uninstallPath(filePath) {
+  if (existsSync3(filePath) || isSymlink(filePath)) {
+    removePath(filePath);
+    return "removed";
+  }
+  return "not-installed";
+}
+function uninstallClaude(claudeHome) {
+  const target = claudeTarget(claudeHome);
+  return { status: uninstallPath(target), targetPath: target };
+}
+function isValidRepoRoot(repoRoot) {
+  return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
+}
+function installHosts(opts) {
+  const {
+    repoRoot,
+    target,
+    mode = "symlink",
+    force = false,
+    claudeHome,
+    syncClaudeCli = true
+  } = opts;
+  if (!INSTALL_TARGETS.has(target)) {
+    throw new InstallerError(`Invalid target: ${target}`);
+  }
+  if (!INSTALL_MODES.has(mode)) {
+    throw new InstallerError(`Invalid mode: ${mode}`);
+  }
+  const resolvedRepo = resolve3(repoRoot);
+  if (!isValidRepoRoot(resolvedRepo)) {
+    throw new InstallerError(`Invalid repo root: ${resolvedRepo}`);
+  }
+  const lines = [
+    "phone-a-friend installer",
+    `- repo_root: ${resolvedRepo}`,
+    `- mode: ${mode}`
+  ];
+  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
+  lines.push(`- claude: ${status} -> ${targetPath}`);
+  if (syncClaudeCli) {
+    lines.push(...syncClaudePluginRegistration(resolvedRepo));
+  }
+  return lines;
+}
+function uninstallHosts(opts) {
+  const { target, claudeHome } = opts;
+  if (!INSTALL_TARGETS.has(target)) {
+    throw new InstallerError(`Invalid target: ${target}`);
+  }
+  const lines = ["phone-a-friend uninstaller"];
+  const { status, targetPath } = uninstallClaude(claudeHome);
+  lines.push(`- claude: ${status}`);
+  lines.push(...unsyncClaudePluginRegistration());
+  return lines;
+}
+function verifyBackends() {
+  const availability = checkBackends();
+  return Object.entries(availability).map(([name, available]) => ({
+    name,
+    available,
+    hint: INSTALL_HINTS[name] ?? ""
+  }));
+}
+var PLUGIN_NAME, MARKETPLACE_NAME, INSTALL_TARGETS, INSTALL_MODES, InstallerError;
+var init_installer = __esm({
+  "src/installer.ts"() {
+    "use strict";
+    init_backends();
+    PLUGIN_NAME = "phone-a-friend";
+    MARKETPLACE_NAME = "phone-a-friend-dev";
+    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
+    INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
+    InstallerError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "InstallerError";
+      }
+    };
+  }
+});
+
 // node_modules/cli-width/index.js
 var require_cli_width = __commonJS({
   "node_modules/cli-width/index.js"(exports, module) {
@@ -4240,11 +4484,11 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
   let available = false;
   let detail;
   let installHint;
-  if (binaryInstalled && serverResponding && models.length > 0) {
+  if (serverResponding && models.length > 0) {
     available = true;
     detail = `${host} (${models.length} model${models.length !== 1 ? "s" : ""})`;
     installHint = "";
-  } else if (binaryInstalled && serverResponding && models.length === 0) {
+  } else if (serverResponding && models.length === 0) {
     detail = `${host} \u2014 no models pulled`;
     installHint = "ollama pull qwen3";
   } else if (binaryInstalled && !serverResponding) {
@@ -37028,7 +37272,7 @@ var require_backend = __commonJS({
                     }
                     throw Error("An unsupported type was passed to use(): " + String(usable));
                   },
-                  useCallback: function useCallback6(callback) {
+                  useCallback: function useCallback7(callback) {
                     var hook = nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37140,7 +37384,7 @@ var require_backend = __commonJS({
                     });
                     return initialValue;
                   },
-                  useState: function useState10(initialState) {
+                  useState: function useState11(initialState) {
                     var hook = nextHook();
                     initialState = null !== hook ? hook.memoizedState : "function" === typeof initialState ? initialState() : initialState;
                     hookLog.push({
@@ -59419,7 +59663,7 @@ function buildActions(report, onRefresh, processRef) {
     }
   ];
 }
-function ActionsPanel({ report, onRefresh, onExit: onExit2 }) {
+function ActionsPanel({ report, onRefresh, onPluginRecheck, onExit: onExit2 }) {
   const [selectedIndex, setSelectedIndex] = (0, import_react32.useState)(0);
   const [running, setRunning] = (0, import_react32.useState)(false);
   const [confirming, setConfirming] = (0, import_react32.useState)(false);
@@ -59443,6 +59687,7 @@ function ActionsPanel({ report, onRefresh, onExit: onExit2 }) {
     action.run().then((msg) => {
       if (!mountedRef.current) return;
       setResult({ success: true, message: msg });
+      onPluginRecheck();
       if (action.exitAfter) {
         setTimeout(() => {
           if (mountedRef.current) onExit2();
@@ -59584,13 +59829,47 @@ var init_useDetection = __esm({
   }
 });
 
+// src/tui/components/PluginStatusBar.tsx
+function PluginStatusBar({ installed }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "green", children: [
+    "\u2713",
+    " Claude Plugin: Installed"
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: "! Claude Plugin: Not Installed" }) });
+}
+var import_jsx_runtime9;
+var init_PluginStatusBar = __esm({
+  async "src/tui/components/PluginStatusBar.tsx"() {
+    "use strict";
+    await init_build2();
+    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+  }
+});
+
+// src/tui/hooks/usePluginStatus.ts
+function usePluginStatus() {
+  const [installed, setInstalled] = (0, import_react34.useState)(() => isPluginInstalled());
+  const recheck = (0, import_react34.useCallback)(() => {
+    setInstalled(isPluginInstalled());
+  }, []);
+  return { installed, recheck };
+}
+var import_react34;
+var init_usePluginStatus = __esm({
+  "src/tui/hooks/usePluginStatus.ts"() {
+    "use strict";
+    import_react34 = __toESM(require_react(), 1);
+    init_installer();
+  }
+});
+
 // src/tui/App.tsx
 function App2() {
   const { exit } = use_app_default();
-  const [activeTab, setActiveTab] = (0, import_react34.useState)(0);
-  const [childHasFocus, setChildHasFocus] = (0, import_react34.useState)(false);
+  const [activeTab, setActiveTab] = (0, import_react35.useState)(0);
+  const [childHasFocus, setChildHasFocus] = (0, import_react35.useState)(false);
   const detection = useDetection();
-  const nextTab = (0, import_react34.useCallback)(() => {
+  const pluginStatus = usePluginStatus();
+  const nextTab = (0, import_react35.useCallback)(() => {
     setActiveTab((prev) => (prev + 1) % TABS.length);
   }, []);
   const currentTab = TABS[activeTab];
@@ -59614,16 +59893,17 @@ function App2() {
     }
   });
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(PanelContent, { tab: currentTab, detection, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(KeyHint, { hints })
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PanelContent, { tab: currentTab, detection, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection, onFocusChange, onExit: onExit2 }) {
+function PanelContent({ tab: tab2, detection, onPluginRecheck, onFocusChange, onExit: onExit2 }) {
   switch (tab2) {
     case "Status":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         StatusPanel,
         {
           report: detection.report,
@@ -59633,20 +59913,20 @@ function PanelContent({ tab: tab2, detection, onFocusChange, onExit: onExit2 }) 
         }
       );
     case "Backends":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(BackendsPanel, { report: detection.report });
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BackendsPanel, { report: detection.report });
     case "Config":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
     case "Actions":
-      return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onExit: onExit2 });
+      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onPluginRecheck, onExit: onExit2 });
     default:
       return null;
   }
 }
-var import_react34, import_jsx_runtime9, TABS, GLOBAL_HINTS, TAB_HINTS;
+var import_react35, import_jsx_runtime10, TABS, GLOBAL_HINTS, TAB_HINTS;
 var init_App2 = __esm({
   async "src/tui/App.tsx"() {
     "use strict";
-    import_react34 = __toESM(require_react(), 1);
+    import_react35 = __toESM(require_react(), 1);
     await init_build2();
     await init_TabBar();
     await init_KeyHint();
@@ -59655,7 +59935,9 @@ var init_App2 = __esm({
     await init_ConfigPanel();
     await init_ActionsPanel();
     init_useDetection();
-    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+    await init_PluginStatusBar();
+    init_usePluginStatus();
+    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
     TABS = ["Status", "Backends", "Config", "Actions"];
     GLOBAL_HINTS = [
       { key: "Tab", label: "switch" },
@@ -59677,7 +59959,7 @@ __export(render_exports, {
   renderTui: () => renderTui
 });
 async function renderTui() {
-  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime10.jsx)(App2, {}));
+  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime11.jsx)(App2, {}));
   try {
     await waitUntilExit();
     return 0;
@@ -59688,13 +59970,13 @@ async function renderTui() {
     return 1;
   }
 }
-var import_jsx_runtime10;
+var import_jsx_runtime11;
 var init_render2 = __esm({
   async "src/tui/render.tsx"() {
     "use strict";
     await init_build2();
     await init_App2();
-    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+    import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
   }
 });
 
@@ -59892,6 +60174,16 @@ var OllamaBackend = class {
         body: JSON.stringify(body),
         signal: controller.signal
       });
+      if (!resp.ok) {
+        let body2 = "";
+        try {
+          body2 = await resp.text();
+        } catch {
+        }
+        throw new OllamaBackendError(
+          `Ollama returned HTTP ${resp.status}${body2 ? `: ${body2.slice(0, 200)}` : ""}`
+        );
+      }
       let raw;
       try {
         raw = await resp.json();
@@ -62704,232 +62996,8 @@ function banner(title) {
   return `  ${theme.brand("phone-a-friend")} ${theme.version(`v${v}`)} \u2014 ${theme.heading(title)}`;
 }
 
-// src/installer.ts
-init_backends();
-import { execFileSync as execFileSync5 } from "child_process";
-import {
-  existsSync as existsSync3,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-  rmSync as rmSync2,
-  symlinkSync,
-  cpSync,
-  unlinkSync
-} from "fs";
-import { resolve as resolve3, join as join2, dirname as dirname2 } from "path";
-import { homedir } from "os";
-var PLUGIN_NAME = "phone-a-friend";
-var MARKETPLACE_NAME = "phone-a-friend-dev";
-var INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
-var INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
-var InstallerError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "InstallerError";
-  }
-};
-function ensureParent(filePath) {
-  mkdirSync(dirname2(filePath), { recursive: true });
-}
-function removePath(filePath) {
-  let stat;
-  try {
-    stat = lstatSync(filePath);
-  } catch (err) {
-    if (err.code === "ENOENT") return;
-    throw err;
-  }
-  if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync(filePath);
-  } else if (stat.isDirectory()) {
-    rmSync2(filePath, { recursive: true, force: true });
-  }
-}
-function installPath(src, dst, mode, force) {
-  const dstExists = existsSync3(dst) || isSymlink(dst);
-  if (dstExists) {
-    if (isSymlink(dst)) {
-      try {
-        if (realpathSync(dst) === realpathSync(src)) {
-          return "already-installed";
-        }
-      } catch {
-      }
-    }
-    if (!force) {
-      throw new InstallerError(`Destination already exists: ${dst}`);
-    }
-    removePath(dst);
-  }
-  ensureParent(dst);
-  if (mode === "symlink") {
-    symlinkSync(src, dst);
-  } else {
-    cpSync(src, dst, { recursive: true });
-  }
-  return "installed";
-}
-function isSymlink(filePath) {
-  try {
-    return lstatSync(filePath).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-function runClaudeCommand(args) {
-  try {
-    const result = execFileSync5(args[0], args.slice(1), {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    return { code: 0, output: result.trim() };
-  } catch (err) {
-    const execErr = err;
-    const stdout = execErr.stdout?.toString() ?? "";
-    const stderr = execErr.stderr?.toString() ?? "";
-    return {
-      code: execErr.status ?? 1,
-      output: (stdout + stderr).trim()
-    };
-  }
-}
-function looksLikeOkIfAlready(output) {
-  const text = output.toLowerCase();
-  return [
-    "already configured",
-    "already added",
-    "already installed",
-    "already enabled",
-    "already up to date"
-  ].some((token) => text.includes(token));
-}
-function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
-  const lines = [];
-  try {
-    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
-  } catch {
-    lines.push("- claude_cli: skipped (claude binary not found)");
-    return lines;
-  }
-  const commands = [
-    [["claude", "plugin", "marketplace", "add", repoRoot], "marketplace_add"],
-    [["claude", "plugin", "marketplace", "update", marketplaceName], "marketplace_update"],
-    [["claude", "plugin", "install", `${pluginName}@${marketplaceName}`, "-s", scope], "install"],
-    [["claude", "plugin", "enable", `${pluginName}@${marketplaceName}`, "-s", scope], "enable"],
-    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`], "update"]
-  ];
-  for (const [cmd, label] of commands) {
-    const { code, output } = runClaudeCommand(cmd);
-    if (code === 0 || looksLikeOkIfAlready(output)) {
-      lines.push(`- claude_cli_${label}: ok`);
-    } else {
-      lines.push(`- claude_cli_${label}: failed`);
-      if (output) {
-        lines.push(`  output: ${output}`);
-      }
-    }
-  }
-  return lines;
-}
-function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME) {
-  const lines = [];
-  try {
-    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
-  } catch {
-    lines.push("- claude_cli: skipped (claude binary not found)");
-    return lines;
-  }
-  const commands = [
-    [["claude", "plugin", "disable", `${pluginName}@${marketplaceName}`, "-s", "user"], "disable"],
-    [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"]
-  ];
-  for (const [cmd, label] of commands) {
-    const { code, output } = runClaudeCommand(cmd);
-    if (code === 0 || looksLikeOkIfAlready(output)) {
-      lines.push(`- claude_cli_${label}: ok`);
-    } else {
-      lines.push(`- claude_cli_${label}: failed`);
-      if (output) {
-        lines.push(`  output: ${output}`);
-      }
-    }
-  }
-  return lines;
-}
-function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join2(homedir(), ".claude");
-  return join2(base, "plugins", PLUGIN_NAME);
-}
-function installClaude(repoRoot, mode, force, claudeHome) {
-  const target = claudeTarget(claudeHome);
-  const status = installPath(repoRoot, target, mode, force);
-  return { status, targetPath: target };
-}
-function uninstallPath(filePath) {
-  if (existsSync3(filePath) || isSymlink(filePath)) {
-    removePath(filePath);
-    return "removed";
-  }
-  return "not-installed";
-}
-function uninstallClaude(claudeHome) {
-  const target = claudeTarget(claudeHome);
-  return { status: uninstallPath(target), targetPath: target };
-}
-function isValidRepoRoot(repoRoot) {
-  return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
-}
-function installHosts(opts) {
-  const {
-    repoRoot,
-    target,
-    mode = "symlink",
-    force = false,
-    claudeHome,
-    syncClaudeCli = true
-  } = opts;
-  if (!INSTALL_TARGETS.has(target)) {
-    throw new InstallerError(`Invalid target: ${target}`);
-  }
-  if (!INSTALL_MODES.has(mode)) {
-    throw new InstallerError(`Invalid mode: ${mode}`);
-  }
-  const resolvedRepo = resolve3(repoRoot);
-  if (!isValidRepoRoot(resolvedRepo)) {
-    throw new InstallerError(`Invalid repo root: ${resolvedRepo}`);
-  }
-  const lines = [
-    "phone-a-friend installer",
-    `- repo_root: ${resolvedRepo}`,
-    `- mode: ${mode}`
-  ];
-  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
-  if (syncClaudeCli) {
-    lines.push(...syncClaudePluginRegistration(resolvedRepo));
-  }
-  return lines;
-}
-function uninstallHosts(opts) {
-  const { target, claudeHome } = opts;
-  if (!INSTALL_TARGETS.has(target)) {
-    throw new InstallerError(`Invalid target: ${target}`);
-  }
-  const lines = ["phone-a-friend uninstaller"];
-  const { status, targetPath } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status}`);
-  lines.push(...unsyncClaudePluginRegistration());
-  return lines;
-}
-function verifyBackends() {
-  const availability = checkBackends();
-  return Object.entries(availability).map(([name, available]) => ({
-    name,
-    available,
-    hint: INSTALL_HINTS[name] ?? ""
-  }));
-}
+// src/cli.ts
+init_installer();
 
 // node_modules/@inquirer/core/dist/lib/key.js
 var isUpKey = (key, keybindings = []) => (
@@ -64365,6 +64433,7 @@ var dist_default5 = createPrompt((config, done) => {
 // src/setup.ts
 init_detection();
 init_config();
+init_installer();
 
 // src/display.ts
 function mark(available, planned) {
@@ -64502,7 +64571,7 @@ async function setup(opts) {
       }).start();
       try {
         const { relay: relay2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
-        relay2({
+        await relay2({
           prompt: "Say hello in one sentence.",
           repoPath: process.cwd(),
           backend: selectedBackend,
@@ -64712,7 +64781,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, openai").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action(async (opts) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").action(async (opts) => {
     const resolved = resolveConfig({
       to: opts.to,
       sandbox: opts.sandbox,

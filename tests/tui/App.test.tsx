@@ -20,6 +20,12 @@ vi.mock('../../src/version.js', () => ({
   getVersion: vi.fn().mockReturnValue('1.0.0-test'),
 }));
 
+// Mock installer for PluginStatusBar
+vi.mock('../../src/installer.js', () => ({
+  isPluginInstalled: vi.fn().mockReturnValue(false),
+  claudeTarget: vi.fn().mockReturnValue('/tmp/test-claude-plugin'),
+}));
+
 // Mock config for ConfigPanel (used when navigating to Config tab)
 vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockReturnValue({

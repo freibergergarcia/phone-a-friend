@@ -48,14 +48,13 @@ function makeFakeProc(exitCode = 0) {
 const MOCK_REPORT: DetectionReport = {
   cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
   local: [],
-  api: [],
   host: [{ name: 'claude', category: 'host', available: true, detail: 'found', installHint: '' }],
 };
 
 describe('ActionsPanel', () => {
   it('shows action list', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Check Backends');
@@ -64,7 +63,7 @@ describe('ActionsPanel', () => {
 
   it('shows action descriptions', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Re-scan');
@@ -72,7 +71,7 @@ describe('ActionsPanel', () => {
 
   it('highlights first action by default', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     // The pointer indicator should be visible
     expect(lastFrame()).toContain('\u25b8');
@@ -80,7 +79,7 @@ describe('ActionsPanel', () => {
 
   it('navigates with arrow keys', async () => {
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     // Move down
     stdin.write('\u001B[B');
@@ -92,21 +91,21 @@ describe('ActionsPanel', () => {
 
   it('shows Open Config action', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     expect(lastFrame()).toContain('Open Config');
   });
 
   it('shows Uninstall Plugin action', () => {
     const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     expect(lastFrame()).toContain('Uninstall Plugin');
   });
 
   it('shows confirmation prompt for Uninstall Plugin', async () => {
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     // Navigate to Uninstall Plugin (3rd item: Check Backends, Reinstall, Uninstall)
     stdin.write('\u001B[B'); // down
@@ -121,7 +120,7 @@ describe('ActionsPanel', () => {
 
   it('cancels confirmation with n key', async () => {
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={() => {}} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     // Navigate to Uninstall
     stdin.write('\u001B[B');
@@ -143,7 +142,7 @@ describe('ActionsPanel', () => {
     mockSpawn.mockImplementation(() => makeFakeProc(0));
 
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={onExit} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={onExit} />
     );
     // Navigate to Uninstall Plugin (index 2)
     stdin.write('\u001B[B');
@@ -168,7 +167,7 @@ describe('ActionsPanel', () => {
     mockSpawn.mockImplementation(() => makeFakeProc(1));
 
     const { lastFrame, stdin } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onExit={onExit} />
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={onExit} />
     );
     // Navigate to Uninstall Plugin (index 2)
     stdin.write('\u001B[B');

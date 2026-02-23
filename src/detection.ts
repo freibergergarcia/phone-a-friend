@@ -102,11 +102,11 @@ export async function detectLocalBackends(
   let detail: string;
   let installHint: string;
 
-  if (binaryInstalled && serverResponding && models.length > 0) {
+  if (serverResponding && models.length > 0) {
     available = true;
     detail = `${host} (${models.length} model${models.length !== 1 ? 's' : ''})`;
     installHint = '';
-  } else if (binaryInstalled && serverResponding && models.length === 0) {
+  } else if (serverResponding && models.length === 0) {
     detail = `${host} — no models pulled`;
     installHint = 'ollama pull qwen3';
   } else if (binaryInstalled && !serverResponding) {
