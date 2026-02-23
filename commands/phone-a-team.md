@@ -56,22 +56,25 @@ separate single-backend option. To use all three, run separate sessions.
 
 ### Model override parsing
 
-Extract a model name from the task arguments. Applies to ALL backends.
+Extract a model name from the task arguments.
 
-**Explicit flag (highest priority):**
+**Explicit flag (highest priority, all backends):**
 - If `$ARGUMENTS` contains `--model <name>`: set `MODEL_OVERRIDE = <name>`.
   Remove the `--model <name>` pair from TASK_DESCRIPTION.
+- This applies to all backends (codex, gemini, ollama, both).
 
-**Natural language (Ollama only, lower priority):**
-- If BACKEND is `ollama` and no `--model` flag was found, check for NL model
-  references: "use <name>", "with <name> model", "using <name>",
+**Natural language extraction (Ollama only, lower priority):**
+- Only attempt NL extraction when BACKEND is exactly `ollama` and no
+  `--model` flag was found.
+- Do NOT attempt NL extraction for `codex`, `gemini`, or `both` backends.
+- Look for patterns: "use <name>", "with <name> model", "using <name>",
   "via <name>", "the <name> model".
-- Only extract when the phrase is clearly a meta-instruction, not task
-  content.
-- If BACKEND is `both`, require backend-qualified mentions (e.g., "use
-  ollama model X") — unqualified mentions are ambiguous.
+- Only extract when the phrase is clearly a meta-instruction about which
+  model to use, not part of the task content itself.
 - If multiple candidate models are found, do not guess — leave in
   TASK_DESCRIPTION.
+- If the candidate appears inside quotes, backticks, or code blocks, do
+  NOT extract (it's an example or reference, not a meta-instruction).
 
 **Examples:**
 - "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
@@ -79,7 +82,8 @@ Extract a model name from the task arguments. Applies to ALL backends.
 - "debug the deepseek integration" → do NOT extract (task content) ✗
 - "Fix the domain model" → do NOT extract ("model" is task content) ✗
 - "Compare qwen3 vs llama3" → do NOT extract (multiple candidates) ✗
-- "Write docs showing --model qwen3 usage" → do NOT extract (quoted example) ✗
+- "Write docs showing --model qwen3 usage" → do NOT extract (inside example) ✗
+- "use deepseek" (backend=both) → do NOT extract (NL only for ollama) ✗
 - When in doubt, do not extract.
 
 ### Task description
@@ -118,6 +122,15 @@ array. Store the list as `OLLAMA_AVAILABLE_MODELS` and select a model as
 `OLLAMA_SELECTED_MODEL` using this logic:
 
 **Model selection (precedence order):**
+
+**First, check for empty models — this takes priority over all selection
+rules.** If `OLLAMA_AVAILABLE_MODELS` is empty (server running but no models
+pulled): **Abort**, even if `MODEL_OVERRIDE` or config specifies a model.
+Tell user: "Ollama server is running but has no models pulled. Install one
+with: `ollama pull <model-name>`". Rationale: an empty model list means the
+server has nothing to run — proceeding would always fail.
+
+If models are available, select using this precedence:
 1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
    Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
    in `OLLAMA_AVAILABLE_MODELS`. If not found, **warn** (e.g., "Model 'foo'
@@ -129,9 +142,6 @@ array. Store the list as `OLLAMA_AVAILABLE_MODELS` and select a model as
    `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
    model in `OLLAMA_AVAILABLE_MODELS`.
-3. If `OLLAMA_AVAILABLE_MODELS` is empty (server running but no models):
-   **Abort.** Tell user: "Ollama server is running but has no models pulled.
-   Install one with: `ollama pull <model-name>`"
 
 Report the selected model to the user: "Ollama: using model `<name>`"
 

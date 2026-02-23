@@ -137,14 +137,34 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
   const [config, setConfig] = useState(() => loadConfig());
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  // Cleanup: ensure focus is released if component unmounts while in modelSelect
+  // Clamp modelSelectedIndex when Ollama models change during modelSelect
+  // (e.g., detection refresh completes while picker is open)
+  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.host] : [];
+  const currentModels = allBackendsForClamp[selectedIndex]?.models ?? [];
+  useEffect(() => {
+    if (mode === 'modelSelect' && currentModels.length > 0 && modelSelectedIndex >= currentModels.length) {
+      setModelSelectedIndex(currentModels.length - 1);
+    } else if (mode === 'modelSelect' && currentModels.length === 0) {
+      // Models disappeared — exit picker
+      setMode('nav');
+      onEditingChange?.(false);
+    }
+  }, [mode, currentModels.length, modelSelectedIndex, onEditingChange]);
+
+  // Cleanup: ensure focus is released if component unmounts while in modelSelect.
+  // Uses a ref to avoid re-running on every mode change (which would cause
+  // a redundant onEditingChange(false) call alongside exitModelSelect).
+  const modeRef = React.useRef(mode);
+  modeRef.current = mode;
+  const onEditingChangeRef = React.useRef(onEditingChange);
+  onEditingChangeRef.current = onEditingChange;
   useEffect(() => {
     return () => {
-      if (mode === 'modelSelect') {
-        onEditingChange?.(false);
+      if (modeRef.current === 'modelSelect') {
+        onEditingChangeRef.current?.(false);
       }
     };
-  }, [mode, onEditingChange]);
+  }, []);
 
   const enterModelSelect = useCallback((models: string[]) => {
     const configuredModel = config.backends?.ollama?.model as string | undefined;

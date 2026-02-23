@@ -60057,13 +60057,27 @@ function BackendsPanel({ report, onEditingChange }) {
   const [modelSelectedIndex, setModelSelectedIndex] = (0, import_react30.useState)(0);
   const [config, setConfig] = (0, import_react30.useState)(() => loadConfig());
   const [saveMessage, setSaveMessage] = (0, import_react30.useState)(null);
+  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.host] : [];
+  const currentModels = allBackendsForClamp[selectedIndex]?.models ?? [];
+  (0, import_react30.useEffect)(() => {
+    if (mode === "modelSelect" && currentModels.length > 0 && modelSelectedIndex >= currentModels.length) {
+      setModelSelectedIndex(currentModels.length - 1);
+    } else if (mode === "modelSelect" && currentModels.length === 0) {
+      setMode("nav");
+      onEditingChange?.(false);
+    }
+  }, [mode, currentModels.length, modelSelectedIndex, onEditingChange]);
+  const modeRef = import_react30.default.useRef(mode);
+  modeRef.current = mode;
+  const onEditingChangeRef = import_react30.default.useRef(onEditingChange);
+  onEditingChangeRef.current = onEditingChange;
   (0, import_react30.useEffect)(() => {
     return () => {
-      if (mode === "modelSelect") {
-        onEditingChange?.(false);
+      if (modeRef.current === "modelSelect") {
+        onEditingChangeRef.current?.(false);
       }
     };
-  }, [mode, onEditingChange]);
+  }, []);
   const enterModelSelect = (0, import_react30.useCallback)((models) => {
     const configuredModel = config.backends?.ollama?.model;
     const preselect = configuredModel ? models.indexOf(configuredModel) : -1;
@@ -65470,6 +65484,15 @@ function formatHumanReadable(report, config, paths) {
   lines.push("");
   return lines.join("\n");
 }
+function normalizeForJson(backends) {
+  return backends.map((b) => {
+    if (b.models && b.models.length === 0) {
+      const { models: _, ...rest } = b;
+      return rest;
+    }
+    return b;
+  });
+}
 function formatJson(report, config, exitCode) {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
@@ -65480,10 +65503,10 @@ function formatJson(report, config, exitCode) {
       version: getVersion()
     },
     backends: {
-      cli: report.cli,
-      local: report.local
+      cli: normalizeForJson(report.cli),
+      local: normalizeForJson(report.local)
     },
-    host: report.host,
+    host: normalizeForJson(report.host),
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     exitCode
