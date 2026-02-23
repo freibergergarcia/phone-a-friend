@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|both] [--max-rounds N]
+argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N]
 ---
 
 # /phone-a-team
@@ -28,10 +28,15 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 
 - If `$ARGUMENTS` contains `--backend codex`: set BACKEND = `codex`
 - If `$ARGUMENTS` contains `--backend gemini`: set BACKEND = `gemini`
+- If `$ARGUMENTS` contains `--backend ollama`: set BACKEND = `ollama`
 - If `$ARGUMENTS` contains `--backend both`: set BACKEND = `both`
 - If no `--backend` flag is present: set BACKEND = `codex` (default)
-- If `--backend` is present but the value is not `codex`, `gemini`, or `both`:
-  report an error and stop. Valid values: `codex`, `gemini`, `both`.
+- If `--backend` is present but the value is not `codex`, `gemini`, `ollama`,
+  or `both`: report an error and stop. Valid values: `codex`, `gemini`,
+  `ollama`, `both`.
+
+Note: `both` means `codex + gemini` (the two CLI backends). Ollama is a
+separate single-backend option. To use all three, run separate sessions.
 
 ### Max rounds parsing
 
@@ -61,6 +66,8 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 
 Verify that the requested backend(s) are installed and available.
 
+### CLI backends (codex, gemini)
+
 Run these checks using `command -v`:
 
 ```bash
@@ -68,18 +75,30 @@ command -v codex   # check if codex CLI is available
 command -v gemini  # check if gemini CLI is available
 ```
 
-Apply the following rules:
+### Ollama backend
 
-| BACKEND   | codex available | gemini available | Action                                                    |
-|-----------|-----------------|------------------|-----------------------------------------------------------|
-| `codex`   | yes             | —                | Proceed normally                                          |
-| `codex`   | no              | —                | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
-| `gemini`  | —               | yes              | Proceed normally                                          |
-| `gemini`  | —               | no               | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
-| `both`    | yes             | yes              | Proceed with both backends                                |
-| `both`    | yes             | no               | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
-| `both`    | no              | yes              | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
-| `both`    | no              | no               | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
+Ollama is an HTTP backend — the local binary is optional. Check server
+reachability instead:
+
+```bash
+curl -sf http://localhost:11434/api/tags > /dev/null 2>&1
+# Or if OLLAMA_HOST is set: curl -sf "$OLLAMA_HOST/api/tags"
+```
+
+### Decision table
+
+| BACKEND   | codex available | gemini available | ollama reachable | Action                                                    |
+|-----------|-----------------|------------------|------------------|-----------------------------------------------------------|
+| `codex`   | yes             | —                | —                | Proceed normally                                          |
+| `codex`   | no              | —                | —                | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
+| `gemini`  | —               | yes              | —                | Proceed normally                                          |
+| `gemini`  | —               | no               | —                | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
+| `ollama`  | —               | —                | yes              | Proceed normally                                          |
+| `ollama`  | —               | —                | no               | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
+| `both`    | yes             | yes              | —                | Proceed with both backends                                |
+| `both`    | yes             | no               | —                | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
+| `both`    | no              | yes              | —                | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
+| `both`    | no              | no               | —                | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
 
 After degradation, update BACKEND to the single available backend and continue.
 
@@ -107,8 +126,8 @@ command:
    if it fails → set `TEAM_ACTIVE=false`, skip to end of step.
 
 2. **Spawn teammate(s)** based on BACKEND:
-   - **Single backend** (`codex` or `gemini`): Spawn 1 teammate named
-     `relay-worker` via the `Task` tool with:
+   - **Single backend** (`codex`, `gemini`, or `ollama`): Spawn 1 teammate
+     named `relay-worker` via the `Task` tool with:
      - `team_name`: the TEAM_NAME from step 1
      - `subagent_type: "general-purpose"`
      - `mode: "bypassPermissions"`
@@ -116,22 +135,36 @@ command:
      - `codex-worker` (same params as above)
      - `gemini-worker` (same params as above)
 
-3. **Each teammate's prompt** must include:
-   - Their assigned backend (`--to codex` or `--to gemini`)
-   - The relay command template:
-     ```
-     ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
-     ```
-   - For gemini workers: always include `--model` per the Gemini Model
-     Priority section below
-   - Instructions to:
-     - Run relay calls as messaged by the lead
-     - Send results back via `SendMessage`
-     - Mark tasks complete via `TaskUpdate`
+3. **Each teammate's prompt** must use this template:
 
-4. **Seed first task immediately** after spawning — send the Round 1 task
-   to the worker(s) via `SendMessage`. Do NOT just say "wait for tasks" or
-   "stand by" — this causes deadlock.
+   ```
+   You are a relay worker. Your ONLY job: run the command below via Bash,
+   then send the FULL output (not a summary) back to the team lead via
+   SendMessage.
+
+   Run this now:
+
+   ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
+     [--context-text "<context>"] [--include-diff] [--sandbox <mode>] \
+     [--model <model>]
+
+   After the relay completes, send the FULL unedited output to the team
+   lead via SendMessage. Include:
+   - The complete relay output (stdout and stderr)
+   - Whether the command succeeded or failed (exit code)
+   Do NOT summarize, interpret, or editorialize. Send the raw output.
+   ```
+
+   Backend-specific additions:
+   - For **gemini** workers: always include `--model` per the Gemini Model
+     Priority section below.
+   - For **ollama** workers: include `--model` if the user specified one.
+     Otherwise omit `--model` and let Ollama use `OLLAMA_MODEL` env or its
+     server default.
+
+4. **Seed first task immediately** after spawning — include the Round 1
+   relay command directly in the teammate's spawn prompt. Do NOT just say
+   "wait for tasks" or "stand by" — this causes deadlock.
 
 5. **If any spawn fails**: Send `shutdown_request` to any already-spawned
    teammates, call `TeamDelete`, set `TEAM_ACTIVE=false`.
@@ -148,6 +181,17 @@ is identical — only the execution mechanism changes.
 
 Execute a do-review-decide loop. Maximum MAX_ROUNDS rounds. Stop early if
 converged.
+
+### Timing Expectations
+
+Different backends have different response times:
+- **Codex**: 3-5 minutes for thorough reviews. It reads files one-by-one in
+  its sandbox, which is methodical but slow. Do not assume it is stuck.
+- **Gemini**: 30-90 seconds typically. Faster but may hit capacity errors.
+- **Ollama**: Depends on model size and hardware. Small models (qwen3) are
+  fast (10-30s). Large models (llama3.2:70b) can take minutes.
+
+The relay timeout is 600 seconds by default. Do not intervene before that.
 
 ### Execution Mode
 
@@ -185,6 +229,7 @@ Delegate the task to the backend via the relay. The lead's job is to
   ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
   ```
   For gemini, always include `--model` per the Gemini Model Priority section.
+  For ollama, include `--model` only if the user specified one.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
@@ -316,6 +361,8 @@ Reference table for handling backend failures during the loop:
 | Both requested, one missing            | Degrade to available (handled in Step 2)          |
 | Both requested, one fails mid-loop     | Continue with remaining backend, note failure     |
 | Both requested, both fail mid-loop     | Stop loop. Synthesize using best prior result, or failure summary if no prior result exists |
+| Ollama server unreachable mid-loop     | Treat as round failure. Retry next round. If still unreachable, stop with failure summary |
+| Ollama model not found                 | Treat as round failure (no model fallback for Ollama — user should specify a valid model) |
 | Gemini retry-eligible HTTP status (429, 499, 500, 503, 504) | Try next model in priority list first. If all models exhausted, skip for this round, retry next round |
 | Backend timeout                        | Gemini: try next model in priority list first. If all models exhausted, treat as failure for this round, retry next |
 | Gemini "high demand" / capacity error  | Try next model in priority list. If all exhausted, treat as round failure |
@@ -329,6 +376,10 @@ round (or stop) after the model priority list is exhausted.
 
 **Round reset**: Each new round starts again from model #1 in the priority
 list. Model fallback state does not carry across rounds.
+
+**Ollama note**: Ollama does not have a model priority list. If a relay call
+fails with "model not found", report the error and let the user specify a
+different model. Do not attempt automatic model fallback for Ollama.
 
 If all backends are unavailable or failing, stop the loop and move to
 synthesis with whatever results have been collected. Always explain what
@@ -384,8 +435,7 @@ happened and whether the result is complete.
 - **Context size limits.** Respect the relay limits: 200 KB context, 300 KB
   diff, 500 KB prompt. Use the context budget rules in Step 5.
 - **No changes to phone-a-friend internals.** This command uses
-  `phone-a-friend` as a black box. Do not modify relay.py, backends/, or
-  cli.py.
+  `phone-a-friend` as a black box. Do not modify its source files.
 - **Cleanup is mandatory.** Step 8 must execute if a team was created (i.e.,
   `TeamCreate` succeeded at any point during this session), even on error
   paths.
@@ -438,7 +488,22 @@ or stop per Step 7. Each new round resets to model #1.
 When reporting errors in synthesis, list all attempted models and the error
 from each.
 
-This does NOT apply to `--to codex`.
+This does NOT apply to `--to codex` or `--to ollama`.
+
+## Ollama Model Handling
+
+When using `--to ollama`:
+
+- **If the user specified a model** (via `--model` in the task or
+  conversation): pass `--model <name>` to the relay call.
+- **If no model was specified**: omit `--model` entirely. Ollama will use the
+  `OLLAMA_MODEL` environment variable if set, or the server's default model.
+- **Do NOT maintain a model priority list** for Ollama. Unlike Gemini, Ollama
+  models are locally installed and user-specific. There is no universal
+  fallback order.
+- **If "model not found" error occurs**: report the error in synthesis and
+  suggest the user run `ollama pull <model>` or check available models with
+  `ollama list`.
 
 ## Notes
 

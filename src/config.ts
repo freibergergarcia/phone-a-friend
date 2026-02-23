@@ -20,7 +20,7 @@ import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
 export interface BackendConfig {
   model?: string;
   host?: string;
-  api_key_env?: string;
+
   [key: string]: unknown;
 }
 
