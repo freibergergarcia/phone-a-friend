@@ -1,7 +1,22 @@
 {
   "name": "@freibergergarcia/phone-a-friend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI relay that lets AI coding agents collaborate",
+  "keywords": [
+    "ai-agent",
+    "anthropic",
+    "claude-code",
+    "cli",
+    "codex",
+    "command-line-tool",
+    "developer-tools",
+    "gemini",
+    "generative-ai",
+    "llm",
+    "openai",
+    "ollama",
+    "typescript"
+  ],
   "type": "module",
   "bin": {
     "phone-a-friend": "dist/index.js"
