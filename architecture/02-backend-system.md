@@ -1,56 +1,75 @@
 # Backend System
 
-The backend subsystem defines a common execution contract (`RelayBackend`), runtime backend selection (`get_backend`), backend availability probing (`check_backends`), and concrete adapters for Codex and Gemini CLIs with a shared error surface.
+The backend subsystem defines a common async execution contract (`Backend` interface), a runtime registry (`registerBackend`/`getBackend`), backend availability probing (`checkBackends`), and concrete adapters for Codex CLI, Gemini CLI, and Ollama HTTP API, with a shared error surface.
 
 ## Backend Type Model and Error Hierarchy
 
 ```mermaid
 classDiagram
-  class RelayBackend {
-    <<Protocol>>
-    +name: str
-    +allowed_sandboxes: frozenset[str]
-    +run(prompt, repo_path, timeout_seconds, sandbox, model, env) str
+  class Backend {
+    <<Interface>>
+    +name: string
+    +allowedSandboxes: ReadonlySet~SandboxMode~
+    +run(opts): Promise~string~
   }
 
   class CodexBackend {
     +name = "codex"
-    +allowed_sandboxes = read-only, workspace-write, danger-full-access
-    +run(...)
+    +allowedSandboxes = read-only, workspace-write, danger-full-access
+    +run(opts): Promise~string~
   }
 
   class GeminiBackend {
     +name = "gemini"
-    +allowed_sandboxes = read-only, workspace-write, danger-full-access
-    +run(...)
+    +allowedSandboxes = read-only, workspace-write, danger-full-access
+    +run(opts): Promise~string~
+  }
+
+  class OllamaBackend {
+    +name = "ollama"
+    +allowedSandboxes = read-only, workspace-write, danger-full-access
+    +run(opts): Promise~string~
+    -diagnoseAndThrow(host, err, timeout): Promise~never~
   }
 
   class BackendError
   class CodexBackendError
   class GeminiBackendError
+  class OllamaBackendError
 
-  RelayBackend <|.. CodexBackend
-  RelayBackend <|.. GeminiBackend
+  Backend <|.. CodexBackend
+  Backend <|.. GeminiBackend
+  Backend <|.. OllamaBackend
   BackendError <|-- CodexBackendError
   BackendError <|-- GeminiBackendError
+  BackendError <|-- OllamaBackendError
 ```
 
 ## Registry and Discovery Flow
 
 ```mermaid
 flowchart TD
-  A[relay requests backend by name] --> B[get_backend name]
-  B --> C[import CODEX_BACKEND and GEMINI_BACKEND]
-  C --> D[build registry map by backend.name]
-  D --> E{name in registry?}
-  E -- no --> F[ValueError unsupported backend]
-  E -- yes --> G[return backend adapter]
+  A[relay requests backend by name] --> B[getBackend name]
+  B --> C[lookup in registry Map]
+  C --> D{name in registry?}
+  D -- no --> E[RelayError: unsupported backend]
+  D -- yes --> F[return backend adapter]
 
-  H[CLI install/status] --> I[check_backends]
-  I --> J["iterate INSTALL_HINTS keys: codex, gemini"]
-  J --> K["shutil.which(backend_name)"]
-  K --> L["availability map: {name: bool}"]
+  G[Self-registration at import] --> H["each backend file calls registerBackend()"]
+  H --> I["registry.set(backend.name, backend)"]
+
+  J[CLI install/status] --> K[checkBackends]
+  K --> L["iterate INSTALL_HINTS keys"]
+  L --> M["execFileSync('which', [name])"]
+  M --> N["availability map: {name, available, hint}[]"]
 ```
+
+## Backend Categories
+
+| Category | Backends | Execution Model |
+|----------|----------|-----------------|
+| CLI subprocess | codex, gemini | `execFileSync` with args, captures stdout or temp file |
+| HTTP API | ollama | `fetch` POST to local API, JSON response parsing |
 
 ## Backend Invocation Sequences
 
@@ -60,10 +79,11 @@ sequenceDiagram
   participant Adapter as Backend Adapter
   participant CLI as External CLI
   participant FS as Temp File
+  participant API as Ollama HTTP API
 
   alt Codex backend
-    Relay->>Adapter: CodexBackend.run(...)
-    Adapter->>Adapter: shutil.which("codex")
+    Relay->>Adapter: await CodexBackend.run(...)
+    Adapter->>Adapter: which("codex")
     Adapter->>FS: create temp directory
     Adapter->>CLI: codex exec -C repo --skip-git-repo-check --sandbox mode --output-last-message tmpfile [-m model] prompt
     CLI-->>FS: write final message file
@@ -73,47 +93,77 @@ sequenceDiagram
     else file empty/missing
       Adapter-->>Relay: stdout fallback
     end
+
   else Gemini backend
-    Relay->>Adapter: GeminiBackend.run(...)
-    Adapter->>Adapter: shutil.which("gemini")
+    Relay->>Adapter: await GeminiBackend.run(...)
+    Adapter->>Adapter: which("gemini")
     Adapter->>CLI: gemini [--sandbox] --yolo --include-directories repo --output-format text [-m model] --prompt prompt
-    Note over Adapter,CLI: subprocess cwd = repo_path
+    Note over Adapter,CLI: subprocess cwd = repoPath
     CLI-->>Adapter: stdout text
     Adapter-->>Relay: stdout
+
+  else Ollama backend
+    Relay->>Adapter: await OllamaBackend.run(...)
+    Adapter->>API: POST host/api/chat {messages, model?, stream: false}
+    Note over Adapter,API: AbortController for timeout
+    alt success
+      API-->>Adapter: {message: {content: "..."}}
+      Adapter-->>Relay: trimmed content
+    else error field in response
+      API-->>Adapter: {error: "..."}
+      Adapter-->>Relay: OllamaBackendError
+    else fetch fails
+      Adapter->>API: GET host/api/tags (diagnostic probe)
+      alt server unreachable
+        Adapter-->>Relay: OllamaBackendError "not reachable"
+      else server reachable but chat failed
+        Adapter-->>Relay: OllamaBackendError "request failed"
+      end
+    else timeout
+      Adapter-->>Relay: OllamaBackendError "timed out"
+    end
   end
 ```
 
-## Codex vs Gemini: CLI Flag Mapping
+## Codex vs Gemini vs Ollama: Comparison
 
-| Concept | Codex | Gemini |
-|---------|-------|--------|
-| Non-interactive mode | `codex exec` | `gemini --prompt` |
-| Repo context | `-C <repo>` | `--include-directories <repo>` + `cwd=repo` |
-| Sandbox: read-only | `--sandbox read-only` | `--sandbox` (boolean on) |
-| Sandbox: workspace-write | `--sandbox workspace-write` | `--sandbox` (boolean on) |
-| Sandbox: danger-full-access | `--sandbox danger-full-access` | (omit `--sandbox`) |
-| Auto-approve | N/A | `--yolo` |
-| Output capture | `--output-last-message <file>` | `--output-format text` (stdout) |
-| Model override | `-m <model>` | `-m <model>` |
-| Git check skip | `--skip-git-repo-check` | N/A |
+| Concept | Codex | Gemini | Ollama |
+|---------|-------|--------|--------|
+| Execution model | Subprocess | Subprocess | HTTP fetch |
+| Non-interactive mode | `codex exec` | `gemini --prompt` | `POST /api/chat` |
+| Repo context | `-C <repo>` | `--include-directories <repo>` + `cwd=repo` | N/A (prompt only) |
+| Sandbox: read-only | `--sandbox read-only` | `--sandbox` (boolean on) | N/A (pure inference) |
+| Sandbox: workspace-write | `--sandbox workspace-write` | `--sandbox` (boolean on) | N/A |
+| Sandbox: danger-full-access | `--sandbox danger-full-access` | (omit `--sandbox`) | N/A |
+| Auto-approve | N/A | `--yolo` | N/A |
+| Output capture | `--output-last-message <file>` | `--output-format text` (stdout) | JSON `message.content` |
+| Model override | `-m <model>` | `-m <model>` | `body.model` or `OLLAMA_MODEL` env |
+| Model default | CLI default | CLI default | Server default (omit field) |
+| Host override | N/A | N/A | `OLLAMA_HOST` env |
+| Timeout | `execFileSync` timeout | `execFileSync` timeout | `AbortController` + `setTimeout` |
 
 ## Key Components and Responsibilities
 
 | Component | Role |
 |-----------|------|
-| `RelayBackend` protocol | Stable adapter contract used by relay core |
-| `INSTALL_HINTS` dict | Single source for backend install guidance |
-| `get_backend(name)` | Explicit registry lookup and validation |
-| `check_backends()` | CLI-level PATH probing for availability |
-| `BackendRegistration` dataclass | Backend metadata container (name + backend) |
+| `Backend` interface | Async adapter contract used by relay core |
+| `registerBackend()` | Self-registration called at module import |
+| `getBackend(name)` | Registry lookup and validation |
+| `INSTALL_HINTS` record | Single source for backend install guidance |
+| `checkBackends()` | CLI-level PATH probing for availability |
+| `BackendError` base class | Shared error surface for all backends |
 | `CodexBackend` | Adapter for `codex exec` with temp file output |
 | `GeminiBackend` | Adapter for `gemini --prompt` with stdout capture |
+| `OllamaBackend` | HTTP adapter for Ollama `/api/chat` with diagnostics |
 
 ## Important Design Decisions
 
-- Registry is explicit and code-local (no dynamic plugin loading for backends).
-- Supported backend names are currently fixed to `codex` and `gemini`.
+- Registry uses self-registration: each backend file calls `registerBackend()` at import time.
+- `src/index.ts` imports all backend files to trigger registration before CLI runs.
+- Supported backends: `codex`, `gemini`, `ollama`. No dynamic plugin loading.
 - No built-in multi-backend fallback in relay core; caller decides backend strategy.
-- Both adapters share the same allowed sandbox value set for consistent relay validation.
-- Error taxonomy is intentionally simple: one base class plus backend-specific subclasses.
-- Codex uses temp file as primary output channel with stdout fallback; Gemini captures stdout directly.
+- All adapters share the same allowed sandbox value set for consistent relay validation.
+- Error taxonomy: one base class (`BackendError`) plus backend-specific subclasses.
+- Codex uses temp file as primary output channel with stdout fallback; Gemini captures stdout directly; Ollama parses JSON response.
+- Ollama uses failure-path diagnostics: only probes `/api/tags` when `/api/chat` fails, to distinguish timeout vs unreachable vs request error.
+- All `run()` methods are async (`Promise<string>`) to support both subprocess and HTTP backends uniformly.

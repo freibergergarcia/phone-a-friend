@@ -1,6 +1,6 @@
 ---
 name: phone-a-friend
-description: Relay task context + latest response to a backend (Codex or Gemini) for feedback, then continue with that feedback.
+description: Relay task context + latest response to a backend (Codex, Gemini, or Ollama) for feedback, then continue with that feedback.
 argument-hint: [optional review focus]
 ---
 
@@ -10,7 +10,7 @@ Use this command after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to a backend (Codex or Gemini) using `phone-a-friend`, then bring the feedback back into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Codex, Gemini, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Inputs
 

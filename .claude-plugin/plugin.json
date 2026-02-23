@@ -1,7 +1,7 @@
 {
   "name": "phone-a-friend",
-  "description": "Cross-agent relay for sending local repository context and prompts to Codex in non-interactive mode.",
-  "version": "0.4.4",
+  "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
+  "version": "1.2.1-alpha.1",
   "author": {
     "name": "Bruno Freiberger"
   }
