@@ -1,6 +1,8 @@
 # Phone-a-Team Iterative Loop
 
-`/phone-a-team` (v0.2.0) is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (default 3 rounds, configurable 1–5 via `--max-rounds`) over one or more backends via `phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
+`/phone-a-team` is an iterative orchestration layer defined in `commands/phone-a-team.md`. It runs a structured do-review-decide loop (default 3 rounds, configurable 1–5 via `--max-rounds`) over one or more backends via `phone-a-friend`, with optional Claude agent-team acceleration and deterministic fallback behavior.
+
+> **Note:** `/phone-a-team` is a prompt policy, not compiled code. The diagrams below describe the behavior enforced by the slash command prompt file (`commands/phone-a-team.md`), not runtime code paths. There is no loop construct in the TypeScript source — Claude's agent runtime follows the prompt instructions to iterate.
 
 ## Loop Architecture
 

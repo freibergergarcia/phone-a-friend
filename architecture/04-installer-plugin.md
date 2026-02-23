@@ -21,12 +21,13 @@ flowchart TD
   C5 -- copy --> C7["cpSync repo -> ~/.claude/plugins/phone-a-friend"]
   C6 --> C8{syncClaudeCli?}
   C7 --> C8
-  C8 -- yes --> C9["syncClaudePluginRegistration"]
+  C8 -- yes --> C9["syncClaudePluginRegistration (5 commands)"]
   C8 -- no --> C10[skip sync]
   C9 --> C11[return status lines]
   C10 --> C11
 
-  E --> E1["uninstallClaude -> deregister + remove target path"]
+  E --> E1["uninstallClaude — remove target path FIRST"]
+  E1 --> E2["unsyncClaudePluginRegistration — then deregister from CLI"]
 ```
 
 ## Claude Plugin Registration Flow
@@ -58,6 +59,32 @@ sequenceDiagram
   end
 ```
 
+## Uninstall Flow
+
+Uninstall removes the plugin files first, then deregisters from the Claude CLI plugin registry:
+
+```mermaid
+sequenceDiagram
+  participant CLI as phone-a-friend uninstall
+  participant Installer as installer.ts
+  participant FS as ~/.claude/plugins/phone-a-friend
+  participant ClaudeCLI as claude plugin ...
+
+  CLI->>Installer: uninstallHosts(target)
+  Installer->>FS: uninstallClaude — remove symlink/directory
+  FS-->>Installer: removed / not-installed
+
+  alt claude binary present
+    Installer->>ClaudeCLI: plugin disable phone-a-friend@phone-a-friend-dev -s user
+    ClaudeCLI-->>Installer: ok / failed
+    Installer->>ClaudeCLI: plugin uninstall phone-a-friend@phone-a-friend-dev -s user
+    ClaudeCLI-->>Installer: ok / failed
+  else claude binary missing
+    Installer-->>CLI: "claude_cli: skipped"
+  end
+  Installer-->>CLI: status lines
+```
+
 ## Install Path Resolution
 
 ```mermaid
@@ -80,23 +107,26 @@ flowchart LR
 
 `isPluginInstalled()` checks whether the Claude plugin is installed:
 - Resolves `claudeTarget()` path (`~/.claude/plugins/phone-a-friend`)
-- For symlinks: checks exists + valid target (not dangling)
-- For copies: checks directory exists
+- For symlinks: checks `lstatSync` reports symlink AND `existsSync` returns true (not dangling)
+- For copies/directories: checks `existsSync` returns true
+- Both paths use the same underlying `existsSync()` call — the symlink branch adds a dangling-link check
 - Used by TUI's `PluginStatusBar` component for live status display
 
 ## Key Components and Responsibilities
 
 | Component | Role |
 |-----------|------|
-| `installHosts()` | Top-level install orchestrator: validates, installs, syncs |
-| `uninstallHosts()` | Top-level uninstall: deregisters from Claude CLI, removes target path |
+| `installHosts()` | Top-level install orchestrator: validates, installs, optionally syncs CLI |
+| `uninstallHosts()` | Top-level uninstall: removes plugin files FIRST, then deregisters from Claude CLI |
 | `installClaude()` | Resolves target path, delegates to `installPath` |
 | `installPath()` | Low-level symlink/copy with force and idempotency handling |
-| `syncClaudePluginRegistration()` | Runs 5 `claude plugin` commands for marketplace sync |
+| `syncClaudePluginRegistration()` | Runs 5 `claude plugin` commands for marketplace sync (install flow) |
+| `unsyncClaudePluginRegistration()` | Runs `disable` then `uninstall` commands (uninstall flow) |
 | `looksLikeOkIfAlready()` | Idempotency detector for "already installed" responses |
-| `verifyBackends()` | Reports backend CLI availability post-install |
+| `verifyBackends()` | Calls `checkBackends()` and maps to `BackendInfo[]` for display |
+| `checkBackends()` | Returns `Record<string, boolean>` — raw availability map from backend registry |
 | `isValidRepoRoot()` | Validates `.claude-plugin/plugin.json` exists |
-| `isPluginInstalled()` | Checks if Claude plugin symlink/copy exists |
+| `isPluginInstalled()` | Checks if Claude plugin symlink/copy exists (used by TUI) |
 | `claudeTarget()` | Resolves `~/.claude/plugins/phone-a-friend` path |
 
 ## Symlink vs Copy Modes
@@ -124,15 +154,17 @@ Constants:
 
 ## Backend Availability Verification
 
+After install, `verifyBackends()` reports which backend CLIs are available:
+
 ```mermaid
 flowchart LR
-  A[verifyBackends] --> B[checkBackends]
-  B --> C["execFileSync('which', ['codex'])"]
-  B --> D["execFileSync('which', ['gemini'])"]
-  C --> E["{name, available, hint}[]"]
-  D --> E
-  E --> F[Display to user after install]
+  A["verifyBackends()"] --> B["checkBackends()"]
+  B --> C["Record<string, boolean> (keyed by INSTALL_HINTS)"]
+  C --> D["map to BackendInfo[] {name, available, hint}"]
+  D --> E[Display to user after install]
 ```
+
+Note: `checkBackends()` (in `src/backends/index.ts`) returns `Record<string, boolean>`. `verifyBackends()` (in `src/installer.ts`) wraps this into `BackendInfo[]` with install hints for display purposes.
 
 ## Important Design Decisions
 
@@ -141,5 +173,5 @@ flowchart LR
 - Installer is idempotence-aware for "already" states from Claude CLI.
 - Backend checks are advisory; installation does not fail due to missing backend CLIs.
 - CI/release enforce version sync between `package.json` and `.claude-plugin/plugin.json`.
-- Uninstall now deregisters from Claude CLI plugin registry before removing files.
+- Uninstall removes plugin files first, then deregisters from Claude CLI — this order ensures the plugin directory is cleaned up even if CLI deregistration fails.
 - `isPluginInstalled()` enables TUI to show real-time plugin status.
