@@ -6,6 +6,10 @@ import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn().mockReturnValue(true),
+}));
+
 vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockReturnValue({
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
@@ -19,6 +23,7 @@ vi.mock('../../src/config.js', () => ({
     repo: null,
   }),
   configSet: vi.fn(),
+  configInit: vi.fn(),
 }));
 
 import { ConfigPanel } from '../../src/tui/ConfigPanel.js';
@@ -89,5 +94,27 @@ describe('ConfigPanel', () => {
   it('shows selection pointer', () => {
     const { lastFrame } = render(<ConfigPanel />);
     expect(lastFrame()).toContain('\u25b8');
+  });
+
+  it('toggles boolean field on Enter (include_diff)', async () => {
+    mockConfigSet.mockClear();
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    // Navigate down to include_diff (index 3: backend=0, sandbox=1, timeout=2, include_diff=3)
+    stdin.write('\u001B[B'); // down
+    stdin.write('\u001B[B'); // down
+    stdin.write('\u001B[B'); // down
+    await tick();
+    // Press Enter — should toggle false → true and save, NOT enter edit mode
+    stdin.write('\r');
+    await tick();
+    // Should NOT show "Esc cancel" (edit mode), should show save message
+    expect(lastFrame()).toContain('Saved');
+    expect(lastFrame()).not.toContain('Esc cancel');
+    // configSet should have been called with 'true'
+    expect(mockConfigSet).toHaveBeenCalledWith(
+      'defaults.include_diff',
+      'true',
+      expect.any(String),
+    );
   });
 });

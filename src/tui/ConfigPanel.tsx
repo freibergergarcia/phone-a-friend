@@ -7,28 +7,38 @@ import React, { useState, useCallback } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { loadConfig, configPaths, configSet, configInit } from '../config.js';
 import { existsSync } from 'node:fs';
+import { INSTALL_HINTS } from '../backends/index.js';
+
+type EditMode =
+  | { type: 'toggle' }
+  | { type: 'picker'; options: string[] }
+  | { type: 'text' };
 
 interface ConfigRow {
   dotKey: string;
   label: string;
   value: unknown;
   section: string;
+  editMode: EditMode;
 }
+
+const SANDBOX_OPTIONS: string[] = ['read-only', 'workspace-write', 'danger-full-access'];
 
 function buildRows(config: ReturnType<typeof loadConfig>): ConfigRow[] {
   const rows: ConfigRow[] = [];
+  const backendOptions = Object.keys(INSTALL_HINTS).sort();
 
   // Defaults
-  rows.push({ dotKey: 'defaults.backend', label: 'backend', value: config.defaults.backend, section: 'Defaults' });
-  rows.push({ dotKey: 'defaults.sandbox', label: 'sandbox', value: config.defaults.sandbox, section: 'Defaults' });
-  rows.push({ dotKey: 'defaults.timeout', label: 'timeout', value: config.defaults.timeout, section: 'Defaults' });
-  rows.push({ dotKey: 'defaults.include_diff', label: 'include_diff', value: config.defaults.include_diff, section: 'Defaults' });
-  rows.push({ dotKey: 'defaults.stream', label: 'stream', value: config.defaults.stream ?? true, section: 'Defaults' });
+  rows.push({ dotKey: 'defaults.backend', label: 'backend', value: config.defaults.backend, section: 'Defaults', editMode: { type: 'picker', options: backendOptions } });
+  rows.push({ dotKey: 'defaults.sandbox', label: 'sandbox', value: config.defaults.sandbox, section: 'Defaults', editMode: { type: 'picker', options: SANDBOX_OPTIONS } });
+  rows.push({ dotKey: 'defaults.timeout', label: 'timeout', value: config.defaults.timeout, section: 'Defaults', editMode: { type: 'text' } });
+  rows.push({ dotKey: 'defaults.include_diff', label: 'include_diff', value: config.defaults.include_diff, section: 'Defaults', editMode: { type: 'toggle' } });
+  rows.push({ dotKey: 'defaults.stream', label: 'stream', value: config.defaults.stream ?? true, section: 'Defaults', editMode: { type: 'toggle' } });
 
-  // Per-backend
+  // Per-backend (all free-text)
   for (const [name, cfg] of Object.entries(config.backends ?? {})) {
     for (const [key, val] of Object.entries(cfg)) {
-      rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}` });
+      rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}`, editMode: { type: 'text' } });
     }
   }
 
@@ -106,6 +116,25 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
     if (key.return) {
       const row = rows[selectedIndex];
       if (!row) return;
+
+      if (row.editMode.type === 'toggle') {
+        // Toggle boolean value and save immediately
+        const newValue = String(row.value) === 'true' ? 'false' : 'true';
+        try {
+          const userPath = paths.user;
+          if (!existsSync(userPath)) {
+            configInit(userPath, true);
+          }
+          configSet(row.dotKey, newValue, userPath);
+          reload();
+          setSaveMessage(`Saved ${row.dotKey}`);
+        } catch (err) {
+          setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+
+      // Picker and text: open text editor (picker handled in Task 2)
       setEditValue(String(row.value));
       setEditing(true);
       setSaveMessage(null);
