@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Codex, Gemini, Ollama). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`).
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Codex, Gemini, Ollama). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
 
 ## Project Structure
 
@@ -12,7 +12,8 @@ Guidance for AI coding agents working in `phone-a-friend`.
 src/
   index.ts           Entry point — imports backends, runs CLI
   cli.ts             Commander.js CLI with subcommands
-  relay.ts           Backend-agnostic relay core
+  relay.ts           Backend-agnostic relay core (relay + relayStream)
+  stream-parsers.ts  Stream parsers — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
   context.ts         RelayContext interface
   version.ts         Shared version reader
   detection.ts       Backend detection (CLI, Local, Host)
@@ -22,6 +23,7 @@ src/
   installer.ts       Claude plugin installer (symlink/copy)
   backends/
     index.ts         Backend interface, registry, types
+    claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
     ollama.ts        Ollama HTTP API backend (native fetch)
@@ -47,13 +49,16 @@ dist/                Built bundle (committed, self-contained)
 
 ## Core Behavior
 
-- Relay core is backend-agnostic in `src/relay.ts`
-- Backend interface/registry in `src/backends/index.ts`
+- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming
+- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` optional
+- Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
+- Claude backend in `src/backends/claude.ts` (subprocess via `claude -p`, streams via `--output-format stream-json`)
 - Codex backend in `src/backends/codex.ts`
 - Gemini backend in `src/backends/gemini.ts`
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434)
+- Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
-- TOML config system in `src/config.ts`
+- TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
 - Default sandbox: `read-only`
 
@@ -64,9 +69,12 @@ After `npm install -g @freibergergarcia/phone-a-friend`, the `phone-a-friend` co
 ```bash
 # Relay
 phone-a-friend --to codex --repo <path> --prompt "..."
+phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 phone-a-friend --prompt "..."               # Uses default backend from config
+phone-a-friend --to codex --prompt "..." --stream     # Stream tokens as they arrive
+phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
