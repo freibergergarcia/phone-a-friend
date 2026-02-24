@@ -18332,14 +18332,14 @@ var require_react_reconciler_production = __commonJS({
       }
       var exports2 = {};
       "use strict";
-      var React16 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
+      var React17 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
       /* @__PURE__ */ Symbol.for("react.scope");
       var REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity");
       /* @__PURE__ */ Symbol.for("react.legacy_hidden");
       /* @__PURE__ */ Symbol.for("react.tracing_marker");
       var REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
       /* @__PURE__ */ Symbol.for("react.view_transition");
-      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
+      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
       $$$config.cloneMutableInstance;
       var appendInitialChild = $$$config.appendInitialChild, finalizeInitialChildren = $$$config.finalizeInitialChildren, shouldSetTextContent = $$$config.shouldSetTextContent, createTextInstance = $$$config.createTextInstance;
       $$$config.cloneMutableTextInstance;
@@ -30932,14 +30932,14 @@ var require_react_reconciler_development = __commonJS({
       }
       var exports2 = {};
       "use strict";
-      var React16 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
+      var React17 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
       /* @__PURE__ */ Symbol.for("react.scope");
       var REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity");
       /* @__PURE__ */ Symbol.for("react.legacy_hidden");
       /* @__PURE__ */ Symbol.for("react.tracing_marker");
       var REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
       /* @__PURE__ */ Symbol.for("react.view_transition");
-      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
+      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
       $$$config.cloneMutableInstance;
       var appendInitialChild = $$$config.appendInitialChild, finalizeInitialChildren = $$$config.finalizeInitialChildren, shouldSetTextContent = $$$config.shouldSetTextContent, createTextInstance = $$$config.createTextInstance;
       $$$config.cloneMutableTextInstance;
@@ -37723,7 +37723,7 @@ var require_backend = __commonJS({
                     return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
                   }, _typeof(o);
                 }
-                var ErrorStackParser = __webpack_require__2(206), React16 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
+                var ErrorStackParser = __webpack_require__2(206), React17 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
                 function getPrimitiveStackCache() {
                   if (null === primitiveStackCache) {
                     var cache3 = /* @__PURE__ */ new Map();
@@ -37861,7 +37861,7 @@ var require_backend = __commonJS({
                     }
                     throw Error("An unsupported type was passed to use(): " + String(usable));
                   },
-                  useCallback: function useCallback8(callback) {
+                  useCallback: function useCallback9(callback) {
                     var hook = nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37885,7 +37885,7 @@ var require_backend = __commonJS({
                     });
                     return value;
                   },
-                  useEffect: function useEffect9(create3) {
+                  useEffect: function useEffect10(create3) {
                     nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37931,7 +37931,7 @@ var require_backend = __commonJS({
                       dispatcherHookName: "InsertionEffect"
                     });
                   },
-                  useMemo: function useMemo5(nextCreate) {
+                  useMemo: function useMemo6(nextCreate) {
                     var hook = nextHook();
                     nextCreate = null !== hook ? hook.memoizedState[0] : nextCreate();
                     hookLog.push({
@@ -37958,7 +37958,7 @@ var require_backend = __commonJS({
                     return [initialArg, function() {
                     }];
                   },
-                  useRef: function useRef6(initialValue) {
+                  useRef: function useRef7(initialValue) {
                     var hook = nextHook();
                     initialValue = null !== hook ? hook.memoizedState : {
                       current: initialValue
@@ -37973,7 +37973,7 @@ var require_backend = __commonJS({
                     });
                     return initialValue;
                   },
-                  useState: function useState11(initialState) {
+                  useState: function useState13(initialState) {
                     var hook = nextHook();
                     initialState = null !== hook ? hook.memoizedState : "function" === typeof initialState ? initialState() : initialState;
                     hookLog.push({
@@ -59681,18 +59681,18 @@ var require_react_jsx_runtime_development = __commonJS({
       function isValidElement(object) {
         return "object" === typeof object && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
       }
-      var React16 = require_react(), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, hasOwnProperty = Object.prototype.hasOwnProperty, isArrayImpl = Array.isArray, createTask = console.createTask ? console.createTask : function() {
+      var React17 = require_react(), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, hasOwnProperty = Object.prototype.hasOwnProperty, isArrayImpl = Array.isArray, createTask = console.createTask ? console.createTask : function() {
         return null;
       };
-      React16 = {
+      React17 = {
         react_stack_bottom_frame: function(callStackForError) {
           return callStackForError();
         }
       };
       var specialPropKeyWarningShown;
       var didWarnAboutElementRef = {};
-      var unknownOwnerDebugStack = React16.react_stack_bottom_frame.bind(
-        React16,
+      var unknownOwnerDebugStack = React17.react_stack_bottom_frame.bind(
+        React17,
         UnknownOwner
       )();
       var unknownOwnerDebugTask = createTask(getTaskName(UnknownOwner));
@@ -60613,21 +60613,255 @@ var init_ActionsPanel = __esm({
   }
 });
 
+// src/tui/AgenticPanel.tsx
+function sessionBadge(status) {
+  if (status === "completed") return "available";
+  if (status === "active") return "partial";
+  if (status === "failed") return "unavailable";
+  return "planned";
+}
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function formatDate(date) {
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+function truncate(text, max) {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "\u2026";
+}
+function SessionList({ sessions, selectedIndex }) {
+  if (sessions.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: true, underline: true, children: "Agentic Sessions" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "No sessions yet. Run one with:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", children: '  phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "..."' })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, underline: true, children: [
+      "Agentic Sessions (",
+      sessions.length,
+      ")"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: " " }),
+    sessions.map((s, i) => {
+      const selected = i === selectedIndex;
+      const agentNames = s.agents.map((a) => a.name).join(", ");
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: selected ? "\u25B8" : " " }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Badge, { status: sessionBadge(s.status) }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: selected, color: selected ? "cyan" : void 0, children: s.id }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          formatDate(s.createdAt),
+          " ",
+          formatTime(s.createdAt)
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "|" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: agentNames || "no agents" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "|" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: truncate(s.prompt, 40) })
+      ] }, s.id);
+    })
+  ] });
+}
+function SessionDetail({ session, transcript, scrollOffset }) {
+  const agentList = session.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
+  const visibleLines = 15;
+  const visible = transcript.slice(scrollOffset, scrollOffset + visibleLines);
+  const hasMore = scrollOffset + visibleLines < transcript.length;
+  const hasLess = scrollOffset > 0;
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Badge, { status: sessionBadge(session.status) }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, children: [
+          "Session ",
+          session.id
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: session.status }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          "| Turn ",
+          session.turn
+        ] }),
+        session.endedAt && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          "| ",
+          formatDate(session.createdAt),
+          " ",
+          formatTime(session.createdAt),
+          " - ",
+          formatTime(session.endedAt)
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "  Agents: ",
+        agentList
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "  Prompt: ",
+        truncate(session.prompt, 70)
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, underline: true, children: [
+      "Transcript (",
+      transcript.length,
+      " messages)"
+    ] }),
+    hasLess && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "  ",
+      "\u25B2",
+      " ",
+      scrollOffset,
+      " more above"
+    ] }),
+    visible.map((msg) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, paddingLeft: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "[T",
+        msg.turn,
+        "]"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", bold: true, children: msg.from }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "\u2192" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: msg.to }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: truncate(msg.content.replace(/\n/g, " "), 60) })
+    ] }, msg.id)),
+    hasMore && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "  ",
+      "\u25BC",
+      " ",
+      transcript.length - scrollOffset - visibleLines,
+      " more below"
+    ] }),
+    transcript.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "  No messages recorded" })
+  ] });
+}
+function AgenticPanel({ agenticSessions }) {
+  const { sessions, loading, error: error2, refresh, getTranscript, deleteSession } = agenticSessions;
+  const [selectedIndex, setSelectedIndex] = (0, import_react33.useState)(0);
+  const [viewingSession, setViewingSession] = (0, import_react33.useState)(null);
+  const [scrollOffset, setScrollOffset] = (0, import_react33.useState)(0);
+  const [confirming, setConfirming] = (0, import_react33.useState)(false);
+  const activeSession = (0, import_react33.useMemo)(
+    () => viewingSession ? sessions.find((s) => s.id === viewingSession) ?? null : null,
+    [sessions, viewingSession]
+  );
+  const transcript = (0, import_react33.useMemo)(
+    () => viewingSession ? getTranscript(viewingSession) : [],
+    [viewingSession, getTranscript]
+  );
+  use_input_default((input, key) => {
+    if (confirming) {
+      if (input === "y" || input === "Y") {
+        const session = sessions[selectedIndex];
+        if (session) {
+          deleteSession(session.id);
+          setConfirming(false);
+          if (selectedIndex >= sessions.length - 1) {
+            setSelectedIndex(Math.max(0, sessions.length - 2));
+          }
+        }
+      }
+      if (input === "n" || input === "N" || key.escape) {
+        setConfirming(false);
+      }
+      return;
+    }
+    if (viewingSession) {
+      if (key.escape || input === "h") {
+        setViewingSession(null);
+        setScrollOffset(0);
+        return;
+      }
+      if (key.downArrow) {
+        setScrollOffset((o) => Math.min(o + 1, Math.max(0, transcript.length - 15)));
+      }
+      if (key.upArrow) {
+        setScrollOffset((o) => Math.max(o - 1, 0));
+      }
+      return;
+    }
+    if (key.downArrow) {
+      setSelectedIndex((i) => Math.min(i + 1, sessions.length - 1));
+    }
+    if (key.upArrow) {
+      setSelectedIndex((i) => Math.max(i - 1, 0));
+    }
+    if (key.return || input === "l") {
+      const session = sessions[selectedIndex];
+      if (session) {
+        setViewingSession(session.id);
+        setScrollOffset(0);
+      }
+    }
+    if (input === "d") {
+      if (sessions[selectedIndex]) {
+        setConfirming(true);
+      }
+    }
+  });
+  if (loading) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", children: "Loading sessions..." });
+  }
+  if (error2) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: true, underline: true, children: "Agentic Sessions" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "red", children: [
+        "Error: ",
+        error2.message
+      ] })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+    viewingSession && activeSession ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      SessionDetail,
+      {
+        session: activeSession,
+        transcript,
+        scrollOffset
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SessionList, { sessions, selectedIndex }),
+    confirming && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "yellow", children: [
+      "Delete session ",
+      sessions[selectedIndex]?.id,
+      "? (y/n)"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { children: viewingSession ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "Esc/h back  ",
+      "\u2191\u2193",
+      " scroll  r refresh"
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "Enter/l view  d delete  r refresh  ",
+      "\u2191\u2193",
+      " navigate"
+    ] }) })
+  ] });
+}
+var import_react33, import_jsx_runtime9;
+var init_AgenticPanel = __esm({
+  async "src/tui/AgenticPanel.tsx"() {
+    "use strict";
+    import_react33 = __toESM(require_react(), 1);
+    await init_build2();
+    await init_Badge();
+    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+  }
+});
+
 // src/tui/hooks/useDetection.ts
 function useDetection() {
-  const [report, setReport] = (0, import_react33.useState)(null);
-  const [loading, setLoading] = (0, import_react33.useState)(true);
-  const [refreshing, setRefreshing] = (0, import_react33.useState)(false);
-  const [error2, setError] = (0, import_react33.useState)(null);
-  const lastRunRef = (0, import_react33.useRef)(0);
-  const runningRef = (0, import_react33.useRef)(false);
-  const mountedRef = (0, import_react33.useRef)(true);
-  (0, import_react33.useEffect)(() => {
+  const [report, setReport] = (0, import_react34.useState)(null);
+  const [loading, setLoading] = (0, import_react34.useState)(true);
+  const [refreshing, setRefreshing] = (0, import_react34.useState)(false);
+  const [error2, setError] = (0, import_react34.useState)(null);
+  const lastRunRef = (0, import_react34.useRef)(0);
+  const runningRef = (0, import_react34.useRef)(false);
+  const mountedRef = (0, import_react34.useRef)(true);
+  (0, import_react34.useEffect)(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
-  const runDetection = (0, import_react33.useCallback)(async (force = false) => {
+  const runDetection = (0, import_react34.useCallback)(async (force = false) => {
     if (runningRef.current) return;
     const now = Date.now();
     if (!force && now - lastRunRef.current < THROTTLE_MS && lastRunRef.current > 0) return;
@@ -60656,19 +60890,19 @@ function useDetection() {
       runningRef.current = false;
     }
   }, [report]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     runDetection();
   }, []);
-  const refresh = (0, import_react33.useCallback)((opts) => {
+  const refresh = (0, import_react34.useCallback)((opts) => {
     runDetection(opts?.force ?? false);
   }, [runDetection]);
   return { report, loading, refreshing, error: error2, refresh };
 }
-var import_react33, THROTTLE_MS;
+var import_react34, THROTTLE_MS;
 var init_useDetection = __esm({
   "src/tui/hooks/useDetection.ts"() {
     "use strict";
-    import_react33 = __toESM(require_react(), 1);
+    import_react34 = __toESM(require_react(), 1);
     init_detection();
     THROTTLE_MS = 5e3;
   }
@@ -60676,214 +60910,34 @@ var init_useDetection = __esm({
 
 // src/tui/components/PluginStatusBar.tsx
 function PluginStatusBar({ installed }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "green", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
     "\u2713",
     " Claude Plugin: Installed"
-  ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: "! Claude Plugin: Not Installed" }) });
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { color: "yellow", children: "! Claude Plugin: Not Installed" }) });
 }
-var import_jsx_runtime9;
+var import_jsx_runtime10;
 var init_PluginStatusBar = __esm({
   async "src/tui/components/PluginStatusBar.tsx"() {
     "use strict";
     await init_build2();
-    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
   }
 });
 
 // src/tui/hooks/usePluginStatus.ts
 function usePluginStatus() {
-  const [installed, setInstalled] = (0, import_react34.useState)(() => isPluginInstalled());
-  const recheck = (0, import_react34.useCallback)(() => {
+  const [installed, setInstalled] = (0, import_react35.useState)(() => isPluginInstalled());
+  const recheck = (0, import_react35.useCallback)(() => {
     setInstalled(isPluginInstalled());
   }, []);
   return { installed, recheck };
 }
-var import_react34;
+var import_react35;
 var init_usePluginStatus = __esm({
   "src/tui/hooks/usePluginStatus.ts"() {
     "use strict";
-    import_react34 = __toESM(require_react(), 1);
-    init_installer();
-  }
-});
-
-// src/tui/App.tsx
-function App2() {
-  const { exit } = use_app_default();
-  const [activeTab, setActiveTab] = (0, import_react35.useState)(0);
-  const [childHasFocus, setChildHasFocus] = (0, import_react35.useState)(false);
-  const detection = useDetection();
-  const pluginStatus = usePluginStatus();
-  const nextTab = (0, import_react35.useCallback)(() => {
-    setActiveTab((prev) => (prev + 1) % TABS.length);
-  }, []);
-  const currentTab = TABS[activeTab];
-  use_input_default((input, key) => {
-    if (childHasFocus) return;
-    if (input === "q") {
-      exit();
-      return;
-    }
-    if (key.tab) {
-      nextTab();
-      return;
-    }
-    const num = parseInt(input, 10);
-    if (num >= 1 && num <= TABS.length) {
-      setActiveTab(num - 1);
-      return;
-    }
-    if (input === "r" && (currentTab === "Status" || currentTab === "Backends")) {
-      detection.refresh({ force: true });
-    }
-  });
-  const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(KeyHint, { hints })
-  ] });
-}
-function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2 }) {
-  switch (tab2) {
-    case "Status":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
-        StatusPanel,
-        {
-          report: detection.report,
-          loading: detection.loading,
-          refreshing: detection.refreshing,
-          error: detection.error,
-          pluginInstalled
-        }
-      );
-    case "Backends":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BackendsPanel, { report: detection.report, onEditingChange: onFocusChange });
-    case "Config":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
-    case "Actions":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onPluginRecheck, onExit: onExit2 });
-    default:
-      return null;
-  }
-}
-var import_react35, import_jsx_runtime10, TABS, GLOBAL_HINTS, TAB_HINTS;
-var init_App2 = __esm({
-  async "src/tui/App.tsx"() {
-    "use strict";
     import_react35 = __toESM(require_react(), 1);
-    await init_build2();
-    await init_TabBar();
-    await init_KeyHint();
-    await init_StatusPanel();
-    await init_BackendsPanel();
-    await init_ConfigPanel();
-    await init_ActionsPanel();
-    init_useDetection();
-    await init_PluginStatusBar();
-    init_usePluginStatus();
-    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-    TABS = ["Status", "Backends", "Config", "Actions"];
-    GLOBAL_HINTS = [
-      { key: "Tab", label: "switch" },
-      { key: "1-4", label: "jump" },
-      { key: "q", label: "quit" }
-    ];
-    TAB_HINTS = {
-      Status: [{ key: "r", label: "refresh" }],
-      Backends: [{ key: "r", label: "refresh" }],
-      Config: [],
-      Actions: []
-    };
-  }
-});
-
-// src/tui/render.tsx
-var render_exports = {};
-__export(render_exports, {
-  renderTui: () => renderTui
-});
-async function renderTui() {
-  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime11.jsx)(App2, {}));
-  try {
-    await waitUntilExit();
-    return 0;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`TUI error: ${message}
-`);
-    return 1;
-  }
-}
-var import_jsx_runtime11;
-var init_render2 = __esm({
-  async "src/tui/render.tsx"() {
-    "use strict";
-    await init_build2();
-    await init_App2();
-    import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
-  }
-});
-
-// src/agentic/queue.ts
-var MessageQueue;
-var init_queue = __esm({
-  "src/agentic/queue.ts"() {
-    "use strict";
-    MessageQueue = class {
-      pending = /* @__PURE__ */ new Map();
-      /** Enqueue a message for delivery to a target agent. */
-      enqueue(msg) {
-        const target = msg.to;
-        const existing = this.pending.get(target);
-        if (existing) {
-          existing.push(msg);
-        } else {
-          this.pending.set(target, [msg]);
-        }
-      }
-      /** Dequeue all pending messages for an agent. Returns empty array if none. */
-      dequeue(agent) {
-        const msgs = this.pending.get(agent);
-        if (!msgs || msgs.length === 0) return [];
-        this.pending.delete(agent);
-        return msgs;
-      }
-      /** Dequeue all pending messages grouped by target agent. */
-      dequeueAll() {
-        const result = new Map(this.pending);
-        this.pending.clear();
-        return result;
-      }
-      /** Check if there are any pending messages for any agent. */
-      isEmpty() {
-        for (const msgs of this.pending.values()) {
-          if (msgs.length > 0) return false;
-        }
-        return true;
-      }
-      /** Total number of pending messages across all agents. */
-      size() {
-        let count = 0;
-        for (const msgs of this.pending.values()) {
-          count += msgs.length;
-        }
-        return count;
-      }
-      /** Get pending message count per agent (for diagnostics). */
-      counts() {
-        const result = {};
-        for (const [agent, msgs] of this.pending) {
-          if (msgs.length > 0) result[agent] = msgs.length;
-        }
-        return result;
-      }
-      /** Clear all pending messages. */
-      clear() {
-        this.pending.clear();
-      }
-    };
+    init_installer();
   }
 });
 
@@ -61079,6 +61133,265 @@ var init_bus = __esm({
           "SELECT MAX(turn) as max_turn FROM messages WHERE session_id = ?"
         ).get(sessionId);
         return row.max_turn ?? 0;
+      }
+    };
+  }
+});
+
+// src/tui/hooks/useAgenticSessions.ts
+function useAgenticSessions() {
+  const [sessions, setSessions] = (0, import_react36.useState)([]);
+  const [loading, setLoading] = (0, import_react36.useState)(true);
+  const [error2, setError] = (0, import_react36.useState)(null);
+  const busRef = (0, import_react36.useRef)(null);
+  const mountedRef = (0, import_react36.useRef)(true);
+  (0, import_react36.useEffect)(() => {
+    return () => {
+      mountedRef.current = false;
+      busRef.current?.close();
+    };
+  }, []);
+  const getBus = (0, import_react36.useCallback)(() => {
+    if (!busRef.current) {
+      busRef.current = new TranscriptBus();
+    }
+    return busRef.current;
+  }, []);
+  const load2 = (0, import_react36.useCallback)(() => {
+    try {
+      const bus = getBus();
+      const list = bus.listSessions();
+      if (mountedRef.current) {
+        setSessions(list);
+        setError(null);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [getBus]);
+  (0, import_react36.useEffect)(() => {
+    load2();
+  }, []);
+  const getTranscript = (0, import_react36.useCallback)((sessionId) => {
+    try {
+      return getBus().getTranscript(sessionId);
+    } catch {
+      return [];
+    }
+  }, [getBus]);
+  const deleteSession = (0, import_react36.useCallback)((sessionId) => {
+    try {
+      getBus().deleteSession(sessionId);
+      load2();
+    } catch (err) {
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  }, [getBus, load2]);
+  return { sessions, loading, error: error2, refresh: load2, getTranscript, deleteSession };
+}
+var import_react36;
+var init_useAgenticSessions = __esm({
+  "src/tui/hooks/useAgenticSessions.ts"() {
+    "use strict";
+    import_react36 = __toESM(require_react(), 1);
+    init_bus();
+  }
+});
+
+// src/tui/App.tsx
+function App2() {
+  const { exit } = use_app_default();
+  const [activeTab, setActiveTab] = (0, import_react37.useState)(0);
+  const [childHasFocus, setChildHasFocus] = (0, import_react37.useState)(false);
+  const detection = useDetection();
+  const pluginStatus = usePluginStatus();
+  const agenticSessions = useAgenticSessions();
+  const nextTab = (0, import_react37.useCallback)(() => {
+    setActiveTab((prev) => (prev + 1) % TABS.length);
+  }, []);
+  const currentTab = TABS[activeTab];
+  use_input_default((input, key) => {
+    if (childHasFocus) return;
+    if (input === "q") {
+      exit();
+      return;
+    }
+    if (key.tab) {
+      nextTab();
+      return;
+    }
+    const num = parseInt(input, 10);
+    if (num >= 1 && num <= TABS.length) {
+      setActiveTab(num - 1);
+      return;
+    }
+    if (input === "r") {
+      if (currentTab === "Status" || currentTab === "Backends") {
+        detection.refresh({ force: true });
+      }
+      if (currentTab === "Agentic") {
+        agenticSessions.refresh();
+      }
+    }
+  });
+  const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
+    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit(), agenticSessions }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(KeyHint, { hints })
+  ] });
+}
+function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2, agenticSessions }) {
+  switch (tab2) {
+    case "Status":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        StatusPanel,
+        {
+          report: detection.report,
+          loading: detection.loading,
+          refreshing: detection.refreshing,
+          error: detection.error,
+          pluginInstalled
+        }
+      );
+    case "Backends":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(BackendsPanel, { report: detection.report, onEditingChange: onFocusChange });
+    case "Config":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
+    case "Actions":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onPluginRecheck, onExit: onExit2 });
+    case "Agentic":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AgenticPanel, { agenticSessions });
+    default:
+      return null;
+  }
+}
+var import_react37, import_jsx_runtime11, TABS, GLOBAL_HINTS, TAB_HINTS;
+var init_App2 = __esm({
+  async "src/tui/App.tsx"() {
+    "use strict";
+    import_react37 = __toESM(require_react(), 1);
+    await init_build2();
+    await init_TabBar();
+    await init_KeyHint();
+    await init_StatusPanel();
+    await init_BackendsPanel();
+    await init_ConfigPanel();
+    await init_ActionsPanel();
+    await init_AgenticPanel();
+    init_useDetection();
+    await init_PluginStatusBar();
+    init_usePluginStatus();
+    init_useAgenticSessions();
+    import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+    TABS = ["Status", "Backends", "Config", "Actions", "Agentic"];
+    GLOBAL_HINTS = [
+      { key: "Tab", label: "switch" },
+      { key: "1-4", label: "jump" },
+      { key: "q", label: "quit" }
+    ];
+    TAB_HINTS = {
+      Status: [{ key: "r", label: "refresh" }],
+      Backends: [{ key: "r", label: "refresh" }],
+      Config: [],
+      Actions: [],
+      Agentic: [{ key: "r", label: "refresh" }]
+    };
+  }
+});
+
+// src/tui/render.tsx
+var render_exports = {};
+__export(render_exports, {
+  renderTui: () => renderTui
+});
+async function renderTui() {
+  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime12.jsx)(App2, {}));
+  try {
+    await waitUntilExit();
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`TUI error: ${message}
+`);
+    return 1;
+  }
+}
+var import_jsx_runtime12;
+var init_render2 = __esm({
+  async "src/tui/render.tsx"() {
+    "use strict";
+    await init_build2();
+    await init_App2();
+    import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+  }
+});
+
+// src/agentic/queue.ts
+var MessageQueue;
+var init_queue = __esm({
+  "src/agentic/queue.ts"() {
+    "use strict";
+    MessageQueue = class {
+      pending = /* @__PURE__ */ new Map();
+      /** Enqueue a message for delivery to a target agent. */
+      enqueue(msg) {
+        const target = msg.to;
+        const existing = this.pending.get(target);
+        if (existing) {
+          existing.push(msg);
+        } else {
+          this.pending.set(target, [msg]);
+        }
+      }
+      /** Dequeue all pending messages for an agent. Returns empty array if none. */
+      dequeue(agent) {
+        const msgs = this.pending.get(agent);
+        if (!msgs || msgs.length === 0) return [];
+        this.pending.delete(agent);
+        return msgs;
+      }
+      /** Dequeue all pending messages grouped by target agent. */
+      dequeueAll() {
+        const result = new Map(this.pending);
+        this.pending.clear();
+        return result;
+      }
+      /** Check if there are any pending messages for any agent. */
+      isEmpty() {
+        for (const msgs of this.pending.values()) {
+          if (msgs.length > 0) return false;
+        }
+        return true;
+      }
+      /** Total number of pending messages across all agents. */
+      size() {
+        let count = 0;
+        for (const msgs of this.pending.values()) {
+          count += msgs.length;
+        }
+        return count;
+      }
+      /** Get pending message count per agent (for diagnostics). */
+      counts() {
+        const result = {};
+        for (const [agent, msgs] of this.pending) {
+          if (msgs.length > 0) result[agent] = msgs.length;
+        }
+        return result;
+      }
+      /** Clear all pending messages. */
+      clear() {
+        this.pending.clear();
       }
     };
   }
