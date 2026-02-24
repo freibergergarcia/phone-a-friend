@@ -93,6 +93,7 @@ export class EventChannel {
   private queue: AgenticEvent[] = [];
   private resolve: ((value: IteratorResult<AgenticEvent>) => void) | null = null;
   private done = false;
+  private consuming = false;
 
   push(event: AgenticEvent): void {
     if (this.done) return;
@@ -115,6 +116,10 @@ export class EventChannel {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<AgenticEvent> {
+    if (this.consuming) {
+      throw new Error('EventChannel supports only one consumer');
+    }
+    this.consuming = true;
     return {
       next: () => {
         if (this.queue.length > 0) {

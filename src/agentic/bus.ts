@@ -194,16 +194,19 @@ export class TranscriptBus {
   // ---- Messages -----------------------------------------------------------
 
   appendMessage(msg: Omit<Message, 'id' | 'timestamp'>): number {
-    const result = this.db.prepare(
-      'INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)',
-    ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
+    const insertAndCount = this.db.transaction(() => {
+      const result = this.db.prepare(
+        'INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)',
+      ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
 
-    // Increment sender's message count
-    this.db.prepare(
-      'UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?',
-    ).run(msg.sessionId, msg.from);
+      // Increment sender's message count
+      this.db.prepare(
+        'UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?',
+      ).run(msg.sessionId, msg.from);
 
-    return result.lastInsertRowid as number;
+      return result.lastInsertRowid as number;
+    });
+    return insertAndCount();
   }
 
   getTranscript(sessionId: string): Message[] {
@@ -224,9 +227,12 @@ export class TranscriptBus {
   // ---- Cleanup ------------------------------------------------------------
 
   deleteSession(id: string): void {
-    this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(id);
-    this.db.prepare('DELETE FROM agents WHERE session_id = ?').run(id);
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    const deleteAll = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(id);
+      this.db.prepare('DELETE FROM agents WHERE session_id = ?').run(id);
+      this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+    });
+    deleteAll();
   }
 
   close(): void {

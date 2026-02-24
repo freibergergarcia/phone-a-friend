@@ -5210,7 +5210,7 @@ function skipVoid(str, ptr, banNewLines, banComments) {
     ptr++;
   return banComments || c !== "#" ? ptr : skipVoid(str, skipComment(str, ptr), banNewLines);
 }
-function skipUntil(str, ptr, sep, end, banNewLines = false) {
+function skipUntil(str, ptr, sep2, end, banNewLines = false) {
   if (!end) {
     ptr = indexOfNewline(str, ptr);
     return ptr < 0 ? str.length : ptr;
@@ -5219,7 +5219,7 @@ function skipUntil(str, ptr, sep, end, banNewLines = false) {
     let c = str[i];
     if (c === "#") {
       i = indexOfNewline(str, i);
-    } else if (c === sep) {
+    } else if (c === sep2) {
       return i + 1;
     } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
       return i;
@@ -7025,21 +7025,21 @@ var require_react_development = __commonJS({
         );
         actScopeDepth = prevActScopeDepth;
       }
-      function recursivelyFlushAsyncActWork(returnValue, resolve5, reject) {
+      function recursivelyFlushAsyncActWork(returnValue, resolve6, reject) {
         var queue = ReactSharedInternals.actQueue;
         if (null !== queue)
           if (0 !== queue.length)
             try {
               flushActQueue(queue);
               enqueueTask(function() {
-                return recursivelyFlushAsyncActWork(returnValue, resolve5, reject);
+                return recursivelyFlushAsyncActWork(returnValue, resolve6, reject);
               });
               return;
             } catch (error3) {
               ReactSharedInternals.thrownErrors.push(error3);
             }
           else ReactSharedInternals.actQueue = null;
-        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve5(returnValue);
+        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve6(returnValue);
       }
       function flushActQueue(queue) {
         if (!isFlushing) {
@@ -7226,7 +7226,7 @@ var require_react_development = __commonJS({
             ));
           });
           return {
-            then: function(resolve5, reject) {
+            then: function(resolve6, reject) {
               didAwaitActCall = true;
               thenable.then(
                 function(returnValue) {
@@ -7236,7 +7236,7 @@ var require_react_development = __commonJS({
                       flushActQueue(queue), enqueueTask(function() {
                         return recursivelyFlushAsyncActWork(
                           returnValue,
-                          resolve5,
+                          resolve6,
                           reject
                         );
                       });
@@ -7250,7 +7250,7 @@ var require_react_development = __commonJS({
                       ReactSharedInternals.thrownErrors.length = 0;
                       reject(_thrownError);
                     }
-                  } else resolve5(returnValue);
+                  } else resolve6(returnValue);
                 },
                 function(error3) {
                   popActScope(prevActQueue, prevActScopeDepth);
@@ -7272,15 +7272,15 @@ var require_react_development = __commonJS({
         if (0 < ReactSharedInternals.thrownErrors.length)
           throw callback = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, callback;
         return {
-          then: function(resolve5, reject) {
+          then: function(resolve6, reject) {
             didAwaitActCall = true;
             0 === prevActScopeDepth ? (ReactSharedInternals.actQueue = queue, enqueueTask(function() {
               return recursivelyFlushAsyncActWork(
                 returnValue$jscomp$0,
-                resolve5,
+                resolve6,
                 reject
               );
-            })) : resolve5(returnValue$jscomp$0);
+            })) : resolve6(returnValue$jscomp$0);
           }
         };
       };
@@ -11943,8 +11943,8 @@ var require_react_reconciler_production = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve5) {
-              entangledListeners.push(resolve5);
+            then: function(resolve6) {
+              entangledListeners.push(resolve6);
             }
           };
         }
@@ -11967,8 +11967,8 @@ var require_react_reconciler_production = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve5) {
-            listeners.push(resolve5);
+          then: function(resolve6) {
+            listeners.push(resolve6);
           }
         };
         thenable.then(
@@ -21567,8 +21567,8 @@ var require_react_reconciler_development = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve5) {
-              entangledListeners.push(resolve5);
+            then: function(resolve6) {
+              entangledListeners.push(resolve6);
             }
           };
         }
@@ -21591,8 +21591,8 @@ var require_react_reconciler_development = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve5) {
-            listeners.push(resolve5);
+          then: function(resolve6) {
+            listeners.push(resolve6);
           }
         };
         thenable.then(
@@ -58589,8 +58589,8 @@ var init_ink = __esm({
         }
       }
       async waitUntilExit() {
-        this.exitPromise ||= new Promise((resolve5, reject) => {
-          this.resolveExitPromise = resolve5;
+        this.exitPromise ||= new Promise((resolve6, reject) => {
+          this.resolveExitPromise = resolve6;
           this.rejectExitPromise = reject;
         });
         if (!this.beforeExitHandler) {
@@ -60425,7 +60425,7 @@ function buildActions(report, onRefresh, processRef) {
       label: "Reinstall Plugin",
       description: "Reinstall Claude Code plugin",
       run: async () => {
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -60439,7 +60439,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve5(output.trim() || "Plugin reinstalled");
+            if (code === 0) resolve6(output.trim() || "Plugin reinstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -60455,7 +60455,7 @@ function buildActions(report, onRefresh, processRef) {
       confirm: "Uninstall plugin and exit? (y/n)",
       exitAfter: true,
       run: async () => {
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -60469,7 +60469,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve5(output.trim() || "Plugin uninstalled");
+            if (code === 0) resolve6(output.trim() || "Plugin uninstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -60492,12 +60492,12 @@ function buildActions(report, onRefresh, processRef) {
         const parts = editorEnv.split(/\s+/);
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
-            resolve5("Editor closed");
+            resolve6("Editor closed");
           });
           proc.on("error", (err) => {
             processRef.current = null;
@@ -61098,13 +61098,16 @@ var init_bus = __esm({
       }
       // ---- Messages -----------------------------------------------------------
       appendMessage(msg) {
-        const result = this.db.prepare(
-          "INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)"
-        ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
-        this.db.prepare(
-          "UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?"
-        ).run(msg.sessionId, msg.from);
-        return result.lastInsertRowid;
+        const insertAndCount = this.db.transaction(() => {
+          const result = this.db.prepare(
+            "INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)"
+          ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
+          this.db.prepare(
+            "UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?"
+          ).run(msg.sessionId, msg.from);
+          return result.lastInsertRowid;
+        });
+        return insertAndCount();
       }
       getTranscript(sessionId) {
         const rows = this.db.prepare(
@@ -61120,9 +61123,12 @@ var init_bus = __esm({
       }
       // ---- Cleanup ------------------------------------------------------------
       deleteSession(id) {
-        this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
-        this.db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
-        this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+        const deleteAll = this.db.transaction(() => {
+          this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
+          this.db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
+          this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+        });
+        deleteAll();
       }
       close() {
         this.db.close();
@@ -61517,13 +61523,15 @@ ${prompt}`,
           message,
           "-r",
           sessionId,
+          "--max-turns",
+          "3",
           "--output-format",
           "text"
         ];
         return this.execClaude(args, repoPath);
       }
       execClaude(args, repoPath) {
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const env3 = this.cleanEnv();
           const child = spawn3("claude", args, {
             env: env3,
@@ -61554,9 +61562,9 @@ ${prompt}`,
             const out = Buffer.concat(stdout).toString().trim();
             const err = Buffer.concat(stderr).toString().trim();
             if (code === 0 && out) {
-              settle(resolve5, out);
+              settle(resolve6, out);
             } else if (out) {
-              settle(resolve5, out);
+              settle(resolve6, out);
             } else {
               settle(reject, new Error(err || `claude exited with code ${code}`));
             }
@@ -61631,7 +61639,7 @@ function parseAgentResponse(text, knownAgents) {
       noteLines.push(line);
       continue;
     }
-    const match = line.match(/^@(\w+):\s*(.*)/);
+    const match = line.match(/^@([\w.-]+):\s*(.*)/);
     if (match) {
       const [, target, content] = match;
       if (knownAgents.has(target)) {
@@ -61697,6 +61705,7 @@ var init_events = __esm({
       queue = [];
       resolve = null;
       done = false;
+      consuming = false;
       push(event) {
         if (this.done) return;
         if (this.resolve) {
@@ -61716,6 +61725,10 @@ var init_events = __esm({
         }
       }
       [Symbol.asyncIterator]() {
+        if (this.consuming) {
+          throw new Error("EventChannel supports only one consumer");
+        }
+        this.consuming = true;
         return {
           next: () => {
             if (this.queue.length > 0) {
@@ -61724,8 +61737,8 @@ var init_events = __esm({
             if (this.done) {
               return Promise.resolve({ value: void 0, done: true });
             }
-            return new Promise((resolve5) => {
-              this.resolve = resolve5;
+            return new Promise((resolve6) => {
+              this.resolve = resolve6;
             });
           }
         };
@@ -61779,6 +61792,10 @@ var init_orchestrator = __esm({
       consecutiveExchanges = /* @__PURE__ */ new Map();
       lastPingPongTurn = -1;
       noProgressCount = 0;
+      // Lifecycle
+      stopped = false;
+      sessionEnded = false;
+      runLoopPromise = null;
       constructor(dbPath) {
         this.bus = new TranscriptBus(dbPath);
       }
@@ -61787,9 +61804,14 @@ var init_orchestrator = __esm({
        * consumers (CLI, TUI, web dashboard) can subscribe to.
        */
       async run(config) {
+        if (this.runLoopPromise) {
+          throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
+        }
         this.sessionId = randomUUID2().slice(0, 7);
         this.turn = 0;
         this.startTime = Date.now();
+        this.stopped = false;
+        this.sessionEnded = false;
         this.events = new EventChannel();
         this.agentStates = /* @__PURE__ */ new Map();
         this.consecutiveExchanges = /* @__PURE__ */ new Map();
@@ -61818,7 +61840,7 @@ var init_orchestrator = __esm({
           agents: agentStatesArr,
           timestamp: /* @__PURE__ */ new Date()
         });
-        this.runLoop(config, knownTargets).catch((err) => {
+        this.runLoopPromise = this.runLoop(config, knownTargets).catch((err) => {
           this.emit({
             type: "error",
             sessionId: this.sessionId,
@@ -61826,6 +61848,8 @@ var init_orchestrator = __esm({
             timestamp: /* @__PURE__ */ new Date()
           });
           this.endSession("error");
+        }).finally(() => {
+          this.runLoopPromise = null;
         });
         return this.events;
       }
@@ -61833,18 +61857,24 @@ var init_orchestrator = __esm({
        * Stop the current session.
        */
       stop() {
+        this.stopped = true;
         this.endSession("stopped");
       }
       /**
-       * Close the transcript database.
+       * Stop the loop (if running) and close the transcript database.
        */
-      close() {
+      async close() {
+        this.stopped = true;
+        if (this.runLoopPromise) {
+          await this.runLoopPromise;
+        }
         this.bus.close();
       }
       // ---- Main loop ----------------------------------------------------------
       async runLoop(config, knownTargets) {
         const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
         for (const agent of agents) {
+          if (this.stopped) return;
           const systemPrompt = buildSystemPrompt(
             agent.name,
             agents.map((a) => a.name),
@@ -61912,7 +61942,7 @@ var init_orchestrator = __esm({
           timestamp: /* @__PURE__ */ new Date()
         });
         this.turn = 1;
-        while (this.turn <= maxTurns) {
+        while (this.turn <= maxTurns && !this.stopped) {
           if (this.isTimedOut(timeoutSeconds)) {
             this.emit({
               type: "guardrail",
@@ -61946,6 +61976,7 @@ var init_orchestrator = __esm({
             return;
           }
           for (const [agentName, messages] of pending) {
+            if (this.stopped) break;
             const agent = agents.find((a) => a.name === agentName);
             if (!agent) continue;
             const state = this.agentStates.get(agentName);
@@ -62084,6 +62115,8 @@ var init_orchestrator = __esm({
         }
       }
       endSession(reason) {
+        if (this.sessionEnded) return;
+        this.sessionEnded = true;
         const elapsed = Date.now() - this.startTime;
         const busStatus = reason === "error" ? "failed" : reason === "stopped" ? "stopped" : "completed";
         this.bus.endSession(this.sessionId, busStatus);
@@ -62171,6 +62204,7 @@ var init_event_sink = __esm({
       inflight = false;
       url;
       dropped = 0;
+      closed = false;
       constructor(dashboardUrl) {
         this.url = dashboardUrl ?? DEFAULT_URL;
         this.timer = setInterval(() => this.flush(), BATCH_INTERVAL_MS);
@@ -62179,6 +62213,7 @@ var init_event_sink = __esm({
        * Enqueue an event for delivery. Non-blocking, never throws.
        */
       push(event) {
+        if (this.closed) return;
         if (this.queue.length >= MAX_QUEUE_SIZE) {
           this.dropped++;
           return;
@@ -62210,6 +62245,7 @@ var init_event_sink = __esm({
        * Final flush and cleanup.
        */
       async close() {
+        this.closed = true;
         if (this.timer) {
           clearInterval(this.timer);
           this.timer = null;
@@ -62333,11 +62369,24 @@ function handleApiRoute(req, res, bus, sse) {
     return true;
   }
   if (path === "/api/ingest" && method === "POST") {
+    const MAX_BODY = 1024 * 1024;
     let body = "";
+    let size = 0;
+    let aborted = false;
     req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        if (!aborted) {
+          aborted = true;
+          error2(res, "Request body too large", 413);
+          req.destroy();
+        }
+        return;
+      }
       body += chunk.toString();
     });
     req.on("end", () => {
+      if (aborted) return;
       try {
         const events = JSON.parse(body);
         if (Array.isArray(events)) {
@@ -62428,7 +62477,7 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join5, extname } from "path";
+import { join as join5, extname, resolve as resolve4, relative, sep } from "path";
 import { readFile } from "fs/promises";
 import { existsSync as existsSync9 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
@@ -62453,7 +62502,9 @@ async function startDashboard(opts = {}) {
       if (handled) return;
     }
     const filePath = path === "/" ? join5(publicDir, "index.html") : join5(publicDir, path);
-    if (!filePath.startsWith(publicDir)) {
+    const resolved = resolve4(filePath);
+    const rel = relative(publicDir, resolved);
+    if (rel.startsWith("..") || rel.startsWith(sep)) {
       res.writeHead(403);
       res.end("Forbidden");
       return;
@@ -62480,11 +62531,11 @@ async function startDashboard(opts = {}) {
       }
     }
   });
-  return new Promise((resolve5, reject) => {
+  return new Promise((resolve6, reject) => {
     server.on("error", reject);
-    server.listen(port, () => {
+    server.listen(port, "127.0.0.1", () => {
       const dashUrl = `http://localhost:${port}`;
-      resolve5({
+      resolve6({
         server,
         sse,
         bus,
@@ -63144,7 +63195,7 @@ var ClaudeBackend = class {
     }, opts.timeoutSeconds * 1e3);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve5, reject) => {
+    const closePromise = new Promise((resolve6, reject) => {
       child.on("close", (code, signal) => {
         if (timedOut) {
           reject(new ClaudeBackendError(
@@ -63160,7 +63211,7 @@ var ClaudeBackend = class {
             stderr || `claude exited with code ${code}`
           ));
         } else {
-          resolve5();
+          resolve6();
         }
       });
     });
@@ -63190,7 +63241,7 @@ var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
 // src/cli.ts
-import { resolve as resolve4, dirname as dirname5 } from "path";
+import { resolve as resolve5, dirname as dirname5 } from "path";
 import { existsSync as existsSync10 } from "fs";
 import { fileURLToPath as fileURLToPath3 } from "url";
 import { spawnSync } from "child_process";
@@ -67081,13 +67132,13 @@ var PromisePolyfill = class extends Promise {
   // Available starting from Node 22
   // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
   static withResolver() {
-    let resolve5;
+    let resolve6;
     let reject;
     const promise = new Promise((res, rej) => {
-      resolve5 = res;
+      resolve6 = res;
       reject = rej;
     });
-    return { promise, resolve: resolve5, reject };
+    return { promise, resolve: resolve6, reject };
   }
 };
 
@@ -67123,7 +67174,7 @@ function createPrompt(view) {
       output
     });
     const screen = new ScreenManager(rl);
-    const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
+    const { promise, resolve: resolve6, reject } = PromisePolyfill.withResolver();
     const cancel = () => reject(new CancelPromptError());
     if (signal) {
       const abort = () => reject(new AbortPromptError({ cause: signal.reason }));
@@ -67151,7 +67202,7 @@ function createPrompt(view) {
         cycle(() => {
           try {
             const nextView = view(config, (value) => {
-              setImmediate(() => resolve5(value));
+              setImmediate(() => resolve6(value));
             });
             if (nextView === void 0) {
               const callerFilename = callSites[1]?.getFileName();
@@ -67684,7 +67735,7 @@ init_config();
 init_version();
 function repoRootDefault() {
   const thisDir = dirname5(fileURLToPath3(import.meta.url));
-  return resolve4(thisDir, "..");
+  return resolve5(thisDir, "..");
 }
 var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-V", "--version", "-h", "--help"]);
@@ -68073,14 +68124,14 @@ ${banner("AI coding agent relay")}
 `);
       const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       spawnSync(openCmd, [dashboard.url], { stdio: "ignore" });
-      await new Promise((resolve5) => {
+      await new Promise((resolve6) => {
         process.on("SIGINT", () => {
           console.log(`
   ${theme.hint("Shutting down dashboard...")}`);
-          dashboard.close().then(resolve5);
+          dashboard.close().then(resolve6);
         });
         process.on("SIGTERM", () => {
-          dashboard.close().then(resolve5);
+          dashboard.close().then(resolve6);
         });
       });
     } catch (err) {

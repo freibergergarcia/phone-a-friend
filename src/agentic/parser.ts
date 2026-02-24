@@ -73,7 +73,7 @@ export function parseAgentResponse(
     }
 
     // Try to match @agent: at line start
-    const match = line.match(/^@(\w+):\s*(.*)/);
+    const match = line.match(/^@([\w.-]+):\s*(.*)/);
     if (match) {
       const [, target, content] = match;
 

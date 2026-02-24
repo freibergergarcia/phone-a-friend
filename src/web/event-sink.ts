@@ -17,6 +17,7 @@ export class DashboardEventSink {
   private inflight = false;
   private url: string;
   private dropped = 0;
+  private closed = false;
 
   constructor(dashboardUrl?: string) {
     this.url = dashboardUrl ?? DEFAULT_URL;
@@ -27,6 +28,7 @@ export class DashboardEventSink {
    * Enqueue an event for delivery. Non-blocking, never throws.
    */
   push(event: AgenticEvent): void {
+    if (this.closed) return;
     if (this.queue.length >= MAX_QUEUE_SIZE) {
       this.dropped++;
       return;
@@ -66,6 +68,7 @@ export class DashboardEventSink {
    * Final flush and cleanup.
    */
   async close(): Promise<void> {
+    this.closed = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

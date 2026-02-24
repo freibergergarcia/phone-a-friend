@@ -54,9 +54,24 @@ export function handleApiRoute(
 
   // POST /api/ingest — receive events from CLI orchestrator
   if (path === '/api/ingest' && method === 'POST') {
+    const MAX_BODY = 1024 * 1024; // 1 MB
     let body = '';
-    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    let size = 0;
+    let aborted = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        if (!aborted) {
+          aborted = true;
+          error(res, 'Request body too large', 413);
+          req.destroy();
+        }
+        return;
+      }
+      body += chunk.toString();
+    });
     req.on('end', () => {
+      if (aborted) return;
       try {
         const events = JSON.parse(body);
         if (Array.isArray(events)) {

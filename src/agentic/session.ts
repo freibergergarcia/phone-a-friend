@@ -161,6 +161,7 @@ export class SessionManager {
     const args = [
       '-p', message,
       '-r', sessionId,
+      '--max-turns', '3',
       '--output-format', 'text',
     ];
 

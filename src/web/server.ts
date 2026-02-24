@@ -7,7 +7,7 @@
 
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { join, extname } from 'node:path';
+import { join, extname, resolve, relative, sep } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -90,8 +90,10 @@ export async function startDashboard(opts: DashboardOptions = {}): Promise<Dashb
       ? join(publicDir, 'index.html')
       : join(publicDir, path);
 
-    // Prevent directory traversal
-    if (!filePath.startsWith(publicDir)) {
+    // Prevent directory traversal (path-boundary safe)
+    const resolved = resolve(filePath);
+    const rel = relative(publicDir, resolved);
+    if (rel.startsWith('..') || rel.startsWith(sep)) {
       res.writeHead(403);
       res.end('Forbidden');
       return;
@@ -123,7 +125,7 @@ export async function startDashboard(opts: DashboardOptions = {}): Promise<Dashb
 
   return new Promise((resolve, reject) => {
     server.on('error', reject);
-    server.listen(port, () => {
+    server.listen(port, '127.0.0.1', () => {
       const dashUrl = `http://localhost:${port}`;
       resolve({
         server,

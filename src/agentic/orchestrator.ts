@@ -41,6 +41,11 @@ export class Orchestrator {
   private lastPingPongTurn = -1;
   private noProgressCount = 0;
 
+  // Lifecycle
+  private stopped = false;
+  private sessionEnded = false;
+  private runLoopPromise: Promise<void> | null = null;
+
   constructor(dbPath?: string) {
     this.bus = new TranscriptBus(dbPath);
   }
@@ -50,10 +55,16 @@ export class Orchestrator {
    * consumers (CLI, TUI, web dashboard) can subscribe to.
    */
   async run(config: AgenticSessionConfig): Promise<AsyncIterable<AgenticEvent>> {
+    if (this.runLoopPromise) {
+      throw new Error('Orchestrator is already running. Create a new instance for concurrent sessions.');
+    }
+
     // Reset all session-scoped state for safe reuse
     this.sessionId = randomUUID().slice(0, 7);
     this.turn = 0;
     this.startTime = Date.now();
+    this.stopped = false;
+    this.sessionEnded = false;
     this.events = new EventChannel();
     this.agentStates = new Map();
     this.consecutiveExchanges = new Map();
@@ -91,15 +102,19 @@ export class Orchestrator {
     });
 
     // Spawn agents and seed initial prompt
-    this.runLoop(config, knownTargets).catch((err) => {
-      this.emit({
-        type: 'error',
-        sessionId: this.sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        timestamp: new Date(),
+    this.runLoopPromise = this.runLoop(config, knownTargets)
+      .catch((err) => {
+        this.emit({
+          type: 'error',
+          sessionId: this.sessionId,
+          error: err instanceof Error ? err.message : String(err),
+          timestamp: new Date(),
+        });
+        this.endSession('error');
+      })
+      .finally(() => {
+        this.runLoopPromise = null;
       });
-      this.endSession('error');
-    });
 
     return this.events;
   }
@@ -108,13 +123,18 @@ export class Orchestrator {
    * Stop the current session.
    */
   stop(): void {
+    this.stopped = true;
     this.endSession('stopped');
   }
 
   /**
-   * Close the transcript database.
+   * Stop the loop (if running) and close the transcript database.
    */
-  close(): void {
+  async close(): Promise<void> {
+    this.stopped = true;
+    if (this.runLoopPromise) {
+      await this.runLoopPromise;
+    }
     this.bus.close();
   }
 
@@ -128,6 +148,7 @@ export class Orchestrator {
 
     // Phase 1: Spawn all agents with initial prompt
     for (const agent of agents) {
+      if (this.stopped) return;
       const systemPrompt = buildSystemPrompt(
         agent.name,
         agents.map((a) => a.name),
@@ -210,7 +231,7 @@ export class Orchestrator {
     // Phase 2: Message routing loop
     this.turn = 1;
 
-    while (this.turn <= maxTurns) {
+    while (this.turn <= maxTurns && !this.stopped) {
       // Timeout check
       if (this.isTimedOut(timeoutSeconds)) {
         this.emit({
@@ -250,6 +271,8 @@ export class Orchestrator {
       }
 
       for (const [agentName, messages] of pending) {
+        if (this.stopped) break;
+
         const agent = agents.find((a) => a.name === agentName);
         if (!agent) continue;
 
@@ -415,6 +438,9 @@ export class Orchestrator {
   }
 
   private endSession(reason: 'converged' | 'max_turns' | 'timeout' | 'stopped' | 'error'): void {
+    if (this.sessionEnded) return;
+    this.sessionEnded = true;
+
     const elapsed = Date.now() - this.startTime;
 
     const busStatus = reason === 'error' ? 'failed'
