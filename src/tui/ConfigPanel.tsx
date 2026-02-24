@@ -23,6 +23,7 @@ function buildRows(config: ReturnType<typeof loadConfig>): ConfigRow[] {
   rows.push({ dotKey: 'defaults.sandbox', label: 'sandbox', value: config.defaults.sandbox, section: 'Defaults' });
   rows.push({ dotKey: 'defaults.timeout', label: 'timeout', value: config.defaults.timeout, section: 'Defaults' });
   rows.push({ dotKey: 'defaults.include_diff', label: 'include_diff', value: config.defaults.include_diff, section: 'Defaults' });
+  rows.push({ dotKey: 'defaults.stream', label: 'stream', value: config.defaults.stream ?? true, section: 'Defaults' });
 
   // Per-backend
   for (const [name, cfg] of Object.entries(config.backends ?? {})) {

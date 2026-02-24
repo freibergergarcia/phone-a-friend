@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getBackend, BackendError, type SandboxMode } from './backends/index.js';
+import { getBackend, BackendError, type Backend, type SandboxMode } from './backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -144,16 +144,25 @@ function buildPrompt(opts: {
   repoPath: string;
   contextText: string;
   diffText: string;
+  localFileAccess: boolean;
 }): string {
   const sections = [
     'You are helping another coding agent by reviewing or advising on work in a local repository.',
-    `Repository path: ${opts.repoPath}`,
-    'Use the repository files for context when needed.',
+  ];
+
+  if (opts.localFileAccess) {
+    sections.push(
+      `Repository path: ${opts.repoPath}`,
+      'Use the repository files for context when needed.',
+    );
+  }
+
+  sections.push(
     'Respond with concise, actionable feedback.',
     '',
     'Request:',
     opts.prompt.trim(),
-  ];
+  );
 
   if (opts.contextText) {
     sections.push('', 'Additional Context:', opts.contextText);
@@ -209,7 +218,17 @@ export interface RelayOptions {
   sandbox?: SandboxMode;
 }
 
-export async function relay(opts: RelayOptions): Promise<string> {
+interface PreparedRelay {
+  selectedBackend: Backend;
+  fullPrompt: string;
+  resolvedRepo: string;
+  env: Record<string, string>;
+  timeoutSeconds: number;
+  sandbox: SandboxMode;
+  model: string | null;
+}
+
+function prepareRelay(opts: RelayOptions): PreparedRelay {
   const {
     prompt,
     repoPath,
@@ -255,10 +274,17 @@ export async function relay(opts: RelayOptions): Promise<string> {
     repoPath: resolvedRepo,
     contextText: resolvedContext,
     diffText,
+    localFileAccess: selectedBackend.localFileAccess,
   });
   ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
 
   const env = nextRelayEnv();
+
+  return { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model };
+}
+
+export async function relay(opts: RelayOptions): Promise<string> {
+  const { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model } = prepareRelay(opts);
 
   try {
     return await selectedBackend.run({
@@ -269,6 +295,26 @@ export async function relay(opts: RelayOptions): Promise<string> {
       model,
       env,
     });
+  } catch (err) {
+    if (err instanceof RelayError) throw err;
+    if (err instanceof BackendError) {
+      throw new RelayError(err.message);
+    }
+    throw err;
+  }
+}
+
+export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
+  const { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model } = prepareRelay(opts);
+
+  const runOpts = { prompt: fullPrompt, repoPath: resolvedRepo, timeoutSeconds, sandbox, model, env };
+
+  try {
+    if (typeof selectedBackend.runStream === 'function') {
+      yield* selectedBackend.runStream(runOpts);
+    } else {
+      yield await selectedBackend.run(runOpts);
+    }
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
@@ -345,6 +391,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     repoPath: resolvedRepo,
     contextText: '',
     diffText,
+    localFileAccess: selectedBackend.localFileAccess,
   });
   ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
 

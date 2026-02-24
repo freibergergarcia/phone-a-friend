@@ -1,6 +1,6 @@
 /**
  * Backends panel — navigable list of all backends with detail pane.
- * Ollama model picker: press Enter on Ollama to select a default model.
+ * Model picker: press Enter on any backend with models to select a default.
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -35,13 +35,13 @@ function BackendDetail({
   onModelSelectedIndexChange: (index: number) => void;
 }) {
   const backendConfig = config.backends?.[backend.name];
-  const configuredModel = config.backends?.ollama?.model as string | undefined;
+  const configuredModel = config.backends?.[backend.name]?.model as string | undefined;
   const isOllama = backend.name === 'ollama';
   const models = backend.models ?? [];
   const hasModels = models.length > 0;
 
   // Check for mismatch: configured model not in detected list
-  const modelMismatch = isOllama && configuredModel && hasModels && !models.includes(configuredModel);
+  const modelMismatch = hasModels && configuredModel && !models.includes(configuredModel);
 
   return (
     <Box flexDirection="column" paddingLeft={2} borderStyle="single" borderColor="gray" paddingRight={2}>
@@ -55,8 +55,8 @@ function BackendDetail({
       </Box>
       {backend.planned && <Text dimColor>[planned — not yet implemented]</Text>}
 
-      {/* Models (Ollama) — nav mode: read-only list */}
-      {isOllama && hasModels && mode === 'nav' && (
+      {/* Models — nav mode: read-only list */}
+      {hasModels && mode === 'nav' && (
         <Box flexDirection="column" marginTop={1}>
           <Box gap={2}>
             <Text bold>Models:</Text>
@@ -73,8 +73,8 @@ function BackendDetail({
         </Box>
       )}
 
-      {/* Models (Ollama) — modelSelect mode: interactive picker */}
-      {isOllama && hasModels && mode === 'modelSelect' && (
+      {/* Models — modelSelect mode: interactive picker */}
+      {hasModels && mode === 'modelSelect' && (
         <Box flexDirection="column" marginTop={1}>
           <Text bold>Select default model:</Text>
           <ListSelect
@@ -166,8 +166,8 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
     };
   }, []);
 
-  const enterModelSelect = useCallback((models: string[]) => {
-    const configuredModel = config.backends?.ollama?.model as string | undefined;
+  const enterModelSelect = useCallback((backendName: string, models: string[]) => {
+    const configuredModel = config.backends?.[backendName]?.model as string | undefined;
     const preselect = configuredModel ? models.indexOf(configuredModel) : -1;
     setModelSelectedIndex(preselect >= 0 ? preselect : 0);
     setMode('modelSelect');
@@ -180,14 +180,14 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
     onEditingChange?.(false);
   }, [onEditingChange]);
 
-  const saveModel = useCallback((modelName: string) => {
+  const saveModel = useCallback((backendName: string, modelName: string) => {
     try {
       const paths = configPaths();
       const userPath = paths.user;
       if (!existsSync(userPath)) {
         configInit(userPath, true);
       }
-      configSet('backends.ollama.model', modelName, userPath);
+      configSet(`backends.${backendName}.model`, modelName, userPath);
       setConfig(loadConfig());
       setSaveMessage(`Default model set to ${modelName}`);
     } catch (err) {
@@ -204,7 +204,7 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
         const selected = allBackends[selectedIndex];
         const models = selected?.models ?? [];
         const model = models[modelSelectedIndex];
-        if (model) saveModel(model);
+        if (model && selected) saveModel(selected.name, model);
         return;
       }
       if (key.escape) {
@@ -215,12 +215,12 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
       return;
     }
 
-    // Nav mode: Enter on Ollama with models → enter model select
+    // Nav mode: Enter on any backend with models → enter model select
     if (key.return) {
       const allBackends = report ? [...report.cli, ...report.local, ...report.host] : [];
       const selected = allBackends[selectedIndex];
-      if (selected?.name === 'ollama' && (selected.models?.length ?? 0) > 0) {
-        enterModelSelect(selected.models!);
+      if (selected && (selected.models?.length ?? 0) > 0) {
+        enterModelSelect(selected.name, selected.models!);
       }
     }
   }, { isActive: mode === 'nav' || mode === 'modelSelect' });

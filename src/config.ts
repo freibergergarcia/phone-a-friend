@@ -30,6 +30,7 @@ export interface PafConfig {
     sandbox: string;
     timeout: number;
     include_diff: boolean;
+    stream?: boolean;
     review_base?: string;
   };
   backends?: Record<string, BackendConfig>;
@@ -41,6 +42,7 @@ export interface ResolvedConfig {
   sandbox: string;
   timeout: number;
   includeDiff: boolean;
+  stream: boolean;
   model?: string;
   reviewBase?: string;
 }
@@ -251,7 +253,15 @@ export function resolveConfig(
     ? includeDiffRaw === 'true' || includeDiffRaw === '1'
     : cfg.defaults.include_diff;
 
-  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? undefined;
+  const streamRaw = cliOpts.stream;
+  const stream = streamRaw !== undefined
+    ? streamRaw === 'true' || streamRaw === '1'
+    : cfg.defaults.stream ?? true;
+
+  const model = cliOpts.model
+    ?? cfg.backends?.[backend]?.model
+    ?? (cfg[backend] as BackendConfig | undefined)?.model
+    ?? undefined;
 
   const reviewBase =
     cliOpts.base ??
@@ -259,5 +269,5 @@ export function resolveConfig(
     cfg.defaults.review_base ??
     undefined;
 
-  return { backend, sandbox, timeout, includeDiff, model, reviewBase };
+  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase };
 }
