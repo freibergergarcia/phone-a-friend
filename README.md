@@ -15,11 +15,12 @@
 
 </div>
 
-`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks -- code reviews, file edits, analysis, refactoring -- to a backend AI (Codex, Gemini, or Ollama) and brings the results back into the current session.
+`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks -- code reviews, file edits, analysis, refactoring -- to a backend AI (Codex, Gemini, Ollama, or Claude) and brings the results back into the current session.
 
 ```
-  Claude --> phone-a-friend --> Codex / Gemini / Ollama     (one-shot relay)
-  Claude --> phone-a-team --> iterate with backend(s)        (iterative refinement)
+  Claude --> phone-a-friend --> Codex / Gemini / Ollama / Claude     (one-shot relay)
+  Claude --> phone-a-friend --stream --> stream tokens live           (streaming)
+  Claude --> phone-a-team --> iterate with backend(s)                 (iterative refinement)
 ```
 
 <div align="center">
@@ -32,8 +33,9 @@
 
 ```bash
 npm install -g @openai/codex       # Codex CLI
-npm install -g @google/gemini-cli  # Gemini CLI (or both)
-# Ollama: https://ollama.com/download (local HTTP API, no npm needed)
+npm install -g @google/gemini-cli  # Gemini CLI
+# Ollama: https://ollama.com/download (local HTTP API)
+npm install -g @anthropic-ai/claude-code  # Claude Code CLI
 ```
 
 **Install globally via npm:**
@@ -52,12 +54,19 @@ npm install && npm run build
 ./dist/index.js plugin install --claude
 ```
 
-Then from Claude Code:
+Then from Claude Code, just talk naturally — the plugin loads the skills automatically:
 
 ```
-/phone-a-friend Ask codex to review the error handling in relay.ts
-/phone-a-team Refactor the backend registry for extensibility
+Ask Gemini to review the error handling in relay.ts
+
+Spin up Codex and Gemini to review the docs.
+Then spin another agent to review their reviews and report back.
+
+Build a team with Claude and Ollama. Have them review the website copy,
+loop through 3 rounds, and converge on final suggestions.
 ```
+
+No slash commands needed — Claude picks up the skills once the plugin is installed. Mention one backend and it routes through `phone-a-friend`; mention multiple and it spins up `phone-a-team` automatically. You can also use `/phone-a-friend` or `/phone-a-team` explicitly if you prefer.
 
 ## CLI Usage
 
@@ -65,7 +74,11 @@ Then from Claude Code:
 # Relay to a backend
 phone-a-friend --to codex --prompt "Review this code"
 phone-a-friend --to gemini --prompt "Analyze the architecture" --model gemini-2.5-flash
+phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
+
+# Stream responses in real time
+phone-a-friend --to codex --prompt "Review this code" --stream
 
 # Interactive TUI dashboard (launch with no args in a terminal)
 phone-a-friend
@@ -88,15 +101,26 @@ phone-a-friend plugin uninstall --claude
 
 ## Backends
 
-| Backend | Type | How it works |
-|---------|------|-------------|
-| **Codex** | CLI subprocess | Runs `codex exec` with sandbox and repo context |
-| **Gemini** | CLI subprocess | Runs `gemini --prompt` with `--yolo` auto-approve |
-| **Ollama** | HTTP API | POSTs to `localhost:11434/api/chat` via native fetch |
+| Backend | Type | Streaming | How it works |
+|---------|------|-----------|-------------|
+| **Codex** | CLI subprocess | No | Runs `codex exec` with sandbox and repo context |
+| **Gemini** | CLI subprocess | No | Runs `gemini --prompt` with `--yolo` auto-approve |
+| **Ollama** | HTTP API | Yes (NDJSON) | POSTs to `localhost:11434/api/chat` via native fetch |
+| **Claude** | CLI subprocess | Yes (JSON) | Runs `claude` with sandbox-to-tool mapping |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
+
+## Streaming
+
+Backends that support streaming deliver tokens as they arrive via `--stream`:
+
+```bash
+phone-a-friend --to codex --prompt "Review this code" --stream
+```
+
+Streaming is enabled by default in the config (`defaults.stream = true`). Disable with `--no-stream` or `config set defaults.stream false`.
 
 ## Documentation
 
