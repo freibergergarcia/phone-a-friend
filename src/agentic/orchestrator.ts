@@ -33,6 +33,9 @@ export class Orchestrator {
   private turn = 0;
   private startTime = 0;
 
+  // External listeners (SSE, dashboard, etc.)
+  private listeners: Array<(event: AgenticEvent) => void> = [];
+
   // Guardrail state
   private consecutiveExchanges = new Map<string, number>();
   private lastPingPongTurn = -1;
@@ -349,8 +352,23 @@ export class Orchestrator {
 
   // ---- Helpers ------------------------------------------------------------
 
+  /**
+   * Subscribe to events (for SSE broadcast, logging, etc.).
+   * Returns unsubscribe function.
+   */
+  onEvent(listener: (event: AgenticEvent) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const idx = this.listeners.indexOf(listener);
+      if (idx >= 0) this.listeners.splice(idx, 1);
+    };
+  }
+
   private emit(event: AgenticEvent): void {
     this.events.push(event);
+    for (const listener of this.listeners) {
+      try { listener(event); } catch { /* don't let listeners break the loop */ }
+    }
   }
 
   private emitAgentStatus(agent: string, status: AgentState['status']): void {

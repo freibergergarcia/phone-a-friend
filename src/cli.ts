@@ -593,6 +593,42 @@ export async function run(argv: string[]): Promise<number> {
       }
     });
 
+  agenticCmd
+    .command('dashboard')
+    .description('Launch web dashboard for session visibility')
+    .option('--port <number>', 'Port to listen on', '7777')
+    .action(async (opts) => {
+      const { startDashboard } = await import('./web/index.js');
+      const port = parseInt(opts.port, 10);
+
+      try {
+        const dashboard = await startDashboard({ port });
+        console.log(`\n  ${theme.heading('Agentic Dashboard')}`);
+        console.log(`  ${theme.success('✓')} Running at ${theme.info(dashboard.url)}`);
+        console.log(`  ${theme.hint('Press Ctrl+C to stop')}\n`);
+
+        // Open browser
+        const openCmd = process.platform === 'darwin' ? 'open'
+          : process.platform === 'win32' ? 'start'
+          : 'xdg-open';
+        spawnSync(openCmd, [dashboard.url], { stdio: 'ignore' });
+
+        // Keep alive until Ctrl+C
+        await new Promise<void>((resolve) => {
+          process.on('SIGINT', () => {
+            console.log(`\n  ${theme.hint('Shutting down dashboard...')}`);
+            dashboard.close().then(resolve);
+          });
+          process.on('SIGTERM', () => {
+            dashboard.close().then(resolve);
+          });
+        });
+      } catch (err) {
+        console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
+        exitCode = 1;
+      }
+    });
+
   // --- Backward compat aliases ---
   addInstallOptions(
     program

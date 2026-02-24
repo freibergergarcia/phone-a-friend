@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>phone-a-friend | Agentic Dashboard</title>
+  <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+  <header id="header">
+    <div class="header-left">
+      <h1>phone-a-friend</h1>
+      <span class="subtitle">agentic dashboard</span>
+    </div>
+    <div class="header-right">
+      <div id="stats" class="stats"></div>
+      <div id="sse-status" class="sse-badge disconnected">disconnected</div>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- Session list view -->
+    <section id="session-list-view" class="view active">
+      <div class="view-header">
+        <h2>Sessions</h2>
+        <button id="refresh-btn" class="btn btn-sm" onclick="App.refresh()">Refresh</button>
+      </div>
+      <div id="session-list" class="session-list">
+        <div class="empty-state">Loading sessions...</div>
+      </div>
+    </section>
+
+    <!-- Session detail / live view -->
+    <section id="session-detail-view" class="view">
+      <div class="view-header">
+        <button class="btn btn-sm btn-back" onclick="App.back()">&larr; Back</button>
+        <h2 id="detail-title">Session</h2>
+        <span id="detail-status" class="status-pill"></span>
+        <span id="detail-meta" class="meta"></span>
+      </div>
+
+      <div class="detail-layout">
+        <!-- Left: Agent cards -->
+        <aside id="agent-sidebar" class="agent-sidebar"></aside>
+
+        <!-- Right: Message feed -->
+        <div class="feed-container">
+          <div id="turn-info" class="turn-info"></div>
+          <div id="message-feed" class="message-feed"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/components/session-list.js"></script>
+  <script src="/js/components/agent-card.js"></script>
+  <script src="/js/components/message-feed.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
