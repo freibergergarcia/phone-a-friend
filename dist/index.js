@@ -60826,6 +60826,1001 @@ var init_render2 = __esm({
   }
 });
 
+// src/agentic/queue.ts
+var MessageQueue;
+var init_queue = __esm({
+  "src/agentic/queue.ts"() {
+    "use strict";
+    MessageQueue = class {
+      pending = /* @__PURE__ */ new Map();
+      /** Enqueue a message for delivery to a target agent. */
+      enqueue(msg) {
+        const target = msg.to;
+        const existing = this.pending.get(target);
+        if (existing) {
+          existing.push(msg);
+        } else {
+          this.pending.set(target, [msg]);
+        }
+      }
+      /** Dequeue all pending messages for an agent. Returns empty array if none. */
+      dequeue(agent) {
+        const msgs = this.pending.get(agent);
+        if (!msgs || msgs.length === 0) return [];
+        this.pending.delete(agent);
+        return msgs;
+      }
+      /** Dequeue all pending messages grouped by target agent. */
+      dequeueAll() {
+        const result = new Map(this.pending);
+        this.pending.clear();
+        return result;
+      }
+      /** Check if there are any pending messages for any agent. */
+      isEmpty() {
+        for (const msgs of this.pending.values()) {
+          if (msgs.length > 0) return false;
+        }
+        return true;
+      }
+      /** Total number of pending messages across all agents. */
+      size() {
+        let count = 0;
+        for (const msgs of this.pending.values()) {
+          count += msgs.length;
+        }
+        return count;
+      }
+      /** Get pending message count per agent (for diagnostics). */
+      counts() {
+        const result = {};
+        for (const [agent, msgs] of this.pending) {
+          if (msgs.length > 0) result[agent] = msgs.length;
+        }
+        return result;
+      }
+      /** Clear all pending messages. */
+      clear() {
+        this.pending.clear();
+      }
+    };
+  }
+});
+
+// src/agentic/bus.ts
+import Database from "better-sqlite3";
+import { join as join4 } from "path";
+import { mkdirSync as mkdirSync4 } from "fs";
+import { homedir as homedir3 } from "os";
+function defaultDbPath() {
+  const configBase = process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config");
+  const dir = join4(configBase, "phone-a-friend");
+  mkdirSync4(dir, { recursive: true });
+  return join4(dir, "agentic.db");
+}
+function rowToMessage(row) {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    from: row.from_agent,
+    to: row.to_agent,
+    content: row.content,
+    timestamp: new Date(row.timestamp),
+    turn: row.turn
+  };
+}
+var SCHEMA, TranscriptBus;
+var init_bus = __esm({
+  "src/agentic/bus.ts"() {
+    "use strict";
+    SCHEMA = `
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+  );
+
+  CREATE TABLE IF NOT EXISTS agents (
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    name TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    model TEXT,
+    backend_session_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    last_seen TEXT,
+    PRIMARY KEY (session_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    turn INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_session
+    ON messages(session_id, turn);
+  CREATE INDEX IF NOT EXISTS idx_messages_routing
+    ON messages(session_id, to_agent);
+`;
+    TranscriptBus = class {
+      db;
+      constructor(dbPath) {
+        this.db = new Database(dbPath ?? defaultDbPath());
+        this.db.pragma("journal_mode = WAL");
+        this.db.pragma("foreign_keys = ON");
+        this.db.exec(SCHEMA);
+      }
+      // ---- Sessions -----------------------------------------------------------
+      createSession(id, prompt) {
+        this.db.prepare(
+          "INSERT INTO sessions (id, prompt) VALUES (?, ?)"
+        ).run(id, prompt);
+      }
+      endSession(id, status) {
+        this.db.prepare(
+          `UPDATE sessions SET status = ?, ended_at = datetime('now') WHERE id = ?`
+        ).run(status, id);
+      }
+      getSession(id) {
+        const row = this.db.prepare(
+          "SELECT * FROM sessions WHERE id = ?"
+        ).get(id);
+        if (!row) return null;
+        const agents = this.getAgents(id);
+        return {
+          id: row.id,
+          createdAt: new Date(row.created_at),
+          endedAt: row.ended_at ? new Date(row.ended_at) : void 0,
+          prompt: row.prompt,
+          status: row.status,
+          agents,
+          turn: this.getMaxTurn(id),
+          maxTurns: 0
+          // Not stored — runtime-only config
+        };
+      }
+      listSessions() {
+        const rows = this.db.prepare(
+          "SELECT * FROM sessions ORDER BY rowid DESC"
+        ).all();
+        return rows.map((row) => ({
+          id: row.id,
+          createdAt: new Date(row.created_at),
+          endedAt: row.ended_at ? new Date(row.ended_at) : void 0,
+          prompt: row.prompt,
+          status: row.status,
+          agents: this.getAgents(row.id),
+          turn: this.getMaxTurn(row.id),
+          maxTurns: 0
+        }));
+      }
+      // ---- Agents -------------------------------------------------------------
+      addAgent(sessionId, name, backend, model) {
+        this.db.prepare(
+          "INSERT INTO agents (session_id, name, backend, model) VALUES (?, ?, ?, ?)"
+        ).run(sessionId, name, backend, model ?? null);
+      }
+      updateAgent(sessionId, name, updates) {
+        const sets = [];
+        const values = [];
+        if (updates.status !== void 0) {
+          sets.push("status = ?");
+          values.push(updates.status);
+        }
+        if (updates.backendSessionId !== void 0) {
+          sets.push("backend_session_id = ?");
+          values.push(updates.backendSessionId);
+        }
+        if (updates.messageCount !== void 0) {
+          sets.push("message_count = ?");
+          values.push(updates.messageCount);
+        }
+        sets.push(`last_seen = datetime('now')`);
+        values.push(sessionId, name);
+        this.db.prepare(
+          `UPDATE agents SET ${sets.join(", ")} WHERE session_id = ? AND name = ?`
+        ).run(...values);
+      }
+      getAgents(sessionId) {
+        const rows = this.db.prepare(
+          "SELECT * FROM agents WHERE session_id = ? ORDER BY rowid"
+        ).all(sessionId);
+        return rows.map((row) => ({
+          name: row.name,
+          backend: row.backend,
+          model: row.model ?? void 0,
+          backendSessionId: row.backend_session_id ?? void 0,
+          status: row.status,
+          messageCount: row.message_count,
+          lastSeen: row.last_seen ? new Date(row.last_seen) : void 0
+        }));
+      }
+      // ---- Messages -----------------------------------------------------------
+      appendMessage(msg) {
+        const result = this.db.prepare(
+          "INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)"
+        ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
+        this.db.prepare(
+          "UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?"
+        ).run(msg.sessionId, msg.from);
+        return result.lastInsertRowid;
+      }
+      getTranscript(sessionId) {
+        const rows = this.db.prepare(
+          "SELECT * FROM messages WHERE session_id = ? ORDER BY turn, id"
+        ).all(sessionId);
+        return rows.map(rowToMessage);
+      }
+      getMessageCount(sessionId) {
+        const row = this.db.prepare(
+          "SELECT COUNT(*) as count FROM messages WHERE session_id = ?"
+        ).get(sessionId);
+        return row.count;
+      }
+      // ---- Cleanup ------------------------------------------------------------
+      deleteSession(id) {
+        this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
+        this.db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
+        this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+      }
+      close() {
+        this.db.close();
+      }
+      // ---- Internal -----------------------------------------------------------
+      getMaxTurn(sessionId) {
+        const row = this.db.prepare(
+          "SELECT MAX(turn) as max_turn FROM messages WHERE session_id = ?"
+        ).get(sessionId);
+        return row.max_turn ?? 0;
+      }
+    };
+  }
+});
+
+// src/agentic/session.ts
+import { spawn as spawn3 } from "child_process";
+import { randomUUID } from "crypto";
+var NESTED_SESSION_VARS2, SessionManager;
+var init_session = __esm({
+  "src/agentic/session.ts"() {
+    "use strict";
+    NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
+    SessionManager = class {
+      sessions = /* @__PURE__ */ new Map();
+      /**
+       * Spawn a new agent session. Returns the agent's first response.
+       */
+      async spawn(agent, systemPrompt, initialPrompt, repoPath) {
+        const sessionId = randomUUID();
+        switch (agent.backend) {
+          case "claude": {
+            const output = await this.spawnClaude(
+              sessionId,
+              systemPrompt,
+              initialPrompt,
+              repoPath,
+              agent.model
+            );
+            this.sessions.set(agent.name, {
+              agentName: agent.name,
+              backend: "claude",
+              sessionId,
+              history: [initialPrompt, output]
+            });
+            return { output, sessionId };
+          }
+          default: {
+            const output = await this.statelessRun(
+              agent.backend,
+              systemPrompt,
+              initialPrompt,
+              repoPath,
+              agent.model
+            );
+            this.sessions.set(agent.name, {
+              agentName: agent.name,
+              backend: agent.backend,
+              sessionId,
+              history: [initialPrompt, output]
+            });
+            return { output, sessionId };
+          }
+        }
+      }
+      /**
+       * Resume an agent session with a new message. Returns the agent's response.
+       */
+      async resume(agentName, message, repoPath) {
+        const session = this.sessions.get(agentName);
+        if (!session) throw new Error(`No session for agent: ${agentName}`);
+        switch (session.backend) {
+          case "claude": {
+            const output = await this.resumeClaude(session.sessionId, message, repoPath);
+            session.history.push(message, output);
+            return output;
+          }
+          default: {
+            const output = await this.statelessResume(session, message, repoPath);
+            session.history.push(message, output);
+            return output;
+          }
+        }
+      }
+      /**
+       * Check if an agent has an active session.
+       */
+      hasSession(agentName) {
+        return this.sessions.has(agentName);
+      }
+      /**
+       * Get session info for an agent.
+       */
+      getSession(agentName) {
+        return this.sessions.get(agentName);
+      }
+      /**
+       * Kill all sessions.
+       */
+      clear() {
+        this.sessions.clear();
+      }
+      // ---- Claude (persistent sessions) --------------------------------------
+      spawnClaude(sessionId, systemPrompt, prompt, repoPath, model) {
+        const args = [
+          "-p",
+          `${systemPrompt}
+
+---
+
+${prompt}`,
+          "--session-id",
+          sessionId,
+          "--add-dir",
+          repoPath,
+          "--max-turns",
+          "3",
+          "--output-format",
+          "text"
+        ];
+        if (model) {
+          args.push("--model", model);
+        }
+        args.push("--tools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
+        args.push("--allowedTools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
+        args.push("--disable-slash-commands");
+        args.push("--disallowedTools", "Task");
+        return this.execClaude(args, repoPath);
+      }
+      resumeClaude(sessionId, message, repoPath) {
+        const args = [
+          "-p",
+          message,
+          "-r",
+          sessionId,
+          "--output-format",
+          "text"
+        ];
+        return this.execClaude(args, repoPath);
+      }
+      execClaude(args, repoPath) {
+        return new Promise((resolve5, reject) => {
+          const env3 = this.cleanEnv();
+          const child = spawn3("claude", args, {
+            env: env3,
+            cwd: repoPath,
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+          let settled = false;
+          const settle = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            fn(value);
+          };
+          child.on("error", (err) => {
+            settle(reject, new Error(`Failed to spawn claude: ${err.message}`));
+          });
+          child.stdin?.end();
+          const stdout = [];
+          const stderr = [];
+          child.stdout.on("data", (chunk) => stdout.push(chunk));
+          child.stderr.on("data", (chunk) => stderr.push(chunk));
+          const timeoutMs = 6e5;
+          const timer = setTimeout(() => {
+            child.kill("SIGTERM");
+            settle(reject, new Error(`claude session timed out after ${timeoutMs / 1e3}s`));
+          }, timeoutMs);
+          child.on("close", (code) => {
+            const out = Buffer.concat(stdout).toString().trim();
+            const err = Buffer.concat(stderr).toString().trim();
+            if (code === 0 && out) {
+              settle(resolve5, out);
+            } else if (out) {
+              settle(resolve5, out);
+            } else {
+              settle(reject, new Error(err || `claude exited with code ${code}`));
+            }
+          });
+        });
+      }
+      // ---- Stateless fallback -------------------------------------------------
+      statelessRun(backend, systemPrompt, prompt, repoPath, model) {
+        const fullPrompt = `${systemPrompt}
+
+---
+
+${prompt}`;
+        return this.execBackend(backend, fullPrompt, repoPath, model);
+      }
+      statelessResume(session, newMessage, repoPath) {
+        const transcript = session.history.map((msg, i) => i % 2 === 0 ? `[Turn ${Math.floor(i / 2) + 1} prompt]: ${msg}` : `[Turn ${Math.floor(i / 2) + 1} response]: ${msg}`).join("\n\n---\n\n");
+        const fullPrompt = `${transcript}
+
+---
+
+[New message]: ${newMessage}`;
+        return this.execBackend(session.backend, fullPrompt, repoPath);
+      }
+      execBackend(backend, prompt, repoPath, model) {
+        return Promise.reject(
+          new Error(`Backend "${backend}" is not yet supported in agentic mode. Use claude.`)
+        );
+      }
+      // ---- Helpers ------------------------------------------------------------
+      cleanEnv() {
+        const env3 = { ...process.env };
+        for (const key of NESTED_SESSION_VARS2) {
+          delete env3[key];
+        }
+        return env3;
+      }
+    };
+  }
+});
+
+// src/agentic/parser.ts
+function parseAgentResponse(text, knownAgents) {
+  const lines = text.split("\n");
+  const messages = [];
+  const noteLines = [];
+  let inCodeBlock = false;
+  let currentMessage = null;
+  for (const line of lines) {
+    if (line.trimStart().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    if (line.trimStart().startsWith(">")) {
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    const match = line.match(/^@(\w+):\s*(.*)/);
+    if (match) {
+      const [, target, content] = match;
+      if (knownAgents.has(target)) {
+        if (currentMessage) {
+          messages.push(currentMessage);
+        }
+        currentMessage = { to: target, content: content.trim() };
+        continue;
+      }
+    }
+    if (currentMessage && line.trim().length > 0) {
+      currentMessage.content += "\n" + line;
+      continue;
+    }
+    if (currentMessage && line.trim().length === 0) {
+      messages.push(currentMessage);
+      currentMessage = null;
+      noteLines.push(line);
+      continue;
+    }
+    noteLines.push(line);
+  }
+  if (currentMessage) {
+    messages.push(currentMessage);
+  }
+  return {
+    messages,
+    notes: noteLines.join("\n").trim()
+  };
+}
+function buildSystemPrompt(role, agents, description) {
+  const otherAgents = agents.filter((a) => a !== role);
+  const roleDesc = description ? `Your role: ${description}` : `Stay focused on your role: ${role}`;
+  return [
+    `You are the "${role}" agent in a multi-agent review session.`,
+    `Other agents: ${otherAgents.join(", ")}`,
+    "",
+    "To message another agent, start a NEW LINE with @name: followed by your message.",
+    "Examples:",
+    `  @${otherAgents[0] ?? "other"}: Is this a concern from your perspective?`,
+    "  @all: Here is my summary of findings.",
+    "  @user: Final report ready.",
+    "",
+    "Rules:",
+    "- One @mention per line. Each line starting with @name: is a separate message.",
+    "- Lines without @name: are your private working notes (not sent to anyone).",
+    `- ${roleDesc}`,
+    "- Be specific. Cite file paths and line numbers when reviewing code."
+  ].join("\n");
+}
+var init_parser = __esm({
+  "src/agentic/parser.ts"() {
+    "use strict";
+  }
+});
+
+// src/agentic/events.ts
+var EventChannel;
+var init_events = __esm({
+  "src/agentic/events.ts"() {
+    "use strict";
+    EventChannel = class {
+      queue = [];
+      resolve = null;
+      done = false;
+      push(event) {
+        if (this.done) return;
+        if (this.resolve) {
+          const r = this.resolve;
+          this.resolve = null;
+          r({ value: event, done: false });
+        } else {
+          this.queue.push(event);
+        }
+      }
+      close() {
+        this.done = true;
+        if (this.resolve) {
+          const r = this.resolve;
+          this.resolve = null;
+          r({ value: void 0, done: true });
+        }
+      }
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => {
+            if (this.queue.length > 0) {
+              return Promise.resolve({ value: this.queue.shift(), done: false });
+            }
+            if (this.done) {
+              return Promise.resolve({ value: void 0, done: true });
+            }
+            return new Promise((resolve5) => {
+              this.resolve = resolve5;
+            });
+          }
+        };
+      }
+    };
+  }
+});
+
+// src/agentic/types.ts
+var AGENTIC_DEFAULTS;
+var init_types = __esm({
+  "src/agentic/types.ts"() {
+    "use strict";
+    AGENTIC_DEFAULTS = {
+      maxTurns: 20,
+      timeoutSeconds: 900,
+      // 15 minutes
+      maxMessageSize: 50 * 1024,
+      // 50 KB
+      pingPongThreshold: 6,
+      noProgressThreshold: 2,
+      maxAgentTurnsPerRound: 3
+    };
+  }
+});
+
+// src/agentic/orchestrator.ts
+import { randomUUID as randomUUID2 } from "crypto";
+var Orchestrator;
+var init_orchestrator = __esm({
+  "src/agentic/orchestrator.ts"() {
+    "use strict";
+    init_queue();
+    init_bus();
+    init_session();
+    init_parser();
+    init_events();
+    init_types();
+    Orchestrator = class {
+      queue = new MessageQueue();
+      sessions = new SessionManager();
+      bus;
+      events = new EventChannel();
+      agentStates = /* @__PURE__ */ new Map();
+      sessionId = "";
+      turn = 0;
+      startTime = 0;
+      // Guardrail state
+      consecutiveExchanges = /* @__PURE__ */ new Map();
+      lastPingPongTurn = -1;
+      noProgressCount = 0;
+      constructor(dbPath) {
+        this.bus = new TranscriptBus(dbPath);
+      }
+      /**
+       * Run an agentic session. Returns an AsyncIterable of events that
+       * consumers (CLI, TUI, web dashboard) can subscribe to.
+       */
+      async run(config) {
+        this.sessionId = randomUUID2().slice(0, 7);
+        this.turn = 0;
+        this.startTime = Date.now();
+        this.events = new EventChannel();
+        this.agentStates = /* @__PURE__ */ new Map();
+        this.consecutiveExchanges = /* @__PURE__ */ new Map();
+        this.lastPingPongTurn = -1;
+        this.noProgressCount = 0;
+        this.queue.clear();
+        this.sessions.clear();
+        this.bus.createSession(this.sessionId, config.prompt);
+        const agentNames = config.agents.map((a) => a.name);
+        const knownTargets = /* @__PURE__ */ new Set([...agentNames, "all", "user"]);
+        for (const agent of config.agents) {
+          this.bus.addAgent(this.sessionId, agent.name, agent.backend, agent.model);
+          this.agentStates.set(agent.name, {
+            name: agent.name,
+            backend: agent.backend,
+            model: agent.model,
+            status: "active",
+            messageCount: 0
+          });
+        }
+        const agentStatesArr = [...this.agentStates.values()];
+        this.emit({
+          type: "session_start",
+          sessionId: this.sessionId,
+          prompt: config.prompt,
+          agents: agentStatesArr,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.runLoop(config, knownTargets).catch((err) => {
+          this.emit({
+            type: "error",
+            sessionId: this.sessionId,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: /* @__PURE__ */ new Date()
+          });
+          this.endSession("error");
+        });
+        return this.events;
+      }
+      /**
+       * Stop the current session.
+       */
+      stop() {
+        this.endSession("stopped");
+      }
+      /**
+       * Close the transcript database.
+       */
+      close() {
+        this.bus.close();
+      }
+      // ---- Main loop ----------------------------------------------------------
+      async runLoop(config, knownTargets) {
+        const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
+        for (const agent of agents) {
+          const systemPrompt = buildSystemPrompt(
+            agent.name,
+            agents.map((a) => a.name),
+            agent.description
+          );
+          try {
+            this.emitAgentStatus(agent.name, "active");
+            const result = await this.sessions.spawn(
+              agent,
+              systemPrompt,
+              prompt,
+              repoPath
+            );
+            this.bus.updateAgent(this.sessionId, agent.name, {
+              backendSessionId: result.sessionId
+            });
+            this.logAndEmitMessage("user", agent.name, prompt, 0);
+            const parsed = parseAgentResponse(result.output, knownTargets);
+            for (const msg of parsed.messages) {
+              this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
+              if (msg.to === "all") {
+                for (const other of agents) {
+                  if (other.name !== agent.name) {
+                    this.queue.enqueue({
+                      sessionId: this.sessionId,
+                      from: agent.name,
+                      to: other.name,
+                      content: msg.content,
+                      timestamp: /* @__PURE__ */ new Date(),
+                      turn: 0
+                    });
+                  }
+                }
+              } else if (msg.to !== "user") {
+                this.queue.enqueue({
+                  sessionId: this.sessionId,
+                  from: agent.name,
+                  to: msg.to,
+                  content: msg.content,
+                  timestamp: /* @__PURE__ */ new Date(),
+                  turn: 0
+                });
+              }
+            }
+            if (parsed.notes) {
+              this.logAndEmitMessage(agent.name, "notes", parsed.notes, 0);
+            }
+            this.emitAgentStatus(agent.name, "idle");
+          } catch (err) {
+            this.emit({
+              type: "error",
+              sessionId: this.sessionId,
+              agent: agent.name,
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: /* @__PURE__ */ new Date()
+            });
+            this.emitAgentStatus(agent.name, "dead");
+          }
+        }
+        this.emit({
+          type: "turn_complete",
+          sessionId: this.sessionId,
+          turn: 0,
+          pendingCount: this.queue.size(),
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.turn = 1;
+        while (this.turn <= maxTurns) {
+          if (this.isTimedOut(timeoutSeconds)) {
+            this.emit({
+              type: "guardrail",
+              sessionId: this.sessionId,
+              guard: "timeout",
+              detail: `Session timed out after ${timeoutSeconds}s`,
+              timestamp: /* @__PURE__ */ new Date()
+            });
+            this.endSession("timeout");
+            return;
+          }
+          if (this.queue.isEmpty()) {
+            this.noProgressCount++;
+            if (this.noProgressCount >= 2) {
+              this.emit({
+                type: "guardrail",
+                sessionId: this.sessionId,
+                guard: "converged",
+                detail: `No new messages for ${this.noProgressCount} consecutive turns`,
+                timestamp: /* @__PURE__ */ new Date()
+              });
+              this.endSession("converged");
+              return;
+            }
+          } else {
+            this.noProgressCount = 0;
+          }
+          const pending = this.queue.dequeueAll();
+          if (pending.size === 0) {
+            this.endSession("converged");
+            return;
+          }
+          for (const [agentName, messages] of pending) {
+            const agent = agents.find((a) => a.name === agentName);
+            if (!agent) continue;
+            const state = this.agentStates.get(agentName);
+            if (!state || state.status === "dead") continue;
+            if (this.detectPingPong(messages)) {
+              this.emit({
+                type: "guardrail",
+                sessionId: this.sessionId,
+                guard: "ping_pong",
+                detail: `Breaking conversation cycle involving ${agentName}`,
+                timestamp: /* @__PURE__ */ new Date()
+              });
+              continue;
+            }
+            const incomingPrompt = messages.map((m) => `@${m.from} says: ${m.content}`).join("\n\n");
+            try {
+              this.emitAgentStatus(agentName, "active");
+              const output = await this.sessions.resume(
+                agentName,
+                incomingPrompt,
+                repoPath
+              );
+              const parsed = parseAgentResponse(output, knownTargets);
+              for (const msg of parsed.messages) {
+                this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
+                if (msg.to === "all") {
+                  for (const other of agents) {
+                    if (other.name !== agentName) {
+                      this.queue.enqueue({
+                        sessionId: this.sessionId,
+                        from: agentName,
+                        to: other.name,
+                        content: msg.content,
+                        timestamp: /* @__PURE__ */ new Date(),
+                        turn: this.turn
+                      });
+                    }
+                  }
+                } else if (msg.to !== "user") {
+                  this.queue.enqueue({
+                    sessionId: this.sessionId,
+                    from: agentName,
+                    to: msg.to,
+                    content: msg.content,
+                    timestamp: /* @__PURE__ */ new Date(),
+                    turn: this.turn
+                  });
+                }
+              }
+              if (parsed.notes) {
+                this.logAndEmitMessage(agentName, "notes", parsed.notes, this.turn);
+              }
+              this.emitAgentStatus(agentName, "idle");
+            } catch (err) {
+              this.emit({
+                type: "error",
+                sessionId: this.sessionId,
+                agent: agentName,
+                error: err instanceof Error ? err.message : String(err),
+                timestamp: /* @__PURE__ */ new Date()
+              });
+              this.emitAgentStatus(agentName, "dead");
+            }
+          }
+          this.emit({
+            type: "turn_complete",
+            sessionId: this.sessionId,
+            turn: this.turn,
+            pendingCount: this.queue.size(),
+            timestamp: /* @__PURE__ */ new Date()
+          });
+          this.turn++;
+        }
+        this.emit({
+          type: "guardrail",
+          sessionId: this.sessionId,
+          guard: "max_turns",
+          detail: `Reached maximum of ${maxTurns} turns`,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.endSession("max_turns");
+      }
+      // ---- Helpers ------------------------------------------------------------
+      emit(event) {
+        this.events.push(event);
+      }
+      emitAgentStatus(agent, status) {
+        const state = this.agentStates.get(agent);
+        if (state) {
+          state.status = status;
+          this.bus.updateAgent(this.sessionId, agent, { status });
+        }
+        this.emit({
+          type: "agent_status",
+          sessionId: this.sessionId,
+          agent,
+          status,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+      }
+      logAndEmitMessage(from, to, content, turn) {
+        this.bus.appendMessage({
+          sessionId: this.sessionId,
+          from,
+          to,
+          content,
+          turn
+        });
+        if (to !== "notes") {
+          this.emit({
+            type: "message",
+            sessionId: this.sessionId,
+            from,
+            to,
+            content,
+            turn,
+            timestamp: /* @__PURE__ */ new Date()
+          });
+        }
+      }
+      endSession(reason) {
+        const elapsed = Date.now() - this.startTime;
+        const busStatus = reason === "error" ? "failed" : reason === "stopped" ? "stopped" : "completed";
+        this.bus.endSession(this.sessionId, busStatus);
+        this.emit({
+          type: "session_end",
+          sessionId: this.sessionId,
+          reason,
+          turn: this.turn,
+          elapsed,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.events.close();
+        this.sessions.clear();
+        this.queue.clear();
+      }
+      isTimedOut(timeoutSeconds) {
+        return Date.now() - this.startTime > timeoutSeconds * 1e3;
+      }
+      detectPingPong(messages) {
+        if (this.turn !== this.lastPingPongTurn) {
+          this.lastPingPongTurn = this.turn;
+          for (const [pair, count] of this.consecutiveExchanges) {
+            if (count <= 1) {
+              this.consecutiveExchanges.delete(pair);
+            } else {
+              this.consecutiveExchanges.set(pair, Math.floor(count / 2));
+            }
+          }
+        }
+        for (const msg of messages) {
+          const pair = [msg.from, msg.to].sort().join(":");
+          const count = (this.consecutiveExchanges.get(pair) ?? 0) + 1;
+          this.consecutiveExchanges.set(pair, count);
+          if (count >= AGENTIC_DEFAULTS.pingPongThreshold) {
+            return true;
+          }
+        }
+        return false;
+      }
+    };
+  }
+});
+
+// src/agentic/index.ts
+var agentic_exports = {};
+__export(agentic_exports, {
+  AGENTIC_DEFAULTS: () => AGENTIC_DEFAULTS,
+  EventChannel: () => EventChannel,
+  MessageQueue: () => MessageQueue,
+  Orchestrator: () => Orchestrator,
+  SessionManager: () => SessionManager,
+  TranscriptBus: () => TranscriptBus,
+  buildSystemPrompt: () => buildSystemPrompt,
+  defaultDbPath: () => defaultDbPath,
+  parseAgentResponse: () => parseAgentResponse
+});
+var init_agentic = __esm({
+  "src/agentic/index.ts"() {
+    "use strict";
+    init_orchestrator();
+    init_bus();
+    init_queue();
+    init_session();
+    init_parser();
+    init_events();
+    init_types();
+  }
+});
+
 // src/backends/codex.ts
 init_backends();
 import { execFileSync as execFileSync2 } from "child_process";
@@ -65979,7 +66974,7 @@ function repoRootDefault() {
   const thisDir = dirname5(fileURLToPath2(import.meta.url));
   return resolve4(thisDir, "..");
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -66240,6 +67235,116 @@ ${banner("AI coding agent relay")}
   addUninstallOptions(
     pluginCmd.command("uninstall").description("Uninstall Claude plugin")
   ).action((opts) => uninstallAction(opts));
+  const agenticCmd = program2.command("agentic").description("Multi-agent sessions with persistent agent-to-agent communication");
+  agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").action(async (opts) => {
+    const { Orchestrator: Orchestrator2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const agents = parseAgentList(opts.agents);
+    if (agents.length === 0) {
+      console.error(`  ${theme.crossmark} ${theme.error("No agents specified. Use --agents role:backend,role:backend")}`);
+      exitCode = 1;
+      return;
+    }
+    const orchestrator = new Orchestrator2();
+    try {
+      const events = await orchestrator.run({
+        agents,
+        prompt: opts.prompt,
+        maxTurns: parseInt(opts.maxTurns, 10),
+        timeoutSeconds: parseInt(opts.timeout, 10),
+        repoPath: opts.repo,
+        sandbox: opts.sandbox
+      });
+      await formatAgenticEvents(events);
+    } finally {
+      orchestrator.close();
+    }
+  });
+  agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
+    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const bus = new TranscriptBus2();
+    try {
+      if (opts.session) {
+        const transcript = bus.getTranscript(opts.session);
+        const session = bus.getSession(opts.session);
+        if (!session) {
+          console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+          exitCode = 1;
+          return;
+        }
+        console.log(`
+  ${theme.heading("Session")} ${theme.info(session.id)}`);
+        console.log(`  ${theme.label("Prompt:")} ${session.prompt}`);
+        console.log(`  ${theme.label("Status:")} ${session.status}`);
+        console.log(`  ${theme.label("Agents:")} ${session.agents.map((a) => `${a.name}(${a.backend})`).join(", ")}`);
+        console.log(`  ${theme.label("Messages:")} ${transcript.length}`);
+        console.log("");
+        for (const msg of transcript) {
+          const time = msg.timestamp.toLocaleTimeString();
+          const arrow = theme.hint("\u2192");
+          console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+          console.log(`    ${msg.content.split("\n")[0].slice(0, 120)}`);
+        }
+        console.log("");
+      } else {
+        const sessions = bus.listSessions();
+        if (sessions.length === 0) {
+          console.log(`
+  ${theme.hint("No agentic sessions found.")}
+`);
+          return;
+        }
+        console.log(`
+  ${theme.heading("Agentic Sessions")}
+`);
+        for (const s of sessions) {
+          const status = s.status === "completed" ? theme.success("\u2713") : s.status === "active" ? theme.info("\u25CF") : s.status === "failed" ? theme.error("\u2717") : theme.warning("\u25A0");
+          const agents = s.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
+          const time = s.createdAt.toLocaleString();
+          console.log(`  ${status} ${theme.bold(s.id)}  ${theme.hint(time)}`);
+          console.log(`    ${theme.hint(s.prompt.slice(0, 100))}`);
+          console.log(`    ${theme.hint(`Agents: ${agents}  |  Turns: ${s.turn}`)}`);
+          console.log("");
+        }
+      }
+    } finally {
+      bus.close();
+    }
+  });
+  agenticCmd.command("replay").description("Replay a session transcript").requiredOption("--session <id>", "Session ID to replay").action(async (opts) => {
+    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const bus = new TranscriptBus2();
+    try {
+      const session = bus.getSession(opts.session);
+      if (!session) {
+        console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+        exitCode = 1;
+        return;
+      }
+      const transcript = bus.getTranscript(opts.session);
+      console.log(`
+  ${theme.heading("Replay:")} ${theme.info(session.id)}`);
+      console.log(`  ${theme.label("Prompt:")} ${session.prompt}
+`);
+      let lastTurn = -1;
+      for (const msg of transcript) {
+        if (msg.turn !== lastTurn) {
+          console.log(`  ${theme.heading(`\u2500\u2500 Turn ${msg.turn} \u2500\u2500`)}`);
+          lastTurn = msg.turn;
+        }
+        const time = msg.timestamp.toLocaleTimeString();
+        const arrow = theme.hint("\u2192");
+        console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+        for (const line of msg.content.split("\n")) {
+          console.log(`    ${line}`);
+        }
+        console.log("");
+      }
+      console.log(`  ${theme.label("Status:")} ${session.status}  |  ${theme.label("Turns:")} ${session.turn}
+`);
+    } finally {
+      bus.close();
+    }
+  });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")
   ).action((opts) => installAction(opts));
@@ -66274,6 +67379,67 @@ ${banner("AI coding agent relay")}
     throw err;
   }
   return exitCode;
+}
+function parseAgentList(input) {
+  return input.split(",").map((pair) => {
+    const parts = pair.trim().split(":");
+    if (parts.length < 2) return null;
+    return {
+      name: parts[0],
+      backend: parts[1],
+      model: parts[2] || void 0
+    };
+  }).filter((a) => a !== null);
+}
+async function formatAgenticEvents(events) {
+  for await (const event of events) {
+    const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+    switch (event.type) {
+      case "session_start":
+        console.log(`
+  ${theme.heading("Agentic Session")} ${theme.info(event.sessionId)}`);
+        console.log(`  ${theme.label("Prompt:")} ${event.prompt}`);
+        console.log(`  ${theme.label("Agents:")} ${event.agents.map((a) => `${theme.bold(a.name)}(${a.backend})`).join(", ")}
+`);
+        break;
+      case "message": {
+        const arrow = theme.hint("\u2192");
+        console.log(`  ${theme.hint(time)}  ${theme.bold(event.from)} ${arrow} ${theme.bold(event.to)}`);
+        const lines = event.content.split("\n").slice(0, 3);
+        for (const line of lines) {
+          console.log(`    ${line}`);
+        }
+        if (event.content.split("\n").length > 3) {
+          console.log(`    ${theme.hint(`... (${event.content.split("\n").length - 3} more lines)`)}`);
+        }
+        break;
+      }
+      case "agent_status": {
+        const icon = event.status === "active" ? theme.info("\u25CF") : event.status === "idle" ? theme.hint("\u25CB") : theme.error("\u2717");
+        console.log(`  ${theme.hint(time)}  ${icon} ${event.agent}: ${event.status}`);
+        break;
+      }
+      case "turn_complete":
+        console.log(`  ${theme.hint(`\u2500\u2500 Turn ${event.turn} complete (${event.pendingCount} pending) \u2500\u2500`)}`);
+        break;
+      case "guardrail":
+        console.log(`  ${theme.warning("\u26A0")} ${theme.warning(event.guard)}: ${event.detail}`);
+        break;
+      case "session_end": {
+        const elapsed = (event.elapsed / 1e3).toFixed(1);
+        console.log(`
+  ${theme.heading("Session ended")}: ${event.reason}`);
+        console.log(`  ${theme.label("Turns:")} ${event.turn}  |  ${theme.label("Elapsed:")} ${elapsed}s
+`);
+        break;
+      }
+      case "error": {
+        const prefix = event.agent ? `${event.agent}: ` : "";
+        console.error(`  ${theme.crossmark} ${theme.error(`${prefix}${event.error}`)}`);
+        break;
+      }
+    }
+  }
 }
 
 // src/index.ts

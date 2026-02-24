@@ -12,11 +12,11 @@ import { SessionManager } from './session.js';
 import { parseAgentResponse, buildSystemPrompt } from './parser.js';
 import { EventChannel } from './events.js';
 import type { AgenticEvent } from './events.js';
-import type {
-  AgenticSessionConfig,
-  AgentState,
+import {
   AGENTIC_DEFAULTS,
-  Message,
+  type AgenticSessionConfig,
+  type AgentState,
+  type Message,
 } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ export class Orchestrator {
 
   // Guardrail state
   private consecutiveExchanges = new Map<string, number>();
+  private lastPingPongTurn = -1;
   private noProgressCount = 0;
 
   constructor(dbPath?: string) {
@@ -46,9 +47,17 @@ export class Orchestrator {
    * consumers (CLI, TUI, web dashboard) can subscribe to.
    */
   async run(config: AgenticSessionConfig): Promise<AsyncIterable<AgenticEvent>> {
+    // Reset all session-scoped state for safe reuse
     this.sessionId = randomUUID().slice(0, 7);
     this.turn = 0;
     this.startTime = Date.now();
+    this.events = new EventChannel();
+    this.agentStates = new Map();
+    this.consecutiveExchanges = new Map();
+    this.lastPingPongTurn = -1;
+    this.noProgressCount = 0;
+    this.queue.clear();
+    this.sessions.clear();
 
     // Create session in transcript
     this.bus.createSession(this.sessionId, config.prompt);
@@ -208,7 +217,7 @@ export class Orchestrator {
           detail: `Session timed out after ${timeoutSeconds}s`,
           timestamp: new Date(),
         });
-        this.endSession('completed');
+        this.endSession('timeout');
         return;
       }
 
@@ -223,7 +232,7 @@ export class Orchestrator {
             detail: `No new messages for ${this.noProgressCount} consecutive turns`,
             timestamp: new Date(),
           });
-          this.endSession('completed');
+          this.endSession('converged');
           return;
         }
       } else {
@@ -233,7 +242,7 @@ export class Orchestrator {
       // Dequeue and route
       const pending = this.queue.dequeueAll();
       if (pending.size === 0) {
-        this.endSession('completed');
+        this.endSession('converged');
         return;
       }
 
@@ -335,7 +344,7 @@ export class Orchestrator {
       detail: `Reached maximum of ${maxTurns} turns`,
       timestamp: new Date(),
     });
-    this.endSession('completed');
+    this.endSession('max_turns');
   }
 
   // ---- Helpers ------------------------------------------------------------
@@ -387,18 +396,18 @@ export class Orchestrator {
     }
   }
 
-  private endSession(reason: 'completed' | 'stopped' | 'error'): void {
+  private endSession(reason: 'converged' | 'max_turns' | 'timeout' | 'stopped' | 'error'): void {
     const elapsed = Date.now() - this.startTime;
-    const sessionEndReason = reason === 'completed'
-      ? (this.turn >= 20 ? 'max_turns' : 'converged')
-      : reason;
 
-    this.bus.endSession(this.sessionId, reason === 'error' ? 'failed' : reason);
+    const busStatus = reason === 'error' ? 'failed'
+      : reason === 'stopped' ? 'stopped'
+      : 'completed';
+    this.bus.endSession(this.sessionId, busStatus);
 
     this.emit({
       type: 'session_end',
       sessionId: this.sessionId,
-      reason: sessionEndReason,
+      reason,
       turn: this.turn,
       elapsed,
       timestamp: new Date(),
@@ -414,13 +423,26 @@ export class Orchestrator {
   }
 
   private detectPingPong(messages: Message[]): boolean {
-    // Track consecutive exchanges between the same pair
+    // Reset streak counters on turn boundary (new turn = fresh window)
+    if (this.turn !== this.lastPingPongTurn) {
+      this.lastPingPongTurn = this.turn;
+      // Don't clear — decay: halve counts each turn so long convos don't false-trigger
+      for (const [pair, count] of this.consecutiveExchanges) {
+        if (count <= 1) {
+          this.consecutiveExchanges.delete(pair);
+        } else {
+          this.consecutiveExchanges.set(pair, Math.floor(count / 2));
+        }
+      }
+    }
+
     for (const msg of messages) {
       const pair = [msg.from, msg.to].sort().join(':');
       const count = (this.consecutiveExchanges.get(pair) ?? 0) + 1;
       this.consecutiveExchanges.set(pair, count);
 
-      if (count > 4) {
+      // Threshold from config (default 6 = 3 round trips) within decay window
+      if (count >= AGENTIC_DEFAULTS.pingPongThreshold) {
         return true;
       }
     }

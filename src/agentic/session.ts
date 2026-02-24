@@ -84,19 +84,17 @@ export class SessionManager {
     const session = this.sessions.get(agentName);
     if (!session) throw new Error(`No session for agent: ${agentName}`);
 
-    session.history.push(message);
-
+    // Don't mutate history until backend succeeds — avoids phantom messages on failure
     switch (session.backend) {
       case 'claude': {
         const output = await this.resumeClaude(session.sessionId, message, repoPath);
-        session.history.push(output);
+        session.history.push(message, output);
         return output;
       }
 
       default: {
-        // Rebuild full context for stateless backends
         const output = await this.statelessResume(session, message, repoPath);
-        session.history.push(output);
+        session.history.push(message, output);
         return output;
       }
     }
@@ -136,7 +134,7 @@ export class SessionManager {
       '-p', `${systemPrompt}\n\n---\n\n${prompt}`,
       '--session-id', sessionId,
       '--add-dir', repoPath,
-      '--max-turns', '10',
+      '--max-turns', '3',
       '--output-format', 'text',
     ];
 
@@ -178,29 +176,45 @@ export class SessionManager {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
+      let settled = false;
+      const settle = (fn: typeof resolve | typeof reject, value: string | Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        (fn as (v: string | Error) => void)(value);
+      };
+
+      // Fail fast if binary not found or spawn fails
+      child.on('error', (err: Error) => {
+        settle(reject, new Error(`Failed to spawn claude: ${err.message}`));
+      });
+
+      // Close stdin immediately — Claude waits for EOF before processing
+      child.stdin?.end();
+
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
 
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
       child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
 
+      const timeoutMs = 600_000; // 10 minutes — Claude Code with tools needs time
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error('claude session timed out after 300s'));
-      }, 300_000);
+        settle(reject, new Error(`claude session timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs);
 
       child.on('close', (code) => {
-        clearTimeout(timer);
         const out = Buffer.concat(stdout).toString().trim();
         const err = Buffer.concat(stderr).toString().trim();
 
         if (code === 0 && out) {
-          resolve(out);
+          settle(resolve, out);
         } else if (out) {
           // Non-zero exit but has output — use it
-          resolve(out);
+          settle(resolve, out);
         } else {
-          reject(new Error(err || `claude exited with code ${code}`));
+          settle(reject, new Error(err || `claude exited with code ${code}`));
         }
       });
     });

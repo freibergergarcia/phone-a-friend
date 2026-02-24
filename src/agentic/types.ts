@@ -77,7 +77,7 @@ export const AGENTIC_DEFAULTS = {
   maxTurns: 20,
   timeoutSeconds: 900, // 15 minutes
   maxMessageSize: 50 * 1024, // 50 KB
-  pingPongThreshold: 4,
+  pingPongThreshold: 6,
   noProgressThreshold: 2,
   maxAgentTurnsPerRound: 3,
 } as const;
