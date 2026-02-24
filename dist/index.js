@@ -82,7 +82,8 @@ var init_backends = __esm({
     INSTALL_HINTS = {
       codex: "npm install -g @openai/codex",
       gemini: "npm install -g @google/gemini-cli",
-      ollama: "https://ollama.com/download"
+      ollama: "https://ollama.com/download",
+      claude: "npm install -g @anthropic-ai/claude-code"
     };
     registry = /* @__PURE__ */ new Map();
   }
@@ -4282,9 +4283,10 @@ __export(relay_exports, {
   detectDefaultBranch: () => detectDefaultBranch,
   gitDiffBase: () => gitDiffBase,
   relay: () => relay,
+  relayStream: () => relayStream,
   reviewRelay: () => reviewRelay
 });
-import { execFileSync as execFileSync4 } from "child_process";
+import { execFileSync as execFileSync5 } from "child_process";
 import { readFileSync as readFileSync2, existsSync as existsSync2, statSync } from "fs";
 import { resolve } from "path";
 function sizeBytes(text) {
@@ -4329,7 +4331,7 @@ function resolveContextText(contextFile, contextText) {
 }
 function tryGitDiff(repoPath, args) {
   try {
-    const result = execFileSync4("git", ["-C", repoPath, "diff", ...args], {
+    const result = execFileSync5("git", ["-C", repoPath, "diff", ...args], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4349,7 +4351,7 @@ function gitDiff(repoPath) {
 function detectDefaultBranch(repoPath) {
   for (const branch of ["main", "master"]) {
     try {
-      execFileSync4("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
+      execFileSync5("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"]
       });
@@ -4361,7 +4363,7 @@ function detectDefaultBranch(repoPath) {
 }
 function gitDiffBase(repoPath, base) {
   try {
-    const result = execFileSync4("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
+    const result = execFileSync5("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4377,14 +4379,20 @@ function gitDiffBase(repoPath, base) {
 }
 function buildPrompt(opts) {
   const sections = [
-    "You are helping another coding agent by reviewing or advising on work in a local repository.",
-    `Repository path: ${opts.repoPath}`,
-    "Use the repository files for context when needed.",
+    "You are helping another coding agent by reviewing or advising on work in a local repository."
+  ];
+  if (opts.localFileAccess) {
+    sections.push(
+      `Repository path: ${opts.repoPath}`,
+      "Use the repository files for context when needed."
+    );
+  }
+  sections.push(
     "Respond with concise, actionable feedback.",
     "",
     "Request:",
     opts.prompt.trim()
-  ];
+  );
   if (opts.contextText) {
     sections.push("", "Additional Context:", opts.contextText);
   }
@@ -4406,7 +4414,7 @@ function nextRelayEnv() {
   env3.PHONE_A_FRIEND_DEPTH = String(depth + 1);
   return env3;
 }
-async function relay(opts) {
+function prepareRelay(opts) {
   const {
     prompt,
     repoPath,
@@ -4446,10 +4454,15 @@ async function relay(opts) {
     prompt,
     repoPath: resolvedRepo,
     contextText: resolvedContext,
-    diffText
+    diffText,
+    localFileAccess: selectedBackend.localFileAccess
   });
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   const env3 = nextRelayEnv();
+  return { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model };
+}
+async function relay(opts) {
+  const { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model } = prepareRelay(opts);
   try {
     return await selectedBackend.run({
       prompt: fullPrompt,
@@ -4459,6 +4472,23 @@ async function relay(opts) {
       model,
       env: env3
     });
+  } catch (err) {
+    if (err instanceof RelayError) throw err;
+    if (err instanceof BackendError) {
+      throw new RelayError(err.message);
+    }
+    throw err;
+  }
+}
+async function* relayStream(opts) {
+  const { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model } = prepareRelay(opts);
+  const runOpts = { prompt: fullPrompt, repoPath: resolvedRepo, timeoutSeconds, sandbox, model, env: env3 };
+  try {
+    if (typeof selectedBackend.runStream === "function") {
+      yield* selectedBackend.runStream(runOpts);
+    } else {
+      yield await selectedBackend.run(runOpts);
+    }
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
@@ -4521,7 +4551,8 @@ async function reviewRelay(opts) {
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
     contextText: "",
-    diffText
+    diffText,
+    localFileAccess: selectedBackend.localFileAccess
   });
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   try {
@@ -4583,7 +4614,7 @@ var init_version = __esm({
 });
 
 // src/installer.ts
-import { execFileSync as execFileSync5 } from "child_process";
+import { execFileSync as execFileSync6 } from "child_process";
 import {
   existsSync as existsSync3,
   lstatSync,
@@ -4646,7 +4677,7 @@ function isSymlink(filePath) {
 }
 function runClaudeCommand(args) {
   try {
-    const result = execFileSync5(args[0], args.slice(1), {
+    const result = execFileSync6(args[0], args.slice(1), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4674,7 +4705,7 @@ function looksLikeOkIfAlready(output) {
 function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
   const lines = [];
   try {
-    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -4702,7 +4733,7 @@ function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NA
 function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME) {
   const lines = [];
   try {
-    execFileSync5("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -6106,9 +6137,11 @@ function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
   const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
   const includeDiffRaw = cliOpts.includeDiff ?? env3.PHONE_A_FRIEND_INCLUDE_DIFF;
   const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
-  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? void 0;
+  const streamRaw = cliOpts.stream;
+  const stream = streamRaw !== void 0 ? streamRaw === "true" || streamRaw === "1" : cfg.defaults.stream ?? true;
+  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? cfg[backend]?.model ?? void 0;
   const reviewBase = cliOpts.base ?? env3.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
-  return { backend, sandbox, timeout, includeDiff, model, reviewBase };
+  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase };
 }
 var DEFAULT_CONFIG;
 var init_config = __esm({
@@ -6120,7 +6153,8 @@ var init_config = __esm({
         backend: "codex",
         sandbox: "read-only",
         timeout: 600,
-        include_diff: false
+        include_diff: false,
+        stream: true
       }
     };
   }
@@ -10242,7 +10276,7 @@ var init_wrap_ansi = __esm({
 
 // node_modules/terminal-size/index.js
 import process11 from "process";
-import { execFileSync as execFileSync6 } from "child_process";
+import { execFileSync as execFileSync7 } from "child_process";
 import fs from "fs";
 import tty3 from "tty";
 function terminalSize() {
@@ -10274,7 +10308,7 @@ var init_terminal_size = __esm({
     "use strict";
     defaultColumns = 80;
     defaultRows = 24;
-    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync6(command, arguments_, {
+    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync7(command, arguments_, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 500,
@@ -59986,11 +60020,11 @@ function BackendDetail({
   onModelSelectedIndexChange
 }) {
   const backendConfig = config.backends?.[backend.name];
-  const configuredModel = config.backends?.ollama?.model;
+  const configuredModel = config.backends?.[backend.name]?.model;
   const isOllama = backend.name === "ollama";
   const models = backend.models ?? [];
   const hasModels = models.length > 0;
-  const modelMismatch = isOllama && configuredModel && hasModels && !models.includes(configuredModel);
+  const modelMismatch = hasModels && configuredModel && !models.includes(configuredModel);
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", paddingLeft: 2, borderStyle: "single", borderColor: "gray", paddingRight: 2, children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: " " }),
@@ -59999,7 +60033,7 @@ function BackendDetail({
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: backend.detail })
     ] }),
     backend.planned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "[planned \u2014 not yet implemented]" }),
-    isOllama && hasModels && mode === "nav" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
+    hasModels && mode === "nav" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 2, children: [
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Models:" }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "Enter to pick default" })
@@ -60016,7 +60050,7 @@ function BackendDetail({
         '" not detected'
       ] })
     ] }),
-    isOllama && hasModels && mode === "modelSelect" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
+    hasModels && mode === "modelSelect" && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", marginTop: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Select default model:" }),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
         ListSelect,
@@ -60081,8 +60115,8 @@ function BackendsPanel({ report, onEditingChange }) {
       }
     };
   }, []);
-  const enterModelSelect = (0, import_react30.useCallback)((models) => {
-    const configuredModel = config.backends?.ollama?.model;
+  const enterModelSelect = (0, import_react30.useCallback)((backendName, models) => {
+    const configuredModel = config.backends?.[backendName]?.model;
     const preselect = configuredModel ? models.indexOf(configuredModel) : -1;
     setModelSelectedIndex(preselect >= 0 ? preselect : 0);
     setMode("modelSelect");
@@ -60093,14 +60127,14 @@ function BackendsPanel({ report, onEditingChange }) {
     setMode("nav");
     onEditingChange?.(false);
   }, [onEditingChange]);
-  const saveModel = (0, import_react30.useCallback)((modelName) => {
+  const saveModel = (0, import_react30.useCallback)((backendName, modelName) => {
     try {
       const paths = configPaths();
       const userPath = paths.user;
       if (!existsSync6(userPath)) {
         configInit(userPath, true);
       }
-      configSet("backends.ollama.model", modelName, userPath);
+      configSet(`backends.${backendName}.model`, modelName, userPath);
       setConfig(loadConfig());
       setSaveMessage(`Default model set to ${modelName}`);
     } catch (err) {
@@ -60115,7 +60149,7 @@ function BackendsPanel({ report, onEditingChange }) {
         const selected2 = allBackends2[selectedIndex];
         const models = selected2?.models ?? [];
         const model = models[modelSelectedIndex];
-        if (model) saveModel(model);
+        if (model && selected2) saveModel(selected2.name, model);
         return;
       }
       if (key.escape) {
@@ -60127,8 +60161,8 @@ function BackendsPanel({ report, onEditingChange }) {
     if (key.return) {
       const allBackends2 = report ? [...report.cli, ...report.local, ...report.host] : [];
       const selected2 = allBackends2[selectedIndex];
-      if (selected2?.name === "ollama" && (selected2.models?.length ?? 0) > 0) {
-        enterModelSelect(selected2.models);
+      if (selected2 && (selected2.models?.length ?? 0) > 0) {
+        enterModelSelect(selected2.name, selected2.models);
       }
     }
   }, { isActive: mode === "nav" || mode === "modelSelect" });
@@ -60196,6 +60230,7 @@ function buildRows(config) {
   rows.push({ dotKey: "defaults.sandbox", label: "sandbox", value: config.defaults.sandbox, section: "Defaults" });
   rows.push({ dotKey: "defaults.timeout", label: "timeout", value: config.defaults.timeout, section: "Defaults" });
   rows.push({ dotKey: "defaults.include_diff", label: "include_diff", value: config.defaults.include_diff, section: "Defaults" });
+  rows.push({ dotKey: "defaults.stream", label: "stream", value: config.defaults.stream ?? true, section: "Defaults" });
   for (const [name, cfg] of Object.entries(config.backends ?? {})) {
     for (const [key, val] of Object.entries(cfg)) {
       rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}` });
@@ -60312,7 +60347,7 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn } from "child_process";
+import { spawn as spawn2 } from "child_process";
 import { mkdirSync as mkdirSync3, existsSync as existsSync8 } from "fs";
 import { dirname as dirname4 } from "path";
 function buildActions(report, onRefresh, processRef) {
@@ -60330,7 +60365,7 @@ function buildActions(report, onRefresh, processRef) {
       description: "Reinstall Claude Code plugin",
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
+          const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -60360,7 +60395,7 @@ function buildActions(report, onRefresh, processRef) {
       exitAfter: true,
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
+          const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -60397,7 +60432,7 @@ function buildActions(report, onRefresh, processRef) {
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
         return new Promise((resolve5, reject) => {
-          const proc = spawn(editor, editorArgs, { stdio: "inherit" });
+          const proc = spawn2(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
@@ -60744,6 +60779,7 @@ var CodexBackendError = class extends BackendError {
 };
 var CodexBackend = class {
   name = "codex";
+  localFileAccess = true;
   allowedSandboxes = /* @__PURE__ */ new Set([
     "read-only",
     "workspace-write",
@@ -60900,6 +60936,7 @@ var GeminiBackendError = class extends BackendError {
 };
 var GeminiBackend = class {
   name = "gemini";
+  localFileAccess = true;
   allowedSandboxes = /* @__PURE__ */ new Set([
     "read-only",
     "workspace-write",
@@ -60955,6 +60992,116 @@ registerBackend(GEMINI_BACKEND);
 
 // src/backends/ollama.ts
 init_backends();
+
+// src/stream-parsers.ts
+async function* parseNDJSONStream(body, signal) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let receivedDone = false;
+  function* processNDJSONLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (parsed.error) {
+        throw new Error(`Stream error: ${String(parsed.error)}`);
+      }
+      if (parsed.done === true) {
+        receivedDone = true;
+        return;
+      }
+      const message = parsed.message;
+      const content = message?.content;
+      if (typeof content === "string" && content.length > 0) {
+        yield content;
+      }
+    }
+  }
+  try {
+    while (true) {
+      if (signal?.aborted) throw new Error("Stream aborted");
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const token of processNDJSONLines(lines)) {
+        if (signal?.aborted) throw new Error("Stream aborted");
+        yield token;
+      }
+      if (receivedDone) return;
+    }
+    if (buffer.trim()) {
+      yield* processNDJSONLines([buffer]);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!receivedDone) {
+    throw new Error("Stream ended unexpectedly");
+  }
+}
+async function* parseClaudeStreamJSON(stdout) {
+  let buffer = "";
+  let emittedLength = 0;
+  function* processLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (parsed.error) {
+        throw new Error(`Stream error: ${JSON.stringify(parsed.error)}`);
+      }
+      const type = parsed.type;
+      if (type === "result") {
+        const result = parsed.result;
+        if (typeof result === "string" && result.length > emittedLength) {
+          yield result.slice(emittedLength);
+          emittedLength = result.length;
+        }
+        continue;
+      }
+      if (type === "assistant" || type === "message") {
+        const message = parsed.message ?? parsed;
+        const contentBlocks = message.content;
+        if (Array.isArray(contentBlocks)) {
+          let fullText = "";
+          for (const block of contentBlocks) {
+            if (block.type === "text" && typeof block.text === "string") {
+              fullText += block.text;
+            }
+          }
+          if (fullText.length > emittedLength) {
+            yield fullText.slice(emittedLength);
+            emittedLength = fullText.length;
+          }
+        }
+      }
+    }
+  }
+  for await (const chunk of stdout) {
+    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    yield* processLines(lines);
+  }
+  if (buffer.trim()) {
+    yield* processLines([buffer]);
+  }
+}
+
+// src/backends/ollama.ts
 var DEFAULT_HOST = "http://localhost:11434";
 var OllamaBackendError = class extends BackendError {
   constructor(message) {
@@ -60964,6 +61111,7 @@ var OllamaBackendError = class extends BackendError {
 };
 var OllamaBackend = class {
   name = "ollama";
+  localFileAccess = false;
   allowedSandboxes = /* @__PURE__ */ new Set([
     "read-only",
     "workspace-write",
@@ -61026,6 +61174,62 @@ var OllamaBackend = class {
     }
     return content;
   }
+  async *runStream(opts) {
+    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
+    const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+    const body = {
+      messages: [{ role: "user", content: opts.prompt }],
+      stream: true
+    };
+    if (model) body.model = model;
+    const url = `${host}/api/chat`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      return void await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+    }
+    if (!resp.ok) {
+      clearTimeout(timer);
+      let respBody = "";
+      try {
+        respBody = await resp.text();
+      } catch {
+      }
+      throw new OllamaBackendError(
+        `Ollama returned HTTP ${resp.status}${respBody ? `: ${respBody.slice(0, 200)}` : ""}`
+      );
+    }
+    if (!resp.body) {
+      clearTimeout(timer);
+      throw new OllamaBackendError("Ollama returned empty response body");
+    }
+    try {
+      yield* parseNDJSONStream(resp.body, controller.signal);
+    } catch (err) {
+      if (err instanceof OllamaBackendError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (controller.signal.aborted) {
+        throw new OllamaBackendError(
+          `Ollama timed out after ${opts.timeoutSeconds}s`
+        );
+      }
+      if (msg.startsWith("Stream ")) {
+        throw new OllamaBackendError(msg);
+      }
+      await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async diagnoseAndThrow(host, originalErr, timeout) {
     if (originalErr instanceof DOMException || originalErr instanceof Error && originalErr.name === "AbortError") {
       throw new OllamaBackendError(
@@ -61050,6 +61254,173 @@ var OllamaBackend = class {
 var OLLAMA_BACKEND = new OllamaBackend();
 registerBackend(OLLAMA_BACKEND);
 
+// src/backends/claude.ts
+init_backends();
+import { execFileSync as execFileSync4, spawn } from "child_process";
+var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
+var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
+var NESTED_SESSION_VARS = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
+var ClaudeBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "ClaudeBackendError";
+  }
+};
+var ClaudeBackend = class {
+  name = "claude";
+  localFileAccess = true;
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  /**
+   * Strip env vars that trigger Claude's nested-session guard.
+   * Without this, spawning claude from inside a Claude Code session fails with:
+   * "Claude Code cannot be launched inside another Claude Code session."
+   */
+  cleanEnv(env3) {
+    const cleaned = { ...env3 };
+    for (const key of NESTED_SESSION_VARS) {
+      delete cleaned[key];
+    }
+    return cleaned;
+  }
+  /**
+   * Build the common CLI args shared by run() and runStream().
+   */
+  buildArgs(opts) {
+    const args = ["-p", opts.prompt];
+    args.push("--add-dir", opts.repoPath);
+    if (opts.outputFormat) {
+      args.push("--output-format", opts.outputFormat);
+    }
+    if (opts.model) {
+      args.push("--model", opts.model);
+    }
+    const maxTurns = opts.env.CLAUDE_MAX_TURNS ?? "10";
+    args.push("--max-turns", maxTurns);
+    const maxBudget = opts.env.CLAUDE_MAX_BUDGET;
+    if (maxBudget) {
+      args.push("--max-budget-usd", maxBudget);
+    }
+    if (opts.sandbox === "danger-full-access") {
+      args.push("--dangerously-skip-permissions");
+    } else {
+      const tools = opts.sandbox === "read-only" ? READ_ONLY_TOOLS : WORKSPACE_WRITE_TOOLS;
+      args.push("--tools", tools);
+      args.push("--allowedTools", tools);
+    }
+    args.push("--disable-slash-commands");
+    args.push("--disallowedTools", "Task");
+    args.push("--no-session-persistence");
+    return args;
+  }
+  async run(opts) {
+    if (!isInPath("claude")) {
+      throw new ClaudeBackendError(
+        `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
+      );
+    }
+    const args = this.buildArgs({
+      ...opts,
+      outputFormat: "text"
+    });
+    try {
+      const result = execFileSync4("claude", args, {
+        timeout: opts.timeoutSeconds * 1e3,
+        env: this.cleanEnv(opts.env),
+        encoding: "utf-8",
+        cwd: opts.repoPath,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      const output = result.trim();
+      if (output) {
+        return output;
+      }
+      throw new ClaudeBackendError("claude completed without producing output");
+    } catch (err) {
+      if (err instanceof ClaudeBackendError) throw err;
+      const execErr = err;
+      if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
+        throw new ClaudeBackendError(
+          `claude timed out after ${opts.timeoutSeconds}s`
+        );
+      }
+      const stderr = execErr.stderr?.toString().trim() ?? "";
+      const stdout = execErr.stdout?.toString().trim() ?? "";
+      const detail = stderr || stdout || `claude exited with code ${execErr.status ?? 1}`;
+      throw new ClaudeBackendError(detail);
+    }
+  }
+  async *runStream(opts) {
+    if (!isInPath("claude")) {
+      throw new ClaudeBackendError(
+        `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
+      );
+    }
+    const args = this.buildArgs({
+      ...opts,
+      outputFormat: "stream-json"
+    });
+    args.push("--include-partial-messages");
+    const child = spawn("claude", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: opts.repoPath,
+      env: this.cleanEnv(opts.env)
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutSeconds * 1e3);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    const closePromise = new Promise((resolve5, reject) => {
+      child.on("close", (code, signal) => {
+        if (timedOut) {
+          reject(new ClaudeBackendError(
+            `claude timed out after ${opts.timeoutSeconds}s`
+          ));
+        } else if (signal) {
+          reject(new ClaudeBackendError(
+            `claude killed by signal ${signal}`
+          ));
+        } else if (code !== 0 && code !== null) {
+          const stderr = Buffer.concat(stderrChunks).toString().trim();
+          reject(new ClaudeBackendError(
+            stderr || `claude exited with code ${code}`
+          ));
+        } else {
+          resolve5();
+        }
+      });
+    });
+    try {
+      yield* parseClaudeStreamJSON(child.stdout);
+      await closePromise;
+    } catch (err) {
+      closePromise.catch(() => {
+      });
+      if (err instanceof ClaudeBackendError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (timedOut) {
+        throw new ClaudeBackendError(
+          `claude timed out after ${opts.timeoutSeconds}s`
+        );
+      }
+      throw new ClaudeBackendError(`claude stream error: ${msg}`);
+    } finally {
+      clearTimeout(timer);
+      if (!child.killed) {
+        child.kill("SIGTERM");
+      }
+    }
+  }
+};
+var CLAUDE_BACKEND = new ClaudeBackend();
+registerBackend(CLAUDE_BACKEND);
+
 // src/cli.ts
 import { resolve as resolve4, dirname as dirname5 } from "path";
 import { existsSync as existsSync9 } from "fs";
@@ -61057,7 +61428,7 @@ import { fileURLToPath as fileURLToPath2 } from "url";
 import { spawnSync } from "child_process";
 
 // node_modules/commander/esm.mjs
-var import_index4 = __toESM(require_commander(), 1);
+var import_index5 = __toESM(require_commander(), 1);
 var {
   program,
   createCommand,
@@ -61071,7 +61442,7 @@ var {
   Argument,
   Option,
   Help
-} = import_index4.default;
+} = import_index5.default;
 
 // node_modules/ora/index.js
 init_source();
@@ -65639,20 +66010,22 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
+    const streamExplicit = command.getOptionValueSource("stream") === "cli";
     const resolved = resolveConfig({
       to: opts.to,
       sandbox: opts.sandbox,
       timeout: opts.timeout,
       includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
+      stream: streamExplicit ? String(opts.stream) : void 0,
       model: opts.model,
       base: opts.base
     });
     const backendName = resolved.backend;
     if (isReview) {
       const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
-      const spinner2 = ora({
+      const spinner = ora({
         text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
         spinner: "dots",
         color: "cyan",
@@ -65668,37 +66041,73 @@ ${banner("AI coding agent relay")}
           model: resolved.model ?? null,
           sandbox: resolved.sandbox
         });
-        spinner2.succeed(`${theme.bold(backendName)} reviewed`);
+        spinner.succeed(`${theme.bold(backendName)} reviewed`);
         process.stdout.write(feedback + "\n");
       } catch (err) {
-        spinner2.fail(`${theme.bold(backendName)} review failed`);
+        spinner.fail(`${theme.bold(backendName)} review failed`);
         throw err;
       }
       return;
     }
-    const spinner = ora({
-      text: `Relaying to ${theme.bold(backendName)}...`,
-      spinner: "dots",
-      color: "cyan",
-      stream: process.stderr
-    }).start();
-    try {
-      const feedback = await relay({
-        prompt: opts.prompt,
-        repoPath: opts.repo,
-        backend: backendName,
-        contextFile: opts.contextFile ?? null,
-        contextText: opts.contextText ?? null,
-        includeDiff: resolved.includeDiff,
-        timeoutSeconds: resolved.timeout,
-        model: resolved.model ?? null,
-        sandbox: resolved.sandbox
-      });
-      spinner.succeed(`${theme.bold(backendName)} responded`);
-      process.stdout.write(feedback + "\n");
-    } catch (err) {
-      spinner.fail(`${theme.bold(backendName)} failed`);
-      throw err;
+    const relayOpts = {
+      prompt: opts.prompt,
+      repoPath: opts.repo,
+      backend: backendName,
+      contextFile: opts.contextFile ?? null,
+      contextText: opts.contextText ?? null,
+      includeDiff: resolved.includeDiff,
+      timeoutSeconds: resolved.timeout,
+      model: resolved.model ?? null,
+      sandbox: resolved.sandbox
+    };
+    if (resolved.stream) {
+      const spinner = ora({
+        text: `Relaying to ${theme.bold(backendName)}...`,
+        spinner: "dots",
+        color: "cyan",
+        stream: process.stderr
+      }).start();
+      let firstChunk = true;
+      let hasOutput = false;
+      try {
+        for await (const chunk of relayStream(relayOpts)) {
+          if (firstChunk) {
+            spinner.stop();
+            firstChunk = false;
+          }
+          process.stdout.write(chunk);
+          hasOutput = true;
+        }
+        if (hasOutput) {
+          process.stdout.write("\n");
+        }
+        process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
+`);
+      } catch (err) {
+        if (firstChunk) {
+          spinner.fail(`${theme.bold(backendName)} failed`);
+        } else {
+          process.stderr.write(`
+  ${theme.crossmark} ${theme.error(`${backendName} stream error`)}
+`);
+        }
+        throw err;
+      }
+    } else {
+      const spinner = ora({
+        text: `Relaying to ${theme.bold(backendName)}...`,
+        spinner: "dots",
+        color: "cyan",
+        stream: process.stderr
+      }).start();
+      try {
+        const feedback = await relay(relayOpts);
+        spinner.succeed(`${theme.bold(backendName)} responded`);
+        process.stdout.write(feedback + "\n");
+      } catch (err) {
+        spinner.fail(`${theme.bold(backendName)} failed`);
+        throw err;
+      }
     }
   });
   program2.command("setup").description("Interactive setup wizard").action(async () => {

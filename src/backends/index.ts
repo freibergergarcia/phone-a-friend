@@ -29,6 +29,7 @@ export interface ReviewOptions {
 
 export interface Backend {
   name: string;
+  localFileAccess: boolean;
   allowedSandboxes: ReadonlySet<SandboxMode>;
   run(opts: {
     prompt: string;
@@ -39,6 +40,14 @@ export interface Backend {
     env: Record<string, string>;
   }): Promise<string>;
   review?(opts: ReviewOptions): Promise<string>;
+  runStream?(opts: {
+    prompt: string;
+    repoPath: string;
+    timeoutSeconds: number;
+    sandbox: SandboxMode;
+    model: string | null;
+    env: Record<string, string>;
+  }): AsyncIterable<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +69,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   codex: 'npm install -g @openai/codex',
   gemini: 'npm install -g @google/gemini-cli',
   ollama: 'https://ollama.com/download',
+  claude: 'npm install -g @anthropic-ai/claude-code',
 };
 
 // ---------------------------------------------------------------------------

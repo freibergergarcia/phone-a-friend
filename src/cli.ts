@@ -13,6 +13,7 @@ import { Command } from 'commander';
 import ora from 'ora';
 import {
   relay,
+  relayStream,
   reviewRelay,
   RelayError,
 } from './relay.js';
@@ -208,7 +209,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .requiredOption('--prompt <text>', 'Prompt to relay')
-    .option('--to <backend>', 'Target backend: codex, gemini, ollama')
+    .option('--to <backend>', 'Target backend: codex, gemini, ollama, claude')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')
@@ -216,11 +217,17 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
+    .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
-    .action(async (opts) => {
+    .action(async (opts, command) => {
       // --base without --review implies review mode
       const isReview = opts.review || opts.base !== undefined;
+
+      // Only pass stream to config resolution when user explicitly passed --no-stream.
+      // Commander's --no-stream sets opts.stream to true (default) or false (flag passed),
+      // so opts.stream is never undefined — we must check the option value source.
+      const streamExplicit = command.getOptionValueSource('stream') === 'cli';
 
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig({
@@ -228,6 +235,7 @@ export async function run(argv: string[]): Promise<number> {
         sandbox: opts.sandbox,
         timeout: opts.timeout,
         includeDiff: opts.includeDiff !== undefined ? String(opts.includeDiff) : undefined,
+        stream: streamExplicit ? String(opts.stream) : undefined,
         model: opts.model,
         base: opts.base,
       });
@@ -262,30 +270,65 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
-      const spinner = ora({
-        text: `Relaying to ${theme.bold(backendName)}...`,
-        spinner: 'dots',
-        color: 'cyan',
-        stream: process.stderr,
-      }).start();
+      const relayOpts = {
+        prompt: opts.prompt,
+        repoPath: opts.repo,
+        backend: backendName,
+        contextFile: opts.contextFile ?? null,
+        contextText: opts.contextText ?? null,
+        includeDiff: resolved.includeDiff,
+        timeoutSeconds: resolved.timeout,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox as SandboxMode,
+      };
 
-      try {
-        const feedback = await relay({
-          prompt: opts.prompt,
-          repoPath: opts.repo,
-          backend: backendName,
-          contextFile: opts.contextFile ?? null,
-          contextText: opts.contextText ?? null,
-          includeDiff: resolved.includeDiff,
-          timeoutSeconds: resolved.timeout,
-          model: resolved.model ?? null,
-          sandbox: resolved.sandbox as SandboxMode,
-        });
-        spinner.succeed(`${theme.bold(backendName)} responded`);
-        process.stdout.write(feedback + '\n');
-      } catch (err) {
-        spinner.fail(`${theme.bold(backendName)} failed`);
-        throw err;
+      if (resolved.stream) {
+        const spinner = ora({
+          text: `Relaying to ${theme.bold(backendName)}...`,
+          spinner: 'dots',
+          color: 'cyan',
+          stream: process.stderr,
+        }).start();
+
+        let firstChunk = true;
+        let hasOutput = false;
+        try {
+          for await (const chunk of relayStream(relayOpts)) {
+            if (firstChunk) {
+              spinner.stop();
+              firstChunk = false;
+            }
+            process.stdout.write(chunk);
+            hasOutput = true;
+          }
+          if (hasOutput) {
+            process.stdout.write('\n');
+          }
+          process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded\n`);
+        } catch (err) {
+          if (firstChunk) {
+            spinner.fail(`${theme.bold(backendName)} failed`);
+          } else {
+            process.stderr.write(`\n  ${theme.crossmark} ${theme.error(`${backendName} stream error`)}\n`);
+          }
+          throw err;
+        }
+      } else {
+        const spinner = ora({
+          text: `Relaying to ${theme.bold(backendName)}...`,
+          spinner: 'dots',
+          color: 'cyan',
+          stream: process.stderr,
+        }).start();
+
+        try {
+          const feedback = await relay(relayOpts);
+          spinner.succeed(`${theme.bold(backendName)} responded`);
+          process.stdout.write(feedback + '\n');
+        } catch (err) {
+          spinner.fail(`${theme.bold(backendName)} failed`);
+          throw err;
+        }
       }
     });
 

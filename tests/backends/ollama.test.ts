@@ -213,3 +213,141 @@ describe('OllamaBackend', () => {
     expect(result).toBe('trimmed response');
   });
 });
+
+// ---------------------------------------------------------------------------
+// runStream()
+// ---------------------------------------------------------------------------
+
+function mockNDJSONStream(lines: object[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(JSON.stringify(line) + '\n'));
+      }
+      controller.close();
+    },
+  });
+}
+
+function mockStreamResponse(lines: object[], ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    body: mockNDJSONStream(lines),
+    text: async () => '',
+  };
+}
+
+async function collectStream(gen: AsyncIterable<string>): Promise<string[]> {
+  const chunks: string[] = [];
+  for await (const chunk of gen) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+describe('OllamaBackend.runStream', () => {
+  const backend = new OllamaBackend();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it('yields tokens from NDJSON stream', async () => {
+    const lines = [
+      { message: { content: 'Hello' }, done: false },
+      { message: { content: ' world' }, done: false },
+      { done: true },
+    ];
+    mockFetch.mockResolvedValueOnce(mockStreamResponse(lines));
+
+    const chunks = await collectStream(backend.runStream(makeOpts()));
+    expect(chunks).toEqual(['Hello', ' world']);
+  });
+
+  it('sends stream:true in request body', async () => {
+    const lines = [
+      { message: { content: 'ok' }, done: false },
+      { done: true },
+    ];
+    mockFetch.mockResolvedValueOnce(mockStreamResponse(lines));
+
+    await collectStream(backend.runStream(makeOpts()));
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.stream).toBe(true);
+  });
+
+  it('throws on HTTP error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      body: null,
+      text: async () => 'Service Unavailable',
+    });
+
+    await expect(collectStream(backend.runStream(makeOpts()))).rejects.toThrow(/HTTP 503/);
+  });
+
+  it('throws on timeout (abort)', async () => {
+    const abortError = new DOMException('The operation was aborted', 'AbortError');
+    mockFetch.mockRejectedValueOnce(abortError);
+    mockFetch.mockRejectedValueOnce(new Error('probe fail'));
+
+    await expect(collectStream(backend.runStream(makeOpts({ timeoutSeconds: 5 })))).rejects.toThrow(
+      'timed out after 5s',
+    );
+  });
+
+  it('throws on null response body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: null,
+      text: async () => '',
+    });
+
+    await expect(collectStream(backend.runStream(makeOpts()))).rejects.toThrow('empty response body');
+  });
+
+  it('throws on mid-stream error object', async () => {
+    const lines = [
+      { message: { content: 'start' }, done: false },
+      { error: 'model not found' },
+    ];
+    mockFetch.mockResolvedValueOnce(mockStreamResponse(lines));
+
+    await expect(collectStream(backend.runStream(makeOpts()))).rejects.toThrow('Stream error: model not found');
+  });
+
+  it('reports timeout as "timed out" when abort fires mid-stream', async () => {
+    // Simulate a stream that aborts when the timeout controller fires,
+    // mimicking how a real HTTP connection behaves on abort.
+    const encoder = new TextEncoder();
+
+    mockFetch.mockImplementation((_url: string, init: { signal?: AbortSignal }) => {
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          // Deliver one chunk, then stall
+          ctrl.enqueue(encoder.encode(JSON.stringify({ message: { content: 'start' }, done: false }) + '\n'));
+          // When abort fires, error the stream (simulates HTTP connection abort)
+          if (signal) {
+            signal.addEventListener('abort', () => {
+              try { ctrl.error(new DOMException('Aborted', 'AbortError')); } catch { /* already closed */ }
+            });
+          }
+        },
+      });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        body,
+        text: async () => '',
+      });
+    });
+
+    const streamPromise = collectStream(backend.runStream(makeOpts({ timeoutSeconds: 0.05 })));
+    await expect(streamPromise).rejects.toThrow('timed out');
+  });
+});
