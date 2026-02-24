@@ -2,8 +2,11 @@ name: Label Check
 
 on:
   pull_request:
-    types: [labeled, unlabeled, synchronize]
+    types: [opened, labeled, unlabeled, synchronize]
     branches: [main]
+
+permissions:
+  statuses: write
 
 jobs:
   label-check:
@@ -16,15 +19,31 @@ jobs:
             const VERSION_LABELS = ['patch', 'minor', 'major'];
             const labels = context.payload.pull_request.labels.map(l => l.name);
             const found = labels.filter(l => VERSION_LABELS.includes(l));
+            const sha = context.payload.pull_request.head.sha;
 
-            if (found.length === 0) {
-              core.setFailed(
-                'PR must have exactly one version label: patch, minor, or major.'
-              );
-            } else if (found.length > 1) {
-              core.setFailed(
-                `PR has multiple version labels (${found.join(', ')}). Use exactly one.`
-              );
-            } else {
+            if (found.length === 1) {
               core.info(`Version label: ${found[0]}`);
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                state: 'success',
+                context: 'label-check',
+                description: `Version label: ${found[0]}`,
+              });
+            } else {
+              const msg = found.length === 0
+                ? 'PR must have exactly one version label: patch, minor, or major.'
+                : `PR has multiple version labels (${found.join(', ')}). Use exactly one.`;
+
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                state: 'failure',
+                context: 'label-check',
+                description: msg.slice(0, 140),
+              });
+
+              core.setFailed(msg);
             }
