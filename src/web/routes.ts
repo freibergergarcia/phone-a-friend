@@ -45,10 +45,32 @@ export function handleApiRoute(
   if (method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     res.end();
+    return true;
+  }
+
+  // POST /api/ingest — receive events from CLI orchestrator
+  if (path === '/api/ingest' && method === 'POST') {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const events = JSON.parse(body);
+        if (Array.isArray(events)) {
+          for (const event of events) {
+            sse.broadcast(event);
+          }
+          json(res, { accepted: events.length });
+        } else {
+          error(res, 'Expected array of events', 400);
+        }
+      } catch {
+        error(res, 'Invalid JSON', 400);
+      }
+    });
     return true;
   }
 

@@ -62153,6 +62153,77 @@ var init_agentic = __esm({
   }
 });
 
+// src/web/event-sink.ts
+var event_sink_exports = {};
+__export(event_sink_exports, {
+  DashboardEventSink: () => DashboardEventSink
+});
+var DEFAULT_URL, BATCH_INTERVAL_MS, MAX_QUEUE_SIZE, DashboardEventSink;
+var init_event_sink = __esm({
+  "src/web/event-sink.ts"() {
+    "use strict";
+    DEFAULT_URL = "http://127.0.0.1:7777/api/ingest";
+    BATCH_INTERVAL_MS = 100;
+    MAX_QUEUE_SIZE = 200;
+    DashboardEventSink = class {
+      queue = [];
+      timer = null;
+      inflight = false;
+      url;
+      dropped = 0;
+      constructor(dashboardUrl) {
+        this.url = dashboardUrl ?? DEFAULT_URL;
+        this.timer = setInterval(() => this.flush(), BATCH_INTERVAL_MS);
+      }
+      /**
+       * Enqueue an event for delivery. Non-blocking, never throws.
+       */
+      push(event) {
+        if (this.queue.length >= MAX_QUEUE_SIZE) {
+          this.dropped++;
+          return;
+        }
+        this.queue.push(event);
+      }
+      /**
+       * Flush pending events to the dashboard. Skips if already inflight.
+       */
+      async flush() {
+        if (this.inflight || this.queue.length === 0) return;
+        const batch = this.queue.splice(0);
+        this.inflight = true;
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(batch),
+            signal: AbortSignal.timeout(250)
+          });
+          if (!res.ok && this.dropped === 0) {
+          }
+        } catch {
+        } finally {
+          this.inflight = false;
+        }
+      }
+      /**
+       * Final flush and cleanup.
+       */
+      async close() {
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+        await this.flush();
+        if (this.dropped > 0) {
+          process.stderr.write(`  [dashboard-sink] dropped ${this.dropped} events (queue overflow)
+`);
+        }
+      }
+    };
+  }
+});
+
 // src/web/sse.ts
 var SSEBroadcaster;
 var init_sse = __esm({
@@ -62255,10 +62326,32 @@ function handleApiRoute(req, res, bus, sse) {
   if (method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type"
     });
     res.end();
+    return true;
+  }
+  if (path === "/api/ingest" && method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        const events = JSON.parse(body);
+        if (Array.isArray(events)) {
+          for (const event of events) {
+            sse.broadcast(event);
+          }
+          json(res, { accepted: events.length });
+        } else {
+          error2(res, "Expected array of events", 400);
+        }
+      } catch {
+        error2(res, "Invalid JSON", 400);
+      }
+    });
     return true;
   }
   if (path === "/api/sessions" && method === "GET") {
@@ -62427,6 +62520,7 @@ var init_server = __esm({
 // src/web/index.ts
 var web_exports = {};
 __export(web_exports, {
+  DashboardEventSink: () => DashboardEventSink,
   SSEBroadcaster: () => SSEBroadcaster,
   startDashboard: () => startDashboard
 });
@@ -62435,6 +62529,7 @@ var init_web = __esm({
     "use strict";
     init_server();
     init_sse();
+    init_event_sink();
   }
 });
 
@@ -67853,8 +67948,9 @@ ${banner("AI coding agent relay")}
     pluginCmd.command("uninstall").description("Uninstall Claude plugin")
   ).action((opts) => uninstallAction(opts));
   const agenticCmd = program2.command("agentic").description("Multi-agent sessions with persistent agent-to-agent communication");
-  agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").action(async (opts) => {
+  agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").option("--dashboard-url <url>", "Dashboard URL for live event streaming", "http://127.0.0.1:7777/api/ingest").action(async (opts) => {
     const { Orchestrator: Orchestrator2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const { DashboardEventSink: DashboardEventSink2 } = await Promise.resolve().then(() => (init_event_sink(), event_sink_exports));
     const agents = parseAgentList(opts.agents);
     if (agents.length === 0) {
       console.error(`  ${theme.crossmark} ${theme.error("No agents specified. Use --agents role:backend,role:backend")}`);
@@ -67862,6 +67958,8 @@ ${banner("AI coding agent relay")}
       return;
     }
     const orchestrator = new Orchestrator2();
+    const sink = new DashboardEventSink2(opts.dashboardUrl);
+    orchestrator.onEvent((event) => sink.push(event));
     try {
       const events = await orchestrator.run({
         agents,
@@ -67873,6 +67971,7 @@ ${banner("AI coding agent relay")}
       });
       await formatAgenticEvents(events);
     } finally {
+      await sink.close();
       orchestrator.close();
     }
   });

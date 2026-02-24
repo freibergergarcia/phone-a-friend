@@ -470,8 +470,10 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Session timeout in seconds', '900')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--sandbox <mode>', 'Sandbox mode', 'read-only')
+    .option('--dashboard-url <url>', 'Dashboard URL for live event streaming', 'http://127.0.0.1:7777/api/ingest')
     .action(async (opts) => {
       const { Orchestrator } = await import('./agentic/index.js');
+      const { DashboardEventSink } = await import('./web/event-sink.js');
       const agents = parseAgentList(opts.agents);
 
       if (agents.length === 0) {
@@ -481,6 +483,11 @@ export async function run(argv: string[]): Promise<number> {
       }
 
       const orchestrator = new Orchestrator();
+      const sink = new DashboardEventSink(opts.dashboardUrl);
+
+      // Bridge orchestrator events to dashboard SSE
+      orchestrator.onEvent((event) => sink.push(event));
+
       try {
         const events = await orchestrator.run({
           agents,
@@ -493,6 +500,7 @@ export async function run(argv: string[]): Promise<number> {
 
         await formatAgenticEvents(events);
       } finally {
+        await sink.close();
         orchestrator.close();
       }
     });
