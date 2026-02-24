@@ -60226,14 +60226,15 @@ var init_BackendsPanel = __esm({
 import { existsSync as existsSync7 } from "fs";
 function buildRows(config) {
   const rows = [];
-  rows.push({ dotKey: "defaults.backend", label: "backend", value: config.defaults.backend, section: "Defaults" });
-  rows.push({ dotKey: "defaults.sandbox", label: "sandbox", value: config.defaults.sandbox, section: "Defaults" });
-  rows.push({ dotKey: "defaults.timeout", label: "timeout", value: config.defaults.timeout, section: "Defaults" });
-  rows.push({ dotKey: "defaults.include_diff", label: "include_diff", value: config.defaults.include_diff, section: "Defaults" });
-  rows.push({ dotKey: "defaults.stream", label: "stream", value: config.defaults.stream ?? true, section: "Defaults" });
+  const backendOptions = Object.keys(INSTALL_HINTS).sort();
+  rows.push({ dotKey: "defaults.backend", label: "backend", value: config.defaults.backend, section: "Defaults", editMode: { type: "picker", options: backendOptions } });
+  rows.push({ dotKey: "defaults.sandbox", label: "sandbox", value: config.defaults.sandbox, section: "Defaults", editMode: { type: "picker", options: SANDBOX_OPTIONS } });
+  rows.push({ dotKey: "defaults.timeout", label: "timeout", value: config.defaults.timeout, section: "Defaults", editMode: { type: "text" } });
+  rows.push({ dotKey: "defaults.include_diff", label: "include_diff", value: config.defaults.include_diff, section: "Defaults", editMode: { type: "toggle" } });
+  rows.push({ dotKey: "defaults.stream", label: "stream", value: config.defaults.stream ?? true, section: "Defaults", editMode: { type: "toggle" } });
   for (const [name, cfg] of Object.entries(config.backends ?? {})) {
     for (const [key, val] of Object.entries(cfg)) {
-      rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}` });
+      rows.push({ dotKey: `backends.${name}.${key}`, label: key, value: val, section: `Backend: ${name}`, editMode: { type: "text" } });
     }
   }
   return rows;
@@ -60242,42 +60243,73 @@ function ConfigPanel({ onEditingChange } = {}) {
   const paths = configPaths();
   const [config, setConfig] = (0, import_react31.useState)(() => loadConfig());
   const [selectedIndex, setSelectedIndex] = (0, import_react31.useState)(0);
-  const [editing, setEditingRaw] = (0, import_react31.useState)(false);
+  const [mode, setModeRaw] = (0, import_react31.useState)("nav");
   const [editValue, setEditValue] = (0, import_react31.useState)("");
+  const [pickerOptions, setPickerOptions] = (0, import_react31.useState)([]);
+  const [pickerIndex, setPickerIndex] = (0, import_react31.useState)(0);
   const [saveMessage, setSaveMessage] = (0, import_react31.useState)(null);
-  const setEditing = (0, import_react31.useCallback)((value) => {
-    setEditingRaw(value);
-    onEditingChange?.(value);
+  const setMode = (0, import_react31.useCallback)((value) => {
+    setModeRaw(value);
+    onEditingChange?.(value !== "nav");
   }, [onEditingChange]);
   const rows = buildRows(config);
   const reload = (0, import_react31.useCallback)(() => {
     setConfig(loadConfig());
     setSaveMessage(null);
   }, []);
+  const save = (0, import_react31.useCallback)((dotKey, value) => {
+    try {
+      const userPath = paths.user;
+      if (!existsSync7(userPath)) {
+        configInit(userPath, true);
+      }
+      configSet(dotKey, value, userPath);
+      reload();
+      setSaveMessage(`Saved ${dotKey}`);
+    } catch (err) {
+      setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [paths.user, reload]);
   use_input_default((input, key) => {
-    if (editing) {
+    if (mode === "picker") {
       if (key.return) {
         const row = rows[selectedIndex];
-        if (!row) {
-          setEditing(false);
+        const selected = pickerOptions[pickerIndex];
+        if (!row || !selected) {
+          setMode("nav");
           return;
         }
-        try {
-          const userPath = paths.user;
-          if (!existsSync7(userPath)) {
-            configInit(userPath, true);
-          }
-          configSet(row.dotKey, editValue, userPath);
-          reload();
-          setSaveMessage(`Saved ${row.dotKey}`);
-        } catch (err) {
-          setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        setEditing(false);
+        save(row.dotKey, selected);
+        setMode("nav");
         return;
       }
       if (key.escape) {
-        setEditing(false);
+        setMode("nav");
+        return;
+      }
+      if (key.downArrow) {
+        setPickerIndex((i) => Math.min(i + 1, pickerOptions.length - 1));
+        return;
+      }
+      if (key.upArrow) {
+        setPickerIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      return;
+    }
+    if (mode === "text") {
+      if (key.return) {
+        const row = rows[selectedIndex];
+        if (!row) {
+          setMode("nav");
+          return;
+        }
+        save(row.dotKey, editValue);
+        setMode("nav");
+        return;
+      }
+      if (key.escape) {
+        setMode("nav");
         return;
       }
       if (key.backspace || key.delete) {
@@ -60300,8 +60332,22 @@ function ConfigPanel({ onEditingChange } = {}) {
     if (key.return) {
       const row = rows[selectedIndex];
       if (!row) return;
+      if (row.editMode.type === "toggle") {
+        const newValue = String(row.value) === "true" ? "false" : "true";
+        save(row.dotKey, newValue);
+        return;
+      }
+      if (row.editMode.type === "picker") {
+        const options = row.editMode.options;
+        const currentIdx = options.indexOf(String(row.value));
+        setPickerOptions(options);
+        setPickerIndex(currentIdx >= 0 ? currentIdx : 0);
+        setMode("picker");
+        setSaveMessage(null);
+        return;
+      }
       setEditValue(String(row.value));
-      setEditing(true);
+      setMode("text");
       setSaveMessage(null);
     }
     if (input === "r") {
@@ -60318,31 +60364,46 @@ function ConfigPanel({ onEditingChange } = {}) {
       const showSection = row.section !== lastSection;
       lastSection = row.section;
       const isSelected = i === selectedIndex;
-      const isEditing = isSelected && editing;
+      const isTextEditing = isSelected && mode === "text";
+      const isPickerOpen = isSelected && mode === "picker";
       return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { flexDirection: "column", children: [
         showSection && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { marginTop: i > 0 ? 1 : 0, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { bold: true, children: row.section }) }),
         /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { gap: 1, children: [
           /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
           /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: row.label.padEnd(14) }),
-          isEditing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { color: "cyan", children: [
+          isTextEditing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { color: "cyan", children: [
             editValue,
             /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { inverse: true, children: " " })
           ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { bold: isSelected, children: String(row.value) })
-        ] })
+        ] }),
+        isPickerOpen && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { flexDirection: "column", paddingLeft: 2, children: pickerOptions.map((opt, pi) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Box_default, { gap: 1, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { children: pi === pickerIndex ? "\u25B8" : " " }),
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { bold: pi === pickerIndex, color: pi === pickerIndex ? "cyan" : void 0, children: opt }),
+          String(row.value) === opt && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: " (current)" })
+        ] }, opt)) })
       ] }, row.dotKey);
     }),
     saveMessage && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { color: saveMessage.startsWith("Error") ? "red" : "green", children: saveMessage }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { marginTop: 1, children: editing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "Enter save  Esc cancel  Backspace delete" }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "Enter edit  Arrow keys navigate  r reload" }) })
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Box_default, { marginTop: 1, children: mode === "picker" ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "Enter select  Esc cancel  Arrow keys navigate" }) : mode === "text" ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Text, { dimColor: true, children: "Enter save  Esc cancel  Backspace delete" }) : (() => {
+      const row = rows[selectedIndex];
+      const action = row?.editMode.type === "toggle" ? "Enter toggle" : row?.editMode.type === "picker" ? "Enter pick" : "Enter edit";
+      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(Text, { dimColor: true, children: [
+        action,
+        "  Arrow keys navigate  r reload"
+      ] });
+    })() })
   ] });
 }
-var import_react31, import_jsx_runtime7;
+var import_react31, import_jsx_runtime7, SANDBOX_OPTIONS;
 var init_ConfigPanel = __esm({
   async "src/tui/ConfigPanel.tsx"() {
     "use strict";
     import_react31 = __toESM(require_react(), 1);
     await init_build2();
     init_config();
+    init_backends();
     import_jsx_runtime7 = __toESM(require_jsx_runtime(), 1);
+    SANDBOX_OPTIONS = ["read-only", "workspace-write", "danger-full-access"];
   }
 });
 
