@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>phone-a-friend — Multi-Agent Collaboration for Claude Code</title>
-  <meta name="description" content="A CLI relay that lets Claude delegate tasks to Codex, Gemini, and Ollama. Code reviews, refactoring, debugging — with a second opinion built in.">
+  <meta name="description" content="A CLI relay that lets Claude delegate tasks to Codex, Gemini, Ollama, and Claude Code. Code reviews, refactoring, debugging — with a second opinion built in.">
   <meta name="theme-color" content="#060c1f">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -290,6 +290,11 @@
     @keyframes float {
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(-8px); }
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
     }
 
     .hero-title {
@@ -1181,25 +1186,35 @@
         </h1>
         <p class="hero-tagline">When your AI needs a second opinion.</p>
         <p class="hero-description">
-          A CLI relay that lets Claude delegate tasks to Codex, Gemini, and Ollama.
-          Code reviews, refactoring, debugging — with a second opinion built in.
+          Just talk. Claude automatically delegates to Codex, Gemini, Ollama, or Claude Code
+          and brings the results back. No flags, no syntax — plain English.
         </p>
 
-        <!-- Install block -->
-        <div style="max-width: 520px; margin: 0 auto 20px;">
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; text-align: center;">
-            Requires Node.js 20+ and at least one backend (Codex, Gemini, or Ollama).
-          </p>
-          <div class="code-block has-copy" style="text-align: left;">
-            <button type="button" class="copy-btn" data-copy="npm install -g @freibergergarcia/phone-a-friend">copy</button>
-            <span class="prompt-char">$ </span>npm install -g @freibergergarcia/phone-a-friend
+        <!-- Conversational demo -->
+        <div class="hero-demo" style="max-width: 600px; margin: 0 auto 32px;">
+          <div class="terminal">
+            <div class="terminal-header">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+              <span class="terminal-title">Claude Code</span>
+            </div>
+            <div class="terminal-body">
+              <span class="terminal-line"><span class="prompt">&gt; </span><span class="cmd" id="hero-typed"></span><span id="hero-cursor" style="display:inline-block;width:8px;height:16px;background:var(--accent);vertical-align:text-bottom;animation:blink 1s step-end infinite;margin-left:1px;"></span></span>
+              <div class="terminal-spacer"></div>
+              <span class="terminal-line"><span class="info" id="hero-route" style="opacity:0;transition:opacity 0.4s;"></span></span>
+            </div>
           </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 12px; text-align: center;">
+            Mention one backend &rarr; one-shot relay. Mention multiple &rarr; multi-agent team. Automatic.
+          </p>
         </div>
 
         <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary">Get started</a>
           <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="btn btn-secondary">
             <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-            View on GitHub
+            GitHub
           </a>
           <a href="https://www.npmjs.com/package/@freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="btn btn-secondary">
             npm
@@ -1220,10 +1235,10 @@
       <div class="container">
         <div class="section-header-centered">
           <p class="section-label reveal">How it works</p>
-          <h2 class="section-title reveal reveal-delay-1">Three steps. One command.</h2>
+          <h2 class="section-title reveal reveal-delay-1">Three steps. No commands.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Claude stays in the driver's seat. The backend does the heavy lifting.
-            Results flow back into your session.
+            Just describe what you need. Claude picks the right backend,
+            relays your request, and brings the results back.
           </p>
         </div>
 
@@ -1235,8 +1250,8 @@
                 <div class="flow-connector-pulse"></div>
               </div>
             </div>
-            <h3>You ask Claude</h3>
-            <p>Describe what you need — a code review, refactor, debug session, or architectural analysis.</p>
+            <h3>You just talk</h3>
+            <p>Describe what you need in plain English. No flags, no syntax — just say it.</p>
           </div>
 
           <div class="flow-step reveal reveal-delay-2">
@@ -1247,7 +1262,7 @@
               </div>
             </div>
             <h3>Claude phones a friend</h3>
-            <p>Your prompt, repo context, and optional diffs are relayed to Codex, Gemini, or Ollama in a sandboxed environment.</p>
+            <p>Your prompt, repo context, and optional diffs are relayed to Codex, Gemini, Ollama, or Claude Code in a sandboxed environment.</p>
           </div>
 
           <div class="flow-step reveal reveal-delay-3">
@@ -1263,40 +1278,40 @@
     <section class="modes" id="modes">
       <div class="container">
         <div class="section-header-centered">
-          <p class="section-label reveal">Two modes</p>
-          <h2 class="section-title reveal reveal-delay-1">Quick ask or deep collaboration.</h2>
+          <p class="section-label reveal">Smart routing</p>
+          <h2 class="section-title reveal reveal-delay-1">One backend or many. Claude decides.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            One-shot for fast feedback. Multi-round for iterative refinement
-            until convergence.
+            Mention one backend and it routes to a one-shot relay.
+            Mention multiple and it spins up a multi-agent team. Automatic.
           </p>
         </div>
 
         <div class="modes-grid">
           <div class="mode-card reveal reveal-delay-1">
-            <span class="mode-badge one-shot">/phone-a-friend</span>
+            <span class="mode-badge one-shot">one backend mentioned</span>
             <h3>One-shot relay</h3>
-            <p>Ask once, get an answer. Perfect for code reviews, quick checks, and second opinions.</p>
+            <p>Mention a single backend and Claude routes it automatically. Ask once, get an answer.</p>
             <div class="mode-code">
-              <div><span class="comment"># Review recent changes</span></div>
-              <div><span class="command">/phone-a-friend</span> <span class="arg">Review my</span></div>
+              <div><span class="comment"># Ask a backend for a second opinion</span></div>
+              <div><span class="arg">Ask Codex to review my</span></div>
               <div><span class="arg">recent changes for issues</span></div>
-              <div class="mode-code-gap"><span class="comment"># Get a code review</span></div>
-              <div><span class="command">/phone-a-friend</span> <span class="arg">Review the</span></div>
-              <div><span class="arg">error handling in relay.ts</span></div>
+              <div class="mode-code-gap"><span class="comment"># Get a quick code review</span></div>
+              <div><span class="arg">Ask Gemini to find bugs</span></div>
+              <div><span class="arg">in the auth middleware</span></div>
             </div>
           </div>
 
           <div class="mode-card reveal reveal-delay-2">
-            <span class="mode-badge iterative">/phone-a-team</span>
-            <h3>Iterative refinement</h3>
-            <p>Multi-round loop with convergence checking. Claude delegates, reviews, and iterates up to 5 rounds.</p>
+            <span class="mode-badge iterative">multiple backends mentioned</span>
+            <h3>Multi-agent team</h3>
+            <p>Mention multiple backends and Claude spins up a team. Delegates, reviews, and iterates until convergence.</p>
             <div class="mode-code">
-              <div><span class="comment"># Run both backends</span></div>
-              <div><span class="command">/phone-a-team</span> <span class="arg">--backend both</span></div>
-              <div><span class="arg">Refactor the backend registry</span></div>
-              <div class="mode-code-gap"><span class="comment"># Limit rounds</span></div>
-              <div><span class="command">/phone-a-team</span> <span class="arg">--max-rounds 2</span></div>
-              <div><span class="arg">Redesign the auth module</span></div>
+              <div><span class="comment"># Multi-agent review</span></div>
+              <div><span class="arg">Spin up Codex and Gemini to</span></div>
+              <div><span class="arg">review the docs</span></div>
+              <div class="mode-code-gap"><span class="comment"># Iterative convergence</span></div>
+              <div><span class="arg">Loop 3 rounds with Claude</span></div>
+              <div><span class="arg">and Ollama on the API design</span></div>
             </div>
           </div>
         </div>
@@ -1319,7 +1334,7 @@
           <div class="feature-card reveal reveal-delay-1">
             <span class="feature-icon">🔌</span>
             <h3>Backend-agnostic</h3>
-            <p>Codex, Gemini, and Ollama today. Add new backends via the RelayBackend protocol — swap or run all three in parallel.</p>
+            <p>Codex, Gemini, Ollama, and Claude Code today. Add new backends via the RelayBackend protocol — swap or run all four in parallel.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-2">
@@ -1329,9 +1344,9 @@
           </div>
 
           <div class="feature-card reveal reveal-delay-3">
-            <span class="feature-icon">📦</span>
-            <h3>Simple install</h3>
-            <p>Install globally via npm — no local build step required. One command and start relaying immediately.</p>
+            <span class="feature-icon">💬</span>
+            <h3>Just talk</h3>
+            <p>No flags, no syntax. Describe what you need in plain English and Claude routes it to the right backend automatically.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-4">
@@ -1347,9 +1362,9 @@
           </div>
 
           <div class="feature-card reveal reveal-delay-6">
-            <span class="feature-icon">⚡</span>
-            <h3>Size limits</h3>
-            <p>Hardened limits on context (200 KB), diffs (300 KB), and prompts (500 KB) prevent oversized payloads.</p>
+            <span class="feature-icon">🌊</span>
+            <h3>Streaming output</h3>
+            <p>Claude and Ollama stream tokens as they arrive — see results in real time instead of waiting for the full response.</p>
           </div>
         </div>
       </div>
@@ -1360,9 +1375,9 @@
       <div class="container">
         <div class="section-header-centered">
           <p class="section-label reveal">Get started</p>
-          <h2 class="section-title reveal reveal-delay-1">Up and running in 60 seconds.</h2>
+          <h2 class="section-title reveal reveal-delay-1">Up and running in seconds.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Install via npm, register the plugin, and start relaying.
+            Install via npm, register the plugin, and start talking.
           </p>
         </div>
 
@@ -1384,10 +1399,22 @@
               <span class="step-number">2</span>
               <div class="step-content">
                 <h4>Start relaying</h4>
-                <p>Use the slash commands in any Claude Code session.</p>
+                <p>Just talk naturally — Claude picks up the skills automatically once the plugin is installed.</p>
                 <div class="code-block has-copy">
-                  <button type="button" class="copy-btn" data-copy="/phone-a-friend Review the auth module">copy</button>
-                  <span class="prompt-char">$ </span>/phone-a-friend Review the auth module
+                  <button type="button" class="copy-btn" data-copy="Ask Gemini to review the error handling in relay.ts">copy</button>
+                  <span class="prompt-char">&gt; </span>Ask Gemini to review the error handling in relay.ts
+                </div>
+              </div>
+            </li>
+
+            <li class="install-step reveal reveal-delay-3">
+              <span class="step-number">3</span>
+              <div class="step-content">
+                <h4>Explore the TUI dashboard</h4>
+                <p>Run the CLI with no arguments to launch an interactive dashboard — backend status, config editing, and actions.</p>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="phone-a-friend">copy</button>
+                  <span class="prompt-char">$ </span>phone-a-friend
                 </div>
               </div>
             </li>
@@ -1524,6 +1551,52 @@
         if (el && data.tag_name) el.textContent = data.tag_name;
       })
       .catch(() => {});
+
+    // Hero typing animation
+    (function() {
+      const phrases = [
+        { text: 'Ask Gemini to review the error handling in relay.ts', route: 'Routing to phone-a-friend (one-shot relay)' },
+        { text: 'Spin up Codex and Ollama to review the auth module', route: 'Routing to phone-a-team (multi-agent)' },
+        { text: 'Have Claude Code refactor the config parser', route: 'Routing to phone-a-friend (one-shot relay)' },
+        { text: 'Build a team with Gemini and Codex, loop 3 rounds on the API design', route: 'Routing to phone-a-team (multi-agent)' },
+      ];
+      const el = document.getElementById('hero-typed');
+      const routeEl = document.getElementById('hero-route');
+      const cursor = document.getElementById('hero-cursor');
+      if (!el || !routeEl || prefersReducedMotion) {
+        if (el) el.textContent = phrases[0].text;
+        if (routeEl) { routeEl.textContent = phrases[0].route; routeEl.style.opacity = '1'; }
+        if (cursor) cursor.style.display = 'none';
+        return;
+      }
+      let idx = 0;
+      async function typePhrase() {
+        const phrase = phrases[idx];
+        routeEl.style.opacity = '0';
+        el.textContent = '';
+        for (let i = 0; i < phrase.text.length; i++) {
+          el.textContent += phrase.text[i];
+          await new Promise(r => setTimeout(r, 28 + Math.random() * 22));
+        }
+        cursor.style.display = 'none';
+        await new Promise(r => setTimeout(r, 300));
+        routeEl.textContent = phrase.route;
+        routeEl.style.opacity = '1';
+        await new Promise(r => setTimeout(r, 2800));
+        routeEl.style.opacity = '0';
+        await new Promise(r => setTimeout(r, 400));
+        // Erase
+        for (let i = phrase.text.length; i >= 0; i--) {
+          el.textContent = phrase.text.slice(0, i);
+          await new Promise(r => setTimeout(r, 12));
+        }
+        cursor.style.display = 'inline-block';
+        await new Promise(r => setTimeout(r, 500));
+        idx = (idx + 1) % phrases.length;
+        typePhrase();
+      }
+      typePhrase();
+    })();
   </script>
 </body>
 </html>
