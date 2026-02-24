@@ -57,6 +57,7 @@ export const DEFAULT_CONFIG: PafConfig = {
     sandbox: 'read-only',
     timeout: 600,
     include_diff: false,
+    stream: true,
   },
 };
 

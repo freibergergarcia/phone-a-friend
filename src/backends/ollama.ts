@@ -157,9 +157,15 @@ export class OllamaBackend implements Backend {
       yield* parseNDJSONStream(resp.body, controller.signal);
     } catch (err: unknown) {
       if (err instanceof OllamaBackendError) throw err;
-      // Parser/protocol errors (stream error, unexpected EOF, abort) → wrap directly.
-      // Transport errors (AbortError from timeout) → diagnose connectivity.
       const msg = err instanceof Error ? err.message : String(err);
+      // If our timeout controller triggered the abort, report as timeout
+      if (controller.signal.aborted) {
+        throw new OllamaBackendError(
+          `Ollama timed out after ${opts.timeoutSeconds}s`,
+        );
+      }
+      // Parser/protocol errors (stream error, unexpected EOF) → wrap directly.
+      // Transport errors → diagnose connectivity.
       if (msg.startsWith('Stream ')) {
         throw new OllamaBackendError(msg);
       }

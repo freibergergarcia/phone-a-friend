@@ -6153,7 +6153,8 @@ var init_config = __esm({
         backend: "codex",
         sandbox: "read-only",
         timeout: 600,
-        include_diff: false
+        include_diff: false,
+        stream: true
       }
     };
   }
@@ -61216,6 +61217,11 @@ var OllamaBackend = class {
     } catch (err) {
       if (err instanceof OllamaBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
+      if (controller.signal.aborted) {
+        throw new OllamaBackendError(
+          `Ollama timed out after ${opts.timeoutSeconds}s`
+        );
+      }
       if (msg.startsWith("Stream ")) {
         throw new OllamaBackendError(msg);
       }
@@ -61363,15 +61369,42 @@ var ClaudeBackend = class {
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env)
     });
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGTERM");
     }, opts.timeoutSeconds * 1e3);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    const closePromise = new Promise((resolve5, reject) => {
+      child.on("close", (code, signal) => {
+        if (timedOut) {
+          reject(new ClaudeBackendError(
+            `claude timed out after ${opts.timeoutSeconds}s`
+          ));
+        } else if (signal) {
+          reject(new ClaudeBackendError(
+            `claude killed by signal ${signal}`
+          ));
+        } else if (code !== 0 && code !== null) {
+          const stderr = Buffer.concat(stderrChunks).toString().trim();
+          reject(new ClaudeBackendError(
+            stderr || `claude exited with code ${code}`
+          ));
+        } else {
+          resolve5();
+        }
+      });
+    });
     try {
       yield* parseClaudeStreamJSON(child.stdout);
+      await closePromise;
     } catch (err) {
+      closePromise.catch(() => {
+      });
       if (err instanceof ClaudeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("timed out") || msg.includes("SIGTERM")) {
+      if (timedOut) {
         throw new ClaudeBackendError(
           `claude timed out after ${opts.timeoutSeconds}s`
         );
@@ -61383,22 +61416,6 @@ var ClaudeBackend = class {
         child.kill("SIGTERM");
       }
     }
-    await new Promise((resolve5, reject) => {
-      child.on("close", (code) => {
-        if (code !== 0 && code !== null) {
-          reject(new ClaudeBackendError(`claude exited with code ${code}`));
-        } else {
-          resolve5();
-        }
-      });
-      if (child.exitCode !== null) {
-        if (child.exitCode !== 0) {
-          reject(new ClaudeBackendError(`claude exited with code ${child.exitCode}`));
-        } else {
-          resolve5();
-        }
-      }
-    });
   }
 };
 var CLAUDE_BACKEND = new ClaudeBackend();

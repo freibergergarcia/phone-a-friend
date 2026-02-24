@@ -20,6 +20,7 @@ const ALL_SANDBOXES: SandboxMode[] = ['read-only', 'workspace-write', 'danger-fu
 function makeMockBackend(name: string): Backend {
   return {
     name,
+    localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(ALL_SANDBOXES),
     run: vi.fn(() => 'mock output'),
   };
