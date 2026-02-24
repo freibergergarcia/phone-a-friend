@@ -27,6 +27,7 @@ export class CodexBackendError extends BackendError {
 
 export class CodexBackend implements Backend {
   readonly name = 'codex';
+  readonly localFileAccess = true;
   readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
     'read-only',
     'workspace-write',

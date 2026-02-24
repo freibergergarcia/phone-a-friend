@@ -31,6 +31,7 @@ export class GeminiBackendError extends BackendError {
 
 export class GeminiBackend implements Backend {
   readonly name = 'gemini';
+  readonly localFileAccess = true;
   readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
     'read-only',
     'workspace-write',

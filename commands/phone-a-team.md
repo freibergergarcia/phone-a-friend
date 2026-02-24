@@ -188,15 +188,21 @@ command:
    environment (e.g., env var not set, feature disabled). This is expected;
    if it fails → set `TEAM_ACTIVE=false`, skip to end of step.
 
-2. **Spawn teammate(s)** based on BACKEND:
+2. **Spawn teammate(s)** based on BACKEND. Each teammate MUST have a
+   **creative, unique human first name** — never generic labels like
+   "relay-worker" or "codex-agent". Draw from diverse cultures and regions,
+   invent fresh names each time (never reuse names from recent sessions or
+   pick from a fixed list). Announce to the user as **Name** (role / backend),
+   e.g. **Leila** (relay / codex), **Tomás** (relay / ollama:qwen3).
+
    - **Single backend** (`codex`, `gemini`, or `ollama`): Spawn 1 teammate
-     named `relay-worker` via the `Task` tool with:
+     via the `Task` tool with:
+     - `name`: a creative human first name
      - `team_name`: the TEAM_NAME from step 1
      - `subagent_type: "general-purpose"`
      - `mode: "bypassPermissions"`
-   - **Both backends**: Spawn 2 teammates **in parallel**:
-     - `codex-worker` (same params as above)
-     - `gemini-worker` (same params as above)
+   - **Both backends**: Spawn 2 teammates **in parallel**, each with a
+     unique human first name (same params as above).
 
 3. **Each teammate's prompt** must use this template:
 
@@ -216,6 +222,10 @@ command:
    - The complete relay output (stdout and stderr)
    - Whether the command succeeded or failed (exit code)
    Do NOT summarize, interpret, or editorialize. Send the raw output.
+
+   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
+   respond using SendMessage with type: "shutdown_response", request_id from
+   the message, and approve: true. Do NOT just say "shutting down" in text.
    ```
 
    Backend-specific additions:
@@ -457,12 +467,21 @@ ended (convergence, forced stop, abort, error, or user interruption).
 **Execute cleanup BEFORE presenting the final synthesis** so that teams are
 never left orphaned if the session ends after synthesis.
 
-1. Send `shutdown_request` to each teammate in WORKERS.
-2. Wait up to 30 seconds for shutdown confirmations.
-3. Call `TeamDelete` to remove the team and its task list.
+1. Send `shutdown_request` to each teammate in WORKERS via `SendMessage`
+   with `type: "shutdown_request"`.
+2. Wait up to 30 seconds for `shutdown_response` confirmations (must be
+   tool calls, not plain text acknowledgments).
+3. If a teammate responds in plain text instead of using the
+   `shutdown_response` tool, resend the `shutdown_request` with explicit
+   instructions to use `SendMessage` with `type: "shutdown_response"`.
+4. Call `TeamDelete` to remove the team and its task list.
+5. If `TeamDelete` fails due to active members, do NOT kill tmux panes
+   from the lead session (this can kill the lead). Instead, inform the
+   user and suggest they manually run: `tmux kill-session -t <name>`
 
-If a teammate does not respond to the shutdown request within 30 seconds,
-proceed with `TeamDelete` anyway. Do not leave orphaned teams.
+If a teammate does not respond to the shutdown request within 30 seconds
+(even after a retry), proceed with `TeamDelete` anyway. Do not leave
+orphaned teams.
 
 ## Step 9 — Final Synthesis
 
