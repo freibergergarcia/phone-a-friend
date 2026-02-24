@@ -126,7 +126,7 @@ export async function startDashboard(opts: DashboardOptions = {}): Promise<Dashb
   return new Promise((resolve, reject) => {
     server.on('error', reject);
     server.listen(port, '127.0.0.1', () => {
-      const dashUrl = `http://localhost:${port}`;
+      const dashUrl = `http://127.0.0.1:${port}`;
       resolve({
         server,
         sse,

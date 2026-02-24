@@ -132,6 +132,7 @@ export class Orchestrator {
    */
   async close(): Promise<void> {
     this.stopped = true;
+    this.endSession('stopped');
     if (this.runLoopPromise) {
       await this.runLoopPromise;
     }
@@ -161,6 +162,9 @@ export class Orchestrator {
         const result = await this.sessions.spawn(
           agent, systemPrompt, prompt, repoPath,
         );
+
+        // Bail if stopped during await
+        if (this.stopped) return;
 
         // Update backend session ID
         this.bus.updateAgent(this.sessionId, agent.name, {
@@ -303,6 +307,9 @@ export class Orchestrator {
             agentName, incomingPrompt, repoPath,
           );
 
+          // Bail if stopped during await
+          if (this.stopped) break;
+
           const parsed = parseAgentResponse(output, knownTargets);
 
           // Route outbound
@@ -360,6 +367,12 @@ export class Orchestrator {
       });
 
       this.turn++;
+    }
+
+    // Loop exited — determine reason
+    if (this.stopped) {
+      // stop() or close() already called endSession
+      return;
     }
 
     // Max turns reached

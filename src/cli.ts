@@ -501,7 +501,7 @@ export async function run(argv: string[]): Promise<number> {
         await formatAgenticEvents(events);
       } finally {
         await sink.close();
-        orchestrator.close();
+        await orchestrator.close();
       }
     });
 

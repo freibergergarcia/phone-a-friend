@@ -61865,6 +61865,7 @@ var init_orchestrator = __esm({
        */
       async close() {
         this.stopped = true;
+        this.endSession("stopped");
         if (this.runLoopPromise) {
           await this.runLoopPromise;
         }
@@ -61888,6 +61889,7 @@ var init_orchestrator = __esm({
               prompt,
               repoPath
             );
+            if (this.stopped) return;
             this.bus.updateAgent(this.sessionId, agent.name, {
               backendSessionId: result.sessionId
             });
@@ -61999,6 +62001,7 @@ var init_orchestrator = __esm({
                 incomingPrompt,
                 repoPath
               );
+              if (this.stopped) break;
               const parsed = parseAgentResponse(output, knownTargets);
               for (const msg of parsed.messages) {
                 this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
@@ -62049,6 +62052,9 @@ var init_orchestrator = __esm({
             timestamp: /* @__PURE__ */ new Date()
           });
           this.turn++;
+        }
+        if (this.stopped) {
+          return;
         }
         this.emit({
           type: "guardrail",
@@ -62534,7 +62540,7 @@ async function startDashboard(opts = {}) {
   return new Promise((resolve6, reject) => {
     server.on("error", reject);
     server.listen(port, "127.0.0.1", () => {
-      const dashUrl = `http://localhost:${port}`;
+      const dashUrl = `http://127.0.0.1:${port}`;
       resolve6({
         server,
         sse,
@@ -68023,7 +68029,7 @@ ${banner("AI coding agent relay")}
       await formatAgenticEvents(events);
     } finally {
       await sink.close();
-      orchestrator.close();
+      await orchestrator.close();
     }
   });
   agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
