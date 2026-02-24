@@ -117,4 +117,55 @@ describe('ConfigPanel', () => {
       expect.any(String),
     );
   });
+
+  it('shows picker for sandbox field on Enter', async () => {
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    // Navigate to sandbox (index 1)
+    stdin.write('\u001B[B'); // down to sandbox
+    await tick();
+    stdin.write('\r'); // Enter — open picker
+    await tick();
+    const frame = lastFrame()!;
+    // Should show all sandbox options
+    expect(frame).toContain('read-only');
+    expect(frame).toContain('workspace-write');
+    expect(frame).toContain('danger-full-access');
+    // Should show picker hints, not text-edit hints
+    expect(frame).toContain('Enter select');
+    expect(frame).toContain('Esc cancel');
+  });
+
+  it('picker selects value and saves on Enter', async () => {
+    mockConfigSet.mockClear();
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    // Navigate to sandbox (index 1)
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r'); // open picker
+    await tick();
+    // Navigate down to workspace-write (index 1 in picker)
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r'); // select
+    await tick();
+    expect(lastFrame()).toContain('Saved');
+    expect(mockConfigSet).toHaveBeenCalledWith(
+      'defaults.sandbox',
+      'workspace-write',
+      expect.any(String),
+    );
+  });
+
+  it('picker Escape cancels without saving', async () => {
+    mockConfigSet.mockClear();
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    stdin.write('\u001B[B'); // down to sandbox
+    await tick();
+    stdin.write('\r'); // open picker
+    await tick();
+    stdin.write('\u001B'); // Escape
+    await tick();
+    expect(lastFrame()).toContain('Arrow keys navigate');
+    expect(mockConfigSet).not.toHaveBeenCalled();
+  });
 });

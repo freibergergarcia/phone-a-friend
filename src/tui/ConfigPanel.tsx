@@ -53,13 +53,15 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
   const paths = configPaths();
   const [config, setConfig] = useState(() => loadConfig());
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [editing, setEditingRaw] = useState(false);
+  const [mode, setModeRaw] = useState<'nav' | 'text' | 'picker'>('nav');
   const [editValue, setEditValue] = useState('');
+  const [pickerOptions, setPickerOptions] = useState<string[]>([]);
+  const [pickerIndex, setPickerIndex] = useState(0);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  const setEditing = useCallback((value: boolean) => {
-    setEditingRaw(value);
-    onEditingChange?.(value);
+  const setMode = useCallback((value: 'nav' | 'text' | 'picker') => {
+    setModeRaw(value);
+    onEditingChange?.(value !== 'nav');
   }, [onEditingChange]);
 
   const rows = buildRows(config);
@@ -69,29 +71,57 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
     setSaveMessage(null);
   }, []);
 
+  const save = useCallback((dotKey: string, value: string) => {
+    try {
+      const userPath = paths.user;
+      if (!existsSync(userPath)) {
+        configInit(userPath, true);
+      }
+      configSet(dotKey, value, userPath);
+      reload();
+      setSaveMessage(`Saved ${dotKey}`);
+    } catch (err) {
+      setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [paths.user, reload]);
+
   useInput((input, key) => {
-    if (editing) {
+    // Picker mode
+    if (mode === 'picker') {
       if (key.return) {
-        // Save
         const row = rows[selectedIndex];
-        if (!row) { setEditing(false); return; }
-        try {
-          const userPath = paths.user;
-          if (!existsSync(userPath)) {
-            // Create default config first
-            configInit(userPath, true);
-          }
-          configSet(row.dotKey, editValue, userPath);
-          reload();
-          setSaveMessage(`Saved ${row.dotKey}`);
-        } catch (err) {
-          setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        setEditing(false);
+        const selected = pickerOptions[pickerIndex];
+        if (!row || !selected) { setMode('nav'); return; }
+        save(row.dotKey, selected);
+        setMode('nav');
         return;
       }
       if (key.escape) {
-        setEditing(false);
+        setMode('nav');
+        return;
+      }
+      if (key.downArrow) {
+        setPickerIndex((i) => Math.min(i + 1, pickerOptions.length - 1));
+        return;
+      }
+      if (key.upArrow) {
+        setPickerIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      return;
+    }
+
+    // Text edit mode
+    if (mode === 'text') {
+      if (key.return) {
+        const row = rows[selectedIndex];
+        if (!row) { setMode('nav'); return; }
+        save(row.dotKey, editValue);
+        setMode('nav');
+        return;
+      }
+      if (key.escape) {
+        setMode('nav');
         return;
       }
       if (key.backspace || key.delete) {
@@ -118,25 +148,24 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
       if (!row) return;
 
       if (row.editMode.type === 'toggle') {
-        // Toggle boolean value and save immediately
         const newValue = String(row.value) === 'true' ? 'false' : 'true';
-        try {
-          const userPath = paths.user;
-          if (!existsSync(userPath)) {
-            configInit(userPath, true);
-          }
-          configSet(row.dotKey, newValue, userPath);
-          reload();
-          setSaveMessage(`Saved ${row.dotKey}`);
-        } catch (err) {
-          setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        save(row.dotKey, newValue);
         return;
       }
 
-      // Picker and text: open text editor (picker handled in Task 2)
+      if (row.editMode.type === 'picker') {
+        const options = row.editMode.options;
+        const currentIdx = options.indexOf(String(row.value));
+        setPickerOptions(options);
+        setPickerIndex(currentIdx >= 0 ? currentIdx : 0);
+        setMode('picker');
+        setSaveMessage(null);
+        return;
+      }
+
+      // Free-text
       setEditValue(String(row.value));
-      setEditing(true);
+      setMode('text');
       setSaveMessage(null);
     }
     if (input === 'r') {
@@ -159,7 +188,8 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
         const showSection = row.section !== lastSection;
         lastSection = row.section;
         const isSelected = i === selectedIndex;
-        const isEditing = isSelected && editing;
+        const isTextEditing = isSelected && mode === 'text';
+        const isPickerOpen = isSelected && mode === 'picker';
 
         return (
           <Box key={row.dotKey} flexDirection="column">
@@ -171,12 +201,23 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
             <Box gap={1}>
               <Text>{isSelected ? '\u25b8' : ' '}</Text>
               <Text dimColor>{row.label.padEnd(14)}</Text>
-              {isEditing ? (
+              {isTextEditing ? (
                 <Text color="cyan">{editValue}<Text inverse> </Text></Text>
               ) : (
                 <Text bold={isSelected}>{String(row.value)}</Text>
               )}
             </Box>
+            {isPickerOpen && (
+              <Box flexDirection="column" paddingLeft={2}>
+                {pickerOptions.map((opt, pi) => (
+                  <Box key={opt} gap={1}>
+                    <Text>{pi === pickerIndex ? '\u25b8' : ' '}</Text>
+                    <Text bold={pi === pickerIndex} color={pi === pickerIndex ? 'cyan' : undefined}>{opt}</Text>
+                    {String(row.value) === opt && <Text dimColor> (current)</Text>}
+                  </Box>
+                ))}
+              </Box>
+            )}
           </Box>
         );
       })}
@@ -190,7 +231,9 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
 
       {/* Hints */}
       <Box marginTop={1}>
-        {editing ? (
+        {mode === 'picker' ? (
+          <Text dimColor>Enter select  Esc cancel  Arrow keys navigate</Text>
+        ) : mode === 'text' ? (
           <Text dimColor>Enter save  Esc cancel  Backspace delete</Text>
         ) : (
           <Text dimColor>Enter edit  Arrow keys navigate  r reload</Text>
