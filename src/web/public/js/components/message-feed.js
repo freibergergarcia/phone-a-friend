@@ -7,9 +7,17 @@ const MessageFeed = {
   /**
    * Render a full transcript (historical view).
    */
-  render(messages, container) {
+  render(messages, container, session) {
     if (!messages || messages.length === 0) {
-      container.innerHTML = '<div class="empty-state">No messages recorded</div>';
+      const hasDead = (session?.agents || []).some((a) => a.status === 'dead');
+      const showReason = session?.status === 'failed' || session?.status === 'stopped' || hasDead;
+      const reason = showReason
+        ? `<p style="margin-top: 8px; font-size: 11px; color: var(--text-muted)">Session ${session.status}${session.endedAt ? ' after ' + ((new Date(session.endedAt) - new Date(session.createdAt)) / 1000).toFixed(1) + 's' : ''}. Agents may have timed out or errored before producing output.</p>`
+        : '';
+      container.innerHTML = `<div class="empty-state">
+        <p>No messages recorded</p>
+        ${reason}
+      </div>`;
       return;
     }
 

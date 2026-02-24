@@ -38,6 +38,41 @@ const App = (() => {
     setInterval(() => {
       if (!currentSessionId) loadSessions();
     }, 10_000);
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Don't intercept when typing in inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      switch (e.key) {
+        case 'Escape':
+          if (currentSessionId) { back(); e.preventDefault(); }
+          break;
+        case 'r':
+          if (!e.ctrlKey && !e.metaKey) { refresh(); e.preventDefault(); }
+          break;
+        case 'j': // Next session (vim-style)
+        case 'k': // Prev session (vim-style)
+          if (!currentSessionId && sessions.length > 0) {
+            const rows = document.querySelectorAll('.session-row');
+            const focused = document.querySelector('.session-row.focused');
+            let idx = focused ? [...rows].indexOf(focused) : -1;
+            if (e.key === 'j') idx = Math.min(idx + 1, rows.length - 1);
+            else idx = Math.max(idx - 1, 0);
+            rows.forEach((r) => r.classList.remove('focused'));
+            rows[idx]?.classList.add('focused');
+            rows[idx]?.scrollIntoView({ block: 'nearest' });
+            e.preventDefault();
+          }
+          break;
+        case 'Enter':
+          if (!currentSessionId) {
+            const focused = document.querySelector('.session-row.focused');
+            if (focused) { viewSession(focused.dataset.id); e.preventDefault(); }
+          }
+          break;
+      }
+    });
   }
 
   // ---- Views --------------------------------------------------------------
@@ -105,7 +140,7 @@ const App = (() => {
       MessageFeed.renderTurnInfo($turnInfo, currentSession);
 
       // Transcript
-      MessageFeed.render(currentSession.transcript || [], $messageFeed);
+      MessageFeed.render(currentSession.transcript || [], $messageFeed, currentSession);
 
       // If session is active, connect SSE for live updates
       if (currentSession.status === 'active') {
