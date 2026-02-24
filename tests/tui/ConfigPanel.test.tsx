@@ -62,7 +62,7 @@ describe('ConfigPanel', () => {
 
   it('shows navigation hints', () => {
     const { lastFrame } = render(<ConfigPanel />);
-    expect(lastFrame()).toContain('edit');
+    expect(lastFrame()).toContain('Arrow keys navigate');
   });
 
   it('Enter key starts editing with current value', async () => {
@@ -167,5 +167,30 @@ describe('ConfigPanel', () => {
     await tick();
     expect(lastFrame()).toContain('Arrow keys navigate');
     expect(mockConfigSet).not.toHaveBeenCalled();
+  });
+
+  it('shows toggle hint when boolean field is selected', async () => {
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    // Navigate to include_diff (index 3)
+    stdin.write('\u001B[B');
+    stdin.write('\u001B[B');
+    stdin.write('\u001B[B');
+    await tick();
+    expect(lastFrame()).toContain('Enter toggle');
+  });
+
+  it('shows picker hint when enum field is selected', () => {
+    const { lastFrame } = render(<ConfigPanel />);
+    // Default selection is index 0 (backend = picker)
+    expect(lastFrame()).toContain('Enter pick');
+  });
+
+  it('shows edit hint when text field is selected', async () => {
+    const { lastFrame, stdin } = render(<ConfigPanel />);
+    // Navigate to timeout (index 2 = text)
+    stdin.write('\u001B[B');
+    stdin.write('\u001B[B');
+    await tick();
+    expect(lastFrame()).toContain('Enter edit');
   });
 });

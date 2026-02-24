@@ -235,9 +235,13 @@ export function ConfigPanel({ onEditingChange }: ConfigPanelProps = {}) {
           <Text dimColor>Enter select  Esc cancel  Arrow keys navigate</Text>
         ) : mode === 'text' ? (
           <Text dimColor>Enter save  Esc cancel  Backspace delete</Text>
-        ) : (
-          <Text dimColor>Enter edit  Arrow keys navigate  r reload</Text>
-        )}
+        ) : (() => {
+          const row = rows[selectedIndex];
+          const action = row?.editMode.type === 'toggle' ? 'Enter toggle'
+            : row?.editMode.type === 'picker' ? 'Enter pick'
+            : 'Enter edit';
+          return <Text dimColor>{action}  Arrow keys navigate  r reload</Text>;
+        })()}
       </Box>
     </Box>
   );
