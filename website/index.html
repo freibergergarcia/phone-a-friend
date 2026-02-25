@@ -418,6 +418,7 @@
       font-size: 0.85rem;
       line-height: 1.75;
       color: var(--text-secondary);
+      min-height: 143px; /* tallest phrase (2-line wrap + route) — prevents layout shift during typing animation */
     }
 
     .terminal-line {
@@ -492,6 +493,7 @@
       gap: 0;
       margin-top: 64px;
       position: relative;
+      min-height: 280px; /* prevents layout shift when toggling relay ↔ agentic */
     }
 
     .flow-step {
@@ -1037,6 +1039,7 @@
         align-items: center;
         gap: 32px;
         margin-top: 48px;
+        min-height: 690px; /* tallest stacked flow — prevents shift on toggle */
       }
 
       .flow-step {
@@ -1233,7 +1236,7 @@
 
     .tui-mock-body {
       padding: 12px 16px 16px;
-      min-height: 280px;
+      min-height: 398px; /* tallest panel (Status) — prevents layout shift during tab cycling */
     }
 
     .tui-prompt {
@@ -1391,7 +1394,7 @@
     @media (max-width: 600px) {
       .tui-mock { font-size: 0.68rem; }
       .tui-backends-layout { flex-direction: column; gap: 8px; }
-      .tui-mock-body { min-height: 240px; }
+      .tui-mock-body { min-height: 340px; }
     }
   </style>
 </head>
