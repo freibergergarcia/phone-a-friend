@@ -60942,10 +60942,15 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import Database from "better-sqlite3";
 import { join as join4 } from "path";
 import { mkdirSync as mkdirSync4 } from "fs";
 import { homedir as homedir3 } from "os";
+function getDatabase() {
+  if (!_Database) {
+    _Database = __require("better-sqlite3");
+  }
+  return _Database;
+}
 function defaultDbPath() {
   const configBase = process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config");
   const dir = join4(configBase, "phone-a-friend");
@@ -60963,7 +60968,7 @@ function rowToMessage(row) {
     turn: row.turn
   };
 }
-var SCHEMA, TranscriptBus;
+var _Database, SCHEMA, TranscriptBus;
 var init_bus = __esm({
   "src/agentic/bus.ts"() {
     "use strict";
@@ -61007,6 +61012,7 @@ var init_bus = __esm({
     TranscriptBus = class {
       db;
       constructor(dbPath) {
+        const Database = getDatabase();
         this.db = new Database(dbPath ?? defaultDbPath());
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("foreign_keys = ON");

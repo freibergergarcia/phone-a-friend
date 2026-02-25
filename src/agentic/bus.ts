@@ -5,7 +5,6 @@
  * This stores the complete transcript for: logs, replay, web dashboard.
  */
 
-import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -15,6 +14,18 @@ import type {
   Message,
   SessionStatus,
 } from './types.js';
+
+// Lazy-load better-sqlite3 (native addon can't be bundled by tsup).
+// Only resolved when TranscriptBus is actually instantiated.
+// Uses the `require` shim injected by tsup's banner (createRequire).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _Database: any;
+function getDatabase() {
+  if (!_Database) {
+    _Database = require('better-sqlite3');
+  }
+  return _Database;
+}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -75,9 +86,10 @@ export function defaultDbPath(): string {
 // ---------------------------------------------------------------------------
 
 export class TranscriptBus {
-  private db: Database.Database;
+  private db: import('better-sqlite3').Database;
 
   constructor(dbPath?: string) {
+    const Database = getDatabase();
     this.db = new Database(dbPath ?? defaultDbPath());
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
