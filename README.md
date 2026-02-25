@@ -79,7 +79,7 @@ phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
 
 # Stream responses in real time
-phone-a-friend --to codex --prompt "Review this code" --stream
+phone-a-friend --to claude --prompt "Review this code" --stream
 
 # Interactive TUI dashboard (launch with no args in a terminal)
 phone-a-friend
@@ -93,6 +93,10 @@ phone-a-friend doctor --json  # Machine-readable health check
 phone-a-friend config init    # Create default config
 phone-a-friend config show    # Show resolved config
 phone-a-friend config edit    # Open in $EDITOR
+
+# Review mode (diff-scoped)
+phone-a-friend --to claude --review               # Review current diff
+phone-a-friend --to codex --review --base develop  # Review against a branch
 
 # Plugin management
 phone-a-friend plugin install --claude
@@ -124,7 +128,7 @@ Ollama configuration via environment variables:
 Backends that support streaming deliver tokens as they arrive via `--stream`:
 
 ```bash
-phone-a-friend --to codex --prompt "Review this code" --stream
+phone-a-friend --to claude --prompt "Review this code" --stream
 ```
 
 Streaming is enabled by default in the config (`defaults.stream = true`). Disable with `--no-stream` or `config set defaults.stream false`.

@@ -259,7 +259,7 @@ export class Orchestrator {
       // No messages pending — converged
       if (this.queue.isEmpty()) {
         this.noProgressCount++;
-        if (this.noProgressCount >= 2) {
+        if (this.noProgressCount >= AGENTIC_DEFAULTS.noProgressThreshold) {
           this.emit({
             type: 'guardrail',
             sessionId: this.sessionId,

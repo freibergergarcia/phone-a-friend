@@ -12,7 +12,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 src/
   index.ts           Entry point — imports backends, runs CLI
   cli.ts             Commander.js CLI with subcommands
-  relay.ts           Backend-agnostic relay core (relay + relayStream)
+  relay.ts           Backend-agnostic relay core (relay + relayStream + reviewRelay)
   stream-parsers.ts  Stream parsers — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
   context.ts         RelayContext interface
   version.ts         Shared version reader
@@ -21,6 +21,8 @@ src/
   doctor.ts          Health check command
   setup.ts           Interactive setup wizard
   installer.ts       Claude plugin installer (symlink/copy)
+  theme.ts           Shared semantic theme (chalk) for CLI styling + banner
+  display.ts         Display helpers (mark, formatBackendLine)
   backends/
     index.ts         Backend interface, registry, types
     claude.ts        Claude CLI subprocess backend (`claude -p`)
@@ -55,6 +57,7 @@ src/
     hooks/
       useDetection.ts    Async detection with throttled refresh
       usePluginStatus.ts Plugin install status (sync FS check)
+      useAgenticSessions.ts  SQLite session loader for Agentic panel
     components/
       TabBar.tsx             Tab navigation bar
       PluginStatusBar.tsx    Persistent plugin install indicator
@@ -67,8 +70,8 @@ dist/                Built bundle (committed, self-contained)
 
 ## Core Behavior
 
-- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming
-- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` optional
+- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review
+- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
 - Claude backend in `src/backends/claude.ts` (subprocess via `claude -p`, streams via `--output-format stream-json`)
 - Codex backend in `src/backends/codex.ts`
@@ -87,8 +90,8 @@ Multi-agent orchestration where agents communicate via @mentions within a shared
 ### Architecture
 
 - **Orchestrator-driven**: `Orchestrator` in `src/agentic/orchestrator.ts` runs the main loop — spawns agents, routes messages, enforces guardrails, and emits events
-- **Claude-only backend** currently — persistent sessions via `claude -p --session-id <uuid>`
-- **SessionManager** (`src/agentic/session.ts`) wraps Claude CLI subprocesses with UUID-based session IDs for conversation continuity
+- **Claude-only backend** currently — spawn via `claude -p --session-id <uuid>`, resume via `claude -p -r <uuid>`
+- **SessionManager** (`src/agentic/session.ts`) wraps Claude CLI subprocesses with UUID-based session IDs for conversation continuity; non-Claude backends are not yet supported; stateless transcript replay infrastructure exists but is not wired up
 - **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
 - **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and web dashboard consumers
@@ -111,8 +114,8 @@ All defaults are in `AGENTIC_DEFAULTS` (`src/agentic/types.ts`):
 | `timeoutSeconds` | 900 (15 min) | Session wall-clock timeout |
 | `pingPongThreshold` | 6 | Detects agents bouncing messages without progress |
 | `noProgressThreshold` | 2 | Stops session when no meaningful output is produced |
-| `maxMessageSize` | 50 KB | Per-message size limit |
-| `maxAgentTurnsPerRound` | 3 | Max turns a single agent gets before yielding |
+| `maxMessageSize` | 50 KB | Per-message size limit (not yet enforced) |
+| `maxAgentTurnsPerRound` | 3 | Max turns a single agent gets before yielding (not yet enforced) |
 
 ### Web dashboard
 
@@ -133,8 +136,13 @@ phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 phone-a-friend --prompt "..."               # Uses default backend from config
-phone-a-friend --to codex --prompt "..." --stream     # Stream tokens as they arrive
+phone-a-friend --to claude --prompt "..." --stream     # Stream tokens as they arrive
 phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
+phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scoped)
+phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
+phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
+phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
+phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -159,6 +167,8 @@ phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 # Agentic mode
 phone-a-friend agentic run --agents role:backend,... --prompt "..."
 phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth" --max-turns 15
+phone-a-friend agentic run --agents sec:claude --prompt "Audit" --timeout 600 --sandbox workspace-write
+phone-a-friend agentic run --agents dev:claude --prompt "Build" --dashboard-url http://localhost:8080/api/ingest
 phone-a-friend agentic logs
 phone-a-friend agentic logs --session <id>
 phone-a-friend agentic replay --session <id>
