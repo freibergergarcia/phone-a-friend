@@ -222,7 +222,7 @@ const MessageFeed = {
       const nTime = MessageFeed.formatTime(n.timestamp);
       return `<div class="thinking-step">
         <span class="thinking-step-time">${nTime}</span>
-        <div class="thinking-step-content" onclick="this.classList.toggle('expanded')">${nContent}</div>
+        <div class="thinking-step-content">${nContent}</div>
       </div>`;
     }).join('');
 

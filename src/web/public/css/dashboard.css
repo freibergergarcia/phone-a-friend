@@ -746,27 +746,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   color: var(--text-dim);
   word-break: break-word;
   line-height: 1.5;
-  max-height: 60px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: max-height 0.2s;
-  position: relative;
 }
-
-.thinking-step-content::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 20px;
-  background: linear-gradient(transparent, var(--bg));
-  pointer-events: none;
-  transition: opacity 0.2s;
-}
-
-.thinking-step-content.expanded { max-height: none; overflow: visible; }
-.thinking-step-content.expanded::after { opacity: 0; }
 
 /* Global thinking toggle in filter bar */
 .thinking-global-toggle {
