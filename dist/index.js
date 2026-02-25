@@ -61313,7 +61313,7 @@ var init_App2 = __esm({
     TABS = ["Status", "Backends", "Config", "Actions", "Agentic"];
     GLOBAL_HINTS = [
       { key: "Tab", label: "switch" },
-      { key: "1-4", label: "jump" },
+      { key: "1-5", label: "jump" },
       { key: "q", label: "quit" }
     ];
     TAB_HINTS = {
@@ -62258,17 +62258,15 @@ var init_orchestrator = __esm({
           content,
           turn
         });
-        if (to !== "notes") {
-          this.emit({
-            type: "message",
-            sessionId: this.sessionId,
-            from,
-            to,
-            content,
-            turn,
-            timestamp: /* @__PURE__ */ new Date()
-          });
-        }
+        this.emit({
+          type: "message",
+          sessionId: this.sessionId,
+          from,
+          to,
+          content,
+          turn,
+          timestamp: /* @__PURE__ */ new Date()
+        });
       }
       endSession(reason) {
         if (this.sessionEnded) return;

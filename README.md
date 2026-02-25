@@ -15,12 +15,13 @@
 
 </div>
 
-`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks -- code reviews, file edits, analysis, refactoring -- to a backend AI (Codex, Gemini, Ollama, or Claude) and brings the results back into the current session.
+`phone-a-friend` is a CLI relay that lets AI coding agents collaborate. Claude delegates tasks -- code reviews, file edits, analysis, refactoring -- to a backend AI (Codex, Gemini, Ollama, or Claude) and brings the results back into the current session. Agentic mode takes this further: multiple Claude agents communicate with each other via @mentions, with an orchestrator mediating message delivery, enforcing guardrails, and streaming events to a live web dashboard.
 
 ```
   Claude --> phone-a-friend --> Codex / Gemini / Ollama / Claude     (one-shot relay)
   Claude --> phone-a-friend --stream --> stream tokens live           (streaming)
   Claude --> phone-a-team --> iterate with backend(s)                 (iterative refinement)
+  Claude --> phone-a-friend agentic --> multi-agent collaboration     (agentic mode)
 ```
 
 <div align="center">
@@ -97,6 +98,12 @@ phone-a-friend config edit    # Open in $EDITOR
 phone-a-friend plugin install --claude
 phone-a-friend plugin update --claude
 phone-a-friend plugin uninstall --claude
+
+# Agentic mode — multi-agent sessions
+phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review this code"
+phone-a-friend agentic logs               # View past sessions
+phone-a-friend agentic replay --session <id>  # Replay transcript
+phone-a-friend agentic dashboard           # Launch web dashboard
 ```
 
 ## Backends
@@ -121,6 +128,48 @@ phone-a-friend --to codex --prompt "Review this code" --stream
 ```
 
 Streaming is enabled by default in the config (`defaults.stream = true`). Disable with `--no-stream` or `config set defaults.stream false`.
+
+## Agentic Mode
+
+Agentic mode orchestrates multi-agent sessions where AI agents communicate with each other via `@mentions`. An orchestrator mediates message delivery, routes messages between agents, enforces guardrails, and streams all events to a live web dashboard. Currently supports Claude agents only.
+
+Agents accumulate context through persistent CLI sessions -- each agent maintains its conversation history across turns, so later responses build on earlier ones.
+
+```bash
+# Start an agentic session
+phone-a-friend agentic run \
+  --agents reviewer:claude,critic:claude \
+  --prompt "Review the auth module"
+
+# View past sessions
+phone-a-friend agentic logs
+phone-a-friend agentic logs --session <id>
+
+# Replay a session transcript
+phone-a-friend agentic replay --session <id>
+
+# Launch web dashboard
+phone-a-friend agentic dashboard
+phone-a-friend agentic dashboard --port 8080
+```
+
+**How it works:**
+
+1. The orchestrator spawns each agent with the initial prompt
+2. Agents respond and `@mention` other agents (or `@all` / `@user`)
+3. The orchestrator routes messages to the targeted agents
+4. Agents reply in subsequent turns, building on accumulated context
+5. The session ends when agents converge (no new messages), hit the turn limit, or time out
+
+**Key features:**
+
+- **Persistent sessions** -- agents accumulate context across turns (Claude uses UUID-based session resumption)
+- **@mention routing** -- agents use full names like `@ada.reviewer:`, plus `@all` and `@user`
+- **Live web dashboard** -- real-time SSE updates at `localhost:7777`
+- **Guardrails** -- max turns (default 20), ping-pong detection, session timeout (15 min)
+- **SQLite transcript persistence** -- full session history for replay and logs
+- **Creative agent naming** -- agents get human first names (e.g., `ada.reviewer`, `fern.critic`)
+- **Turn budget awareness** -- agents are warned before the session ends
 
 ## Documentation
 

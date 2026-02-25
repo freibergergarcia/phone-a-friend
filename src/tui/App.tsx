@@ -23,7 +23,7 @@ const TABS = ['Status', 'Backends', 'Config', 'Actions', 'Agentic'] as const;
 // Global hints (always shown)
 const GLOBAL_HINTS: Hint[] = [
   { key: 'Tab', label: 'switch' },
-  { key: '1-4', label: 'jump' },
+  { key: '1-5', label: 'jump' },
   { key: 'q', label: 'quit' },
 ];
 
@@ -67,7 +67,7 @@ export function App() {
       return;
     }
 
-    // Number keys 1-4 jump to tabs
+    // Number keys 1-5 jump to tabs
     const num = parseInt(input, 10);
     if (num >= 1 && num <= TABS.length) {
       setActiveTab(num - 1);

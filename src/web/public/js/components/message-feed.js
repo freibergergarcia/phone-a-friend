@@ -118,6 +118,10 @@ const MessageFeed = {
    * are removed from the DOM and re-rendered as a grouped message.
    */
   appendMessage(container, msg, currentTurn) {
+    // Clear "No messages recorded" placeholder on first live message
+    const empty = container.querySelector('.empty-state');
+    if (empty) empty.remove();
+
     if (msg.turn !== undefined && msg.turn !== currentTurn) {
       const sep = document.createElement('div');
       sep.className = 'turn-separator';

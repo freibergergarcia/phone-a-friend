@@ -301,6 +301,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
+  padding-right: 32px;
 }
 
 .session-card-header .session-id {
@@ -337,6 +338,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-right: 32px;
 }
 
 .session-card-agents {

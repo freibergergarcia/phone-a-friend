@@ -454,18 +454,15 @@ export class Orchestrator {
       turn,
     });
 
-    // Only emit routable messages (not notes)
-    if (to !== 'notes') {
-      this.emit({
-        type: 'message',
-        sessionId: this.sessionId,
-        from,
-        to,
-        content,
-        turn,
-        timestamp: new Date(),
-      });
-    }
+    this.emit({
+      type: 'message',
+      sessionId: this.sessionId,
+      from,
+      to,
+      content,
+      turn,
+      timestamp: new Date(),
+    });
   }
 
   private endSession(reason: 'converged' | 'max_turns' | 'timeout' | 'stopped' | 'error'): void {

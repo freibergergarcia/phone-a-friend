@@ -39,6 +39,10 @@ const App = (() => {
     loadSessions();
     connectGlobalSSE();
 
+    // Route from URL hash on load (e.g. #/session/abc123)
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+
     // Auto-refresh every 10s when on list view
     setInterval(() => {
       if (!currentSessionId) loadSessions();
@@ -88,6 +92,9 @@ const App = (() => {
     currentSessionId = null;
     currentSession = null;
     agentFilter = null;
+    if (location.hash) {
+      history.replaceState(null, '', location.pathname);
+    }
     disconnectSessionSSE();
     stopStatusPoll();
   }
@@ -125,6 +132,9 @@ const App = (() => {
 
   async function viewSession(id) {
     currentSessionId = id;
+    if (location.hash !== `#/session/${id}`) {
+      location.hash = `/session/${id}`;
+    }
     showDetailView();
     AgentCard.resetColors();
 
@@ -398,6 +408,19 @@ const App = (() => {
     // Update toggle button state
     const btn = document.getElementById('thinking-toggle-btn');
     if (btn) btn.classList.toggle('active', !anyOpen);
+  }
+
+  // ---- Hash routing -------------------------------------------------------
+
+  function handleHash() {
+    const match = location.hash.match(/^#\/session\/(.+)$/);
+    if (match) {
+      const id = match[1];
+      if (currentSessionId !== id) viewSession(id);
+    } else if (currentSessionId) {
+      showListView();
+      loadSessions();
+    }
   }
 
   // ---- Public API ---------------------------------------------------------

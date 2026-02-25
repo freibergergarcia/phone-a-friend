@@ -648,6 +648,48 @@
       border: 1px solid rgba(167, 139, 250, 0.15);
     }
 
+    .mode-badge.agentic {
+      background: rgba(52, 211, 153, 0.1);
+      color: var(--accent-green);
+      border: 1px solid rgba(52, 211, 153, 0.15);
+    }
+
+    .mode-card-agentic {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, var(--bg-card) 0%, rgba(52, 211, 153, 0.03) 100%);
+      border-color: rgba(52, 211, 153, 0.12);
+    }
+
+    .mode-card-agentic:hover {
+      border-color: rgba(52, 211, 153, 0.25);
+      box-shadow: 0 0 40px rgba(52, 211, 153, 0.06);
+    }
+
+    .mode-card-agentic .cmd-text {
+      color: var(--text-secondary);
+    }
+
+    .mode-card-agentic .prompt-char {
+      color: var(--accent-green);
+    }
+
+    .agentic-features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .agentic-tag {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      border-radius: 6px;
+      background: rgba(52, 211, 153, 0.08);
+      color: var(--accent-green);
+      border: 1px solid rgba(52, 211, 153, 0.12);
+    }
+
     .mode-card h3 {
       font-family: var(--font-display);
       font-weight: 700;
@@ -1344,6 +1386,7 @@
       </div>
       <div class="nav-links">
         <a href="#how-it-works" class="nav-link">How it works</a>
+        <a href="#modes" class="nav-link">Modes</a>
         <a href="#features" class="nav-link">Features</a>
         <a href="#quickstart" class="nav-link">Install</a>
         <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="nav-github" aria-label="View on GitHub">
@@ -1358,6 +1401,7 @@
     <!-- Mobile dropdown menu -->
     <div class="nav-mobile-menu" id="nav-mobile-menu">
       <a href="#how-it-works" class="nav-mobile-link">How it works</a>
+      <a href="#modes" class="nav-mobile-link">Modes</a>
       <a href="#features" class="nav-mobile-link">Features</a>
       <a href="#quickstart" class="nav-mobile-link">Install</a>
       <a href="https://github.com/freibergergarcia/phone-a-friend" target="_blank" rel="noopener" class="nav-mobile-link">GitHub</a>
@@ -1373,7 +1417,8 @@
         </h1>
         <p class="hero-description">
           Just talk. Claude automatically delegates to Codex, Gemini, Ollama, or Claude Code
-          and brings the results back. No flags, no syntax — plain English.
+          and brings the results back — no flags, no syntax, plain English. Or go agentic:
+          multiple Claude agents collaborating via @mentions with a live web dashboard.
         </p>
 
         <!-- Conversational demo -->
@@ -1408,7 +1453,7 @@
         </div>
 
         <!-- Animated TUI Mock -->
-        <div class="tui-mock" id="tui-mock" role="img" aria-label="phone-a-friend TUI dashboard cycling through Status, Backends, Config, and Actions tabs">
+        <div class="tui-mock" id="tui-mock" role="img" aria-label="phone-a-friend TUI dashboard cycling through Status, Backends, Config, Actions, and Agentic tabs">
           <div class="tui-mock-header">
             <span class="terminal-dot red"></span>
             <span class="terminal-dot yellow"></span>
@@ -1423,6 +1468,7 @@
               <span class="tui-tab" data-tab="1">2 Backends</span>
               <span class="tui-tab" data-tab="2">3 Config</span>
               <span class="tui-tab" data-tab="3">4 Actions</span>
+              <span class="tui-tab" data-tab="4">5 Agentic</span>
             </div>
 
             <div class="tui-plugin-bar"><span class="tui-check">&#10003;</span> Claude Plugin: <span style="color:var(--accent-green)">Installed</span></div>
@@ -1446,7 +1492,7 @@
               <div style="padding-left:8px;">
                 <span style="padding-left:12px"><span class="tui-check">&#10003;</span> <span class="tui-label">claude</span> <span class="tui-dim">Claude Code CLI (found in PATH)</span></span>
               </div>
-              <div class="tui-hint"><span class="key">Tab</span> switch  <span class="key">1-4</span> jump  <span class="key">q</span> quit  <span class="key">r</span> refresh</div>
+              <div class="tui-hint"><span class="key">Tab</span> switch  <span class="key">1-5</span> jump  <span class="key">q</span> quit  <span class="key">r</span> refresh</div>
             </div>
 
             <!-- Backends Panel -->
@@ -1464,7 +1510,7 @@
                   <div><span class="tui-check">&#10003;</span> <span class="tui-dim">OpenAI Codex CLI (found in PATH)</span></div>
                 </div>
               </div>
-              <div class="tui-hint"><span class="key">Tab</span> switch  <span class="key">1-4</span> jump  <span class="key">q</span> quit  <span class="key">r</span> refresh</div>
+              <div class="tui-hint"><span class="key">Tab</span> switch  <span class="key">1-5</span> jump  <span class="key">q</span> quit  <span class="key">r</span> refresh</div>
             </div>
 
             <!-- Config Panel -->
@@ -1478,7 +1524,7 @@
                 <div class="tui-config-row">&nbsp; <span class="tui-config-key">include_diff</span> <span class="tui-config-val">false</span></div>
               </div>
               <div class="tui-hint"><span class="key">Enter</span> edit  <span class="key">Arrow keys</span> navigate  <span class="key">r</span> reload</div>
-              <div class="tui-hint" style="margin-top:4px"><span class="key">Tab</span> switch  <span class="key">1-4</span> jump  <span class="key">q</span> quit</div>
+              <div class="tui-hint" style="margin-top:4px"><span class="key">Tab</span> switch  <span class="key">1-5</span> jump  <span class="key">q</span> quit</div>
             </div>
 
             <!-- Actions Panel -->
@@ -1491,7 +1537,18 @@
                 <div>&nbsp; <span class="tui-label">Open Config</span> <span class="tui-dim">Open config in $EDITOR</span></div>
               </div>
               <div class="tui-hint"><span class="key">Enter</span> to run  <span class="key">Arrow keys</span> to navigate</div>
-              <div class="tui-hint" style="margin-top:4px"><span class="key">Tab</span> switch  <span class="key">1-4</span> jump  <span class="key">q</span> quit</div>
+              <div class="tui-hint" style="margin-top:4px"><span class="key">Tab</span> switch  <span class="key">1-5</span> jump  <span class="key">q</span> quit</div>
+            </div>
+
+            <!-- Agentic Panel -->
+            <div class="tui-panel" data-panel="4">
+              <div class="tui-section-title">Agentic Sessions</div>
+              <div style="margin-top:4px;">
+                <div><span class="tui-pointer">&#9656;</span> <span class="tui-check">&#10003;</span> <span class="tui-label" style="font-weight:500">session-7f3a</span> <span class="tui-dim">Feb 25 10:32 | ada.reviewer, fern.critic</span></div>
+                <div>&nbsp; <span class="tui-check" style="color:var(--accent-green)">&#10003;</span> <span class="tui-label">session-2b1c</span> <span class="tui-dim">Feb 24 15:10 | luna.analyst, kai.writer</span></div>
+              </div>
+              <div class="tui-hint" style="margin-top:8px"><span class="key">Enter</span> view  <span class="key">d</span> delete  <span class="key">r</span> refresh</div>
+              <div class="tui-hint" style="margin-top:4px"><span class="key">Tab</span> switch  <span class="key">1-5</span> jump  <span class="key">q</span> quit</div>
             </div>
           </div>
         </div>
@@ -1500,6 +1557,7 @@
           <span class="tui-tab-dot" data-dot="1"></span>
           <span class="tui-tab-dot" data-dot="2"></span>
           <span class="tui-tab-dot" data-dot="3"></span>
+          <span class="tui-tab-dot" data-dot="4"></span>
         </div>
       </div>
     </section>
@@ -1548,15 +1606,15 @@
       </div>
     </section>
 
-    <!-- ======== TWO MODES ======== -->
+    <!-- ======== THREE MODES ======== -->
     <section class="modes" id="modes">
       <div class="container">
         <div class="section-header-centered">
-          <p class="section-label reveal">Smart routing</p>
-          <h2 class="section-title reveal reveal-delay-1">One backend or many. Claude decides.</h2>
+          <p class="section-label reveal">Three modes</p>
+          <h2 class="section-title reveal reveal-delay-1">Relay, team, or agentic. You choose.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Mention one backend and it routes to a one-shot relay.
-            Mention multiple and it spins up a multi-agent team. Automatic.
+            One backend for a quick second opinion. Multiple backends for iterative refinement.
+            Agentic mode for persistent multi-agent sessions with a live dashboard.
           </p>
         </div>
 
@@ -1586,6 +1644,26 @@
               <div class="mode-code-gap"><span class="comment"># Iterative convergence</span></div>
               <div><span class="arg">Loop 3 rounds with Claude</span></div>
               <div><span class="arg">and Ollama on the API design</span></div>
+            </div>
+          </div>
+
+          <div class="mode-card mode-card-agentic reveal reveal-delay-3">
+            <span class="mode-badge agentic">persistent agent sessions</span>
+            <h3>Agentic mode</h3>
+            <p>Claude agents communicate via @mentions across persistent sessions. An orchestrator routes messages, enforces guardrails, and streams events to a live web dashboard.</p>
+            <div class="mode-code">
+              <div><span class="comment"># Launch a multi-agent session</span></div>
+              <div><span class="prompt-char">$ </span><span class="cmd-text">phone-a-friend agentic run \</span></div>
+              <div><span class="cmd-text">&nbsp;&nbsp;--agents reviewer:claude,critic:claude \</span></div>
+              <div><span class="cmd-text">&nbsp;&nbsp;--prompt "Review the auth module"</span></div>
+              <div class="mode-code-gap"><span class="comment"># Open the live dashboard</span></div>
+              <div><span class="prompt-char">$ </span><span class="cmd-text">phone-a-friend agentic dashboard</span></div>
+            </div>
+            <div class="agentic-features">
+              <span class="agentic-tag">@mention routing</span>
+              <span class="agentic-tag">live dashboard</span>
+              <span class="agentic-tag">guardrails</span>
+              <span class="agentic-tag">SQLite persistence</span>
             </div>
           </div>
         </div>
@@ -1880,9 +1958,9 @@
       var tabs = mock.querySelectorAll('.tui-tab');
       var panels = mock.querySelectorAll('.tui-panel');
       var dots = document.querySelectorAll('.tui-tab-dot');
-      var tabCount = 4;
+      var tabCount = 5;
       var current = 0;
-      var durations = [4200, 4000, 3600, 3600];
+      var durations = [4200, 4000, 3600, 3600, 3400];
 
       function switchTab(idx) {
         tabs.forEach(function(t, i) { t.classList.toggle('active', i === idx); });
