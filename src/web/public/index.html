@@ -52,6 +52,9 @@
             <button class="filter-btn active" data-filter="routed" onclick="App.toggleFilter('routed')">Routed</button>
             <button class="filter-btn active" data-filter="notes" onclick="App.toggleFilter('notes')">Notes</button>
             <button class="filter-btn active" data-filter="initial" onclick="App.toggleFilter('initial')">Initial</button>
+            <button id="thinking-toggle-btn" class="thinking-global-toggle" onclick="App.toggleAllThinking()">
+              <span class="toggle-icon">&#x1F4AD;</span> Show thinking
+            </button>
           </div>
           <div id="message-feed" class="message-feed"></div>
         </div>

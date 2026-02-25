@@ -220,13 +220,13 @@ const MessageFeed = {
     const notesHtml = notes.map((n) => {
       const nContent = Markdown.render(n.content || '');
       const nTime = MessageFeed.formatTime(n.timestamp);
-      return `<div class="reasoning-note">
-        <span class="reasoning-note-time">${nTime}</span>
-        <div class="reasoning-note-content" onclick="this.classList.toggle('expanded')">${nContent}</div>
+      return `<div class="thinking-step">
+        <span class="thinking-step-time">${nTime}</span>
+        <div class="thinking-step-content" onclick="this.classList.toggle('expanded')">${nContent}</div>
       </div>`;
     }).join('');
 
-    const label = notes.length === 1 ? '1 reasoning note' : `${notes.length} reasoning notes`;
+    const label = notes.length === 1 ? '1 thinking step' : `${notes.length} thinking steps`;
 
     return `
       <div class="message message-routed border-color-${fromColor}" data-msg-type="routed" data-msg-from="${MessageFeed.escape(msg.from)}" data-msg-to="${toLabel}">
@@ -237,10 +237,10 @@ const MessageFeed = {
           <span class="message-turn">T${msg.turn ?? 0}</span>
           <span class="message-time">${time}</span>
         </div>
-        <div class="reasoning-toggle" onclick="this.closest('.message').classList.toggle('show-reasoning')">
-          <span class="reasoning-icon">\u25B8</span> ${label}
+        <div class="thinking-toggle" onclick="this.closest('.message').classList.toggle('show-thinking')">
+          <span class="thinking-chevron">\u25B8</span> ${label}
         </div>
-        <div class="reasoning-notes">${notesHtml}</div>
+        <div class="thinking-steps">${notesHtml}</div>
         <div class="message-content expanded">${content}</div>
       </div>
     `;

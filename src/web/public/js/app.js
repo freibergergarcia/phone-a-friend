@@ -351,14 +351,14 @@ const App = (() => {
         el.classList.remove('filter-hidden');
       }
     });
-    // Show/hide reasoning toggles based on notes filter
-    $messageFeed.querySelectorAll('.reasoning-toggle').forEach((el) => {
+    // Show/hide thinking toggles based on notes filter
+    $messageFeed.querySelectorAll('.thinking-toggle').forEach((el) => {
       el.style.display = filters.notes ? '' : 'none';
     });
-    // Collapse reasoning when notes are filtered out
+    // Collapse thinking when notes are filtered out
     if (!filters.notes) {
-      $messageFeed.querySelectorAll('.message.show-reasoning').forEach((el) => {
-        el.classList.remove('show-reasoning');
+      $messageFeed.querySelectorAll('.message.show-thinking').forEach((el) => {
+        el.classList.remove('show-thinking');
       });
     }
     // Hide turn separators that have no visible messages after them
@@ -374,6 +374,30 @@ const App = (() => {
       }
       sep.style.display = hasVisible ? '' : 'none';
     });
+  }
+
+  // ---- Global thinking toggle ---------------------------------------------
+
+  function toggleAllThinking() {
+    if (!$messageFeed) return;
+    const messages = $messageFeed.querySelectorAll('.message');
+    // Check if any are currently expanded
+    const anyOpen = [...messages].some((el) => el.classList.contains('show-thinking'));
+
+    messages.forEach((el) => {
+      if (anyOpen) {
+        el.classList.remove('show-thinking');
+      } else {
+        // Only expand if it has thinking steps
+        if (el.querySelector('.thinking-steps')) {
+          el.classList.add('show-thinking');
+        }
+      }
+    });
+
+    // Update toggle button state
+    const btn = document.getElementById('thinking-toggle-btn');
+    if (btn) btn.classList.toggle('active', !anyOpen);
   }
 
   // ---- Public API ---------------------------------------------------------
@@ -407,5 +431,5 @@ const App = (() => {
   // Boot
   document.addEventListener('DOMContentLoaded', init);
 
-  return { viewSession, back, refresh, deleteSession, toggleFilter, setFilter, filterByAgent };
+  return { viewSession, back, refresh, deleteSession, toggleFilter, setFilter, filterByAgent, toggleAllThinking };
 })();

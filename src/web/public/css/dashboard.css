@@ -670,50 +670,69 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
 .message-content.expanded { max-height: none; overflow: visible; }
 
-/* ── Reasoning notes (grouped) ──────────────────────── */
+/* ── Thinking (grouped agent reasoning) ────────────── */
 
-.reasoning-toggle {
+.thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   cursor: pointer;
-  padding: 4px 0 2px;
+  padding: 4px 10px;
+  margin: 4px 0 2px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg);
   user-select: none;
-  transition: color 0.15s;
+  transition: all 0.15s;
 }
 
-.reasoning-toggle:hover { color: var(--text-dim); }
+.thinking-toggle:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-bright);
+  background: var(--bg-hover);
+}
 
-.reasoning-icon {
+.message.show-thinking .thinking-toggle {
+  color: var(--accent);
+  border-color: rgba(110, 161, 255, 0.25);
+  background: var(--accent-dim);
+}
+
+.thinking-chevron {
   display: inline-block;
-  transition: transform 0.15s;
-  font-size: 9px;
+  font-size: 8px;
+  transition: transform 0.2s;
+  line-height: 1;
 }
 
-.message.show-reasoning .reasoning-icon {
+.message.show-thinking .thinking-chevron {
   transform: rotate(90deg);
 }
 
-.reasoning-notes {
+.thinking-steps {
   display: none;
   margin: 6px 0 8px;
   padding: 8px 12px;
   background: var(--bg);
   border-radius: var(--radius-sm);
   border-left: 2px dashed var(--border);
+  animation: fadeUp 0.15s ease-out;
 }
 
-.message.show-reasoning .reasoning-notes { display: block; }
+.message.show-thinking .thinking-steps { display: block; }
 
-.reasoning-note {
+.thinking-step {
   padding: 5px 0;
 }
 
-.reasoning-note + .reasoning-note {
+.thinking-step + .thinking-step {
   border-top: 1px solid var(--border);
 }
 
-.reasoning-note-time {
+.thinking-step-time {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text-muted);
@@ -721,7 +740,7 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   margin-bottom: 2px;
 }
 
-.reasoning-note-content {
+.thinking-step-content {
   font-family: var(--sans);
   font-size: 12px;
   color: var(--text-dim);
@@ -731,9 +750,59 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   overflow: hidden;
   cursor: pointer;
   transition: max-height 0.2s;
+  position: relative;
 }
 
-.reasoning-note-content.expanded { max-height: none; overflow: visible; }
+.thinking-step-content::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(transparent, var(--bg));
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.thinking-step-content.expanded { max-height: none; overflow: visible; }
+.thinking-step-content.expanded::after { opacity: 0; }
+
+/* Global thinking toggle in filter bar */
+.thinking-global-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: auto;
+}
+
+.thinking-global-toggle:hover {
+  border-color: var(--border-bright);
+  color: var(--text-dim);
+}
+
+.thinking-global-toggle.active {
+  color: var(--accent);
+  border-color: rgba(110, 161, 255, 0.25);
+  background: var(--accent-dim);
+}
+
+.thinking-global-toggle .toggle-icon {
+  font-size: 12px;
+  line-height: 1;
+}
 
 /* ── Message variants ───────────────────────────────── */
 
@@ -968,15 +1037,15 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .message-content em { font-style: italic; }
 .message-content del { text-decoration: line-through; color: var(--text-dim); }
 
-/* Reasoning notes also get markdown */
-.reasoning-note-content .md-p { margin: 0 0 2px; }
-.reasoning-note-content .md-p:last-child { margin-bottom: 0; }
-.reasoning-note-content .md-inline-code { font-size: 11px; }
-.reasoning-note-content .md-code-block pre { font-size: 11px; padding: 6px 10px; }
-.reasoning-note-content .md-list { margin-left: 16px; font-size: 12px; }
-.reasoning-note-content .md-mention { font-size: 11px; }
-.reasoning-note-content .md-table { font-size: 11px; }
-.reasoning-note-content .md-table th { font-size: 10px; }
+/* Thinking steps also get markdown */
+.thinking-step-content .md-p { margin: 0 0 2px; }
+.thinking-step-content .md-p:last-child { margin-bottom: 0; }
+.thinking-step-content .md-inline-code { font-size: 11px; }
+.thinking-step-content .md-code-block pre { font-size: 11px; padding: 6px 10px; }
+.thinking-step-content .md-list { margin-left: 16px; font-size: 12px; }
+.thinking-step-content .md-mention { font-size: 11px; }
+.thinking-step-content .md-table { font-size: 11px; }
+.thinking-step-content .md-table th { font-size: 10px; }
 
 /* ── Agent colors ───────────────────────────────────── */
 
