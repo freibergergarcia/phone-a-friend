@@ -62026,35 +62026,45 @@ var init_orchestrator = __esm({
       async runLoop(config, knownTargets) {
         const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
         const spawnResults = [];
-        for (const agent of agents) {
-          if (this.stopped) return;
+        const spawnPromises = agents.map(async (agent) => {
           const systemPrompt = buildSystemPrompt(
             agent.name,
             agents.map((a) => a.name),
             agent.description,
             maxTurns
           );
+          this.emitAgentStatus(agent.name, "active");
           try {
-            this.emitAgentStatus(agent.name, "active");
             const result = await this.sessions.spawn(
               agent,
               systemPrompt,
               prompt,
               repoPath
             );
-            if (this.stopped) return;
             this.bus.updateAgent(this.sessionId, agent.name, {
               backendSessionId: result.sessionId
             });
-            this.logAndEmitMessage("user", agent.name, prompt, 0);
-            spawnResults.push({ agent, output: result.output });
-            this.emitAgentStatus(agent.name, "idle");
+            return { agent, output: result.output };
           } catch (err) {
+            throw { agent, error: err };
+          }
+        });
+        const settled = await Promise.allSettled(spawnPromises);
+        for (const result of settled) {
+          if (this.stopped) return;
+          if (result.status === "fulfilled") {
+            const { agent, output } = result.value;
+            this.logAndEmitMessage("user", agent.name, prompt, 0);
+            spawnResults.push({ agent, output });
+            this.emitAgentStatus(agent.name, "idle");
+          } else {
+            const { agent, error: error3 } = result.reason;
+            const errMsg = error3 instanceof Error ? error3.message : String(error3);
             this.emit({
               type: "error",
               sessionId: this.sessionId,
               agent: agent.name,
-              error: err instanceof Error ? err.message : String(err),
+              error: errMsg,
               timestamp: /* @__PURE__ */ new Date()
             });
             this.emitAgentStatus(agent.name, "dead");

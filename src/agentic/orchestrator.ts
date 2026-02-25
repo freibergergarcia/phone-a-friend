@@ -152,11 +152,10 @@ export class Orchestrator {
   ): Promise<void> {
     const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
 
-    // Phase 1a: Spawn all agents — deliver initial prompt to each, collect responses
+    // Phase 1a: Spawn all agents in parallel — deliver initial prompt to each, collect responses
     const spawnResults: Array<{ agent: typeof agents[number]; output: string }> = [];
 
-    for (const agent of agents) {
-      if (this.stopped) return;
+    const spawnPromises = agents.map(async (agent) => {
       const systemPrompt = buildSystemPrompt(
         agent.name,
         agents.map((a) => a.name),
@@ -164,30 +163,42 @@ export class Orchestrator {
         maxTurns,
       );
 
-      try {
-        this.emitAgentStatus(agent.name, 'active');
+      this.emitAgentStatus(agent.name, 'active');
 
+      try {
         const result = await this.sessions.spawn(
           agent, systemPrompt, prompt, repoPath,
         );
-
-        if (this.stopped) return;
 
         this.bus.updateAgent(this.sessionId, agent.name, {
           backendSessionId: result.sessionId,
         });
 
-        // Log user→agent delivery immediately
-        this.logAndEmitMessage('user', agent.name, prompt, 0);
-        spawnResults.push({ agent, output: result.output });
-
-        this.emitAgentStatus(agent.name, 'idle');
+        return { agent, output: result.output };
       } catch (err) {
+        // Re-throw with agent context so allSettled can identify which failed
+        throw { agent, error: err };
+      }
+    });
+
+    const settled = await Promise.allSettled(spawnPromises);
+
+    for (const result of settled) {
+      if (this.stopped) return;
+
+      if (result.status === 'fulfilled') {
+        const { agent, output } = result.value;
+        this.logAndEmitMessage('user', agent.name, prompt, 0);
+        spawnResults.push({ agent, output });
+        this.emitAgentStatus(agent.name, 'idle');
+      } else {
+        const { agent, error } = result.reason as { agent: typeof agents[number]; error: unknown };
+        const errMsg = error instanceof Error ? error.message : String(error);
         this.emit({
           type: 'error',
           sessionId: this.sessionId,
           agent: agent.name,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMsg,
           timestamp: new Date(),
         });
         this.emitAgentStatus(agent.name, 'dead');
