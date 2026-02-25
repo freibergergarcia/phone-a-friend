@@ -62143,12 +62143,11 @@ var init_orchestrator = __esm({
             this.endSession("converged");
             return;
           }
-          for (const [agentName, messages] of pending) {
-            if (this.stopped) break;
+          const resumePromises = [...pending].map(async ([agentName, messages]) => {
             const agent = agents.find((a) => a.name === agentName);
-            if (!agent) continue;
+            if (!agent) return;
             const state = this.agentStates.get(agentName);
-            if (!state || state.status === "dead") continue;
+            if (!state || state.status === "dead") return;
             if (this.detectPingPong(messages)) {
               this.emit({
                 type: "guardrail",
@@ -62157,7 +62156,7 @@ var init_orchestrator = __esm({
                 detail: `Breaking conversation cycle involving ${agentName}`,
                 timestamp: /* @__PURE__ */ new Date()
               });
-              continue;
+              return;
             }
             const parts = messages.map((m) => `@${m.from} says: ${m.content}`);
             if (this.turn >= maxTurns) {
@@ -62170,55 +62169,68 @@ var init_orchestrator = __esm({
               );
             }
             const incomingPrompt = parts.join("\n\n");
+            this.emitAgentStatus(agentName, "active");
             try {
-              this.emitAgentStatus(agentName, "active");
               const output = await this.sessions.resume(
                 agentName,
                 incomingPrompt,
                 repoPath
               );
-              if (this.stopped) break;
-              const parsed = parseAgentResponse(output, knownTargets);
-              for (const msg of parsed.messages) {
-                this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
-                if (msg.to === "all") {
-                  for (const other of agents) {
-                    if (other.name !== agentName) {
-                      this.queue.enqueue({
-                        sessionId: this.sessionId,
-                        from: agentName,
-                        to: other.name,
-                        content: msg.content,
-                        timestamp: /* @__PURE__ */ new Date(),
-                        turn: this.turn
-                      });
-                    }
-                  }
-                } else if (msg.to !== "user") {
-                  this.queue.enqueue({
-                    sessionId: this.sessionId,
-                    from: agentName,
-                    to: msg.to,
-                    content: msg.content,
-                    timestamp: /* @__PURE__ */ new Date(),
-                    turn: this.turn
-                  });
-                }
-              }
-              if (parsed.notes) {
-                this.logAndEmitMessage(agentName, "notes", parsed.notes, this.turn);
-              }
-              this.emitAgentStatus(agentName, "idle");
+              return { agentName, output };
             } catch (err) {
-              this.emit({
-                type: "error",
-                sessionId: this.sessionId,
-                agent: agentName,
-                error: err instanceof Error ? err.message : String(err),
-                timestamp: /* @__PURE__ */ new Date()
-              });
-              this.emitAgentStatus(agentName, "dead");
+              throw { agentName, error: err };
             }
+          });
+          const resumeResults = await Promise.allSettled(resumePromises);
+          if (this.stopped) break;
+          for (const result of resumeResults) {
+            if (result.status !== "fulfilled" || !result.value) {
+              if (result.status === "rejected") {
+                const { agentName: failedAgent, error: error3 } = result.reason;
+                const errMsg = error3 instanceof Error ? error3.message : String(error3);
+                this.emit({
+                  type: "error",
+                  sessionId: this.sessionId,
+                  agent: failedAgent,
+                  error: errMsg,
+                  timestamp: /* @__PURE__ */ new Date()
+                });
+                this.emitAgentStatus(failedAgent, "dead");
+              }
+              continue;
+            }
+            const { agentName, output } = result.value;
+            const parsed = parseAgentResponse(output, knownTargets);
+            for (const msg of parsed.messages) {
+              this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
+              if (msg.to === "all") {
+                for (const other of agents) {
+                  if (other.name !== agentName) {
+                    this.queue.enqueue({
+                      sessionId: this.sessionId,
+                      from: agentName,
+                      to: other.name,
+                      content: msg.content,
+                      timestamp: /* @__PURE__ */ new Date(),
+                      turn: this.turn
+                    });
+                  }
+                }
+              } else if (msg.to !== "user") {
+                this.queue.enqueue({
+                  sessionId: this.sessionId,
+                  from: agentName,
+                  to: msg.to,
+                  content: msg.content,
+                  timestamp: /* @__PURE__ */ new Date(),
+                  turn: this.turn
+                });
+              }
+            }
+            if (parsed.notes) {
+              this.logAndEmitMessage(agentName, "notes", parsed.notes, this.turn);
+            }
+            this.emitAgentStatus(agentName, "idle");
           }
           this.emit({
             type: "turn_complete",

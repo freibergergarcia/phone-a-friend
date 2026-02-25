@@ -292,14 +292,14 @@ export class Orchestrator {
         return;
       }
 
-      for (const [agentName, messages] of pending) {
-        if (this.stopped) break;
-
+      // Resume all recipient agents in parallel — they're responding to
+      // messages from the previous turn so their inputs are independent.
+      const resumePromises = [...pending].map(async ([agentName, messages]) => {
         const agent = agents.find((a) => a.name === agentName);
-        if (!agent) continue;
+        if (!agent) return;
 
         const state = this.agentStates.get(agentName);
-        if (!state || state.status === 'dead') continue;
+        if (!state || state.status === 'dead') return;
 
         // Ping-pong detection
         if (this.detectPingPong(messages)) {
@@ -310,7 +310,7 @@ export class Orchestrator {
             detail: `Breaking conversation cycle involving ${agentName}`,
             timestamp: new Date(),
           });
-          continue;
+          return;
         }
 
         // Build prompt from incoming messages
@@ -329,62 +329,80 @@ export class Orchestrator {
 
         const incomingPrompt = parts.join('\n\n');
 
-        try {
-          this.emitAgentStatus(agentName, 'active');
+        this.emitAgentStatus(agentName, 'active');
 
+        try {
           const output = await this.sessions.resume(
             agentName, incomingPrompt, repoPath,
           );
-
-          // Bail if stopped during await
-          if (this.stopped) break;
-
-          const parsed = parseAgentResponse(output, knownTargets);
-
-          // Route outbound
-          for (const msg of parsed.messages) {
-            this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
-
-            if (msg.to === 'all') {
-              for (const other of agents) {
-                if (other.name !== agentName) {
-                  this.queue.enqueue({
-                    sessionId: this.sessionId,
-                    from: agentName,
-                    to: other.name,
-                    content: msg.content,
-                    timestamp: new Date(),
-                    turn: this.turn,
-                  });
-                }
-              }
-            } else if (msg.to !== 'user') {
-              this.queue.enqueue({
-                sessionId: this.sessionId,
-                from: agentName,
-                to: msg.to,
-                content: msg.content,
-                timestamp: new Date(),
-                turn: this.turn,
-              });
-            }
-          }
-
-          if (parsed.notes) {
-            this.logAndEmitMessage(agentName, 'notes', parsed.notes, this.turn);
-          }
-
-          this.emitAgentStatus(agentName, 'idle');
+          return { agentName, output };
         } catch (err) {
-          this.emit({
-            type: 'error',
-            sessionId: this.sessionId,
-            agent: agentName,
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: new Date(),
-          });
-          this.emitAgentStatus(agentName, 'dead');
+          throw { agentName, error: err };
         }
+      });
+
+      const resumeResults = await Promise.allSettled(resumePromises);
+
+      if (this.stopped) break;
+
+      // Process results: parse responses and route outbound messages
+      for (const result of resumeResults) {
+        if (result.status !== 'fulfilled' || !result.value) {
+          if (result.status === 'rejected') {
+            const { agentName: failedAgent, error } = result.reason as {
+              agentName: string;
+              error: unknown;
+            };
+            const errMsg = error instanceof Error ? error.message : String(error);
+            this.emit({
+              type: 'error',
+              sessionId: this.sessionId,
+              agent: failedAgent,
+              error: errMsg,
+              timestamp: new Date(),
+            });
+            this.emitAgentStatus(failedAgent, 'dead');
+          }
+          continue;
+        }
+
+        const { agentName, output } = result.value;
+        const parsed = parseAgentResponse(output, knownTargets);
+
+        // Route outbound
+        for (const msg of parsed.messages) {
+          this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
+
+          if (msg.to === 'all') {
+            for (const other of agents) {
+              if (other.name !== agentName) {
+                this.queue.enqueue({
+                  sessionId: this.sessionId,
+                  from: agentName,
+                  to: other.name,
+                  content: msg.content,
+                  timestamp: new Date(),
+                  turn: this.turn,
+                });
+              }
+            }
+          } else if (msg.to !== 'user') {
+            this.queue.enqueue({
+              sessionId: this.sessionId,
+              from: agentName,
+              to: msg.to,
+              content: msg.content,
+              timestamp: new Date(),
+              turn: this.turn,
+            });
+          }
+        }
+
+        if (parsed.notes) {
+          this.logAndEmitMessage(agentName, 'notes', parsed.notes, this.turn);
+        }
+
+        this.emitAgentStatus(agentName, 'idle');
       }
 
       this.emit({
