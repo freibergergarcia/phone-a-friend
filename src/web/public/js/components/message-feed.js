@@ -1,14 +1,20 @@
 /**
  * Message feed component — chronological message timeline with turn separators
- * and grouped reasoning notes.
+ * and grouped reasoning notes. Supports both historical (full render) and live
+ * (incremental append with retroactive grouping) modes.
  */
 
 // eslint-disable-next-line no-unused-vars
 const MessageFeed = {
+  /** Buffer for pending notes per agent in live mode (agent -> [{msg, el}]) */
+  _pendingNotes: new Map(),
+
   /**
    * Render a full transcript (historical view) with notes grouped as reasoning.
    */
   render(messages, container, session) {
+    MessageFeed._pendingNotes.clear();
+
     if (!messages || messages.length === 0) {
       const hasDead = (session?.agents || []).some((a) => a.status === 'dead');
       const showReason = session?.status === 'failed' || session?.status === 'stopped' || hasDead;
@@ -48,7 +54,7 @@ const MessageFeed = {
 
   /**
    * Group adjacent notes with their routed message from the same agent.
-   * Handles both patterns: notes→routed (pre-reasoning) and routed→notes (post-reasoning).
+   * Handles both patterns: notes->routed (pre-reasoning) and routed->notes (post-reasoning).
    */
   groupMessages(messages) {
     const groups = [];
@@ -105,7 +111,11 @@ const MessageFeed = {
   },
 
   /**
-   * Append a single message (live mode — no grouping, shown as-is).
+   * Append a single message in live mode with retroactive grouping.
+   *
+   * When a note arrives, it's buffered and rendered as a standalone note.
+   * When a routed message arrives from the same agent, any buffered notes
+   * are removed from the DOM and re-rendered as a grouped message.
    */
   appendMessage(container, msg, currentTurn) {
     if (msg.turn !== undefined && msg.turn !== currentTurn) {
@@ -113,6 +123,58 @@ const MessageFeed = {
       sep.className = 'turn-separator';
       sep.textContent = `Turn ${msg.turn}`;
       container.appendChild(sep);
+    }
+
+    const type = MessageFeed.classifyMessage(msg);
+    const agent = msg.from;
+
+    if (type === 'notes') {
+      // Render as standalone note and track the DOM element
+      const div = document.createElement('div');
+      div.innerHTML = MessageFeed.renderMessage(msg, true);
+      const el = div.firstElementChild;
+      el.dataset.pendingNote = agent;
+      container.appendChild(el);
+
+      // Buffer the note + DOM reference
+      if (!MessageFeed._pendingNotes.has(agent)) {
+        MessageFeed._pendingNotes.set(agent, []);
+      }
+      MessageFeed._pendingNotes.get(agent).push({ msg, el });
+
+      MessageFeed.scrollToBottom(container);
+      return msg.turn;
+    }
+
+    if (type === 'routed') {
+      const pending = MessageFeed._pendingNotes.get(agent);
+
+      if (pending && pending.length > 0) {
+        // Remove the standalone note elements from the DOM
+        for (const entry of pending) {
+          entry.el.remove();
+        }
+
+        // Render as grouped message (routed + reasoning notes)
+        const noteMessages = pending.map((e) => e.msg);
+        const div = document.createElement('div');
+        div.innerHTML = MessageFeed.renderGrouped(msg, noteMessages);
+        const el = div.firstElementChild;
+        el.classList.add('new');
+        container.appendChild(el);
+
+        // Clear the buffer for this agent
+        MessageFeed._pendingNotes.delete(agent);
+
+        MessageFeed.scrollToBottom(container);
+        return msg.turn;
+      }
+    }
+
+    // Default: notes from a different agent, initial prompt, or routed without pending notes
+    // Also clear pending notes for this agent when they send a routed message (already handled above)
+    if (type === 'routed') {
+      MessageFeed._pendingNotes.delete(agent);
     }
 
     const div = document.createElement('div');
@@ -152,12 +214,11 @@ const MessageFeed = {
     const fromColor = AgentCard.getColor(msg.from);
     const toColor = msg.to === 'user' ? -1 : (msg.to === 'notes' ? -1 : AgentCard.getColor(msg.to));
     const time = MessageFeed.formatTime(msg.timestamp);
-    const content = MessageFeed.escape(msg.content || '');
-    const isLong = content.length > 200;
+    const content = Markdown.render(msg.content || '');
     const toLabel = msg.to === 'notes' ? 'notes' : MessageFeed.escape(msg.to);
 
     const notesHtml = notes.map((n) => {
-      const nContent = MessageFeed.escape(n.content || '');
+      const nContent = Markdown.render(n.content || '');
       const nTime = MessageFeed.formatTime(n.timestamp);
       return `<div class="reasoning-note">
         <span class="reasoning-note-time">${nTime}</span>
@@ -180,8 +241,7 @@ const MessageFeed = {
           <span class="reasoning-icon">\u25B8</span> ${label}
         </div>
         <div class="reasoning-notes">${notesHtml}</div>
-        <div class="message-content${isLong ? '' : ' expanded'}" onclick="this.classList.toggle('expanded')">${content}</div>
-        ${isLong ? '<span class="message-expand" onclick="this.previousElementSibling.classList.toggle(\'expanded\'); this.textContent = this.previousElementSibling.classList.contains(\'expanded\') ? \'collapse\' : \'expand\'">expand</span>' : ''}
+        <div class="message-content expanded">${content}</div>
       </div>
     `;
   },
@@ -193,9 +253,8 @@ const MessageFeed = {
     const fromColor = AgentCard.getColor(msg.from);
     const toColor = msg.to === 'user' ? -1 : (msg.to === 'notes' ? -1 : AgentCard.getColor(msg.to));
     const time = MessageFeed.formatTime(msg.timestamp);
-    const content = MessageFeed.escape(msg.content || '');
+    const content = Markdown.render(msg.content || '');
     const msgType = MessageFeed.classifyMessage(msg);
-    const isLong = content.length > 200;
     const newClass = isNew ? ' new' : '';
     const typeClass = ` message-${msgType}`;
     const toLabel = msg.to === 'notes' ? 'notes' : MessageFeed.escape(msg.to);
@@ -209,8 +268,7 @@ const MessageFeed = {
           <span class="message-turn">T${msg.turn ?? 0}</span>
           <span class="message-time">${time}</span>
         </div>
-        <div class="message-content${isLong ? '' : ' expanded'}" onclick="this.classList.toggle('expanded')">${content}</div>
-        ${isLong ? '<span class="message-expand" onclick="this.previousElementSibling.classList.toggle(\'expanded\'); this.textContent = this.previousElementSibling.classList.contains(\'expanded\') ? \'collapse\' : \'expand\'">expand</span>' : ''}
+        <div class="message-content expanded">${content}</div>
       </div>
     `;
   },

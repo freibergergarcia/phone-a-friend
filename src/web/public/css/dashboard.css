@@ -662,39 +662,13 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .message-content {
   font-family: var(--sans);
   font-size: 13px;
-  white-space: pre-wrap;
   word-break: break-word;
   color: var(--text);
-  max-height: 120px;
-  overflow: hidden;
-  transition: max-height 0.3s;
-  cursor: pointer;
   line-height: 1.6;
+  overflow: hidden;
 }
 
-.message-content.expanded { max-height: none; }
-
-.message-expand {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--accent);
-  cursor: pointer;
-  margin-top: 6px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  background: var(--accent-dim);
-  border: 1px solid transparent;
-  transition: all 0.15s;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.message-expand:hover {
-  background: rgba(110, 161, 255, 0.15);
-  border-color: rgba(110, 161, 255, 0.2);
-}
+.message-content.expanded { max-height: none; overflow: visible; }
 
 /* ── Reasoning notes (grouped) ──────────────────────── */
 
@@ -751,16 +725,15 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   font-family: var(--sans);
   font-size: 12px;
   color: var(--text-dim);
-  font-style: italic;
-  white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
-  max-height: 80px;
+  max-height: 60px;
   overflow: hidden;
   cursor: pointer;
+  transition: max-height 0.2s;
 }
 
-.reasoning-note-content.expanded { max-height: none; }
+.reasoning-note-content.expanded { max-height: none; overflow: visible; }
 
 /* ── Message variants ───────────────────────────────── */
 
@@ -845,6 +818,165 @@ main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   border-color: rgba(255, 107, 129, 0.15);
   color: var(--red);
 }
+
+/* ── Markdown content ───────────────────────────────── */
+
+.message-content .md-p {
+  margin: 0 0 4px;
+}
+
+.message-content .md-p:last-child { margin-bottom: 0; }
+
+.message-content .md-h {
+  font-family: var(--sans);
+  font-weight: 700;
+  color: var(--text);
+  margin: 8px 0 4px;
+  line-height: 1.3;
+}
+
+.message-content h3.md-h { font-size: 14px; }
+.message-content h4.md-h { font-size: 13px; }
+.message-content h5.md-h { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.message-content .md-inline-code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--accent);
+}
+
+.message-content .md-code-block {
+  position: relative;
+  margin: 6px 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.message-content .md-code-block pre {
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.message-content .md-code-block code {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.message-content .md-code-lang {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.message-content .md-list {
+  margin: 4px 0 4px 20px;
+  padding: 0;
+  line-height: 1.6;
+}
+
+.message-content .md-list li {
+  margin-bottom: 2px;
+}
+
+.message-content .md-list li::marker {
+  color: var(--text-muted);
+}
+
+.message-content .md-quote {
+  margin: 4px 0;
+  padding: 4px 12px;
+  border-left: 2px solid var(--border-bright);
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.message-content .md-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(110, 161, 255, 0.3);
+  transition: border-color 0.15s;
+}
+
+.message-content .md-link:hover {
+  border-bottom-color: var(--accent);
+}
+
+.message-content .md-mention {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.message-content .md-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.message-content .md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+  font-family: var(--sans);
+}
+
+.message-content .md-table th,
+.message-content .md-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.message-content .md-table th {
+  background: var(--bg-active);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.message-content .md-table td {
+  color: var(--text);
+}
+
+.message-content .md-table tr:hover td {
+  background: var(--bg-hover);
+}
+
+.message-content strong { font-weight: 700; color: var(--text); }
+.message-content em { font-style: italic; }
+.message-content del { text-decoration: line-through; color: var(--text-dim); }
+
+/* Reasoning notes also get markdown */
+.reasoning-note-content .md-p { margin: 0 0 2px; }
+.reasoning-note-content .md-p:last-child { margin-bottom: 0; }
+.reasoning-note-content .md-inline-code { font-size: 11px; }
+.reasoning-note-content .md-code-block pre { font-size: 11px; padding: 6px 10px; }
+.reasoning-note-content .md-list { margin-left: 16px; font-size: 12px; }
+.reasoning-note-content .md-mention { font-size: 11px; }
+.reasoning-note-content .md-table { font-size: 11px; }
+.reasoning-note-content .md-table th { font-size: 10px; }
 
 /* ── Agent colors ───────────────────────────────────── */
 
