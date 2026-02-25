@@ -28,7 +28,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 ### TUI Dashboard
 
-<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.png" alt="TUI dashboard" width="600">
+<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.gif" alt="TUI dashboard" width="600">
 
 ### Web Dashboard
 
