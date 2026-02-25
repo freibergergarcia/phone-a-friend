@@ -9,7 +9,7 @@
 
   [![npm](https://img.shields.io/npm/v/%40freibergergarcia%2Fphone-a-friend)](https://www.npmjs.com/package/@freibergergarcia/phone-a-friend)
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
-  [![License: MIT](https://img.shields.io/github/license/freibergergarcia/phone-a-friend)](LICENSE)
+  [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
   ![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520.12-green)
   [![Website](https://img.shields.io/badge/website-phone--a--friend-blue)](https://freibergergarcia.github.io/phone-a-friend/)
 
@@ -236,4 +236,4 @@ npm run typecheck        # Type check (tsc --noEmit)
 
 ## License
 
-MIT. See `LICENSE`.
+Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
