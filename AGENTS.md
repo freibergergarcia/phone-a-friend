@@ -87,6 +87,51 @@ dist/                Built bundle (committed, self-contained)
 
 Multi-agent orchestration where agents communicate via @mentions within a shared session.
 
+### Session lifecycle
+
+```
+run(config)
+  │
+  ├─ 1. Init ─────── Generate session ID, reset state, create SQLite record
+  │                   Assign creative names (e.g. ada.reviewer, fern.critic)
+  │                   Register agents in transcript bus
+  │                   Emit: session_start
+  │
+  ├─ 2. Spawn ────── Phase A — for each agent (sequential):
+  │   (Turn 0)          Build system prompt (role, agent list, turn budget)
+  │                     Spawn Claude subprocess: claude -p --session-id <uuid>
+  │                     Log user→agent prompt delivery, collect response
+  │                     On failure: emit error, mark agent dead
+  │                   Phase B — process all collected responses:
+  │                     Parse each: extract @mentions → queue, notes → transcript
+  │                     Emit: message (per routed msg + notes)
+  │                   Emit: turn_complete (once, after all agents)
+  │
+  ├─ 3. Route ────── while (turn ≤ maxTurns && !stopped):
+  │   (Turn 1..N)     Check timeout → endSession('timeout')
+  │                   Check empty queue → endSession('converged')
+  │                   Dequeue all pending messages, grouped by recipient
+  │                   For each recipient agent:
+  │                     Check ping-pong detection → skip if cycling
+  │                     Build prompt: "@sender says: content" (+ deadline warnings)
+  │                     Resume Claude session: claude -p -r <uuid>
+  │                     Parse response → route @mentions to queue, log notes
+  │                     On failure: emit error, mark agent dead
+  │                   Emit: turn_complete (once, after all recipients)
+  │
+  └─ 4. End ──────── Reason: converged | max_turns | timeout | stopped | error
+                      Update SQLite status, emit session_end, close EventChannel
+```
+
+**Key behaviors:**
+- Turn 0 is two-phase: spawn all agents first, then parse and route all responses together
+- `@all` expands to individual messages for every other agent
+- `@user` messages are logged and emitted but not routed (displayed by CLI consumers)
+- Lines without `@mention` are classified as working notes — persisted but not routed
+- Deadline warnings are injected at `maxTurns - 1` (warning) and `maxTurns` (final)
+- Ping-pong detection uses pair-based counters with per-turn decay (halved each turn)
+- Errors and guardrail triggers emit events and may mark agents dead or end the session
+
 ### Architecture
 
 - **Orchestrator-driven**: `Orchestrator` in `src/agentic/orchestrator.ts` runs the main loop — spawns agents, routes messages, enforces guardrails, and emits events
