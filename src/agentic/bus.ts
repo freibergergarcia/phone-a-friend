@@ -26,7 +26,8 @@ const SCHEMA = `
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at TEXT,
     prompt TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    max_turns INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS agents (
@@ -81,14 +82,26 @@ export class TranscriptBus {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Idempotent schema migrations for existing databases.
+   */
+  private migrate(): void {
+    const columns = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+    const hasMaxTurns = columns.some((c) => c.name === 'max_turns');
+    if (!hasMaxTurns) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   // ---- Sessions -----------------------------------------------------------
 
-  createSession(id: string, prompt: string): void {
+  createSession(id: string, prompt: string, maxTurns = 0): void {
     this.db.prepare(
-      'INSERT INTO sessions (id, prompt) VALUES (?, ?)',
-    ).run(id, prompt);
+      'INSERT INTO sessions (id, prompt, max_turns) VALUES (?, ?, ?)',
+    ).run(id, prompt, maxTurns);
   }
 
   endSession(id: string, status: SessionStatus): void {
@@ -112,7 +125,7 @@ export class TranscriptBus {
       status: row.status as SessionStatus,
       agents,
       turn: this.getMaxTurn(id),
-      maxTurns: 0, // Not stored — runtime-only config
+      maxTurns: row.max_turns ?? 0,
     };
   }
 
@@ -129,7 +142,7 @@ export class TranscriptBus {
       status: row.status as SessionStatus,
       agents: this.getAgents(row.id),
       turn: this.getMaxTurn(row.id),
-      maxTurns: 0,
+      maxTurns: row.max_turns ?? 0,
     }));
   }
 
@@ -259,6 +272,7 @@ interface SessionRow {
   ended_at: string | null;
   prompt: string;
   status: string;
+  max_turns: number;
 }
 
 interface AgentRow {

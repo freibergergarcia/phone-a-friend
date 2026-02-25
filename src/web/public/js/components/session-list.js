@@ -1,5 +1,5 @@
 /**
- * Session list component — renders session rows.
+ * Session list component — renders session cards.
  */
 
 // eslint-disable-next-line no-unused-vars
@@ -10,7 +10,7 @@ const SessionList = {
         <div class="empty-state">
           <p>No agentic sessions yet.</p>
           <p style="margin-top: 8px; font-size: 11px; color: var(--text-muted)">
-            Run one with: <code style="color: var(--accent)">phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "..."</code>
+            Run one with: <code>phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "..."</code>
           </p>
         </div>
       `;
@@ -18,27 +18,32 @@ const SessionList = {
     }
 
     container.innerHTML = sessions.map((s) => {
-      const agents = (s.agents || []).map((a) => a.name).join(', ');
+      const agents = (s.agents || []);
+      const agentChips = agents.map((a) =>
+        `<span class="agent-chip">${SessionList.escape(a.name)}</span>`
+      ).join('');
       const time = SessionList.formatTime(s.createdAt);
-      const prompt = SessionList.truncate(s.prompt || '', 60);
+      const prompt = SessionList.truncate(s.prompt || '', 120);
       const statusClass = s.status || 'completed';
       const elapsed = SessionList.formatElapsed(s.createdAt, s.endedAt);
-      const msgCount = (s.agents || []).reduce((sum, a) => sum + (a.messageCount ?? 0), 0);
+      const msgCount = agents.reduce((sum, a) => sum + (a.messageCount ?? 0), 0);
 
       return `
-        <div class="session-row" data-id="${s.id}" onclick="App.viewSession('${s.id}')">
-          <span class="session-id">${s.id}</span>
-          <span class="status-pill ${statusClass}">${s.status}</span>
-          <span class="session-prompt">${SessionList.escape(prompt)}</span>
-          <span class="session-meta-inline">
-            <span class="meta-chip">${msgCount} msg</span>
-            <span class="meta-chip">${elapsed}</span>
-          </span>
-          <span class="session-agents">${SessionList.escape(agents)}</span>
-          <span class="session-time">${time}</span>
-          <span class="session-actions">
-            <button class="btn btn-sm btn-danger" onclick="App.deleteSession('${s.id}', event)" title="Delete session">&times;</button>
-          </span>
+        <div class="session-card" data-id="${s.id}" onclick="App.viewSession('${s.id}')">
+          <div class="session-card-header">
+            <span class="session-id">${s.id}</span>
+            <span class="status-pill ${statusClass}">${s.status}</span>
+            <span class="session-time">${time}</span>
+          </div>
+          <div class="session-card-prompt">${SessionList.escape(prompt)}</div>
+          <div class="session-card-footer">
+            <div class="session-card-agents">${agentChips}</div>
+            <div class="session-card-stats">
+              <span>${msgCount} msg</span>
+              <span>${elapsed}</span>
+            </div>
+          </div>
+          <button class="session-delete" onclick="App.deleteSession('${s.id}', event)" title="Delete">&times;</button>
         </div>
       `;
     }).join('');
@@ -70,7 +75,7 @@ const SessionList = {
       if (sec < 3600) return Math.floor(sec / 60) + 'm ' + Math.floor(sec % 60) + 's';
       return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
     } catch {
-      return '—';
+      return '\u2014';
     }
   },
 

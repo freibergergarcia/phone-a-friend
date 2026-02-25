@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>phone-a-friend | Agentic Dashboard</title>
   <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>📡</text></svg>">
 </head>
 <body>
   <header id="header">
     <div class="header-left">
       <h1>phone-a-friend</h1>
-      <span class="subtitle">agentic dashboard</span>
+      <span class="subtitle">agentic</span>
     </div>
     <div class="header-right">
       <div id="stats" class="stats"></div>
@@ -46,6 +47,12 @@
         <!-- Right: Message feed -->
         <div class="feed-container">
           <div id="turn-info" class="turn-info"></div>
+          <div id="feed-filters" class="feed-filters">
+            <button class="filter-btn active" data-filter="all" onclick="App.setFilter('all')">All</button>
+            <button class="filter-btn active" data-filter="routed" onclick="App.toggleFilter('routed')">Routed</button>
+            <button class="filter-btn active" data-filter="notes" onclick="App.toggleFilter('notes')">Notes</button>
+            <button class="filter-btn active" data-filter="initial" onclick="App.toggleFilter('initial')">Initial</button>
+          </div>
           <div id="message-feed" class="message-feed"></div>
         </div>
       </div>

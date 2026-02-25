@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import { TranscriptBus } from '../../src/agentic/bus.js';
 
 describe('TranscriptBus', () => {
@@ -54,6 +55,18 @@ describe('TranscriptBus', () => {
       // Most recent first
       expect(sessions[0].id).toBe('sess-2');
       expect(sessions[1].id).toBe('sess-1');
+    });
+
+    it('stores and returns maxTurns', () => {
+      bus.createSession('sess-mt', 'test', 16);
+      const session = bus.getSession('sess-mt');
+      expect(session!.maxTurns).toBe(16);
+    });
+
+    it('defaults maxTurns to 0 when not provided', () => {
+      bus.createSession('sess-mt0', 'test');
+      const session = bus.getSession('sess-mt0');
+      expect(session!.maxTurns).toBe(0);
     });
 
     it('returns null for unknown session', () => {
@@ -182,6 +195,38 @@ describe('TranscriptBus', () => {
 
       expect(bus.getTranscript('sess-1')).toHaveLength(1);
       expect(bus.getTranscript('sess-2')).toHaveLength(1);
+    });
+  });
+
+  // ---- Migration ----------------------------------------------------------
+
+  describe('migration', () => {
+    it('adds max_turns column to legacy sessions table', () => {
+      // Create a legacy DB without max_turns
+      const legacyDb = join(tmpDir, 'legacy.db');
+      const raw = new Database(legacyDb);
+      raw.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          ended_at TEXT,
+          prompt TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active'
+        );
+      `);
+      raw.prepare('INSERT INTO sessions (id, prompt) VALUES (?, ?)').run('old-1', 'legacy prompt');
+      raw.close();
+
+      // Open with TranscriptBus — migration should add max_turns
+      const migrated = new TranscriptBus(legacyDb);
+      migrated.createSession('new-1', 'new prompt', 10);
+      const session = migrated.getSession('new-1');
+      expect(session!.maxTurns).toBe(10);
+
+      // Legacy session should get default 0
+      const oldSession = migrated.getSession('old-1');
+      expect(oldSession!.maxTurns).toBe(0);
+      migrated.close();
     });
   });
 

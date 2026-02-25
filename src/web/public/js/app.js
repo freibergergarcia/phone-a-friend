@@ -11,6 +11,11 @@ const App = (() => {
   let eventSource = null;
   let liveTurn = -1;
 
+  // Filter state — which message types are visible
+  const filters = { routed: true, notes: true, initial: true };
+  let agentFilter = null; // null = show all, string = filter by agent name
+  let statusPollTimer = null;
+
   // DOM refs (cached on init)
   let $listView, $detailView, $sessionList, $agentSidebar, $messageFeed;
   let $detailTitle, $detailStatus, $detailMeta, $turnInfo;
@@ -54,8 +59,8 @@ const App = (() => {
         case 'j': // Next session (vim-style)
         case 'k': // Prev session (vim-style)
           if (!currentSessionId && sessions.length > 0) {
-            const rows = document.querySelectorAll('.session-row');
-            const focused = document.querySelector('.session-row.focused');
+            const rows = document.querySelectorAll('.session-card');
+            const focused = document.querySelector('.session-card.focused');
             let idx = focused ? [...rows].indexOf(focused) : -1;
             if (e.key === 'j') idx = Math.min(idx + 1, rows.length - 1);
             else idx = Math.max(idx - 1, 0);
@@ -67,7 +72,7 @@ const App = (() => {
           break;
         case 'Enter':
           if (!currentSessionId) {
-            const focused = document.querySelector('.session-row.focused');
+            const focused = document.querySelector('.session-card.focused');
             if (focused) { viewSession(focused.dataset.id); e.preventDefault(); }
           }
           break;
@@ -82,7 +87,9 @@ const App = (() => {
     $detailView.classList.remove('active');
     currentSessionId = null;
     currentSession = null;
+    agentFilter = null;
     disconnectSessionSSE();
+    stopStatusPoll();
   }
 
   function showDetailView() {
@@ -142,9 +149,12 @@ const App = (() => {
       // Transcript
       MessageFeed.render(currentSession.transcript || [], $messageFeed, currentSession);
 
-      // If session is active, connect SSE for live updates
+      // If session is active, connect SSE for live updates + poll for status changes
       if (currentSession.status === 'active') {
         connectSessionSSE(id);
+        startStatusPoll(id);
+      } else {
+        stopStatusPoll();
       }
     } catch (err) {
       console.error('Failed to load session:', err);
@@ -251,6 +261,121 @@ const App = (() => {
     liveTurn = -1;
   }
 
+  // ---- Status polling (fallback for missed SSE events) --------------------
+
+  function startStatusPoll(sessionId) {
+    stopStatusPoll();
+    statusPollTimer = setInterval(async () => {
+      if (currentSessionId !== sessionId) { stopStatusPoll(); return; }
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}`);
+        const data = await res.json();
+        if (data.status !== 'active' && currentSession) {
+          currentSession.status = data.status;
+          currentSession.endedAt = data.endedAt;
+          currentSession.turn = data.turn ?? currentSession.turn;
+          $detailStatus.className = `status-pill ${data.status}`;
+          $detailStatus.textContent = data.status;
+          MessageFeed.renderTurnInfo($turnInfo, currentSession);
+          stopStatusPoll();
+          loadSessions(); // refresh list stats
+        }
+      } catch { /* ignore poll errors */ }
+    }, 5000);
+  }
+
+  function stopStatusPoll() {
+    if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+  }
+
+  // ---- Agent filter (click sidebar to filter by agent) -------------------
+
+  function filterByAgent(agentName) {
+    if (agentFilter === agentName) {
+      agentFilter = null; // toggle off
+    } else {
+      agentFilter = agentName;
+    }
+    // Update sidebar selection
+    $agentSidebar.querySelectorAll('.agent-card').forEach((card) => {
+      card.classList.toggle('selected', card.dataset.agent === agentFilter);
+    });
+    applyFilters();
+  }
+
+  // ---- Filters ------------------------------------------------------------
+
+  function toggleFilter(type) {
+    filters[type] = !filters[type];
+    // Update button state
+    const btn = document.querySelector(`.filter-btn[data-filter="${type}"]`);
+    if (btn) btn.classList.toggle('active', filters[type]);
+    // Update "All" button
+    const allBtn = document.querySelector('.filter-btn[data-filter="all"]');
+    const allActive = filters.routed && filters.notes && filters.initial;
+    if (allBtn) allBtn.classList.toggle('active', allActive);
+    applyFilters();
+  }
+
+  function setFilter(preset) {
+    if (preset === 'all') {
+      filters.routed = true;
+      filters.notes = true;
+      filters.initial = true;
+    }
+    // Update all button states
+    document.querySelectorAll('.filter-btn').forEach((btn) => {
+      const f = btn.dataset.filter;
+      if (f === 'all') btn.classList.toggle('active', filters.routed && filters.notes && filters.initial);
+      else btn.classList.toggle('active', filters[f]);
+    });
+    applyFilters();
+  }
+
+  function applyFilters() {
+    if (!$messageFeed) return;
+    const messages = $messageFeed.querySelectorAll('.message');
+    messages.forEach((el) => {
+      const type = el.dataset.msgType;
+      const from = el.dataset.msgFrom;
+      const to = el.dataset.msgTo;
+
+      // Type filter
+      const typeHidden = type && filters[type] === false;
+      // Agent filter — show if agent is sender or recipient
+      const agentHidden = agentFilter && from !== agentFilter && to !== agentFilter;
+
+      if (typeHidden || agentHidden) {
+        el.classList.add('filter-hidden');
+      } else {
+        el.classList.remove('filter-hidden');
+      }
+    });
+    // Show/hide reasoning toggles based on notes filter
+    $messageFeed.querySelectorAll('.reasoning-toggle').forEach((el) => {
+      el.style.display = filters.notes ? '' : 'none';
+    });
+    // Collapse reasoning when notes are filtered out
+    if (!filters.notes) {
+      $messageFeed.querySelectorAll('.message.show-reasoning').forEach((el) => {
+        el.classList.remove('show-reasoning');
+      });
+    }
+    // Hide turn separators that have no visible messages after them
+    $messageFeed.querySelectorAll('.turn-separator').forEach((sep) => {
+      let next = sep.nextElementSibling;
+      let hasVisible = false;
+      while (next && !next.classList.contains('turn-separator')) {
+        if (next.classList.contains('message') && !next.classList.contains('filter-hidden')) {
+          hasVisible = true;
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+      sep.style.display = hasVisible ? '' : 'none';
+    });
+  }
+
   // ---- Public API ---------------------------------------------------------
 
   function back() {
@@ -282,5 +407,5 @@ const App = (() => {
   // Boot
   document.addEventListener('DOMContentLoaded', init);
 
-  return { viewSession, back, refresh, deleteSession };
+  return { viewSession, back, refresh, deleteSession, toggleFilter, setFilter, filterByAgent };
 })();

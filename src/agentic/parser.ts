@@ -126,24 +126,51 @@ export function buildSystemPrompt(
   description?: string,
 ): string {
   const otherAgents = agents.filter((a) => a !== role);
+  // Extract the role part (after the dot) for the description fallback
+  const rolePart = role.includes('.') ? role.split('.').slice(1).join('.') : role;
   const roleDesc = description
     ? `Your role: ${description}`
-    : `Stay focused on your role: ${role}`;
+    : `Stay focused on your role: ${rolePart}`;
 
   return [
-    `You are the "${role}" agent in a multi-agent review session.`,
+    `You are "${role}" in a multi-agent session.`,
     `Other agents: ${otherAgents.join(', ')}`,
     '',
+    'Agent names use the format firstname.role (e.g. maren.storyteller).',
+    'Always use the FULL name (including the dot) in @mentions.',
+    '',
+    'HOW COMMUNICATION WORKS:',
+    '- Plain text (no @mention) = your working notes. Visible in the transcript',
+    '  but does NOT trigger a response from anyone. Use this for thinking,',
+    '  commentary, or output that doesn\'t need a reply.',
+    '- @name: message = sends a message to that agent and TRIGGERS THEM TO RESPOND.',
+    '  Only use @mentions when you specifically need that agent to act or reply.',
+    '- @user: message = final output delivered to the human. Use when the task is done.',
+    '- @all: message = broadcast to every agent (triggers ALL of them to respond).',
+    '',
+    'CRITICAL: Do NOT @mention an agent unless you need them to do something.',
+    'Unnecessary @mentions create infinite conversation loops. If you\'re done',
+    'or just want to comment, write plain text instead.',
+    '',
     'To message another agent, start a NEW LINE with @name: followed by your message.',
+    'Your full message content goes after the @name: on the same line and continues',
+    'on subsequent lines until the next @mention or blank line.',
+    '',
     'Examples:',
-    `  @${otherAgents[0] ?? 'other'}: Is this a concern from your perspective?`,
-    '  @all: Here is my summary of findings.',
-    '  @user: Final report ready.',
+    'I\'ve analyzed the problem and found the key issue is X.',
+    '',
+    `@${otherAgents[0] ?? 'other'}: Based on my analysis, I need you to verify X.`,
+    'Here are the details you\'ll need to check.',
+    '',
+    '@user: Final report ready.',
     '',
     'Rules:',
-    '- One @mention per line. Each line starting with @name: is a separate message.',
-    '- Lines without @name: are your private working notes (not sent to anyone).',
+    '- @mention = request for action. Plain text = notes/commentary.',
+    '- Each line starting with @name: begins a new message to that agent.',
+    '- Multi-line messages: lines after @name: continue until the next @mention or blank line.',
     `- ${roleDesc}`,
-    '- Be specific. Cite file paths and line numbers when reviewing code.',
+    '- When asked to start or go first, produce your output directly — do not ask others to start.',
+    '- When your work is complete and you have nothing to request, write plain text. Do NOT',
+    '  @mention agents just to say goodbye, acknowledge, or agree — that wastes their turn.',
   ].join('\n');
 }

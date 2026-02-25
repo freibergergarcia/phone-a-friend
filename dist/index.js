@@ -60973,7 +60973,8 @@ var init_bus = __esm({
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at TEXT,
     prompt TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    max_turns INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS agents (
@@ -61010,12 +61011,23 @@ var init_bus = __esm({
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("foreign_keys = ON");
         this.db.exec(SCHEMA);
+        this.migrate();
+      }
+      /**
+       * Idempotent schema migrations for existing databases.
+       */
+      migrate() {
+        const columns = this.db.pragma("table_info(sessions)");
+        const hasMaxTurns = columns.some((c) => c.name === "max_turns");
+        if (!hasMaxTurns) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0");
+        }
       }
       // ---- Sessions -----------------------------------------------------------
-      createSession(id, prompt) {
+      createSession(id, prompt, maxTurns = 0) {
         this.db.prepare(
-          "INSERT INTO sessions (id, prompt) VALUES (?, ?)"
-        ).run(id, prompt);
+          "INSERT INTO sessions (id, prompt, max_turns) VALUES (?, ?, ?)"
+        ).run(id, prompt, maxTurns);
       }
       endSession(id, status) {
         this.db.prepare(
@@ -61036,8 +61048,7 @@ var init_bus = __esm({
           status: row.status,
           agents,
           turn: this.getMaxTurn(id),
-          maxTurns: 0
-          // Not stored — runtime-only config
+          maxTurns: row.max_turns ?? 0
         };
       }
       listSessions() {
@@ -61052,7 +61063,7 @@ var init_bus = __esm({
           status: row.status,
           agents: this.getAgents(row.id),
           turn: this.getMaxTurn(row.id),
-          maxTurns: 0
+          maxTurns: row.max_turns ?? 0
         }));
       }
       // ---- Agents -------------------------------------------------------------
@@ -61672,22 +61683,48 @@ function parseAgentResponse(text, knownAgents) {
 }
 function buildSystemPrompt(role, agents, description) {
   const otherAgents = agents.filter((a) => a !== role);
-  const roleDesc = description ? `Your role: ${description}` : `Stay focused on your role: ${role}`;
+  const rolePart = role.includes(".") ? role.split(".").slice(1).join(".") : role;
+  const roleDesc = description ? `Your role: ${description}` : `Stay focused on your role: ${rolePart}`;
   return [
-    `You are the "${role}" agent in a multi-agent review session.`,
+    `You are "${role}" in a multi-agent session.`,
     `Other agents: ${otherAgents.join(", ")}`,
     "",
+    "Agent names use the format firstname.role (e.g. maren.storyteller).",
+    "Always use the FULL name (including the dot) in @mentions.",
+    "",
+    "HOW COMMUNICATION WORKS:",
+    "- Plain text (no @mention) = your working notes. Visible in the transcript",
+    "  but does NOT trigger a response from anyone. Use this for thinking,",
+    "  commentary, or output that doesn't need a reply.",
+    "- @name: message = sends a message to that agent and TRIGGERS THEM TO RESPOND.",
+    "  Only use @mentions when you specifically need that agent to act or reply.",
+    "- @user: message = final output delivered to the human. Use when the task is done.",
+    "- @all: message = broadcast to every agent (triggers ALL of them to respond).",
+    "",
+    "CRITICAL: Do NOT @mention an agent unless you need them to do something.",
+    "Unnecessary @mentions create infinite conversation loops. If you're done",
+    "or just want to comment, write plain text instead.",
+    "",
     "To message another agent, start a NEW LINE with @name: followed by your message.",
+    "Your full message content goes after the @name: on the same line and continues",
+    "on subsequent lines until the next @mention or blank line.",
+    "",
     "Examples:",
-    `  @${otherAgents[0] ?? "other"}: Is this a concern from your perspective?`,
-    "  @all: Here is my summary of findings.",
-    "  @user: Final report ready.",
+    "I've analyzed the problem and found the key issue is X.",
+    "",
+    `@${otherAgents[0] ?? "other"}: Based on my analysis, I need you to verify X.`,
+    "Here are the details you'll need to check.",
+    "",
+    "@user: Final report ready.",
     "",
     "Rules:",
-    "- One @mention per line. Each line starting with @name: is a separate message.",
-    "- Lines without @name: are your private working notes (not sent to anyone).",
+    "- @mention = request for action. Plain text = notes/commentary.",
+    "- Each line starting with @name: begins a new message to that agent.",
+    "- Multi-line messages: lines after @name: continue until the next @mention or blank line.",
     `- ${roleDesc}`,
-    "- Be specific. Cite file paths and line numbers when reviewing code."
+    "- When asked to start or go first, produce your output directly \u2014 do not ask others to start.",
+    "- When your work is complete and you have nothing to request, write plain text. Do NOT",
+    "  @mention agents just to say goodbye, acknowledge, or agree \u2014 that wastes their turn."
   ].join("\n");
 }
 var init_parser = __esm({
@@ -61765,6 +61802,99 @@ var init_types = __esm({
   }
 });
 
+// src/agentic/names.ts
+function assignAgentNames(agents) {
+  const available = shuffle([...NAME_POOL]);
+  const used = /* @__PURE__ */ new Set();
+  for (const a of agents) {
+    if (a.name.includes(".")) {
+      used.add(a.name.split(".")[0]);
+    }
+  }
+  return agents.map((agent) => {
+    if (agent.name.includes(".")) return { ...agent };
+    let firstName;
+    while (available.length > 0) {
+      const candidate = available.pop();
+      if (!used.has(candidate)) {
+        firstName = candidate;
+        used.add(candidate);
+        break;
+      }
+    }
+    if (!firstName) {
+      firstName = `agent-${used.size}`;
+      used.add(firstName);
+    }
+    return { ...agent, name: `${firstName}.${agent.name}` };
+  });
+}
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+var NAME_POOL;
+var init_names = __esm({
+  "src/agentic/names.ts"() {
+    "use strict";
+    NAME_POOL = [
+      "ada",
+      "akira",
+      "alba",
+      "arlo",
+      "asha",
+      "basil",
+      "bryn",
+      "cleo",
+      "cyrus",
+      "dara",
+      "eiko",
+      "einar",
+      "elara",
+      "ezra",
+      "fern",
+      "gael",
+      "hana",
+      "ines",
+      "idris",
+      "juno",
+      "kai",
+      "kira",
+      "lars",
+      "lena",
+      "lux",
+      "maren",
+      "milo",
+      "nadia",
+      "nico",
+      "nova",
+      "orin",
+      "petra",
+      "quinn",
+      "ravi",
+      "rune",
+      "sage",
+      "soren",
+      "tala",
+      "thea",
+      "teo",
+      "uri",
+      "vera",
+      "wren",
+      "xander",
+      "yara",
+      "zara",
+      "zeke",
+      "io",
+      "leif",
+      "sol"
+    ];
+  }
+});
+
 // src/agentic/orchestrator.ts
 import { randomUUID as randomUUID2 } from "crypto";
 var Orchestrator;
@@ -61777,6 +61907,7 @@ var init_orchestrator = __esm({
     init_parser();
     init_events();
     init_types();
+    init_names();
     Orchestrator = class {
       queue = new MessageQueue();
       sessions = new SessionManager();
@@ -61819,7 +61950,9 @@ var init_orchestrator = __esm({
         this.noProgressCount = 0;
         this.queue.clear();
         this.sessions.clear();
-        this.bus.createSession(this.sessionId, config.prompt);
+        this.bus.createSession(this.sessionId, config.prompt, config.maxTurns);
+        const namedAgents = assignAgentNames(config.agents);
+        config = { ...config, agents: namedAgents };
         const agentNames = config.agents.map((a) => a.name);
         const knownTargets = /* @__PURE__ */ new Set([...agentNames, "all", "user"]);
         for (const agent of config.agents) {
@@ -61874,6 +62007,7 @@ var init_orchestrator = __esm({
       // ---- Main loop ----------------------------------------------------------
       async runLoop(config, knownTargets) {
         const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
+        const spawnResults = [];
         for (const agent of agents) {
           if (this.stopped) return;
           const systemPrompt = buildSystemPrompt(
@@ -61894,36 +62028,7 @@ var init_orchestrator = __esm({
               backendSessionId: result.sessionId
             });
             this.logAndEmitMessage("user", agent.name, prompt, 0);
-            const parsed = parseAgentResponse(result.output, knownTargets);
-            for (const msg of parsed.messages) {
-              this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
-              if (msg.to === "all") {
-                for (const other of agents) {
-                  if (other.name !== agent.name) {
-                    this.queue.enqueue({
-                      sessionId: this.sessionId,
-                      from: agent.name,
-                      to: other.name,
-                      content: msg.content,
-                      timestamp: /* @__PURE__ */ new Date(),
-                      turn: 0
-                    });
-                  }
-                }
-              } else if (msg.to !== "user") {
-                this.queue.enqueue({
-                  sessionId: this.sessionId,
-                  from: agent.name,
-                  to: msg.to,
-                  content: msg.content,
-                  timestamp: /* @__PURE__ */ new Date(),
-                  turn: 0
-                });
-              }
-            }
-            if (parsed.notes) {
-              this.logAndEmitMessage(agent.name, "notes", parsed.notes, 0);
-            }
+            spawnResults.push({ agent, output: result.output });
             this.emitAgentStatus(agent.name, "idle");
           } catch (err) {
             this.emit({
@@ -61934,6 +62039,38 @@ var init_orchestrator = __esm({
               timestamp: /* @__PURE__ */ new Date()
             });
             this.emitAgentStatus(agent.name, "dead");
+          }
+        }
+        for (const { agent, output } of spawnResults) {
+          const parsed = parseAgentResponse(output, knownTargets);
+          for (const msg of parsed.messages) {
+            this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
+            if (msg.to === "all") {
+              for (const other of agents) {
+                if (other.name !== agent.name) {
+                  this.queue.enqueue({
+                    sessionId: this.sessionId,
+                    from: agent.name,
+                    to: other.name,
+                    content: msg.content,
+                    timestamp: /* @__PURE__ */ new Date(),
+                    turn: 0
+                  });
+                }
+              }
+            } else if (msg.to !== "user") {
+              this.queue.enqueue({
+                sessionId: this.sessionId,
+                from: agent.name,
+                to: msg.to,
+                content: msg.content,
+                timestamp: /* @__PURE__ */ new Date(),
+                turn: 0
+              });
+            }
+          }
+          if (parsed.notes) {
+            this.logAndEmitMessage(agent.name, "notes", parsed.notes, 0);
           }
         }
         this.emit({
@@ -62175,6 +62312,7 @@ __export(agentic_exports, {
   Orchestrator: () => Orchestrator,
   SessionManager: () => SessionManager,
   TranscriptBus: () => TranscriptBus,
+  assignAgentNames: () => assignAgentNames,
   buildSystemPrompt: () => buildSystemPrompt,
   defaultDbPath: () => defaultDbPath,
   parseAgentResponse: () => parseAgentResponse
@@ -62188,6 +62326,7 @@ var init_agentic = __esm({
     init_session();
     init_parser();
     init_events();
+    init_names();
     init_types();
   }
 });

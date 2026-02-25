@@ -29,7 +29,7 @@ const AgentCard = {
       const statusClass = agent.status || 'idle';
 
       return `
-        <div class="agent-card ${statusClass}" data-agent="${agent.name}">
+        <div class="agent-card ${statusClass}" data-agent="${agent.name}" onclick="App.filterByAgent('${AgentCard.escape(agent.name)}')">
           <div class="agent-card-header">
             <span class="agent-name agent-color-${colorIdx}">${AgentCard.escape(agent.name)}</span>
             <span class="agent-indicator ${statusClass}" title="${statusClass}"></span>

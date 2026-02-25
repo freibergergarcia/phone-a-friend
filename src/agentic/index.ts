@@ -11,6 +11,7 @@ export { MessageQueue } from './queue.js';
 export { SessionManager } from './session.js';
 export { parseAgentResponse, buildSystemPrompt } from './parser.js';
 export { EventChannel } from './events.js';
+export { assignAgentNames } from './names.js';
 
 export type { AgenticEvent } from './events.js';
 export type {

@@ -18,6 +18,7 @@ import {
   type AgentState,
   type Message,
 } from './types.js';
+import { assignAgentNames } from './names.js';
 
 // ---------------------------------------------------------------------------
 // Orchestrator
@@ -74,7 +75,11 @@ export class Orchestrator {
     this.sessions.clear();
 
     // Create session in transcript
-    this.bus.createSession(this.sessionId, config.prompt);
+    this.bus.createSession(this.sessionId, config.prompt, config.maxTurns);
+
+    // Assign creative first names to agents (e.g. storyteller → maren.storyteller)
+    const namedAgents = assignAgentNames(config.agents);
+    config = { ...config, agents: namedAgents };
 
     // Register agents
     const agentNames = config.agents.map((a) => a.name);
@@ -147,7 +152,9 @@ export class Orchestrator {
   ): Promise<void> {
     const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
 
-    // Phase 1: Spawn all agents with initial prompt
+    // Phase 1a: Spawn all agents — deliver initial prompt to each, collect responses
+    const spawnResults: Array<{ agent: typeof agents[number]; output: string }> = [];
+
     for (const agent of agents) {
       if (this.stopped) return;
       const systemPrompt = buildSystemPrompt(
@@ -163,53 +170,15 @@ export class Orchestrator {
           agent, systemPrompt, prompt, repoPath,
         );
 
-        // Bail if stopped during await
         if (this.stopped) return;
 
-        // Update backend session ID
         this.bus.updateAgent(this.sessionId, agent.name, {
           backendSessionId: result.sessionId,
         });
 
-        // Log the initial user→agent message
+        // Log user→agent delivery immediately
         this.logAndEmitMessage('user', agent.name, prompt, 0);
-
-        // Parse agent's initial response
-        const parsed = parseAgentResponse(result.output, knownTargets);
-
-        // Route outbound messages
-        for (const msg of parsed.messages) {
-          this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
-
-          if (msg.to === 'all') {
-            for (const other of agents) {
-              if (other.name !== agent.name) {
-                this.queue.enqueue({
-                  sessionId: this.sessionId,
-                  from: agent.name,
-                  to: other.name,
-                  content: msg.content,
-                  timestamp: new Date(),
-                  turn: 0,
-                });
-              }
-            }
-          } else if (msg.to !== 'user') {
-            this.queue.enqueue({
-              sessionId: this.sessionId,
-              from: agent.name,
-              to: msg.to,
-              content: msg.content,
-              timestamp: new Date(),
-              turn: 0,
-            });
-          }
-        }
-
-        // Log notes if any
-        if (parsed.notes) {
-          this.logAndEmitMessage(agent.name, 'notes', parsed.notes, 0);
-        }
+        spawnResults.push({ agent, output: result.output });
 
         this.emitAgentStatus(agent.name, 'idle');
       } catch (err) {
@@ -221,6 +190,43 @@ export class Orchestrator {
           timestamp: new Date(),
         });
         this.emitAgentStatus(agent.name, 'dead');
+      }
+    }
+
+    // Phase 1b: Process responses — parse and route after all agents received the prompt
+    for (const { agent, output } of spawnResults) {
+      const parsed = parseAgentResponse(output, knownTargets);
+
+      for (const msg of parsed.messages) {
+        this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
+
+        if (msg.to === 'all') {
+          for (const other of agents) {
+            if (other.name !== agent.name) {
+              this.queue.enqueue({
+                sessionId: this.sessionId,
+                from: agent.name,
+                to: other.name,
+                content: msg.content,
+                timestamp: new Date(),
+                turn: 0,
+              });
+            }
+          }
+        } else if (msg.to !== 'user') {
+          this.queue.enqueue({
+            sessionId: this.sessionId,
+            from: agent.name,
+            to: msg.to,
+            content: msg.content,
+            timestamp: new Date(),
+            turn: 0,
+          });
+        }
+      }
+
+      if (parsed.notes) {
+        this.logAndEmitMessage(agent.name, 'notes', parsed.notes, 0);
       }
     }
 
