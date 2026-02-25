@@ -40,7 +40,7 @@
   "engines": {
     "node": ">=20.12"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Bruno Freiberger",
   "contributors": [
     "ovidiul"
