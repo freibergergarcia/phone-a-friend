@@ -85,7 +85,7 @@ loop through 3 rounds, and converge on final suggestions.
 No slash commands needed — Claude picks up the skills once the plugin is installed. Mention one backend and it routes through `phone-a-friend`; mention multiple and it spins up `phone-a-team` automatically. You can also use `/phone-a-friend` or `/phone-a-team` explicitly if you prefer.
 
 > [!TIP]
-> **Full autonomy:** Run Claude Code inside [**tmux**](https://formulae.brew.sh/formula/tmux) with [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) enabled. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) spawn in split panes — you see all agents working in parallel with no confirmation prompts slowing them down. Combine with **agentic mode** for fully autonomous multi-agent sessions.
+> **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
 
 ## CLI Usage
 
