@@ -51,7 +51,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-V', '--version', '-h', '--help']);
@@ -456,6 +456,187 @@ export async function run(argv: string[]): Promise<number> {
       .description('Uninstall Claude plugin')
   ).action((opts) => uninstallAction(opts));
 
+  // --- agentic subcommand group ---
+  const agenticCmd = program
+    .command('agentic')
+    .description('Multi-agent sessions with persistent agent-to-agent communication');
+
+  agenticCmd
+    .command('run', { isDefault: true })
+    .description('Start an agentic session')
+    .requiredOption('--agents <list>', 'Agent definitions: role:backend,... (e.g. security:claude,perf:claude)')
+    .requiredOption('--prompt <text>', 'Task prompt for the agents')
+    .option('--max-turns <n>', 'Maximum turns before forced stop', '20')
+    .option('--timeout <seconds>', 'Session timeout in seconds', '900')
+    .option('--repo <path>', 'Repository path', process.cwd())
+    .option('--sandbox <mode>', 'Sandbox mode', 'read-only')
+    .option('--dashboard-url <url>', 'Dashboard URL for live event streaming', 'http://127.0.0.1:7777/api/ingest')
+    .action(async (opts) => {
+      const { Orchestrator } = await import('./agentic/index.js');
+      const { DashboardEventSink } = await import('./web/event-sink.js');
+      const agents = parseAgentList(opts.agents);
+
+      if (agents.length === 0) {
+        console.error(`  ${theme.crossmark} ${theme.error('No agents specified. Use --agents role:backend,role:backend')}`);
+        exitCode = 1;
+        return;
+      }
+
+      const orchestrator = new Orchestrator();
+      const sink = new DashboardEventSink(opts.dashboardUrl);
+
+      // Bridge orchestrator events to dashboard SSE
+      orchestrator.onEvent((event) => sink.push(event));
+
+      try {
+        const events = await orchestrator.run({
+          agents,
+          prompt: opts.prompt,
+          maxTurns: parseInt(opts.maxTurns, 10),
+          timeoutSeconds: parseInt(opts.timeout, 10),
+          repoPath: opts.repo,
+          sandbox: opts.sandbox,
+        });
+
+        await formatAgenticEvents(events);
+      } finally {
+        await sink.close();
+        await orchestrator.close();
+      }
+    });
+
+  agenticCmd
+    .command('logs')
+    .description('View past agentic sessions')
+    .option('--session <id>', 'Show transcript for a specific session')
+    .action(async (opts) => {
+      const { TranscriptBus } = await import('./agentic/index.js');
+      const bus = new TranscriptBus();
+
+      try {
+        if (opts.session) {
+          const transcript = bus.getTranscript(opts.session);
+          const session = bus.getSession(opts.session);
+          if (!session) {
+            console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+            exitCode = 1;
+            return;
+          }
+          console.log(`\n  ${theme.heading('Session')} ${theme.info(session.id)}`);
+          console.log(`  ${theme.label('Prompt:')} ${session.prompt}`);
+          console.log(`  ${theme.label('Status:')} ${session.status}`);
+          console.log(`  ${theme.label('Agents:')} ${session.agents.map((a) => `${a.name}(${a.backend})`).join(', ')}`);
+          console.log(`  ${theme.label('Messages:')} ${transcript.length}`);
+          console.log('');
+          for (const msg of transcript) {
+            const time = msg.timestamp.toLocaleTimeString();
+            const arrow = theme.hint('→');
+            console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+            console.log(`    ${msg.content.split('\n')[0].slice(0, 120)}`);
+          }
+          console.log('');
+        } else {
+          const sessions = bus.listSessions();
+          if (sessions.length === 0) {
+            console.log(`\n  ${theme.hint('No agentic sessions found.')}\n`);
+            return;
+          }
+          console.log(`\n  ${theme.heading('Agentic Sessions')}\n`);
+          for (const s of sessions) {
+            const status = s.status === 'completed' ? theme.success('✓')
+              : s.status === 'active' ? theme.info('●')
+              : s.status === 'failed' ? theme.error('✗')
+              : theme.warning('■');
+            const agents = s.agents.map((a) => `${a.name}(${a.backend})`).join(', ');
+            const time = s.createdAt.toLocaleString();
+            console.log(`  ${status} ${theme.bold(s.id)}  ${theme.hint(time)}`);
+            console.log(`    ${theme.hint(s.prompt.slice(0, 100))}`);
+            console.log(`    ${theme.hint(`Agents: ${agents}  |  Turns: ${s.turn}`)}`);
+            console.log('');
+          }
+        }
+      } finally {
+        bus.close();
+      }
+    });
+
+  agenticCmd
+    .command('replay')
+    .description('Replay a session transcript')
+    .requiredOption('--session <id>', 'Session ID to replay')
+    .action(async (opts) => {
+      const { TranscriptBus } = await import('./agentic/index.js');
+      const bus = new TranscriptBus();
+
+      try {
+        const session = bus.getSession(opts.session);
+        if (!session) {
+          console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+          exitCode = 1;
+          return;
+        }
+
+        const transcript = bus.getTranscript(opts.session);
+        console.log(`\n  ${theme.heading('Replay:')} ${theme.info(session.id)}`);
+        console.log(`  ${theme.label('Prompt:')} ${session.prompt}\n`);
+
+        let lastTurn = -1;
+        for (const msg of transcript) {
+          if (msg.turn !== lastTurn) {
+            console.log(`  ${theme.heading(`── Turn ${msg.turn} ──`)}`);
+            lastTurn = msg.turn;
+          }
+          const time = msg.timestamp.toLocaleTimeString();
+          const arrow = theme.hint('→');
+          console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+          for (const line of msg.content.split('\n')) {
+            console.log(`    ${line}`);
+          }
+          console.log('');
+        }
+
+        console.log(`  ${theme.label('Status:')} ${session.status}  |  ${theme.label('Turns:')} ${session.turn}\n`);
+      } finally {
+        bus.close();
+      }
+    });
+
+  agenticCmd
+    .command('dashboard')
+    .description('Launch web dashboard for session visibility')
+    .option('--port <number>', 'Port to listen on', '7777')
+    .action(async (opts) => {
+      const { startDashboard } = await import('./web/index.js');
+      const port = parseInt(opts.port, 10);
+
+      try {
+        const dashboard = await startDashboard({ port });
+        console.log(`\n  ${theme.heading('Agentic Dashboard')}`);
+        console.log(`  ${theme.success('✓')} Running at ${theme.info(dashboard.url)}`);
+        console.log(`  ${theme.hint('Press Ctrl+C to stop')}\n`);
+
+        // Open browser
+        const openCmd = process.platform === 'darwin' ? 'open'
+          : process.platform === 'win32' ? 'start'
+          : 'xdg-open';
+        spawnSync(openCmd, [dashboard.url], { stdio: 'ignore' });
+
+        // Keep alive until Ctrl+C
+        await new Promise<void>((resolve) => {
+          process.on('SIGINT', () => {
+            console.log(`\n  ${theme.hint('Shutting down dashboard...')}`);
+            dashboard.close().then(resolve);
+          });
+          process.on('SIGTERM', () => {
+            dashboard.close().then(resolve);
+          });
+        });
+      } catch (err) {
+        console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
+        exitCode = 1;
+      }
+    });
+
   // --- Backward compat aliases ---
   addInstallOptions(
     program
@@ -502,4 +683,70 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   return exitCode;
+}
+
+// ---------------------------------------------------------------------------
+// Agentic helpers
+// ---------------------------------------------------------------------------
+
+function parseAgentList(input: string): Array<{ name: string; backend: string; model?: string }> {
+  return input.split(',').map((pair) => {
+    const parts = pair.trim().split(':');
+    if (parts.length < 2) return null;
+    return {
+      name: parts[0],
+      backend: parts[1],
+      model: parts[2] || undefined,
+    };
+  }).filter((a): a is NonNullable<typeof a> => a !== null);
+}
+
+async function formatAgenticEvents(events: AsyncIterable<import('./agentic/events.js').AgenticEvent>): Promise<void> {
+  for await (const event of events) {
+    const time = new Date().toLocaleTimeString();
+
+    switch (event.type) {
+      case 'session_start':
+        console.log(`\n  ${theme.heading('Agentic Session')} ${theme.info(event.sessionId)}`);
+        console.log(`  ${theme.label('Prompt:')} ${event.prompt}`);
+        console.log(`  ${theme.label('Agents:')} ${event.agents.map((a) => `${theme.bold(a.name)}(${a.backend})`).join(', ')}\n`);
+        break;
+      case 'message': {
+        const arrow = theme.hint('→');
+        console.log(`  ${theme.hint(time)}  ${theme.bold(event.from)} ${arrow} ${theme.bold(event.to)}`);
+        const lines = event.content.split('\n').slice(0, 3);
+        for (const line of lines) {
+          console.log(`    ${line}`);
+        }
+        if (event.content.split('\n').length > 3) {
+          console.log(`    ${theme.hint(`... (${event.content.split('\n').length - 3} more lines)`)}`);
+        }
+        break;
+      }
+      case 'agent_status': {
+        const icon = event.status === 'active' ? theme.info('●')
+          : event.status === 'idle' ? theme.hint('○')
+          : theme.error('✗');
+        console.log(`  ${theme.hint(time)}  ${icon} ${event.agent}: ${event.status}`);
+        break;
+      }
+      case 'turn_complete':
+        console.log(`  ${theme.hint(`── Turn ${event.turn} complete (${event.pendingCount} pending) ──`)}`);
+        break;
+      case 'guardrail':
+        console.log(`  ${theme.warning('⚠')} ${theme.warning(event.guard)}: ${event.detail}`);
+        break;
+      case 'session_end': {
+        const elapsed = (event.elapsed / 1000).toFixed(1);
+        console.log(`\n  ${theme.heading('Session ended')}: ${event.reason}`);
+        console.log(`  ${theme.label('Turns:')} ${event.turn}  |  ${theme.label('Elapsed:')} ${elapsed}s\n`);
+        break;
+      }
+      case 'error': {
+        const prefix = event.agent ? `${event.agent}: ` : '';
+        console.error(`  ${theme.crossmark} ${theme.error(`${prefix}${event.error}`)}`);
+        break;
+      }
+    }
+  }
 }

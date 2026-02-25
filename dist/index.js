@@ -3277,11 +3277,11 @@ Expecting one of '${allowedValues.join("', '")}'`);
        */
       _getOutputContext(contextOptions) {
         contextOptions = contextOptions || {};
-        const error2 = !!contextOptions.error;
+        const error3 = !!contextOptions.error;
         let baseWrite;
         let hasColors2;
         let helpWidth;
-        if (error2) {
+        if (error3) {
           baseWrite = (str) => this._outputConfiguration.writeErr(str);
           hasColors2 = this._outputConfiguration.getErrHasColors();
           helpWidth = this._outputConfiguration.getErrHelpWidth();
@@ -3294,7 +3294,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           if (!hasColors2) str = this._outputConfiguration.stripColor(str);
           return baseWrite(str);
         };
-        return { error: error2, write, hasColors: hasColors2, helpWidth };
+        return { error: error3, write, hasColors: hasColors2, helpWidth };
       }
       /**
        * Output help information for this command.
@@ -5210,7 +5210,7 @@ function skipVoid(str, ptr, banNewLines, banComments) {
     ptr++;
   return banComments || c !== "#" ? ptr : skipVoid(str, skipComment(str, ptr), banNewLines);
 }
-function skipUntil(str, ptr, sep, end, banNewLines = false) {
+function skipUntil(str, ptr, sep2, end, banNewLines = false) {
   if (!end) {
     ptr = indexOfNewline(str, ptr);
     return ptr < 0 ? str.length : ptr;
@@ -5219,7 +5219,7 @@ function skipUntil(str, ptr, sep, end, banNewLines = false) {
     let c = str[i];
     if (c === "#") {
       i = indexOfNewline(str, i);
-    } else if (c === sep) {
+    } else if (c === sep2) {
       return i + 1;
     } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
       return i;
@@ -6267,8 +6267,8 @@ var require_react_production = __commonJS({
             function(fulfilledValue) {
               "pending" === thenable.status && (thenable.status = "fulfilled", thenable.value = fulfilledValue);
             },
-            function(error2) {
-              "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error2);
+            function(error3) {
+              "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error3);
             }
           )), thenable.status) {
             case "fulfilled":
@@ -6370,9 +6370,9 @@ var require_react_production = __commonJS({
             if (0 === payload._status || -1 === payload._status)
               payload._status = 1, payload._result = moduleObject;
           },
-          function(error2) {
+          function(error3) {
             if (0 === payload._status || -1 === payload._status)
-              payload._status = 2, payload._result = error2;
+              payload._status = 2, payload._result = error3;
           }
         );
         -1 === payload._status && (payload._status = 0, payload._result = ctor);
@@ -6380,20 +6380,20 @@ var require_react_production = __commonJS({
       if (1 === payload._status) return payload._result.default;
       throw payload._result;
     }
-    var reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+    var reportGlobalError = "function" === typeof reportError ? reportError : function(error3) {
       if ("object" === typeof window && "function" === typeof window.ErrorEvent) {
         var event = new window.ErrorEvent("error", {
           bubbles: true,
           cancelable: true,
-          message: "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2),
-          error: error2
+          message: "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3),
+          error: error3
         });
         if (!window.dispatchEvent(event)) return;
       } else if ("object" === typeof process && "function" === typeof process.emit) {
-        process.emit("uncaughtException", error2);
+        process.emit("uncaughtException", error3);
         return;
       }
-      console.error(error2);
+      console.error(error3);
     };
     var Children = {
       map: mapChildren,
@@ -6528,8 +6528,8 @@ var require_react_production = __commonJS({
         var returnValue = scope(), onStartTransitionFinish = ReactSharedInternals.S;
         null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
         "object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then && returnValue.then(noop2, reportGlobalError);
-      } catch (error2) {
-        reportGlobalError(error2);
+      } catch (error3) {
+        reportGlobalError(error3);
       } finally {
         null !== prevTransition && null !== currentTransition.types && (prevTransition.types = currentTransition.types), ReactSharedInternals.T = prevTransition;
       }
@@ -6841,8 +6841,8 @@ var require_react_development = __commonJS({
               function(fulfilledValue) {
                 "pending" === thenable.status && (thenable.status = "fulfilled", thenable.value = fulfilledValue);
               },
-              function(error2) {
-                "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error2);
+              function(error3) {
+                "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error3);
               }
             )), thenable.status) {
               case "fulfilled":
@@ -6958,13 +6958,13 @@ var require_react_development = __commonJS({
                 void 0 === thenable.status && (thenable.status = "fulfilled", thenable.value = moduleObject);
               }
             },
-            function(error2) {
+            function(error3) {
               if (0 === payload._status || -1 === payload._status) {
                 payload._status = 2;
-                payload._result = error2;
+                payload._result = error3;
                 var _ioInfo2 = payload._ioInfo;
                 null != _ioInfo2 && (_ioInfo2.end = performance.now());
-                void 0 === thenable.status && (thenable.status = "rejected", thenable.reason = error2);
+                void 0 === thenable.status && (thenable.status = "rejected", thenable.reason = error3);
               }
             }
           );
@@ -7025,21 +7025,21 @@ var require_react_development = __commonJS({
         );
         actScopeDepth = prevActScopeDepth;
       }
-      function recursivelyFlushAsyncActWork(returnValue, resolve5, reject) {
+      function recursivelyFlushAsyncActWork(returnValue, resolve6, reject) {
         var queue = ReactSharedInternals.actQueue;
         if (null !== queue)
           if (0 !== queue.length)
             try {
               flushActQueue(queue);
               enqueueTask(function() {
-                return recursivelyFlushAsyncActWork(returnValue, resolve5, reject);
+                return recursivelyFlushAsyncActWork(returnValue, resolve6, reject);
               });
               return;
-            } catch (error2) {
-              ReactSharedInternals.thrownErrors.push(error2);
+            } catch (error3) {
+              ReactSharedInternals.thrownErrors.push(error3);
             }
           else ReactSharedInternals.actQueue = null;
-        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve5(returnValue);
+        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve6(returnValue);
       }
       function flushActQueue(queue) {
         if (!isFlushing) {
@@ -7062,8 +7062,8 @@ var require_react_development = __commonJS({
               } while (1);
             }
             queue.length = 0;
-          } catch (error2) {
-            queue.splice(0, i + 1), ReactSharedInternals.thrownErrors.push(error2);
+          } catch (error3) {
+            queue.splice(0, i + 1), ReactSharedInternals.thrownErrors.push(error3);
           } finally {
             isFlushing = false;
           }
@@ -7141,20 +7141,20 @@ var require_react_development = __commonJS({
         UnknownOwner
       )();
       var unknownOwnerDebugTask = createTask(getTaskName(UnknownOwner));
-      var didWarnAboutMaps = false, userProvidedKeyEscapeRegex = /\/+/g, reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+      var didWarnAboutMaps = false, userProvidedKeyEscapeRegex = /\/+/g, reportGlobalError = "function" === typeof reportError ? reportError : function(error3) {
         if ("object" === typeof window && "function" === typeof window.ErrorEvent) {
           var event = new window.ErrorEvent("error", {
             bubbles: true,
             cancelable: true,
-            message: "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2),
-            error: error2
+            message: "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3),
+            error: error3
           });
           if (!window.dispatchEvent(event)) return;
         } else if ("object" === typeof process && "function" === typeof process.emit) {
-          process.emit("uncaughtException", error2);
+          process.emit("uncaughtException", error3);
           return;
         }
-        console.error(error2);
+        console.error(error3);
       }, didWarnAboutMessageChannel = false, enqueueTaskImpl = null, actScopeDepth = 0, didWarnNoAwaitAct = false, isFlushing = false, queueSeveralMicrotasks = "function" === typeof queueMicrotask ? function(callback) {
         queueMicrotask(function() {
           return queueMicrotask(callback);
@@ -7213,8 +7213,8 @@ var require_react_development = __commonJS({
         var queue = ReactSharedInternals.actQueue = null !== prevActQueue ? prevActQueue : [], didAwaitActCall = false;
         try {
           var result = callback();
-        } catch (error2) {
-          ReactSharedInternals.thrownErrors.push(error2);
+        } catch (error3) {
+          ReactSharedInternals.thrownErrors.push(error3);
         }
         if (0 < ReactSharedInternals.thrownErrors.length)
           throw popActScope(prevActQueue, prevActScopeDepth), callback = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, callback;
@@ -7226,7 +7226,7 @@ var require_react_development = __commonJS({
             ));
           });
           return {
-            then: function(resolve5, reject) {
+            then: function(resolve6, reject) {
               didAwaitActCall = true;
               thenable.then(
                 function(returnValue) {
@@ -7236,7 +7236,7 @@ var require_react_development = __commonJS({
                       flushActQueue(queue), enqueueTask(function() {
                         return recursivelyFlushAsyncActWork(
                           returnValue,
-                          resolve5,
+                          resolve6,
                           reject
                         );
                       });
@@ -7250,13 +7250,13 @@ var require_react_development = __commonJS({
                       ReactSharedInternals.thrownErrors.length = 0;
                       reject(_thrownError);
                     }
-                  } else resolve5(returnValue);
+                  } else resolve6(returnValue);
                 },
-                function(error2) {
+                function(error3) {
                   popActScope(prevActQueue, prevActScopeDepth);
-                  0 < ReactSharedInternals.thrownErrors.length ? (error2 = aggregateErrors(
+                  0 < ReactSharedInternals.thrownErrors.length ? (error3 = aggregateErrors(
                     ReactSharedInternals.thrownErrors
-                  ), ReactSharedInternals.thrownErrors.length = 0, reject(error2)) : reject(error2);
+                  ), ReactSharedInternals.thrownErrors.length = 0, reject(error3)) : reject(error3);
                 }
               );
             }
@@ -7272,15 +7272,15 @@ var require_react_development = __commonJS({
         if (0 < ReactSharedInternals.thrownErrors.length)
           throw callback = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, callback;
         return {
-          then: function(resolve5, reject) {
+          then: function(resolve6, reject) {
             didAwaitActCall = true;
             0 === prevActScopeDepth ? (ReactSharedInternals.actQueue = queue, enqueueTask(function() {
               return recursivelyFlushAsyncActWork(
                 returnValue$jscomp$0,
-                resolve5,
+                resolve6,
                 reject
               );
-            })) : resolve5(returnValue$jscomp$0);
+            })) : resolve6(returnValue$jscomp$0);
           }
         };
       };
@@ -7476,8 +7476,8 @@ var require_react_development = __commonJS({
           var returnValue = scope(), onStartTransitionFinish = ReactSharedInternals.S;
           null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
           "object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then && (ReactSharedInternals.asyncTransitions++, returnValue.then(releaseAsyncTransition, releaseAsyncTransition), returnValue.then(noop2, reportGlobalError));
-        } catch (error2) {
-          reportGlobalError(error2);
+        } catch (error3) {
+          reportGlobalError(error3);
         } finally {
           null === prevTransition && currentTransition._updatedFibers && (scope = currentTransition._updatedFibers.size, currentTransition._updatedFibers.clear(), 10 < scope && console.warn(
             "Detected a large number of updates inside startTransition. If this is due to a subscription please re-write it to use React provided hooks. Otherwise concurrent mode guarantees are off the table."
@@ -11571,14 +11571,14 @@ var require_react_reconciler_production = __commonJS({
         hostTransitionProviderCursor.current === fiber && (pop(hostTransitionProviderCursor), isPrimaryRenderer ? HostTransitionContext._currentValue = NotPendingTransition : HostTransitionContext._currentValue2 = NotPendingTransition);
       }
       function throwOnHydrationMismatch(fiber) {
-        var error2 = Error(
+        var error3 = Error(
           formatProdErrorMessage(
             418,
             1 < arguments.length && void 0 !== arguments[1] && arguments[1] ? "text" : "HTML",
             ""
           )
         );
-        queueHydrationError(createCapturedValueAtFiber(error2, fiber));
+        queueHydrationError(createCapturedValueAtFiber(error3, fiber));
         throw HydrationMismatchException;
       }
       function prepareToHydrateHostInstance(fiber, hostContext) {
@@ -11642,8 +11642,8 @@ var require_react_reconciler_production = __commonJS({
         ), hydrationErrors = null);
         return queuedErrors;
       }
-      function queueHydrationError(error2) {
-        null === hydrationErrors ? hydrationErrors = [error2] : hydrationErrors.push(error2);
+      function queueHydrationError(error3) {
+        null === hydrationErrors ? hydrationErrors = [error3] : hydrationErrors.push(error3);
       }
       function pushProvider(providerFiber, context, nextValue) {
         isPrimaryRenderer ? (push(valueCursor, context._currentValue), context._currentValue = nextValue) : (push(valueCursor, context._currentValue2), context._currentValue2 = nextValue);
@@ -11943,8 +11943,8 @@ var require_react_reconciler_production = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve5) {
-              entangledListeners.push(resolve5);
+            then: function(resolve6) {
+              entangledListeners.push(resolve6);
             }
           };
         }
@@ -11967,8 +11967,8 @@ var require_react_reconciler_production = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve5) {
-            listeners.push(resolve5);
+          then: function(resolve6) {
+            listeners.push(resolve6);
           }
         };
         thenable.then(
@@ -11977,11 +11977,11 @@ var require_react_reconciler_production = __commonJS({
             thenableWithOverride.value = result;
             for (var i = 0; i < listeners.length; i++) (0, listeners[i])(result);
           },
-          function(error2) {
+          function(error3) {
             thenableWithOverride.status = "rejected";
-            thenableWithOverride.reason = error2;
-            for (error2 = 0; error2 < listeners.length; error2++)
-              (0, listeners[error2])(void 0);
+            thenableWithOverride.reason = error3;
+            for (error3 = 0; error3 < listeners.length; error3++)
+              (0, listeners[error3])(void 0);
           }
         );
         return thenableWithOverride;
@@ -12041,11 +12041,11 @@ var require_react_reconciler_production = __commonJS({
                     fulfilledThenable.value = fulfilledValue;
                   }
                 },
-                function(error2) {
+                function(error3) {
                   if ("pending" === thenable.status) {
                     var rejectedThenable = thenable;
                     rejectedThenable.status = "rejected";
-                    rejectedThenable.reason = error2;
+                    rejectedThenable.reason = error3;
                   }
                 }
               );
@@ -13173,7 +13173,7 @@ var require_react_reconciler_production = __commonJS({
         try {
           var nextValue = latestGetSnapshot();
           return !objectIs(inst, nextValue);
-        } catch (error2) {
+        } catch (error3) {
           return true;
         }
       }
@@ -13245,8 +13245,8 @@ var require_react_reconciler_production = __commonJS({
             var returnValue = action(prevState, payload), onStartTransitionFinish = ReactSharedInternals.S;
             null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
             handleActionReturnValue(actionQueue, node, returnValue);
-          } catch (error2) {
-            onActionError(actionQueue, node, error2);
+          } catch (error3) {
+            onActionError(actionQueue, node, error3);
           } finally {
             null !== prevTransition && null !== currentTransition.types && (prevTransition.types = currentTransition.types), ReactSharedInternals.T = prevTransition;
           }
@@ -13262,8 +13262,8 @@ var require_react_reconciler_production = __commonJS({
           function(nextState) {
             onActionSuccess(actionQueue, node, nextState);
           },
-          function(error2) {
-            return onActionError(actionQueue, node, error2);
+          function(error3) {
+            return onActionError(actionQueue, node, error3);
           }
         ) : onActionSuccess(actionQueue, node, returnValue);
       }
@@ -13275,13 +13275,13 @@ var require_react_reconciler_production = __commonJS({
         actionNode = actionQueue.pending;
         null !== actionNode && (nextState = actionNode.next, nextState === actionNode ? actionQueue.pending = null : (nextState = nextState.next, actionNode.next = nextState, runActionStateAction(actionQueue, nextState)));
       }
-      function onActionError(actionQueue, actionNode, error2) {
+      function onActionError(actionQueue, actionNode, error3) {
         var last = actionQueue.pending;
         actionQueue.pending = null;
         if (null !== last) {
           last = last.next;
           do
-            actionNode.status = "rejected", actionNode.reason = error2, notifyActionListeners(actionNode), actionNode = actionNode.next;
+            actionNode.status = "rejected", actionNode.reason = error3, notifyActionListeners(actionNode), actionNode = actionNode.next;
           while (actionNode !== last);
         }
         actionQueue.action = null;
@@ -13566,12 +13566,12 @@ var require_react_reconciler_production = __commonJS({
               finishedState,
               requestUpdateLane(fiber)
             );
-        } catch (error2) {
+        } catch (error3) {
           dispatchSetStateInternal(
             fiber,
             queue,
             { then: function() {
-            }, status: "rejected", reason: error2 },
+            }, status: "rejected", reason: error3 },
             requestUpdateLane()
           );
         } finally {
@@ -13675,7 +13675,7 @@ var require_react_reconciler_production = __commonJS({
               update.eagerState = eagerState;
               if (objectIs(eagerState, currentState))
                 return enqueueUpdate$1(fiber, queue, update, 0), null === workInProgressRoot && finishQueueingConcurrentUpdates(), false;
-            } catch (error2) {
+            } catch (error3) {
             } finally {
             }
           action = enqueueConcurrentHookUpdate(fiber, queue, update, lane);
@@ -13794,9 +13794,9 @@ var require_react_reconciler_production = __commonJS({
       function initializeClassErrorUpdate(update, root, fiber, errorInfo) {
         var getDerivedStateFromError = fiber.type.getDerivedStateFromError;
         if ("function" === typeof getDerivedStateFromError) {
-          var error2 = errorInfo.value;
+          var error3 = errorInfo.value;
           update.payload = function() {
-            return getDerivedStateFromError(error2);
+            return getDerivedStateFromError(error3);
           };
           update.callback = function() {
             logCaughtError(root, fiber, errorInfo);
@@ -15627,8 +15627,8 @@ var require_react_reconciler_production = __commonJS({
               updateQueue = updateQueue.next;
             } while (updateQueue !== firstEffect);
           }
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHookEffectListUnmount(flags, finishedWork, nearestMountedAncestor$jscomp$0) {
@@ -15646,11 +15646,11 @@ var require_react_reconciler_production = __commonJS({
                   var nearestMountedAncestor = nearestMountedAncestor$jscomp$0, destroy_ = destroy;
                   try {
                     destroy_();
-                  } catch (error2) {
+                  } catch (error3) {
                     captureCommitPhaseError(
                       lastEffect,
                       nearestMountedAncestor,
-                      error2
+                      error3
                     );
                   }
                 }
@@ -15658,8 +15658,8 @@ var require_react_reconciler_production = __commonJS({
               updateQueue = updateQueue.next;
             } while (updateQueue !== firstEffect);
           }
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitClassCallbacks(finishedWork) {
@@ -15668,8 +15668,8 @@ var require_react_reconciler_production = __commonJS({
           var instance = finishedWork.stateNode;
           try {
             commitCallbacks(updateQueue, instance);
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }
@@ -15681,8 +15681,8 @@ var require_react_reconciler_production = __commonJS({
         instance.state = current.memoizedState;
         try {
           instance.componentWillUnmount();
-        } catch (error2) {
-          captureCommitPhaseError(current, nearestMountedAncestor, error2);
+        } catch (error3) {
+          captureCommitPhaseError(current, nearestMountedAncestor, error3);
         }
       }
       function safelyAttachRef(current, nearestMountedAncestor) {
@@ -15703,8 +15703,8 @@ var require_react_reconciler_production = __commonJS({
             }
             "function" === typeof ref ? current.refCleanup = ref(instanceToUse) : ref.current = instanceToUse;
           }
-        } catch (error2) {
-          captureCommitPhaseError(current, nearestMountedAncestor, error2);
+        } catch (error3) {
+          captureCommitPhaseError(current, nearestMountedAncestor, error3);
         }
       }
       function safelyDetachRef(current, nearestMountedAncestor) {
@@ -15713,8 +15713,8 @@ var require_react_reconciler_production = __commonJS({
           if ("function" === typeof refCleanup)
             try {
               refCleanup();
-            } catch (error2) {
-              captureCommitPhaseError(current, nearestMountedAncestor, error2);
+            } catch (error3) {
+              captureCommitPhaseError(current, nearestMountedAncestor, error3);
             } finally {
               current.refCleanup = null, current = current.alternate, null != current && (current.refCleanup = null);
             }
@@ -15730,8 +15730,8 @@ var require_react_reconciler_production = __commonJS({
         var type = finishedWork.type, props = finishedWork.memoizedProps, instance = finishedWork.stateNode;
         try {
           commitMount(instance, type, props, finishedWork);
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHostUpdate(finishedWork, newProps, oldProps) {
@@ -15743,8 +15743,8 @@ var require_react_reconciler_production = __commonJS({
             newProps,
             finishedWork
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function isHostParent(fiber) {
@@ -15787,8 +15787,8 @@ var require_react_reconciler_production = __commonJS({
         portal = portal.containerInfo;
         try {
           replaceContainerChildren(portal, pendingChildren);
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHostSingletonAcquisition(finishedWork) {
@@ -15800,8 +15800,8 @@ var require_react_reconciler_production = __commonJS({
             singleton,
             finishedWork
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitBeforeMutationEffects(root, firstChild) {
@@ -15842,8 +15842,8 @@ var require_react_reconciler_production = __commonJS({
                         current
                       );
                       instance.__reactInternalSnapshotBeforeUpdate = firstChild;
-                    } catch (error2) {
-                      captureCommitPhaseError(ii, ii.return, error2);
+                    } catch (error3) {
+                      captureCommitPhaseError(ii, ii.return, error3);
                     }
                   }
                   break;
@@ -15885,8 +15885,8 @@ var require_react_reconciler_production = __commonJS({
               if (finishedRoot = finishedWork.stateNode, null === current)
                 try {
                   finishedRoot.componentDidMount();
-                } catch (error2) {
-                  captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(finishedWork, finishedWork.return, error3);
                 }
               else {
                 var prevProps = resolveClassComponentProps(
@@ -15926,8 +15926,8 @@ var require_react_reconciler_production = __commonJS({
                 }
               try {
                 commitCallbacks(flags, finishedRoot);
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             }
             break;
@@ -15949,8 +15949,8 @@ var require_react_reconciler_production = __commonJS({
                     current,
                     finishedWork
                   );
-                } catch (error2) {
-                  captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(finishedWork, finishedWork.return, error3);
                 }
               }
             }
@@ -16062,21 +16062,21 @@ var require_react_reconciler_production = __commonJS({
                 if (hostParentIsContainer)
                   try {
                     removeChildFromContainer(hostParent, deletedFiber.stateNode);
-                  } catch (error2) {
+                  } catch (error3) {
                     captureCommitPhaseError(
                       deletedFiber,
                       nearestMountedAncestor,
-                      error2
+                      error3
                     );
                   }
                 else
                   try {
                     removeChild(hostParent, deletedFiber.stateNode);
-                  } catch (error2) {
+                  } catch (error3) {
                     captureCommitPhaseError(
                       deletedFiber,
                       nearestMountedAncestor,
-                      error2
+                      error3
                     );
                   }
             } else
@@ -16160,8 +16160,8 @@ var require_react_reconciler_production = __commonJS({
           finishedRoot = finishedRoot.dehydrated;
           try {
             commitHydratedActivityInstance(finishedRoot);
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }
@@ -16169,8 +16169,8 @@ var require_react_reconciler_production = __commonJS({
         if (supportsHydration && null === finishedWork.memoizedState && (finishedRoot = finishedWork.alternate, null !== finishedRoot && (finishedRoot = finishedRoot.memoizedState, null !== finishedRoot && (finishedRoot = finishedRoot.dehydrated, null !== finishedRoot))))
           try {
             commitHydratedSuspenseInstance(finishedRoot);
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
       }
       function getRetryCache(finishedWork) {
@@ -16316,8 +16316,8 @@ var require_react_reconciler_production = __commonJS({
                 hoistableRoot = finishedWork.stateNode;
                 try {
                   resetTextContent(hoistableRoot);
-                } catch (error2) {
-                  captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(finishedWork, finishedWork.return, error3);
                 }
               }
               flags & 4 && null != finishedWork.stateNode && (hoistableRoot = finishedWork.memoizedProps, commitHostUpdate(
@@ -16340,8 +16340,8 @@ var require_react_reconciler_production = __commonJS({
               hoistableRoot = finishedWork.stateNode;
               try {
                 commitTextUpdate(hoistableRoot, current, flags);
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             }
             break;
@@ -16352,16 +16352,16 @@ var require_react_reconciler_production = __commonJS({
               if (supportsMutation && supportsHydration && null !== current && current.memoizedState.isDehydrated)
                 try {
                   commitHydratedContainer(root.containerInfo);
-                } catch (error2) {
-                  captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(finishedWork, finishedWork.return, error3);
                 }
               if (supportsPersistence) {
                 flags = root.containerInfo;
                 current = root.pendingChildren;
                 try {
                   replaceContainerChildren(flags, current);
-                } catch (error2) {
-                  captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(finishedWork, finishedWork.return, error3);
                 }
               }
             }
@@ -16412,8 +16412,8 @@ var require_react_reconciler_production = __commonJS({
                           wasHidden.stateNode,
                           wasHidden.memoizedProps
                         );
-                      } catch (error2) {
-                        captureCommitPhaseError(wasHidden, wasHidden.return, error2);
+                      } catch (error3) {
+                        captureCommitPhaseError(wasHidden, wasHidden.return, error3);
                       }
                     }
                   } else if (6 === root.tag) {
@@ -16422,8 +16422,8 @@ var require_react_reconciler_production = __commonJS({
                       try {
                         var instance = wasHidden.stateNode;
                         hoistableRoot ? hideTextInstance(instance) : unhideTextInstance(instance, wasHidden.memoizedProps);
-                      } catch (error2) {
-                        captureCommitPhaseError(wasHidden, wasHidden.return, error2);
+                      } catch (error3) {
+                        captureCommitPhaseError(wasHidden, wasHidden.return, error3);
                       }
                     }
                   } else if (18 === root.tag) {
@@ -16432,8 +16432,8 @@ var require_react_reconciler_production = __commonJS({
                       try {
                         var instance$jscomp$0 = wasHidden.stateNode;
                         hoistableRoot ? hideDehydratedBoundary(instance$jscomp$0) : unhideDehydratedBoundary(wasHidden.stateNode);
-                      } catch (error2) {
-                        captureCommitPhaseError(wasHidden, wasHidden.return, error2);
+                      } catch (error3) {
+                        captureCommitPhaseError(wasHidden, wasHidden.return, error3);
                       }
                     }
                   } else if ((22 !== root.tag && 23 !== root.tag || null === root.memoizedState || root === finishedWork) && null !== root.child) {
@@ -16507,8 +16507,8 @@ var require_react_reconciler_production = __commonJS({
                   throw Error(formatProdErrorMessage(161));
               }
             }
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
           finishedWork.flags &= -3;
         }
@@ -16594,8 +16594,8 @@ var require_react_reconciler_production = __commonJS({
               if ("function" === typeof finishedRoot.componentDidMount)
                 try {
                   finishedRoot.componentDidMount();
-                } catch (error2) {
-                  captureCommitPhaseError(current, current.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(current, current.return, error3);
                 }
               current = finishedWork;
               finishedRoot = current.updateQueue;
@@ -16606,8 +16606,8 @@ var require_react_reconciler_production = __commonJS({
                   if (null !== hiddenCallbacks)
                     for (finishedRoot.shared.hiddenCallbacks = null, finishedRoot = 0; finishedRoot < hiddenCallbacks.length; finishedRoot++)
                       callCallback(hiddenCallbacks[finishedRoot], instance);
-                } catch (error2) {
-                  captureCommitPhaseError(current, current.return, error2);
+                } catch (error3) {
+                  captureCommitPhaseError(current, current.return, error3);
                 }
               }
               includeWorkInProgressEffects && flags & 64 && commitClassCallbacks(finishedWork);
@@ -16739,8 +16739,8 @@ var require_react_reconciler_production = __commonJS({
                   finishedRoot.passiveEffectDuration,
                   -0
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             } else
               recursivelyTraversePassiveMountEffects(
@@ -17428,7 +17428,7 @@ var require_react_reconciler_production = __commonJS({
               check2 = check2.value;
               try {
                 if (!objectIs(getSnapshot(), check2)) return false;
-              } catch (error2) {
+              } catch (error3) {
                 return false;
               }
             }
@@ -17755,8 +17755,8 @@ var require_react_reconciler_production = __commonJS({
             workInProgress = null;
             return;
           }
-        } catch (error2) {
-          if (null !== returnFiber) throw workInProgress = returnFiber, error2;
+        } catch (error3) {
+          if (null !== returnFiber) throw workInProgress = returnFiber, error3;
           workInProgressRootExitStatus = 1;
           logUncaughtError(
             root,
@@ -18005,32 +18005,32 @@ var require_react_reconciler_production = __commonJS({
           setCurrentUpdatePriority(previousPriority), ReactSharedInternals.T = renderPriority, releaseRootPooledCache(root, remainingLanes);
         }
       }
-      function captureCommitPhaseErrorOnRoot(rootFiber, sourceFiber, error2) {
-        sourceFiber = createCapturedValueAtFiber(error2, sourceFiber);
+      function captureCommitPhaseErrorOnRoot(rootFiber, sourceFiber, error3) {
+        sourceFiber = createCapturedValueAtFiber(error3, sourceFiber);
         sourceFiber = createRootErrorUpdate(rootFiber.stateNode, sourceFiber, 2);
         rootFiber = enqueueUpdate(rootFiber, sourceFiber, 2);
         null !== rootFiber && (markRootUpdated$1(rootFiber, 2), ensureRootIsScheduled(rootFiber));
       }
-      function captureCommitPhaseError(sourceFiber, nearestMountedAncestor, error2) {
+      function captureCommitPhaseError(sourceFiber, nearestMountedAncestor, error3) {
         if (3 === sourceFiber.tag)
-          captureCommitPhaseErrorOnRoot(sourceFiber, sourceFiber, error2);
+          captureCommitPhaseErrorOnRoot(sourceFiber, sourceFiber, error3);
         else
           for (; null !== nearestMountedAncestor; ) {
             if (3 === nearestMountedAncestor.tag) {
               captureCommitPhaseErrorOnRoot(
                 nearestMountedAncestor,
                 sourceFiber,
-                error2
+                error3
               );
               break;
             } else if (1 === nearestMountedAncestor.tag) {
               var instance = nearestMountedAncestor.stateNode;
               if ("function" === typeof nearestMountedAncestor.type.getDerivedStateFromError || "function" === typeof instance.componentDidCatch && (null === legacyErrorBoundariesThatAlreadyFailed || !legacyErrorBoundariesThatAlreadyFailed.has(instance))) {
-                sourceFiber = createCapturedValueAtFiber(error2, sourceFiber);
-                error2 = createClassErrorUpdate(2);
-                instance = enqueueUpdate(nearestMountedAncestor, error2, 2);
+                sourceFiber = createCapturedValueAtFiber(error3, sourceFiber);
+                error3 = createClassErrorUpdate(2);
+                instance = enqueueUpdate(nearestMountedAncestor, error3, 2);
                 null !== instance && (initializeClassErrorUpdate(
-                  error2,
+                  error3,
                   instance,
                   nearestMountedAncestor,
                   sourceFiber
@@ -18332,14 +18332,14 @@ var require_react_reconciler_production = __commonJS({
       }
       var exports2 = {};
       "use strict";
-      var React16 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
+      var React17 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
       /* @__PURE__ */ Symbol.for("react.scope");
       var REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity");
       /* @__PURE__ */ Symbol.for("react.legacy_hidden");
       /* @__PURE__ */ Symbol.for("react.tracing_marker");
       var REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
       /* @__PURE__ */ Symbol.for("react.view_transition");
-      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
+      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
       $$$config.cloneMutableInstance;
       var appendInitialChild = $$$config.appendInitialChild, finalizeInitialChildren = $$$config.finalizeInitialChildren, shouldSetTextContent = $$$config.shouldSetTextContent, createTextInstance = $$$config.createTextInstance;
       $$$config.cloneMutableTextInstance;
@@ -18389,20 +18389,20 @@ var require_react_reconciler_production = __commonJS({
       $$$config.diffHydratedPropsForDevWarnings;
       $$$config.diffHydratedTextForDevWarnings;
       $$$config.describeHydratableInstanceForDevWarnings;
-      var validateHydratableInstance = $$$config.validateHydratableInstance, validateHydratableTextInstance = $$$config.validateHydratableTextInstance, supportsResources = $$$config.supportsResources, isHostHoistableType = $$$config.isHostHoistableType, getHoistableRoot = $$$config.getHoistableRoot, getResource = $$$config.getResource, acquireResource = $$$config.acquireResource, releaseResource = $$$config.releaseResource, hydrateHoistable = $$$config.hydrateHoistable, mountHoistable = $$$config.mountHoistable, unmountHoistable = $$$config.unmountHoistable, createHoistableInstance = $$$config.createHoistableInstance, prepareToCommitHoistables = $$$config.prepareToCommitHoistables, mayResourceSuspendCommit = $$$config.mayResourceSuspendCommit, preloadResource = $$$config.preloadResource, suspendResource = $$$config.suspendResource, supportsSingletons = $$$config.supportsSingletons, resolveSingletonInstance = $$$config.resolveSingletonInstance, acquireSingletonInstance = $$$config.acquireSingletonInstance, releaseSingletonInstance = $$$config.releaseSingletonInstance, isHostSingletonType = $$$config.isHostSingletonType, isSingletonScope = $$$config.isSingletonScope, valueStack = [], index$jscomp$0 = -1, emptyContextObject = {}, clz32 = Math.clz32 ? Math.clz32 : clz32Fallback, log$1 = Math.log, LN2 = Math.LN2, nextTransitionUpdateLane = 256, nextTransitionDeferredLane = 262144, nextRetryLane = 4194304, scheduleCallback$3 = Scheduler2.unstable_scheduleCallback, cancelCallback$1 = Scheduler2.unstable_cancelCallback, shouldYield = Scheduler2.unstable_shouldYield, requestPaint = Scheduler2.unstable_requestPaint, now = Scheduler2.unstable_now, ImmediatePriority = Scheduler2.unstable_ImmediatePriority, UserBlockingPriority = Scheduler2.unstable_UserBlockingPriority, NormalPriority$1 = Scheduler2.unstable_NormalPriority, IdlePriority = Scheduler2.unstable_IdlePriority, log = Scheduler2.log, unstable_setDisableYieldValue = Scheduler2.unstable_setDisableYieldValue, rendererID = null, injectedHook = null, objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+      var validateHydratableInstance = $$$config.validateHydratableInstance, validateHydratableTextInstance = $$$config.validateHydratableTextInstance, supportsResources = $$$config.supportsResources, isHostHoistableType = $$$config.isHostHoistableType, getHoistableRoot = $$$config.getHoistableRoot, getResource = $$$config.getResource, acquireResource = $$$config.acquireResource, releaseResource = $$$config.releaseResource, hydrateHoistable = $$$config.hydrateHoistable, mountHoistable = $$$config.mountHoistable, unmountHoistable = $$$config.unmountHoistable, createHoistableInstance = $$$config.createHoistableInstance, prepareToCommitHoistables = $$$config.prepareToCommitHoistables, mayResourceSuspendCommit = $$$config.mayResourceSuspendCommit, preloadResource = $$$config.preloadResource, suspendResource = $$$config.suspendResource, supportsSingletons = $$$config.supportsSingletons, resolveSingletonInstance = $$$config.resolveSingletonInstance, acquireSingletonInstance = $$$config.acquireSingletonInstance, releaseSingletonInstance = $$$config.releaseSingletonInstance, isHostSingletonType = $$$config.isHostSingletonType, isSingletonScope = $$$config.isSingletonScope, valueStack = [], index$jscomp$0 = -1, emptyContextObject = {}, clz32 = Math.clz32 ? Math.clz32 : clz32Fallback, log$1 = Math.log, LN2 = Math.LN2, nextTransitionUpdateLane = 256, nextTransitionDeferredLane = 262144, nextRetryLane = 4194304, scheduleCallback$3 = Scheduler2.unstable_scheduleCallback, cancelCallback$1 = Scheduler2.unstable_cancelCallback, shouldYield = Scheduler2.unstable_shouldYield, requestPaint = Scheduler2.unstable_requestPaint, now = Scheduler2.unstable_now, ImmediatePriority = Scheduler2.unstable_ImmediatePriority, UserBlockingPriority = Scheduler2.unstable_UserBlockingPriority, NormalPriority$1 = Scheduler2.unstable_NormalPriority, IdlePriority = Scheduler2.unstable_IdlePriority, log = Scheduler2.log, unstable_setDisableYieldValue = Scheduler2.unstable_setDisableYieldValue, rendererID = null, injectedHook = null, objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error3) {
         if ("object" === typeof window && "function" === typeof window.ErrorEvent) {
           var event = new window.ErrorEvent("error", {
             bubbles: true,
             cancelable: true,
-            message: "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2),
-            error: error2
+            message: "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3),
+            error: error3
           });
           if (!window.dispatchEvent(event)) return;
         } else if ("object" === typeof process && "function" === typeof process.emit) {
-          process.emit("uncaughtException", error2);
+          process.emit("uncaughtException", error3);
           return;
         }
-        console.error(error2);
+        console.error(error3);
       }, hasOwnProperty = Object.prototype.hasOwnProperty, prefix, suffix, reentry = false, CapturedStacks = /* @__PURE__ */ new WeakMap(), forkStack = [], forkStackIndex = 0, treeForkProvider = null, treeForkCount = 0, idStack = [], idStackIndex = 0, treeContextProvider = null, treeContextId = 1, treeContextOverflow = "", contextStackCursor = createCursor(null), contextFiberStackCursor = createCursor(null), rootInstanceStackCursor = createCursor(null), hostTransitionProviderCursor = createCursor(null), hydrationParentFiber = null, nextHydratableInstance = null, isHydrating = false, hydrationErrors = null, rootOrSingletonContext = false, HydrationMismatchException = Error(formatProdErrorMessage(519)), valueCursor = createCursor(null), currentlyRenderingFiber$1 = null, lastContextDependency = null, AbortControllerLocal = "undefined" !== typeof AbortController ? AbortController : function() {
         var listeners = [], signal = this.signal = {
           aborted: false,
@@ -18899,14 +18899,14 @@ var require_react_reconciler_production = __commonJS({
       exports2.createTextSelector = function(text) {
         return { $$typeof: TEXT_TYPE, value: text };
       };
-      exports2.defaultOnCaughtError = function(error2) {
-        console.error(error2);
+      exports2.defaultOnCaughtError = function(error3) {
+        console.error(error3);
       };
-      exports2.defaultOnRecoverableError = function(error2) {
-        reportGlobalError(error2);
+      exports2.defaultOnRecoverableError = function(error3) {
+        reportGlobalError(error3);
       };
-      exports2.defaultOnUncaughtError = function(error2) {
-        reportGlobalError(error2);
+      exports2.defaultOnUncaughtError = function(error3) {
+        reportGlobalError(error3);
       };
       exports2.deferredUpdates = function(fn) {
         var prevTransition = ReactSharedInternals.T, previousPriority = getCurrentUpdatePriority();
@@ -20054,10 +20054,10 @@ var require_react_reconciler_development = __commonJS({
             if (null !== name) {
               selfTime = [];
               for (var i = 0; i < errors.length; i++) {
-                var error2 = errors[i].value;
+                var error3 = errors[i].value;
                 selfTime.push([
                   "Error",
-                  "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2)
+                  "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3)
                 ]);
               }
               null !== fiber.key && addValueToProperties("key", fiber.key, selfTime, 0, "");
@@ -20171,10 +20171,10 @@ var require_react_reconciler_development = __commonJS({
         if (supportsUserTiming && !(endTime <= startTime)) {
           lanes = [];
           for (var i = 0; i < recoverableErrors.length; i++) {
-            var error2 = recoverableErrors[i].value;
+            var error3 = recoverableErrors[i].value;
             lanes.push([
               "Recoverable Error",
-              "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2)
+              "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3)
             ]);
           }
           startTime = {
@@ -20238,10 +20238,10 @@ var require_react_reconciler_development = __commonJS({
       function logCommitErrored(startTime, endTime, errors, passive, debugTask) {
         if (supportsUserTiming && !(endTime <= startTime)) {
           for (var properties = [], i = 0; i < errors.length; i++) {
-            var error2 = errors[i].value;
+            var error3 = errors[i].value;
             properties.push([
               "Error",
-              "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2)
+              "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3)
             ]);
           }
           startTime = {
@@ -20309,23 +20309,23 @@ var require_react_reconciler_development = __commonJS({
           "disabledDepth fell below zero. This is a bug in React. Please file an issue."
         );
       }
-      function formatOwnerStack(error2) {
+      function formatOwnerStack(error3) {
         var prevPrepareStackTrace = Error.prepareStackTrace;
         Error.prepareStackTrace = void 0;
-        error2 = error2.stack;
+        error3 = error3.stack;
         Error.prepareStackTrace = prevPrepareStackTrace;
-        error2.startsWith("Error: react-stack-top-frame\n") && (error2 = error2.slice(29));
-        prevPrepareStackTrace = error2.indexOf("\n");
-        -1 !== prevPrepareStackTrace && (error2 = error2.slice(prevPrepareStackTrace + 1));
-        prevPrepareStackTrace = error2.indexOf("react_stack_bottom_frame");
-        -1 !== prevPrepareStackTrace && (prevPrepareStackTrace = error2.lastIndexOf(
+        error3.startsWith("Error: react-stack-top-frame\n") && (error3 = error3.slice(29));
+        prevPrepareStackTrace = error3.indexOf("\n");
+        -1 !== prevPrepareStackTrace && (error3 = error3.slice(prevPrepareStackTrace + 1));
+        prevPrepareStackTrace = error3.indexOf("react_stack_bottom_frame");
+        -1 !== prevPrepareStackTrace && (prevPrepareStackTrace = error3.lastIndexOf(
           "\n",
           prevPrepareStackTrace
         ));
         if (-1 !== prevPrepareStackTrace)
-          error2 = error2.slice(0, prevPrepareStackTrace);
+          error3 = error3.slice(0, prevPrepareStackTrace);
         else return "";
-        return error2;
+        return error3;
       }
       function describeBuiltInComponentFrame(name) {
         if (void 0 === prefix)
@@ -21077,8 +21077,8 @@ var require_react_reconciler_development = __commonJS({
         ), hydrationErrors = null);
         return queuedErrors;
       }
-      function queueHydrationError(error2) {
-        null === hydrationErrors ? hydrationErrors = [error2] : hydrationErrors.push(error2);
+      function queueHydrationError(error3) {
+        null === hydrationErrors ? hydrationErrors = [error3] : hydrationErrors.push(error3);
       }
       function emitPendingHydrationWarnings() {
         var diffRoot = hydrationDiffRootDEV;
@@ -21567,8 +21567,8 @@ var require_react_reconciler_development = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve5) {
-              entangledListeners.push(resolve5);
+            then: function(resolve6) {
+              entangledListeners.push(resolve6);
             }
           };
         }
@@ -21591,8 +21591,8 @@ var require_react_reconciler_development = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve5) {
-            listeners.push(resolve5);
+          then: function(resolve6) {
+            listeners.push(resolve6);
           }
         };
         thenable.then(
@@ -21601,11 +21601,11 @@ var require_react_reconciler_development = __commonJS({
             thenableWithOverride.value = result;
             for (var i = 0; i < listeners.length; i++) (0, listeners[i])(result);
           },
-          function(error2) {
+          function(error3) {
             thenableWithOverride.status = "rejected";
-            thenableWithOverride.reason = error2;
-            for (error2 = 0; error2 < listeners.length; error2++)
-              (0, listeners[error2])(void 0);
+            thenableWithOverride.reason = error3;
+            for (error3 = 0; error3 < listeners.length; error3++)
+              (0, listeners[error3])(void 0);
           }
         );
         return thenableWithOverride;
@@ -21689,11 +21689,11 @@ var require_react_reconciler_development = __commonJS({
                     fulfilledThenable.value = fulfilledValue;
                   }
                 },
-                function(error2) {
+                function(error3) {
                   if ("pending" === thenable.status) {
                     var rejectedThenable = thenable;
                     rejectedThenable.status = "rejected";
-                    rejectedThenable.reason = error2;
+                    rejectedThenable.reason = error3;
                   }
                 }
               );
@@ -23343,7 +23343,7 @@ var require_react_reconciler_development = __commonJS({
         try {
           var nextValue = latestGetSnapshot();
           return !objectIs(inst, nextValue);
-        } catch (error2) {
+        } catch (error3) {
           return true;
         }
       }
@@ -23454,8 +23454,8 @@ var require_react_reconciler_development = __commonJS({
             var returnValue = action(prevState, payload), onStartTransitionFinish = ReactSharedInternals.S;
             null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
             handleActionReturnValue(actionQueue, node, returnValue);
-          } catch (error2) {
-            onActionError(actionQueue, node, error2);
+          } catch (error3) {
+            onActionError(actionQueue, node, error3);
           } finally {
             null !== prevTransition && null !== currentTransition.types && (null !== prevTransition.types && prevTransition.types !== currentTransition.types && console.error(
               "We expected inner Transitions to have transferred the outer types set and that you cannot add to the outer Transition while inside the inner.This is a bug in React."
@@ -23475,8 +23475,8 @@ var require_react_reconciler_development = __commonJS({
           function(nextState) {
             onActionSuccess(actionQueue, node, nextState);
           },
-          function(error2) {
-            return onActionError(actionQueue, node, error2);
+          function(error3) {
+            return onActionError(actionQueue, node, error3);
           }
         ), node.isTransition || console.error(
           "An async function with useActionState was called outside of a transition. This is likely not what you intended (for example, isPending will not update correctly). Either call the returned function inside startTransition, or pass it to an `action` or `formAction` prop."
@@ -23490,13 +23490,13 @@ var require_react_reconciler_development = __commonJS({
         actionNode = actionQueue.pending;
         null !== actionNode && (nextState = actionNode.next, nextState === actionNode ? actionQueue.pending = null : (nextState = nextState.next, actionNode.next = nextState, runActionStateAction(actionQueue, nextState)));
       }
-      function onActionError(actionQueue, actionNode, error2) {
+      function onActionError(actionQueue, actionNode, error3) {
         var last = actionQueue.pending;
         actionQueue.pending = null;
         if (null !== last) {
           last = last.next;
           do
-            actionNode.status = "rejected", actionNode.reason = error2, notifyActionListeners(actionNode), actionNode = actionNode.next;
+            actionNode.status = "rejected", actionNode.reason = error3, notifyActionListeners(actionNode), actionNode = actionNode.next;
           while (actionNode !== last);
         }
         actionQueue.action = null;
@@ -23862,12 +23862,12 @@ var require_react_reconciler_development = __commonJS({
               finishedState,
               requestUpdateLane(fiber)
             );
-        } catch (error2) {
+        } catch (error3) {
           dispatchSetStateInternal(
             fiber,
             queue,
             { then: function() {
-            }, status: "rejected", reason: error2 },
+            }, status: "rejected", reason: error3 },
             requestUpdateLane(fiber)
           );
         } finally {
@@ -24026,7 +24026,7 @@ var require_react_reconciler_development = __commonJS({
               update.eagerState = eagerState;
               if (objectIs(eagerState, currentState))
                 return enqueueUpdate$1(fiber, queue, update, 0), null === workInProgressRoot && finishQueueingConcurrentUpdates(), false;
-            } catch (error2) {
+            } catch (error3) {
             } finally {
               ReactSharedInternals.H = prevDispatcher;
             }
@@ -24167,12 +24167,12 @@ var require_react_reconciler_development = __commonJS({
         try {
           componentName = errorInfo.source ? getComponentNameFromFiber(errorInfo.source) : null;
           errorBoundaryName = null;
-          var error2 = errorInfo.value;
+          var error3 = errorInfo.value;
           if (null !== ReactSharedInternals.actQueue)
-            ReactSharedInternals.thrownErrors.push(error2);
+            ReactSharedInternals.thrownErrors.push(error3);
           else {
             var onUncaughtError = root.onUncaughtError;
-            onUncaughtError(error2, { componentStack: errorInfo.stack });
+            onUncaughtError(error3, { componentStack: errorInfo.stack });
           }
         } catch (e) {
           setTimeout(function() {
@@ -24212,9 +24212,9 @@ var require_react_reconciler_development = __commonJS({
       function initializeClassErrorUpdate(update, root, fiber, errorInfo) {
         var getDerivedStateFromError = fiber.type.getDerivedStateFromError;
         if ("function" === typeof getDerivedStateFromError) {
-          var error2 = errorInfo.value;
+          var error3 = errorInfo.value;
           update.payload = function() {
-            return getDerivedStateFromError(error2);
+            return getDerivedStateFromError(error3);
           };
           update.callback = function() {
             markFailedErrorBoundaryForHotReloading(fiber);
@@ -24300,14 +24300,14 @@ var require_react_reconciler_development = __commonJS({
             value,
             rootRenderLanes
           ), enqueueCapturedUpdate(root, rootRenderLanes), workInProgressRootExitStatus !== RootSuspendedWithDelay && (workInProgressRootExitStatus = RootErrored)), false;
-        var error2 = createCapturedValueAtFiber(
+        var error3 = createCapturedValueAtFiber(
           Error(
             "There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root.",
             { cause: value }
           ),
           sourceFiber
         );
-        null === workInProgressRootConcurrentErrors ? workInProgressRootConcurrentErrors = [error2] : workInProgressRootConcurrentErrors.push(error2);
+        null === workInProgressRootConcurrentErrors ? workInProgressRootConcurrentErrors = [error3] : workInProgressRootConcurrentErrors.push(error3);
         workInProgressRootExitStatus !== RootSuspendedWithDelay && (workInProgressRootExitStatus = RootErrored);
         if (null === returnFiber) return true;
         value = createCapturedValueAtFiber(value, sourceFiber);
@@ -24321,7 +24321,7 @@ var require_react_reconciler_development = __commonJS({
                 root
               ), enqueueCapturedUpdate(sourceFiber, root), false;
             case 1:
-              if (returnFiber = sourceFiber.type, error2 = sourceFiber.stateNode, 0 === (sourceFiber.flags & 128) && ("function" === typeof returnFiber.getDerivedStateFromError || null !== error2 && "function" === typeof error2.componentDidCatch && (null === legacyErrorBoundariesThatAlreadyFailed || !legacyErrorBoundariesThatAlreadyFailed.has(error2))))
+              if (returnFiber = sourceFiber.type, error3 = sourceFiber.stateNode, 0 === (sourceFiber.flags & 128) && ("function" === typeof returnFiber.getDerivedStateFromError || null !== error3 && "function" === typeof error3.componentDidCatch && (null === legacyErrorBoundariesThatAlreadyFailed || !legacyErrorBoundariesThatAlreadyFailed.has(error3))))
                 return sourceFiber.flags |= 65536, rootRenderLanes &= -rootRenderLanes, sourceFiber.lanes |= rootRenderLanes, rootRenderLanes = createClassErrorUpdate(rootRenderLanes), initializeClassErrorUpdate(
                   rootRenderLanes,
                   root,
@@ -26605,8 +26605,8 @@ var require_react_reconciler_development = __commonJS({
               updateQueue = updateQueue.next;
             } while (updateQueue !== firstEffect);
           }
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHookEffectListUnmount(flags, finishedWork, nearestMountedAncestor) {
@@ -26629,8 +26629,8 @@ var require_react_reconciler_development = __commonJS({
               updateQueue = updateQueue.next;
             } while (updateQueue !== firstEffect);
           }
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHookPassiveMountEffects(finishedWork, hookFlags) {
@@ -26665,8 +26665,8 @@ var require_react_reconciler_development = __commonJS({
               updateQueue,
               instance
             );
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }
@@ -26703,8 +26703,8 @@ var require_react_reconciler_development = __commonJS({
             );
           }));
           current2.__reactInternalSnapshotBeforeUpdate = snapshot;
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function safelyCallComponentWillUnmount(current2, nearestMountedAncestor, instance) {
@@ -26760,8 +26760,8 @@ var require_react_reconciler_development = __commonJS({
       function safelyAttachRef(current2, nearestMountedAncestor) {
         try {
           runWithFiberInDEV(current2, commitAttachRef, current2);
-        } catch (error2) {
-          captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+        } catch (error3) {
+          captureCommitPhaseError(current2, nearestMountedAncestor, error3);
         }
       }
       function safelyDetachRef(current2, nearestMountedAncestor) {
@@ -26776,8 +26776,8 @@ var require_react_reconciler_development = __commonJS({
                   recordEffectDuration(current2);
                 }
               else runWithFiberInDEV(current2, refCleanup);
-            } catch (error2) {
-              captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+            } catch (error3) {
+              captureCommitPhaseError(current2, nearestMountedAncestor, error3);
             } finally {
               current2.refCleanup = null, current2 = current2.alternate, null != current2 && (current2.refCleanup = null);
             }
@@ -26834,8 +26834,8 @@ var require_react_reconciler_development = __commonJS({
             props,
             finishedWork
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHostUpdate(finishedWork, newProps, oldProps) {
@@ -26849,8 +26849,8 @@ var require_react_reconciler_development = __commonJS({
             newProps,
             finishedWork
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function isHostParent(fiber) {
@@ -26950,8 +26950,8 @@ var require_react_reconciler_development = __commonJS({
             portal,
             pendingChildren
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function commitHostSingletonAcquisition(finishedWork) {
@@ -26965,8 +26965,8 @@ var require_react_reconciler_development = __commonJS({
             singleton,
             finishedWork
           );
-        } catch (error2) {
-          captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+        } catch (error3) {
+          captureCommitPhaseError(finishedWork, finishedWork.return, error3);
         }
       }
       function isHydratingParent(current2, finishedWork) {
@@ -27103,8 +27103,8 @@ var require_react_reconciler_development = __commonJS({
                   flags,
                   prevProps
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             }
             finishedRoot.effectDuration += popNestedEffectDurations(current2);
@@ -27129,11 +27129,11 @@ var require_react_reconciler_development = __commonJS({
                     current2,
                     finishedWork
                   );
-                } catch (error2) {
+                } catch (error3) {
                   captureCommitPhaseError(
                     finishedWork,
                     finishedWork.return,
-                    error2
+                    error3
                   );
                 }
               }
@@ -27155,8 +27155,8 @@ var require_react_reconciler_development = __commonJS({
                   commitStartTime,
                   finishedRoot.effectDuration
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             } else recursivelyTraverseLayoutEffects(finishedRoot, finishedWork);
             break;
@@ -27301,11 +27301,11 @@ var require_react_reconciler_development = __commonJS({
                       hostParent,
                       deletedFiber.stateNode
                     );
-                  } catch (error2) {
+                  } catch (error3) {
                     captureCommitPhaseError(
                       deletedFiber,
                       nearestMountedAncestor,
-                      error2
+                      error3
                     );
                   }
                 else
@@ -27316,11 +27316,11 @@ var require_react_reconciler_development = __commonJS({
                       hostParent,
                       deletedFiber.stateNode
                     );
-                  } catch (error2) {
+                  } catch (error3) {
                     captureCommitPhaseError(
                       deletedFiber,
                       nearestMountedAncestor,
-                      error2
+                      error3
                     );
                   }
             } else
@@ -27427,8 +27427,8 @@ var require_react_reconciler_development = __commonJS({
               commitHydratedActivityInstance,
               finishedRoot
             );
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }
@@ -27440,8 +27440,8 @@ var require_react_reconciler_development = __commonJS({
               commitHydratedSuspenseInstance,
               finishedRoot
             );
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
       }
       function getRetryCache(finishedWork) {
@@ -27611,11 +27611,11 @@ var require_react_reconciler_development = __commonJS({
                 root = finishedWork.stateNode;
                 try {
                   runWithFiberInDEV(finishedWork, resetTextContent, root);
-                } catch (error2) {
+                } catch (error3) {
                   captureCommitPhaseError(
                     finishedWork,
                     finishedWork.return,
-                    error2
+                    error3
                   );
                 }
               }
@@ -27649,8 +27649,8 @@ var require_react_reconciler_development = __commonJS({
                   current2,
                   flags
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             }
             break;
@@ -27672,11 +27672,11 @@ var require_react_reconciler_development = __commonJS({
                     commitHydratedContainer,
                     root.containerInfo
                   );
-                } catch (error2) {
+                } catch (error3) {
                   captureCommitPhaseError(
                     finishedWork,
                     finishedWork.return,
-                    error2
+                    error3
                   );
                 }
               if (supportsPersistence) {
@@ -27689,11 +27689,11 @@ var require_react_reconciler_development = __commonJS({
                     flags,
                     current2
                   );
-                } catch (error2) {
+                } catch (error3) {
                   captureCommitPhaseError(
                     finishedWork,
                     finishedWork.return,
-                    error2
+                    error3
                   );
                 }
               }
@@ -27764,11 +27764,11 @@ var require_react_reconciler_development = __commonJS({
                           wasHidden.stateNode,
                           wasHidden.memoizedProps
                         );
-                      } catch (error2) {
+                      } catch (error3) {
                         captureCommitPhaseError(
                           wasHidden,
                           wasHidden.return,
-                          error2
+                          error3
                         );
                       }
                     }
@@ -27787,11 +27787,11 @@ var require_react_reconciler_development = __commonJS({
                           instance,
                           wasHidden.memoizedProps
                         );
-                      } catch (error2) {
+                      } catch (error3) {
                         captureCommitPhaseError(
                           wasHidden,
                           wasHidden.return,
-                          error2
+                          error3
                         );
                       }
                     }
@@ -27809,11 +27809,11 @@ var require_react_reconciler_development = __commonJS({
                           unhideDehydratedBoundary,
                           wasHidden.stateNode
                         );
-                      } catch (error2) {
+                      } catch (error3) {
                         captureCommitPhaseError(
                           wasHidden,
                           wasHidden.return,
-                          error2
+                          error3
                         );
                       }
                     }
@@ -27873,8 +27873,8 @@ var require_react_reconciler_development = __commonJS({
         if (flags & 2) {
           try {
             runWithFiberInDEV(finishedWork, commitPlacement, finishedWork);
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
           finishedWork.flags &= -3;
         }
@@ -27990,8 +27990,8 @@ var require_react_reconciler_development = __commonJS({
                   current2,
                   finishedRoot
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             }
             includeWorkInProgressEffects && flags & 64 && commitClassCallbacks(finishedWork);
@@ -28028,8 +28028,8 @@ var require_react_reconciler_development = __commonJS({
                   commitStartTime,
                   includeWorkInProgressEffects.effectDuration
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             } else
               recursivelyTraverseReappearLayoutEffects(
@@ -28200,8 +28200,8 @@ var require_react_reconciler_development = __commonJS({
                   commitStartTime,
                   finishedRoot.passiveEffectDuration
                 );
-              } catch (error2) {
-                captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+              } catch (error3) {
+                captureCommitPhaseError(finishedWork, finishedWork.return, error3);
               }
             } else
               recursivelyTraversePassiveMountEffects(
@@ -29254,7 +29254,7 @@ var require_react_reconciler_development = __commonJS({
               check2 = check2.value;
               try {
                 if (!objectIs(getSnapshot(), check2)) return false;
-              } catch (error2) {
+              } catch (error3) {
                 return false;
               }
             }
@@ -29848,8 +29848,8 @@ var require_react_reconciler_development = __commonJS({
             workInProgress = null;
             return;
           }
-        } catch (error2) {
-          if (null !== returnFiber) throw workInProgress = returnFiber, error2;
+        } catch (error3) {
+          if (null !== returnFiber) throw workInProgress = returnFiber, error3;
           workInProgressRootExitStatus = RootFatalErrored;
           logUncaughtError(
             root,
@@ -30377,36 +30377,36 @@ var require_react_reconciler_development = __commonJS({
           setCurrentUpdatePriority(previousPriority), ReactSharedInternals.T = renderPriority, releaseRootPooledCache(root, remainingLanes);
         }
       }
-      function captureCommitPhaseErrorOnRoot(rootFiber, sourceFiber, error2) {
-        sourceFiber = createCapturedValueAtFiber(error2, sourceFiber);
+      function captureCommitPhaseErrorOnRoot(rootFiber, sourceFiber, error3) {
+        sourceFiber = createCapturedValueAtFiber(error3, sourceFiber);
         recordEffectError(sourceFiber);
         sourceFiber = createRootErrorUpdate(rootFiber.stateNode, sourceFiber, 2);
         rootFiber = enqueueUpdate(rootFiber, sourceFiber, 2);
         null !== rootFiber && (markRootUpdated$1(rootFiber, 2), ensureRootIsScheduled(rootFiber));
       }
-      function captureCommitPhaseError(sourceFiber, nearestMountedAncestor, error2) {
+      function captureCommitPhaseError(sourceFiber, nearestMountedAncestor, error3) {
         isRunningInsertionEffect = false;
         if (3 === sourceFiber.tag)
-          captureCommitPhaseErrorOnRoot(sourceFiber, sourceFiber, error2);
+          captureCommitPhaseErrorOnRoot(sourceFiber, sourceFiber, error3);
         else {
           for (; null !== nearestMountedAncestor; ) {
             if (3 === nearestMountedAncestor.tag) {
               captureCommitPhaseErrorOnRoot(
                 nearestMountedAncestor,
                 sourceFiber,
-                error2
+                error3
               );
               return;
             }
             if (1 === nearestMountedAncestor.tag) {
               var instance = nearestMountedAncestor.stateNode;
               if ("function" === typeof nearestMountedAncestor.type.getDerivedStateFromError || "function" === typeof instance.componentDidCatch && (null === legacyErrorBoundariesThatAlreadyFailed || !legacyErrorBoundariesThatAlreadyFailed.has(instance))) {
-                sourceFiber = createCapturedValueAtFiber(error2, sourceFiber);
+                sourceFiber = createCapturedValueAtFiber(error3, sourceFiber);
                 recordEffectError(sourceFiber);
-                error2 = createClassErrorUpdate(2);
-                instance = enqueueUpdate(nearestMountedAncestor, error2, 2);
+                error3 = createClassErrorUpdate(2);
+                instance = enqueueUpdate(nearestMountedAncestor, error3, 2);
                 null !== instance && (initializeClassErrorUpdate(
-                  error2,
+                  error3,
                   instance,
                   nearestMountedAncestor,
                   sourceFiber
@@ -30418,7 +30418,7 @@ var require_react_reconciler_development = __commonJS({
           }
           console.error(
             "Internal React error: Attempted to capture a commit phase error inside a detached tree. This indicates a bug in React. Potential causes include deleting the same fiber more than once, committing an already-finished tree, or an inconsistent return pointer.\n\nError message:\n\n%s",
-            error2
+            error3
           );
         }
       }
@@ -30932,14 +30932,14 @@ var require_react_reconciler_development = __commonJS({
       }
       var exports2 = {};
       "use strict";
-      var React16 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
+      var React17 = require_react(), Scheduler2 = require_scheduler(), assign = Object.assign, REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element"), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy");
       /* @__PURE__ */ Symbol.for("react.scope");
       var REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity");
       /* @__PURE__ */ Symbol.for("react.legacy_hidden");
       /* @__PURE__ */ Symbol.for("react.tracing_marker");
       var REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
       /* @__PURE__ */ Symbol.for("react.view_transition");
-      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
+      var MAYBE_ITERATOR_SYMBOL = Symbol.iterator, REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), isArrayImpl = Array.isArray, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, rendererVersion = $$$config.rendererVersion, rendererPackageName = $$$config.rendererPackageName, extraDevToolsConfig = $$$config.extraDevToolsConfig, getPublicInstance = $$$config.getPublicInstance, getRootHostContext = $$$config.getRootHostContext, getChildHostContext = $$$config.getChildHostContext, prepareForCommit = $$$config.prepareForCommit, resetAfterCommit = $$$config.resetAfterCommit, createInstance = $$$config.createInstance;
       $$$config.cloneMutableInstance;
       var appendInitialChild = $$$config.appendInitialChild, finalizeInitialChildren = $$$config.finalizeInitialChildren, shouldSetTextContent = $$$config.shouldSetTextContent, createTextInstance = $$$config.createTextInstance;
       $$$config.cloneMutableTextInstance;
@@ -30993,20 +30993,20 @@ var require_react_reconciler_development = __commonJS({
           return localDate.now();
         };
       }
-      var objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+      var objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error3) {
         if ("object" === typeof window && "function" === typeof window.ErrorEvent) {
           var event = new window.ErrorEvent("error", {
             bubbles: true,
             cancelable: true,
-            message: "object" === typeof error2 && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2),
-            error: error2
+            message: "object" === typeof error3 && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3),
+            error: error3
           });
           if (!window.dispatchEvent(event)) return;
         } else if ("object" === typeof process && "function" === typeof process.emit) {
-          process.emit("uncaughtException", error2);
+          process.emit("uncaughtException", error3);
           return;
         }
-        console.error(error2);
+        console.error(error3);
       }, hasOwnProperty = Object.prototype.hasOwnProperty, supportsUserTiming = "undefined" !== typeof console && "function" === typeof console.timeStamp && "undefined" !== typeof performance && "function" === typeof performance.measure, currentTrack = "Blocking", alreadyWarnedForDeepEquality = false, reusableComponentDevToolDetails = {
         color: "primary",
         properties: null,
@@ -31225,8 +31225,8 @@ var require_react_reconciler_development = __commonJS({
         react_stack_bottom_frame: function(finishedWork, instance) {
           try {
             instance.componentDidMount();
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }, callComponentDidMountInDEV = callComponentDidMount.react_stack_bottom_frame.bind(
@@ -31235,8 +31235,8 @@ var require_react_reconciler_development = __commonJS({
         react_stack_bottom_frame: function(finishedWork, instance, prevProps, prevState, snapshot) {
           try {
             instance.componentDidUpdate(prevProps, prevState, snapshot);
-          } catch (error2) {
-            captureCommitPhaseError(finishedWork, finishedWork.return, error2);
+          } catch (error3) {
+            captureCommitPhaseError(finishedWork, finishedWork.return, error3);
           }
         }
       }, callComponentDidUpdateInDEV = callComponentDidUpdate.react_stack_bottom_frame.bind(
@@ -31254,8 +31254,8 @@ var require_react_reconciler_development = __commonJS({
         react_stack_bottom_frame: function(current2, nearestMountedAncestor, instance) {
           try {
             instance.componentWillUnmount();
-          } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+          } catch (error3) {
+            captureCommitPhaseError(current2, nearestMountedAncestor, error3);
           }
         }
       }, callComponentWillUnmountInDEV = callComponentWillUnmount.react_stack_bottom_frame.bind(
@@ -31271,8 +31271,8 @@ var require_react_reconciler_development = __commonJS({
         react_stack_bottom_frame: function(current2, nearestMountedAncestor, destroy) {
           try {
             destroy();
-          } catch (error2) {
-            captureCommitPhaseError(current2, nearestMountedAncestor, error2);
+          } catch (error3) {
+            captureCommitPhaseError(current2, nearestMountedAncestor, error3);
           }
         }
       }, callDestroyInDEV = callDestroy.react_stack_bottom_frame.bind(callDestroy), callLazyInit = {
@@ -32610,24 +32610,24 @@ var require_react_reconciler_development = __commonJS({
       exports2.createTextSelector = function(text) {
         return { $$typeof: TEXT_TYPE, value: text };
       };
-      exports2.defaultOnCaughtError = function(error2) {
+      exports2.defaultOnCaughtError = function(error3) {
         var componentNameMessage = componentName ? "The above error occurred in the <" + componentName + "> component." : "The above error occurred in one of your React components.", recreateMessage = "React will try to recreate this component tree from scratch using the error boundary you provided, " + ((errorBoundaryName || "Anonymous") + ".");
-        "object" === typeof error2 && null !== error2 && "string" === typeof error2.environmentName ? bindToConsole(
+        "object" === typeof error3 && null !== error3 && "string" === typeof error3.environmentName ? bindToConsole(
           "error",
-          ["%o\n\n%s\n\n%s\n", error2, componentNameMessage, recreateMessage],
-          error2.environmentName
+          ["%o\n\n%s\n\n%s\n", error3, componentNameMessage, recreateMessage],
+          error3.environmentName
         )() : console.error(
           "%o\n\n%s\n\n%s\n",
-          error2,
+          error3,
           componentNameMessage,
           recreateMessage
         );
       };
-      exports2.defaultOnRecoverableError = function(error2) {
-        reportGlobalError(error2);
+      exports2.defaultOnRecoverableError = function(error3) {
+        reportGlobalError(error3);
       };
-      exports2.defaultOnUncaughtError = function(error2) {
-        reportGlobalError(error2);
+      exports2.defaultOnUncaughtError = function(error3) {
+        reportGlobalError(error3);
         console.warn(
           "%s\n\n%s\n",
           componentName ? "An error occurred in the <" + componentName + "> component." : "An error occurred in one of your React components.",
@@ -34890,26 +34890,26 @@ var require_receiver = __commonJS({
         }
         const buf = this.consume(2);
         if ((buf[0] & 48) !== 0) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "RSV2 and RSV3 must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_RSV_2_3"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         const compressed = (buf[0] & 64) === 64;
         if (compressed && !this._extensions[PerMessageDeflate.extensionName]) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "RSV1 must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_RSV_1"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         this._fin = (buf[0] & 128) === 128;
@@ -34917,109 +34917,109 @@ var require_receiver = __commonJS({
         this._payloadLength = buf[1] & 127;
         if (this._opcode === 0) {
           if (compressed) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "RSV1 must be clear",
               true,
               1002,
               "WS_ERR_UNEXPECTED_RSV_1"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (!this._fragmented) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "invalid opcode 0",
               true,
               1002,
               "WS_ERR_INVALID_OPCODE"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           this._opcode = this._fragmented;
         } else if (this._opcode === 1 || this._opcode === 2) {
           if (this._fragmented) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               `invalid opcode ${this._opcode}`,
               true,
               1002,
               "WS_ERR_INVALID_OPCODE"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           this._compressed = compressed;
         } else if (this._opcode > 7 && this._opcode < 11) {
           if (!this._fin) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "FIN must be set",
               true,
               1002,
               "WS_ERR_EXPECTED_FIN"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (compressed) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "RSV1 must be clear",
               true,
               1002,
               "WS_ERR_UNEXPECTED_RSV_1"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (this._payloadLength > 125 || this._opcode === 8 && this._payloadLength === 1) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               `invalid payload length ${this._payloadLength}`,
               true,
               1002,
               "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         } else {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             `invalid opcode ${this._opcode}`,
             true,
             1002,
             "WS_ERR_INVALID_OPCODE"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         if (!this._fin && !this._fragmented) this._fragmented = this._opcode;
         this._masked = (buf[1] & 128) === 128;
         if (this._isServer) {
           if (!this._masked) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "MASK must be set",
               true,
               1002,
               "WS_ERR_EXPECTED_MASK"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         } else if (this._masked) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "MASK must be clear",
             true,
             1002,
             "WS_ERR_UNEXPECTED_MASK"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         if (this._payloadLength === 126) this._state = GET_PAYLOAD_LENGTH_16;
@@ -35054,14 +35054,14 @@ var require_receiver = __commonJS({
         const buf = this.consume(8);
         const num = buf.readUInt32BE(0);
         if (num > Math.pow(2, 53 - 32) - 1) {
-          const error2 = this.createError(
+          const error3 = this.createError(
             RangeError,
             "Unsupported WebSocket frame: payload length > 2^53 - 1",
             false,
             1009,
             "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH"
           );
-          cb(error2);
+          cb(error3);
           return;
         }
         this._payloadLength = num * Math.pow(2, 32) + buf.readUInt32BE(4);
@@ -35077,14 +35077,14 @@ var require_receiver = __commonJS({
         if (this._payloadLength && this._opcode < 8) {
           this._totalPayloadLength += this._payloadLength;
           if (this._totalPayloadLength > this._maxPayload && this._maxPayload > 0) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               RangeError,
               "Max payload size exceeded",
               false,
               1009,
               "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
         }
@@ -35151,14 +35151,14 @@ var require_receiver = __commonJS({
           if (buf.length) {
             this._messageLength += buf.length;
             if (this._messageLength > this._maxPayload && this._maxPayload > 0) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 RangeError,
                 "Max payload size exceeded",
                 false,
                 1009,
                 "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             this._fragments.push(buf);
@@ -35209,14 +35209,14 @@ var require_receiver = __commonJS({
         } else {
           const buf = concat(fragments, messageLength);
           if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
-            const error2 = this.createError(
+            const error3 = this.createError(
               Error,
               "invalid UTF-8 sequence",
               true,
               1007,
               "WS_ERR_INVALID_UTF8"
             );
-            cb(error2);
+            cb(error3);
             return;
           }
           if (this._state === INFLATING || this._allowSynchronousEvents) {
@@ -35248,14 +35248,14 @@ var require_receiver = __commonJS({
           } else {
             const code = data.readUInt16BE(0);
             if (!isValidStatusCode(code)) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 RangeError,
                 `invalid status code ${code}`,
                 true,
                 1002,
                 "WS_ERR_INVALID_CLOSE_CODE"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             const buf = new FastBuffer(
@@ -35264,14 +35264,14 @@ var require_receiver = __commonJS({
               data.length - 2
             );
             if (!this._skipUTF8Validation && !isValidUTF8(buf)) {
-              const error2 = this.createError(
+              const error3 = this.createError(
                 Error,
                 "invalid UTF-8 sequence",
                 true,
                 1007,
                 "WS_ERR_INVALID_UTF8"
               );
-              cb(error2);
+              cb(error3);
               return;
             }
             this._loop = false;
@@ -35980,10 +35980,10 @@ var require_event_target = __commonJS({
             callListener(handler, this, event);
           };
         } else if (type === "error") {
-          wrapper = function onError(error2) {
+          wrapper = function onError(error3) {
             const event = new ErrorEvent("error", {
-              error: error2,
-              message: error2.message
+              error: error3,
+              message: error3.message
             });
             event[kTarget] = this;
             callListener(handler, this, event);
@@ -37111,7 +37111,7 @@ var require_stream = __commonJS({
         const data = !isBinary && duplex._readableState.objectMode ? msg.toString() : msg;
         if (!duplex.push(data)) ws.pause();
       });
-      ws.once("error", function error2(err) {
+      ws.once("error", function error3(err) {
         if (duplex.destroyed) return;
         terminateOnDestroy = false;
         duplex.destroy(err);
@@ -37127,7 +37127,7 @@ var require_stream = __commonJS({
           return;
         }
         let called = false;
-        ws.once("error", function error2(err2) {
+        ws.once("error", function error3(err2) {
           called = true;
           callback(err2);
         });
@@ -37723,7 +37723,7 @@ var require_backend = __commonJS({
                     return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
                   }, _typeof(o);
                 }
-                var ErrorStackParser = __webpack_require__2(206), React16 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
+                var ErrorStackParser = __webpack_require__2(206), React17 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
                 function getPrimitiveStackCache() {
                   if (null === primitiveStackCache) {
                     var cache3 = /* @__PURE__ */ new Map();
@@ -37861,7 +37861,7 @@ var require_backend = __commonJS({
                     }
                     throw Error("An unsupported type was passed to use(): " + String(usable));
                   },
-                  useCallback: function useCallback8(callback) {
+                  useCallback: function useCallback9(callback) {
                     var hook = nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37885,7 +37885,7 @@ var require_backend = __commonJS({
                     });
                     return value;
                   },
-                  useEffect: function useEffect9(create3) {
+                  useEffect: function useEffect10(create3) {
                     nextHook();
                     hookLog.push({
                       displayName: null,
@@ -37931,7 +37931,7 @@ var require_backend = __commonJS({
                       dispatcherHookName: "InsertionEffect"
                     });
                   },
-                  useMemo: function useMemo5(nextCreate) {
+                  useMemo: function useMemo6(nextCreate) {
                     var hook = nextHook();
                     nextCreate = null !== hook ? hook.memoizedState[0] : nextCreate();
                     hookLog.push({
@@ -37958,7 +37958,7 @@ var require_backend = __commonJS({
                     return [initialArg, function() {
                     }];
                   },
-                  useRef: function useRef6(initialValue) {
+                  useRef: function useRef7(initialValue) {
                     var hook = nextHook();
                     initialValue = null !== hook ? hook.memoizedState : {
                       current: initialValue
@@ -37973,7 +37973,7 @@ var require_backend = __commonJS({
                     });
                     return initialValue;
                   },
-                  useState: function useState11(initialState) {
+                  useState: function useState13(initialState) {
                     var hook = nextHook();
                     initialState = null !== hook ? hook.memoizedState : "function" === typeof initialState ? initialState() : initialState;
                     hookLog.push({
@@ -38071,7 +38071,7 @@ var require_backend = __commonJS({
                     nextHook();
                     nextHook();
                     action = Error();
-                    var debugInfo = null, error2 = null;
+                    var debugInfo = null, error3 = null;
                     if (null !== hook) {
                       if (initialState = hook.memoizedState, "object" === _typeof(initialState) && null !== initialState && "function" === typeof initialState.then) switch (initialState.status) {
                         case "fulfilled":
@@ -38079,10 +38079,10 @@ var require_backend = __commonJS({
                           debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo;
                           break;
                         case "rejected":
-                          error2 = initialState.reason;
+                          error3 = initialState.reason;
                           break;
                         default:
-                          error2 = SuspenseException, debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo, value = initialState;
+                          error3 = SuspenseException, debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo, value = initialState;
                       }
                       else value = initialState;
                     } else value = initialState;
@@ -38094,7 +38094,7 @@ var require_backend = __commonJS({
                       debugInfo,
                       dispatcherHookName: "FormState"
                     });
-                    if (null !== error2) throw error2;
+                    if (null !== error3) throw error3;
                     return [value, function() {
                     }, false];
                   },
@@ -38103,7 +38103,7 @@ var require_backend = __commonJS({
                     nextHook();
                     nextHook();
                     action = Error();
-                    var debugInfo = null, error2 = null;
+                    var debugInfo = null, error3 = null;
                     if (null !== hook) {
                       if (initialState = hook.memoizedState, "object" === _typeof(initialState) && null !== initialState && "function" === typeof initialState.then) switch (initialState.status) {
                         case "fulfilled":
@@ -38111,10 +38111,10 @@ var require_backend = __commonJS({
                           debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo;
                           break;
                         case "rejected":
-                          error2 = initialState.reason;
+                          error3 = initialState.reason;
                           break;
                         default:
-                          error2 = SuspenseException, debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo, value = initialState;
+                          error3 = SuspenseException, debugInfo = void 0 === initialState._debugInfo ? null : initialState._debugInfo, value = initialState;
                       }
                       else value = initialState;
                     } else value = initialState;
@@ -38126,7 +38126,7 @@ var require_backend = __commonJS({
                       debugInfo,
                       dispatcherHookName: "ActionState"
                     });
-                    if (null !== error2) throw error2;
+                    if (null !== error3) throw error3;
                     return [value, function() {
                     }, false];
                   },
@@ -38307,14 +38307,14 @@ var require_backend = __commonJS({
                     return _ref.value;
                   })));
                 }
-                function handleRenderFunctionError(error2) {
-                  if (error2 !== SuspenseException) {
-                    if (error2 instanceof Error && "ReactDebugToolsUnsupportedHookError" === error2.name) throw error2;
+                function handleRenderFunctionError(error3) {
+                  if (error3 !== SuspenseException) {
+                    if (error3 instanceof Error && "ReactDebugToolsUnsupportedHookError" === error3.name) throw error3;
                     var wrapperError = Error("Error rendering inspected component", {
-                      cause: error2
+                      cause: error3
                     });
                     wrapperError.name = "ReactDebugToolsRenderError";
-                    wrapperError.cause = error2;
+                    wrapperError.cause = error3;
                     throw wrapperError;
                   }
                 }
@@ -38325,8 +38325,8 @@ var require_backend = __commonJS({
                   try {
                     var ancestorStackError = Error();
                     renderFunction(props);
-                  } catch (error2) {
-                    handleRenderFunctionError(error2);
+                  } catch (error3) {
+                    handleRenderFunctionError(error3);
                   } finally {
                     renderFunction = hookLog, hookLog = [], currentDispatcher.H = previousDispatcher;
                   }
@@ -38381,8 +38381,8 @@ var require_backend = __commonJS({
                       try {
                         var ancestorStackError = Error();
                         renderFunction(context, ref);
-                      } catch (error2) {
-                        handleRenderFunctionError(error2);
+                      } catch (error3) {
+                        handleRenderFunctionError(error3);
                       } finally {
                         var readHookLog = hookLog;
                         hookLog = [];
@@ -38515,8 +38515,8 @@ var require_backend = __commonJS({
                     default:
                       switch ("string" === typeof thenable.status ? thenable.then(noop2, noop2) : (thenable.status = "pending", thenable.then(function(fulfilledValue) {
                         "pending" === thenable.status && (thenable.status = "fulfilled", thenable.value = fulfilledValue);
-                      }, function(error2) {
-                        "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error2);
+                      }, function(error3) {
+                        "pending" === thenable.status && (thenable.status = "rejected", thenable.reason = error3);
                       })), thenable.status) {
                         case "fulfilled":
                           return thenable.value;
@@ -38575,8 +38575,8 @@ var require_backend = __commonJS({
                     ctor = ctor();
                     ctor.then(function(moduleObject) {
                       if (0 === payload._status || -1 === payload._status) payload._status = 1, payload._result = moduleObject;
-                    }, function(error2) {
-                      if (0 === payload._status || -1 === payload._status) payload._status = 2, payload._result = error2;
+                    }, function(error3) {
+                      if (0 === payload._status || -1 === payload._status) payload._status = 2, payload._result = error3;
                     });
                     -1 === payload._status && (payload._status = 0, payload._result = ctor);
                   }
@@ -38586,20 +38586,20 @@ var require_backend = __commonJS({
                 function useOptimistic(passthrough, reducer) {
                   return ReactSharedInternals.H.useOptimistic(passthrough, reducer);
                 }
-                var reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+                var reportGlobalError = "function" === typeof reportError ? reportError : function(error3) {
                   if ("object" === (typeof window === "undefined" ? "undefined" : _typeof(window)) && "function" === typeof window.ErrorEvent) {
                     var event = new window.ErrorEvent("error", {
                       bubbles: true,
                       cancelable: true,
-                      message: "object" === _typeof(error2) && null !== error2 && "string" === typeof error2.message ? String(error2.message) : String(error2),
-                      error: error2
+                      message: "object" === _typeof(error3) && null !== error3 && "string" === typeof error3.message ? String(error3.message) : String(error3),
+                      error: error3
                     });
                     if (!window.dispatchEvent(event)) return;
                   } else if ("object" === (typeof process21 === "undefined" ? "undefined" : _typeof(process21)) && "function" === typeof process21.emit) {
-                    process21.emit("uncaughtException", error2);
+                    process21.emit("uncaughtException", error3);
                     return;
                   }
-                  console.error(error2);
+                  console.error(error3);
                 };
                 function startTransition(scope) {
                   var prevTransition = ReactSharedInternals.T, currentTransition = {};
@@ -38610,8 +38610,8 @@ var require_backend = __commonJS({
                     var returnValue = scope(), onStartTransitionFinish = ReactSharedInternals.S;
                     null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
                     "object" === _typeof(returnValue) && null !== returnValue && "function" === typeof returnValue.then && returnValue.then(noop2, reportGlobalError);
-                  } catch (error2) {
-                    reportGlobalError(error2);
+                  } catch (error3) {
+                    reportGlobalError(error3);
                   } finally {
                     null !== prevTransition && null !== currentTransition.types && (prevTransition.types = currentTransition.types), ReactSharedInternals.T = prevTransition;
                   }
@@ -38767,8 +38767,8 @@ var require_backend = __commonJS({
                     scope();
                     var onStartGestureTransitionFinish = ReactSharedInternals.G;
                     if (null !== onStartGestureTransitionFinish) return onStartGestureTransitionFinish(currentTransition, provider, options);
-                  } catch (error2) {
-                    reportGlobalError(error2);
+                  } catch (error3) {
+                    reportGlobalError(error3);
                   } finally {
                     ReactSharedInternals.T = prevTransition;
                   }
@@ -38870,13 +38870,13 @@ var require_backend = __commonJS({
                   var CHROME_IE_STACK_REGEXP = /^\s*at .*(\S+:\d+|\(native\))/m;
                   var SAFARI_NATIVE_CODE_REGEXP = /^(eval@)?(\[native code])?$/;
                   return {
-                    parse: function ErrorStackParser$$parse(error2) {
-                      if (typeof error2.stacktrace !== "undefined" || typeof error2["opera#sourceloc"] !== "undefined") {
-                        return this.parseOpera(error2);
-                      } else if (error2.stack && error2.stack.match(CHROME_IE_STACK_REGEXP)) {
-                        return this.parseV8OrIE(error2);
-                      } else if (error2.stack) {
-                        return this.parseFFOrSafari(error2);
+                    parse: function ErrorStackParser$$parse(error3) {
+                      if (typeof error3.stacktrace !== "undefined" || typeof error3["opera#sourceloc"] !== "undefined") {
+                        return this.parseOpera(error3);
+                      } else if (error3.stack && error3.stack.match(CHROME_IE_STACK_REGEXP)) {
+                        return this.parseV8OrIE(error3);
+                      } else if (error3.stack) {
+                        return this.parseFFOrSafari(error3);
                       } else {
                         throw new Error("Cannot parse given Error object");
                       }
@@ -38889,8 +38889,8 @@ var require_backend = __commonJS({
                       var parts = regExp.exec(urlLike.replace(/[()]/g, ""));
                       return [parts[1], parts[2] || void 0, parts[3] || void 0];
                     },
-                    parseV8OrIE: function ErrorStackParser$$parseV8OrIE(error2) {
-                      var filtered = error2.stack.split("\n").filter(function(line) {
+                    parseV8OrIE: function ErrorStackParser$$parseV8OrIE(error3) {
+                      var filtered = error3.stack.split("\n").filter(function(line) {
                         return !!line.match(CHROME_IE_STACK_REGEXP);
                       }, this);
                       return filtered.map(function(line) {
@@ -38913,8 +38913,8 @@ var require_backend = __commonJS({
                         });
                       }, this);
                     },
-                    parseFFOrSafari: function ErrorStackParser$$parseFFOrSafari(error2) {
-                      var filtered = error2.stack.split("\n").filter(function(line) {
+                    parseFFOrSafari: function ErrorStackParser$$parseFFOrSafari(error3) {
+                      var filtered = error3.stack.split("\n").filter(function(line) {
                         return !line.match(SAFARI_NATIVE_CODE_REGEXP);
                       }, this);
                       return filtered.map(function(line) {
@@ -38982,8 +38982,8 @@ var require_backend = __commonJS({
                       }
                       return result;
                     },
-                    parseOpera11: function ErrorStackParser$$parseOpera11(error2) {
-                      var filtered = error2.stack.split("\n").filter(function(line) {
+                    parseOpera11: function ErrorStackParser$$parseOpera11(error3) {
+                      var filtered = error3.stack.split("\n").filter(function(line) {
                         return !!line.match(FIREFOX_SAFARI_STACK_REGEXP) && !line.match(/^Error created at/);
                       }, this);
                       return filtered.map(function(line) {
@@ -40468,10 +40468,10 @@ var require_backend = __commonJS({
                         var _listener = clonedListeners[i];
                         try {
                           _listener.apply(null, args);
-                        } catch (error2) {
+                        } catch (error3) {
                           if (caughtError === null) {
                             didThrow = true;
-                            caughtError = error2;
+                            caughtError = error3;
                           }
                         }
                       }
@@ -41217,7 +41217,7 @@ var require_backend = __commonJS({
                   var parsedFilters = JSON.parse(raw);
                   return filterOutLocationComponentFilters(parsedFilters);
                 }
-              } catch (error2) {
+              } catch (error3) {
               }
               return getDefaultComponentFilters();
             }
@@ -41250,7 +41250,7 @@ var require_backend = __commonJS({
                 if (raw != null) {
                   return JSON.parse(raw);
                 }
-              } catch (error2) {
+              } catch (error3) {
               }
               return getDefaultOpenInEditorURL();
             }
@@ -41258,7 +41258,7 @@ var require_backend = __commonJS({
               try {
                 var raw = localStorageGetItem(LOCAL_STORAGE_ALWAYS_OPEN_IN_EDITOR);
                 return raw === "true";
-              } catch (error2) {
+              } catch (error3) {
               }
               return false;
             }
@@ -41690,10 +41690,10 @@ var require_backend = __commonJS({
                     }
                     try {
                       return truncateForDisplay(String(data));
-                    } catch (error2) {
+                    } catch (error3) {
                       return "unserializable";
                     }
-                  } catch (error2) {
+                  } catch (error3) {
                     return "unserializable";
                   }
                 case "thenable":
@@ -41761,7 +41761,7 @@ var require_backend = __commonJS({
                 default:
                   try {
                     return truncateForDisplay(String(data));
-                  } catch (error2) {
+                  } catch (error3) {
                     return "unserializable";
                   }
               }
@@ -41792,7 +41792,7 @@ var require_backend = __commonJS({
               try {
                 localStorage.getItem("test");
                 isBackendStorageAPISupported = true;
-              } catch (error2) {
+              } catch (error3) {
               }
               return isBackendStorageAPISupported && isSynchronousXHRSupported();
             }
@@ -42208,12 +42208,12 @@ var require_backend = __commonJS({
               var level = arguments.length > 6 && arguments[6] !== void 0 ? arguments[6] : 0;
               try {
                 return dehydrate(parent[key], cleaned, unserializable, path, isPathAllowed, level);
-              } catch (error2) {
+              } catch (error3) {
                 var preview = "";
-                if (hydration_typeof(error2) === "object" && error2 !== null && typeof error2.stack === "string") {
-                  preview = error2.stack;
-                } else if (typeof error2 === "string") {
-                  preview = error2;
+                if (hydration_typeof(error3) === "object" && error3 !== null && typeof error3.stack === "string") {
+                  preview = error3.stack;
+                } else if (typeof error3 === "string") {
+                  preview = error3;
                 }
                 cleaned.push(path);
                 return {
@@ -43065,7 +43065,7 @@ var require_backend = __commonJS({
                 iframesListeningTo.forEach(function(frame) {
                   try {
                     removeListenersOnWindow(frame.contentWindow);
-                  } catch (error2) {
+                  } catch (error3) {
                   }
                 });
                 iframesListeningTo = /* @__PURE__ */ new Set();
@@ -43260,7 +43260,7 @@ var require_backend = __commonJS({
                       registerListenersOnWindow(_window);
                       iframesListeningTo.add(iframe);
                     }
-                  } catch (error2) {
+                  } catch (error3) {
                   }
                 }
                 if (inspectOnlySuspenseNodes) {
@@ -43842,39 +43842,39 @@ var require_backend = __commonJS({
             function storage_localStorageGetItem(key) {
               try {
                 return localStorage.getItem(key);
-              } catch (error2) {
+              } catch (error3) {
                 return null;
               }
             }
             function localStorageRemoveItem(key) {
               try {
                 localStorage.removeItem(key);
-              } catch (error2) {
+              } catch (error3) {
               }
             }
             function storage_localStorageSetItem(key, value) {
               try {
                 return localStorage.setItem(key, value);
-              } catch (error2) {
+              } catch (error3) {
               }
             }
             function storage_sessionStorageGetItem(key) {
               try {
                 return sessionStorage.getItem(key);
-              } catch (error2) {
+              } catch (error3) {
                 return null;
               }
             }
             function storage_sessionStorageRemoveItem(key) {
               try {
                 sessionStorage.removeItem(key);
-              } catch (error2) {
+              } catch (error3) {
               }
             }
             function storage_sessionStorageSetItem(key, value) {
               try {
                 return sessionStorage.setItem(key, value);
-              } catch (error2) {
+              } catch (error3) {
               }
             }
             ;
@@ -44612,7 +44612,7 @@ var require_backend = __commonJS({
                             rendererID: +rendererID
                           };
                         }
-                      } catch (error2) {
+                      } catch (error3) {
                       }
                     }
                     return null;
@@ -44646,7 +44646,7 @@ var require_backend = __commonJS({
                             rendererID: bestRendererID
                           };
                         }
-                      } catch (error2) {
+                      } catch (error3) {
                       }
                     }
                     return null;
@@ -45027,10 +45027,10 @@ var require_backend = __commonJS({
               return describeNativeComponentFrame(fn, false, currentDispatcherRef);
             }
             ;
-            function formatOwnerStack(error2) {
+            function formatOwnerStack(error3) {
               var prevPrepareStackTrace = Error.prepareStackTrace;
               Error.prepareStackTrace = void 0;
-              var stack = error2.stack;
+              var stack = error3.stack;
               Error.prepareStackTrace = prevPrepareStackTrace;
               if (stack.startsWith("Error: react-stack-top-frame\n")) {
                 stack = stack.slice(29);
@@ -45423,7 +45423,7 @@ var require_backend = __commonJS({
               }
               return result;
             }
-            function collectStackTrace(error2, structuredStackTrace) {
+            function collectStackTrace(error3, structuredStackTrace) {
               var result = [];
               for (var i = framesToSkip; i < structuredStackTrace.length; i++) {
                 var callSite = structuredStackTrace[i];
@@ -45461,8 +45461,8 @@ var require_backend = __commonJS({
                 }
               }
               collectedStackTrace = result;
-              var name = error2.name || "Error";
-              var message = error2.message || "";
+              var name = error3.name || "Error";
+              var message = error3.message || "";
               var stack = name + ": " + message;
               for (var _i = 0; _i < structuredStackTrace.length; _i++) {
                 stack += "\n    at " + structuredStackTrace[_i].toString();
@@ -45471,8 +45471,8 @@ var require_backend = __commonJS({
             }
             var chromeFrameRegExp = /^ *at (?:(.+) \((?:(.+):(\d+):(\d+)|\<anonymous\>)\)|(?:async )?(.+):(\d+):(\d+)|\<anonymous\>)$/;
             var stackTraceCache = /* @__PURE__ */ new WeakMap();
-            function parseStackTrace(error2, skipFrames) {
-              var existing = stackTraceCache.get(error2);
+            function parseStackTrace(error3, skipFrames) {
+              var existing = stackTraceCache.get(error3);
               if (existing !== void 0) {
                 return existing;
               }
@@ -45482,23 +45482,23 @@ var require_backend = __commonJS({
               Error.prepareStackTrace = collectStackTrace;
               var stack;
               try {
-                stack = String(error2.stack);
+                stack = String(error3.stack);
               } finally {
                 Error.prepareStackTrace = previousPrepare;
               }
               if (collectedStackTrace !== null) {
                 var result = collectedStackTrace;
                 collectedStackTrace = null;
-                stackTraceCache.set(error2, result);
+                stackTraceCache.set(error3, result);
                 return result;
               }
               var parsedFrames = parseStackTraceFromString(stack, skipFrames);
-              stackTraceCache.set(error2, parsedFrames);
+              stackTraceCache.set(error3, parsedFrames);
               return parsedFrames;
             }
-            function extractLocationFromOwnerStack(error2) {
-              var stackTrace = parseStackTrace(error2, 1);
-              var stack = error2.stack;
+            function extractLocationFromOwnerStack(error3) {
+              var stackTrace = parseStackTrace(error3, 1);
+              var stack = error3.stack;
               if (!stack.includes("react_stack_bottom_frame") && !stack.includes("react-stack-bottom-frame")) {
                 return null;
               }
@@ -46250,7 +46250,7 @@ var require_backend = __commonJS({
               });
               try {
                 performance.mark(CHECK_V3_MARK, markOptions);
-              } catch (error2) {
+              } catch (error3) {
               } finally {
                 performance.clearMarks(CHECK_V3_MARK);
               }
@@ -50626,7 +50626,7 @@ var require_backend = __commonJS({
                     originalConsoleMethods[method] = console[method];
                     console[method] = function() {
                     };
-                  } catch (error2) {
+                  } catch (error3) {
                   }
                 }
                 try {
@@ -50635,7 +50635,7 @@ var require_backend = __commonJS({
                   for (var _method in originalConsoleMethods) {
                     try {
                       console[_method] = originalConsoleMethods[_method];
-                    } catch (error2) {
+                    } catch (error3) {
                     }
                   }
                 }
@@ -51332,17 +51332,17 @@ var require_backend = __commonJS({
                 hasElementUpdatedSinceLastInspected = false;
                 try {
                   mostRecentlyInspectedElement = inspectElementRaw(id);
-                } catch (error2) {
-                  if (error2.name === "ReactDebugToolsRenderError") {
+                } catch (error3) {
+                  if (error3.name === "ReactDebugToolsRenderError") {
                     var message = "Error rendering inspected element.";
                     var stack;
-                    console.error(message + "\n\n", error2);
-                    if (error2.cause != null) {
+                    console.error(message + "\n\n", error3);
+                    if (error3.cause != null) {
                       var componentName = getDisplayNameForElementID(id);
-                      console.error("React DevTools encountered an error while trying to inspect hooks. This is most likely caused by an error in current inspected component" + (componentName != null ? ': "'.concat(componentName, '".') : ".") + "\nThe error thrown in the component is: \n\n", error2.cause);
-                      if (error2.cause instanceof Error) {
-                        message = error2.cause.message || message;
-                        stack = error2.cause.stack;
+                      console.error("React DevTools encountered an error while trying to inspect hooks. This is most likely caused by an error in current inspected component" + (componentName != null ? ': "'.concat(componentName, '".') : ".") + "\nThe error thrown in the component is: \n\n", error3.cause);
+                      if (error3.cause instanceof Error) {
+                        message = error3.cause.message || message;
+                        stack = error3.cause.stack;
                       }
                     }
                     return {
@@ -51354,23 +51354,23 @@ var require_backend = __commonJS({
                       stack
                     };
                   }
-                  if (error2.name === "ReactDebugToolsUnsupportedHookError") {
+                  if (error3.name === "ReactDebugToolsUnsupportedHookError") {
                     return {
                       type: "error",
                       errorType: "unknown-hook",
                       id,
                       responseID: requestID,
-                      message: "Unsupported hook in the react-debug-tools package: " + error2.message
+                      message: "Unsupported hook in the react-debug-tools package: " + error3.message
                     };
                   }
-                  console.error("Error inspecting element.\n\n", error2);
+                  console.error("Error inspecting element.\n\n", error3);
                   return {
                     type: "error",
                     errorType: "uncaught",
                     id,
                     responseID: requestID,
-                    message: error2.message,
-                    stack: error2.stack
+                    message: error3.message,
+                    stack: error3.stack
                   };
                 }
                 if (mostRecentlyInspectedElement === null) {
@@ -53623,24 +53623,24 @@ var require_backend = __commonJS({
               }
               var openModuleRangesStack = [];
               var moduleRanges = [];
-              function getTopStackFrameString(error2) {
-                var frames = error2.stack.split("\n");
+              function getTopStackFrameString(error3) {
+                var frames = error3.stack.split("\n");
                 var frame = frames.length > 1 ? frames[1] : null;
                 return frame;
               }
               function getInternalModuleRanges() {
                 return moduleRanges;
               }
-              function registerInternalModuleStart(error2) {
-                var startStackFrame = getTopStackFrameString(error2);
+              function registerInternalModuleStart(error3) {
+                var startStackFrame = getTopStackFrameString(error3);
                 if (startStackFrame !== null) {
                   openModuleRangesStack.push(startStackFrame);
                 }
               }
-              function registerInternalModuleStop(error2) {
+              function registerInternalModuleStop(error3) {
                 if (openModuleRangesStack.length > 0) {
                   var startStackFrame = openModuleRangesStack.pop();
-                  var stopStackFrame = getTopStackFrameString(error2);
+                  var stopStackFrame = getTopStackFrameString(error3);
                   if (stopStackFrame !== null) {
                     moduleRanges.push([startStackFrame, stopStackFrame]);
                   }
@@ -53684,9 +53684,9 @@ var require_backend = __commonJS({
                               onErrorOrWarning(method, args.slice());
                             }
                           }
-                        } catch (error2) {
+                        } catch (error3) {
                           setTimeout(function() {
-                            throw error2;
+                            throw error3;
                           }, 0);
                         }
                         try {
@@ -53719,9 +53719,9 @@ var require_backend = __commonJS({
                               return 1;
                             }
                           }
-                        } catch (error2) {
+                        } catch (error3) {
                           setTimeout(function() {
-                            throw error2;
+                            throw error3;
                           }, 0);
                         }
                       };
@@ -54333,10 +54333,10 @@ var require_backend = __commonJS({
                 messageListeners.forEach(function(fn) {
                   try {
                     fn(data);
-                  } catch (error2) {
+                  } catch (error3) {
                     console.log("[React DevTools] Error calling listener", data);
-                    console.log("error:", error2);
-                    throw error2;
+                    console.log("error:", error3);
+                    throw error3;
                   }
                 });
               }
@@ -54428,8 +54428,8 @@ var init_reconciler = __esm({
     if (isDev()) {
       try {
         await Promise.resolve().then(() => (init_devtools(), devtools_exports));
-      } catch (error2) {
-        if (error2.code === "ERR_MODULE_NOT_FOUND") {
+      } catch (error3) {
+        if (error3.code === "ERR_MODULE_NOT_FOUND") {
           console.warn(`
 The environment variable DEV is set to true, so Ink tried to import \`react-devtools-core\`,
 but this failed as it was not installed. Debugging with React Devtools requires it.
@@ -54439,7 +54439,7 @@ To install use this command:
 $ npm install --save-dev react-devtools-core
 				`.trim() + "\n");
         } else {
-          throw error2;
+          throw error3;
         }
       }
     }
@@ -57582,8 +57582,8 @@ var init_Text = __esm({
 // node_modules/ink/build/components/ErrorOverview.js
 import * as fs2 from "fs";
 import { cwd } from "process";
-function ErrorOverview({ error: error2 }) {
-  const stack = error2.stack ? error2.stack.split("\n").slice(1) : void 0;
+function ErrorOverview({ error: error3 }) {
+  const stack = error3.stack ? error3.stack.split("\n").slice(1) : void 0;
   const origin = stack ? stackUtils.parseLine(stack[0]) : void 0;
   const filePath = cleanupPath(origin?.file);
   let excerpt;
@@ -57614,7 +57614,7 @@ function ErrorOverview({ error: error2 }) {
         Text,
         null,
         " ",
-        error2.message
+        error3.message
       )
     ),
     origin && filePath && import_react12.default.createElement(
@@ -57645,7 +57645,7 @@ function ErrorOverview({ error: error2 }) {
       ),
       import_react12.default.createElement(Text, { key: line, backgroundColor: line === origin.line ? "red" : void 0, color: line === origin.line ? "white" : void 0 }, " " + value)
     ))),
-    error2.stack && import_react12.default.createElement(Box_default, { marginTop: 1, flexDirection: "column" }, error2.stack.split("\n").slice(1).map((line) => {
+    error3.stack && import_react12.default.createElement(Box_default, { marginTop: 1, flexDirection: "column" }, error3.stack.split("\n").slice(1).map((line) => {
       const parsedLine = stackUtils.parseLine(line);
       if (!parsedLine) {
         return import_react12.default.createElement(
@@ -57710,14 +57710,14 @@ var init_ErrorBoundary = __esm({
     init_ErrorOverview();
     ErrorBoundary = class extends import_react13.PureComponent {
       static displayName = "InternalErrorBoundary";
-      static getDerivedStateFromError(error2) {
-        return { error: error2 };
+      static getDerivedStateFromError(error3) {
+        return { error: error3 };
       }
       state = {
         error: void 0
       };
-      componentDidCatch(error2) {
-        this.props.onError(error2);
+      componentDidCatch(error3) {
+        this.props.onError(error3);
       }
       render() {
         if (this.state.error) {
@@ -58507,7 +58507,7 @@ var init_ink = __esm({
         }
       }
       // eslint-disable-next-line @typescript-eslint/ban-types
-      unmount(error2) {
+      unmount(error3) {
         if (this.isUnmounted || this.isUnmounting) {
           return;
         }
@@ -58572,13 +58572,13 @@ var init_ink = __esm({
         instances_default.delete(this.options.stdout);
         const { exitResult } = this;
         const resolveOrReject = () => {
-          if (isErrorInput(error2)) {
-            this.rejectExitPromise(error2);
+          if (isErrorInput(error3)) {
+            this.rejectExitPromise(error3);
           } else {
             this.resolveExitPromise(exitResult);
           }
         };
-        const isProcessExiting = error2 !== void 0 && !isErrorInput(error2);
+        const isProcessExiting = error3 !== void 0 && !isErrorInput(error3);
         const hasWritableState = stdout._writableState !== void 0 || stdout.writableLength !== void 0;
         if (isProcessExiting) {
           resolveOrReject();
@@ -58589,8 +58589,8 @@ var init_ink = __esm({
         }
       }
       async waitUntilExit() {
-        this.exitPromise ||= new Promise((resolve5, reject) => {
-          this.resolveExitPromise = resolve5;
+        this.exitPromise ||= new Promise((resolve6, reject) => {
+          this.resolveExitPromise = resolve6;
           this.rejectExitPromise = reject;
         });
         if (!this.beforeExitHandler) {
@@ -59681,18 +59681,18 @@ var require_react_jsx_runtime_development = __commonJS({
       function isValidElement(object) {
         return "object" === typeof object && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
       }
-      var React16 = require_react(), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), ReactSharedInternals = React16.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, hasOwnProperty = Object.prototype.hasOwnProperty, isArrayImpl = Array.isArray, createTask = console.createTask ? console.createTask : function() {
+      var React17 = require_react(), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, hasOwnProperty = Object.prototype.hasOwnProperty, isArrayImpl = Array.isArray, createTask = console.createTask ? console.createTask : function() {
         return null;
       };
-      React16 = {
+      React17 = {
         react_stack_bottom_frame: function(callStackForError) {
           return callStackForError();
         }
       };
       var specialPropKeyWarningShown;
       var didWarnAboutElementRef = {};
-      var unknownOwnerDebugStack = React16.react_stack_bottom_frame.bind(
-        React16,
+      var unknownOwnerDebugStack = React17.react_stack_bottom_frame.bind(
+        React17,
         UnknownOwner
       )();
       var unknownOwnerDebugTask = createTask(getTaskName(UnknownOwner));
@@ -59827,9 +59827,9 @@ function CategorySection({ label, backends }) {
     backends.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BackendRow, { backend: b }, b.name))
   ] });
 }
-function StatusPanel({ report, loading, refreshing, error: error2, pluginInstalled }) {
+function StatusPanel({ report, loading, refreshing, error: error3, pluginInstalled }) {
   if (!report) {
-    if (error2) {
+    if (error3) {
       return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" }),
@@ -59861,7 +59861,7 @@ function StatusPanel({ report, loading, refreshing, error: error2, pluginInstall
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
           "Detection failed: ",
-          error2.message
+          error3.message
         ] }) })
       ] });
     }
@@ -59905,9 +59905,9 @@ function StatusPanel({ report, loading, refreshing, error: error2, pluginInstall
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" })
     ] }),
-    error2 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
+    error3 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "red", children: [
       "Detection error: ",
-      error2.message
+      error3.message
     ] }) }),
     refreshing && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "Refreshing..." }) }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
@@ -60425,7 +60425,7 @@ function buildActions(report, onRefresh, processRef) {
       label: "Reinstall Plugin",
       description: "Reinstall Claude Code plugin",
       run: async () => {
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -60439,7 +60439,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve5(output.trim() || "Plugin reinstalled");
+            if (code === 0) resolve6(output.trim() || "Plugin reinstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -60455,7 +60455,7 @@ function buildActions(report, onRefresh, processRef) {
       confirm: "Uninstall plugin and exit? (y/n)",
       exitAfter: true,
       run: async () => {
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -60469,7 +60469,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve5(output.trim() || "Plugin uninstalled");
+            if (code === 0) resolve6(output.trim() || "Plugin uninstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -60492,12 +60492,12 @@ function buildActions(report, onRefresh, processRef) {
         const parts = editorEnv.split(/\s+/);
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
-        return new Promise((resolve5, reject) => {
+        return new Promise((resolve6, reject) => {
           const proc = spawn2(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
-            resolve5("Editor closed");
+            resolve6("Editor closed");
           });
           proc.on("error", (err) => {
             processRef.current = null;
@@ -60613,21 +60613,255 @@ var init_ActionsPanel = __esm({
   }
 });
 
+// src/tui/AgenticPanel.tsx
+function sessionBadge(status) {
+  if (status === "completed") return "available";
+  if (status === "active") return "partial";
+  if (status === "failed") return "unavailable";
+  return "planned";
+}
+function formatTime(date) {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function formatDate(date) {
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+function truncate(text, max) {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "\u2026";
+}
+function SessionList({ sessions, selectedIndex }) {
+  if (sessions.length === 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: true, underline: true, children: "Agentic Sessions" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "No sessions yet. Run one with:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", children: '  phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "..."' })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, underline: true, children: [
+      "Agentic Sessions (",
+      sessions.length,
+      ")"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: " " }),
+    sessions.map((s, i) => {
+      const selected = i === selectedIndex;
+      const agentNames = s.agents.map((a) => a.name).join(", ");
+      return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: selected ? "\u25B8" : " " }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Badge, { status: sessionBadge(s.status) }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: selected, color: selected ? "cyan" : void 0, children: s.id }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          formatDate(s.createdAt),
+          " ",
+          formatTime(s.createdAt)
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "|" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: agentNames || "no agents" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "|" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: truncate(s.prompt, 40) })
+      ] }, s.id);
+    })
+  ] });
+}
+function SessionDetail({ session, transcript, scrollOffset }) {
+  const agentList = session.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
+  const visibleLines = 15;
+  const visible = transcript.slice(scrollOffset, scrollOffset + visibleLines);
+  const hasMore = scrollOffset + visibleLines < transcript.length;
+  const hasLess = scrollOffset > 0;
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", marginBottom: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Badge, { status: sessionBadge(session.status) }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, children: [
+          "Session ",
+          session.id
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: session.status }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          "| Turn ",
+          session.turn
+        ] }),
+        session.endedAt && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+          "| ",
+          formatDate(session.createdAt),
+          " ",
+          formatTime(session.createdAt),
+          " - ",
+          formatTime(session.endedAt)
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "  Agents: ",
+        agentList
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "  Prompt: ",
+        truncate(session.prompt, 70)
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { bold: true, underline: true, children: [
+      "Transcript (",
+      transcript.length,
+      " messages)"
+    ] }),
+    hasLess && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "  ",
+      "\u25B2",
+      " ",
+      scrollOffset,
+      " more above"
+    ] }),
+    visible.map((msg) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { gap: 1, paddingLeft: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+        "[T",
+        msg.turn,
+        "]"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", bold: true, children: msg.from }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "\u2192" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: msg.to }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { children: truncate(msg.content.replace(/\n/g, " "), 60) })
+    ] }, msg.id)),
+    hasMore && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "  ",
+      "\u25BC",
+      " ",
+      transcript.length - scrollOffset - visibleLines,
+      " more below"
+    ] }),
+    transcript.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { dimColor: true, children: "  No messages recorded" })
+  ] });
+}
+function AgenticPanel({ agenticSessions }) {
+  const { sessions, loading, error: error3, refresh, getTranscript, deleteSession } = agenticSessions;
+  const [selectedIndex, setSelectedIndex] = (0, import_react33.useState)(0);
+  const [viewingSession, setViewingSession] = (0, import_react33.useState)(null);
+  const [scrollOffset, setScrollOffset] = (0, import_react33.useState)(0);
+  const [confirming, setConfirming] = (0, import_react33.useState)(false);
+  const activeSession = (0, import_react33.useMemo)(
+    () => viewingSession ? sessions.find((s) => s.id === viewingSession) ?? null : null,
+    [sessions, viewingSession]
+  );
+  const transcript = (0, import_react33.useMemo)(
+    () => viewingSession ? getTranscript(viewingSession) : [],
+    [viewingSession, getTranscript]
+  );
+  use_input_default((input, key) => {
+    if (confirming) {
+      if (input === "y" || input === "Y") {
+        const session = sessions[selectedIndex];
+        if (session) {
+          deleteSession(session.id);
+          setConfirming(false);
+          if (selectedIndex >= sessions.length - 1) {
+            setSelectedIndex(Math.max(0, sessions.length - 2));
+          }
+        }
+      }
+      if (input === "n" || input === "N" || key.escape) {
+        setConfirming(false);
+      }
+      return;
+    }
+    if (viewingSession) {
+      if (key.escape || input === "h") {
+        setViewingSession(null);
+        setScrollOffset(0);
+        return;
+      }
+      if (key.downArrow) {
+        setScrollOffset((o) => Math.min(o + 1, Math.max(0, transcript.length - 15)));
+      }
+      if (key.upArrow) {
+        setScrollOffset((o) => Math.max(o - 1, 0));
+      }
+      return;
+    }
+    if (key.downArrow) {
+      setSelectedIndex((i) => Math.min(i + 1, sessions.length - 1));
+    }
+    if (key.upArrow) {
+      setSelectedIndex((i) => Math.max(i - 1, 0));
+    }
+    if (key.return || input === "l") {
+      const session = sessions[selectedIndex];
+      if (session) {
+        setViewingSession(session.id);
+        setScrollOffset(0);
+      }
+    }
+    if (input === "d") {
+      if (sessions[selectedIndex]) {
+        setConfirming(true);
+      }
+    }
+  });
+  if (loading) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "cyan", children: "Loading sessions..." });
+  }
+  if (error3) {
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { bold: true, underline: true, children: "Agentic Sessions" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "red", children: [
+        "Error: ",
+        error3.message
+      ] })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
+    viewingSession && activeSession ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      SessionDetail,
+      {
+        session: activeSession,
+        transcript,
+        scrollOffset
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SessionList, { sessions, selectedIndex }),
+    confirming && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "yellow", children: [
+      "Delete session ",
+      sessions[selectedIndex]?.id,
+      "? (y/n)"
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { children: viewingSession ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "Esc/h back  ",
+      "\u2191\u2193",
+      " scroll  r refresh"
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { dimColor: true, children: [
+      "Enter/l view  d delete  r refresh  ",
+      "\u2191\u2193",
+      " navigate"
+    ] }) })
+  ] });
+}
+var import_react33, import_jsx_runtime9;
+var init_AgenticPanel = __esm({
+  async "src/tui/AgenticPanel.tsx"() {
+    "use strict";
+    import_react33 = __toESM(require_react(), 1);
+    await init_build2();
+    await init_Badge();
+    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+  }
+});
+
 // src/tui/hooks/useDetection.ts
 function useDetection() {
-  const [report, setReport] = (0, import_react33.useState)(null);
-  const [loading, setLoading] = (0, import_react33.useState)(true);
-  const [refreshing, setRefreshing] = (0, import_react33.useState)(false);
-  const [error2, setError] = (0, import_react33.useState)(null);
-  const lastRunRef = (0, import_react33.useRef)(0);
-  const runningRef = (0, import_react33.useRef)(false);
-  const mountedRef = (0, import_react33.useRef)(true);
-  (0, import_react33.useEffect)(() => {
+  const [report, setReport] = (0, import_react34.useState)(null);
+  const [loading, setLoading] = (0, import_react34.useState)(true);
+  const [refreshing, setRefreshing] = (0, import_react34.useState)(false);
+  const [error3, setError] = (0, import_react34.useState)(null);
+  const lastRunRef = (0, import_react34.useRef)(0);
+  const runningRef = (0, import_react34.useRef)(false);
+  const mountedRef = (0, import_react34.useRef)(true);
+  (0, import_react34.useEffect)(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
-  const runDetection = (0, import_react33.useCallback)(async (force = false) => {
+  const runDetection = (0, import_react34.useCallback)(async (force = false) => {
     if (runningRef.current) return;
     const now = Date.now();
     if (!force && now - lastRunRef.current < THROTTLE_MS && lastRunRef.current > 0) return;
@@ -60656,19 +60890,19 @@ function useDetection() {
       runningRef.current = false;
     }
   }, [report]);
-  (0, import_react33.useEffect)(() => {
+  (0, import_react34.useEffect)(() => {
     runDetection();
   }, []);
-  const refresh = (0, import_react33.useCallback)((opts) => {
+  const refresh = (0, import_react34.useCallback)((opts) => {
     runDetection(opts?.force ?? false);
   }, [runDetection]);
-  return { report, loading, refreshing, error: error2, refresh };
+  return { report, loading, refreshing, error: error3, refresh };
 }
-var import_react33, THROTTLE_MS;
+var import_react34, THROTTLE_MS;
 var init_useDetection = __esm({
   "src/tui/hooks/useDetection.ts"() {
     "use strict";
-    import_react33 = __toESM(require_react(), 1);
+    import_react34 = __toESM(require_react(), 1);
     init_detection();
     THROTTLE_MS = 5e3;
   }
@@ -60676,45 +60910,334 @@ var init_useDetection = __esm({
 
 // src/tui/components/PluginStatusBar.tsx
 function PluginStatusBar({ installed }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(Text, { color: "green", children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
     "\u2713",
     " Claude Plugin: Installed"
-  ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Text, { color: "yellow", children: "! Claude Plugin: Not Installed" }) });
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { color: "yellow", children: "! Claude Plugin: Not Installed" }) });
 }
-var import_jsx_runtime9;
+var import_jsx_runtime10;
 var init_PluginStatusBar = __esm({
   async "src/tui/components/PluginStatusBar.tsx"() {
     "use strict";
     await init_build2();
-    import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
   }
 });
 
 // src/tui/hooks/usePluginStatus.ts
 function usePluginStatus() {
-  const [installed, setInstalled] = (0, import_react34.useState)(() => isPluginInstalled());
-  const recheck = (0, import_react34.useCallback)(() => {
+  const [installed, setInstalled] = (0, import_react35.useState)(() => isPluginInstalled());
+  const recheck = (0, import_react35.useCallback)(() => {
     setInstalled(isPluginInstalled());
   }, []);
   return { installed, recheck };
 }
-var import_react34;
+var import_react35;
 var init_usePluginStatus = __esm({
   "src/tui/hooks/usePluginStatus.ts"() {
     "use strict";
-    import_react34 = __toESM(require_react(), 1);
+    import_react35 = __toESM(require_react(), 1);
     init_installer();
+  }
+});
+
+// src/agentic/bus.ts
+import { join as join4 } from "path";
+import { mkdirSync as mkdirSync4 } from "fs";
+import { homedir as homedir3 } from "os";
+function getDatabase() {
+  if (!_Database) {
+    _Database = __require("better-sqlite3");
+  }
+  return _Database;
+}
+function defaultDbPath() {
+  const configBase = process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config");
+  const dir = join4(configBase, "phone-a-friend");
+  mkdirSync4(dir, { recursive: true });
+  return join4(dir, "agentic.db");
+}
+function rowToMessage(row) {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    from: row.from_agent,
+    to: row.to_agent,
+    content: row.content,
+    timestamp: new Date(row.timestamp),
+    turn: row.turn
+  };
+}
+var _Database, SCHEMA, TranscriptBus;
+var init_bus = __esm({
+  "src/agentic/bus.ts"() {
+    "use strict";
+    SCHEMA = `
+  CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT,
+    prompt TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    max_turns INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS agents (
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    name TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    model TEXT,
+    backend_session_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    message_count INTEGER NOT NULL DEFAULT 0,
+    last_seen TEXT,
+    PRIMARY KEY (session_id, name)
+  );
+
+  CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    turn INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_session
+    ON messages(session_id, turn);
+  CREATE INDEX IF NOT EXISTS idx_messages_routing
+    ON messages(session_id, to_agent);
+`;
+    TranscriptBus = class {
+      db;
+      constructor(dbPath) {
+        const Database = getDatabase();
+        this.db = new Database(dbPath ?? defaultDbPath());
+        this.db.pragma("journal_mode = WAL");
+        this.db.pragma("foreign_keys = ON");
+        this.db.exec(SCHEMA);
+        this.migrate();
+      }
+      /**
+       * Idempotent schema migrations for existing databases.
+       */
+      migrate() {
+        const columns = this.db.pragma("table_info(sessions)");
+        const hasMaxTurns = columns.some((c) => c.name === "max_turns");
+        if (!hasMaxTurns) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0");
+        }
+      }
+      // ---- Sessions -----------------------------------------------------------
+      createSession(id, prompt, maxTurns = 0) {
+        this.db.prepare(
+          "INSERT INTO sessions (id, prompt, max_turns) VALUES (?, ?, ?)"
+        ).run(id, prompt, maxTurns);
+      }
+      endSession(id, status) {
+        this.db.prepare(
+          `UPDATE sessions SET status = ?, ended_at = datetime('now') WHERE id = ?`
+        ).run(status, id);
+      }
+      getSession(id) {
+        const row = this.db.prepare(
+          "SELECT * FROM sessions WHERE id = ?"
+        ).get(id);
+        if (!row) return null;
+        const agents = this.getAgents(id);
+        return {
+          id: row.id,
+          createdAt: new Date(row.created_at),
+          endedAt: row.ended_at ? new Date(row.ended_at) : void 0,
+          prompt: row.prompt,
+          status: row.status,
+          agents,
+          turn: this.getMaxTurn(id),
+          maxTurns: row.max_turns ?? 0
+        };
+      }
+      listSessions() {
+        const rows = this.db.prepare(
+          "SELECT * FROM sessions ORDER BY rowid DESC"
+        ).all();
+        return rows.map((row) => ({
+          id: row.id,
+          createdAt: new Date(row.created_at),
+          endedAt: row.ended_at ? new Date(row.ended_at) : void 0,
+          prompt: row.prompt,
+          status: row.status,
+          agents: this.getAgents(row.id),
+          turn: this.getMaxTurn(row.id),
+          maxTurns: row.max_turns ?? 0
+        }));
+      }
+      // ---- Agents -------------------------------------------------------------
+      addAgent(sessionId, name, backend, model) {
+        this.db.prepare(
+          "INSERT INTO agents (session_id, name, backend, model) VALUES (?, ?, ?, ?)"
+        ).run(sessionId, name, backend, model ?? null);
+      }
+      updateAgent(sessionId, name, updates) {
+        const sets = [];
+        const values = [];
+        if (updates.status !== void 0) {
+          sets.push("status = ?");
+          values.push(updates.status);
+        }
+        if (updates.backendSessionId !== void 0) {
+          sets.push("backend_session_id = ?");
+          values.push(updates.backendSessionId);
+        }
+        if (updates.messageCount !== void 0) {
+          sets.push("message_count = ?");
+          values.push(updates.messageCount);
+        }
+        sets.push(`last_seen = datetime('now')`);
+        values.push(sessionId, name);
+        this.db.prepare(
+          `UPDATE agents SET ${sets.join(", ")} WHERE session_id = ? AND name = ?`
+        ).run(...values);
+      }
+      getAgents(sessionId) {
+        const rows = this.db.prepare(
+          "SELECT * FROM agents WHERE session_id = ? ORDER BY rowid"
+        ).all(sessionId);
+        return rows.map((row) => ({
+          name: row.name,
+          backend: row.backend,
+          model: row.model ?? void 0,
+          backendSessionId: row.backend_session_id ?? void 0,
+          status: row.status,
+          messageCount: row.message_count,
+          lastSeen: row.last_seen ? new Date(row.last_seen) : void 0
+        }));
+      }
+      // ---- Messages -----------------------------------------------------------
+      appendMessage(msg) {
+        const insertAndCount = this.db.transaction(() => {
+          const result = this.db.prepare(
+            "INSERT INTO messages (session_id, from_agent, to_agent, content, turn) VALUES (?, ?, ?, ?, ?)"
+          ).run(msg.sessionId, msg.from, msg.to, msg.content, msg.turn);
+          this.db.prepare(
+            "UPDATE agents SET message_count = message_count + 1 WHERE session_id = ? AND name = ?"
+          ).run(msg.sessionId, msg.from);
+          return result.lastInsertRowid;
+        });
+        return insertAndCount();
+      }
+      getTranscript(sessionId) {
+        const rows = this.db.prepare(
+          "SELECT * FROM messages WHERE session_id = ? ORDER BY turn, id"
+        ).all(sessionId);
+        return rows.map(rowToMessage);
+      }
+      getMessageCount(sessionId) {
+        const row = this.db.prepare(
+          "SELECT COUNT(*) as count FROM messages WHERE session_id = ?"
+        ).get(sessionId);
+        return row.count;
+      }
+      // ---- Cleanup ------------------------------------------------------------
+      deleteSession(id) {
+        const deleteAll = this.db.transaction(() => {
+          this.db.prepare("DELETE FROM messages WHERE session_id = ?").run(id);
+          this.db.prepare("DELETE FROM agents WHERE session_id = ?").run(id);
+          this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+        });
+        deleteAll();
+      }
+      close() {
+        this.db.close();
+      }
+      // ---- Internal -----------------------------------------------------------
+      getMaxTurn(sessionId) {
+        const row = this.db.prepare(
+          "SELECT MAX(turn) as max_turn FROM messages WHERE session_id = ?"
+        ).get(sessionId);
+        return row.max_turn ?? 0;
+      }
+    };
+  }
+});
+
+// src/tui/hooks/useAgenticSessions.ts
+function useAgenticSessions() {
+  const [sessions, setSessions] = (0, import_react36.useState)([]);
+  const [loading, setLoading] = (0, import_react36.useState)(true);
+  const [error3, setError] = (0, import_react36.useState)(null);
+  const busRef = (0, import_react36.useRef)(null);
+  const mountedRef = (0, import_react36.useRef)(true);
+  (0, import_react36.useEffect)(() => {
+    return () => {
+      mountedRef.current = false;
+      busRef.current?.close();
+    };
+  }, []);
+  const getBus = (0, import_react36.useCallback)(() => {
+    if (!busRef.current) {
+      busRef.current = new TranscriptBus();
+    }
+    return busRef.current;
+  }, []);
+  const load2 = (0, import_react36.useCallback)(() => {
+    try {
+      const bus = getBus();
+      const list = bus.listSessions();
+      if (mountedRef.current) {
+        setSessions(list);
+        setError(null);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [getBus]);
+  (0, import_react36.useEffect)(() => {
+    load2();
+  }, []);
+  const getTranscript = (0, import_react36.useCallback)((sessionId) => {
+    try {
+      return getBus().getTranscript(sessionId);
+    } catch {
+      return [];
+    }
+  }, [getBus]);
+  const deleteSession = (0, import_react36.useCallback)((sessionId) => {
+    try {
+      getBus().deleteSession(sessionId);
+      load2();
+    } catch (err) {
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  }, [getBus, load2]);
+  return { sessions, loading, error: error3, refresh: load2, getTranscript, deleteSession };
+}
+var import_react36;
+var init_useAgenticSessions = __esm({
+  "src/tui/hooks/useAgenticSessions.ts"() {
+    "use strict";
+    import_react36 = __toESM(require_react(), 1);
+    init_bus();
   }
 });
 
 // src/tui/App.tsx
 function App2() {
   const { exit } = use_app_default();
-  const [activeTab, setActiveTab] = (0, import_react35.useState)(0);
-  const [childHasFocus, setChildHasFocus] = (0, import_react35.useState)(false);
+  const [activeTab, setActiveTab] = (0, import_react37.useState)(0);
+  const [childHasFocus, setChildHasFocus] = (0, import_react37.useState)(false);
   const detection = useDetection();
   const pluginStatus = usePluginStatus();
-  const nextTab = (0, import_react35.useCallback)(() => {
+  const agenticSessions = useAgenticSessions();
+  const nextTab = (0, import_react37.useCallback)(() => {
     setActiveTab((prev) => (prev + 1) % TABS.length);
   }, []);
   const currentTab = TABS[activeTab];
@@ -60733,22 +61256,27 @@ function App2() {
       setActiveTab(num - 1);
       return;
     }
-    if (input === "r" && (currentTab === "Status" || currentTab === "Backends")) {
-      detection.refresh({ force: true });
+    if (input === "r") {
+      if (currentTab === "Status" || currentTab === "Backends") {
+        detection.refresh({ force: true });
+      }
+      if (currentTab === "Agentic") {
+        agenticSessions.refresh();
+      }
     }
   });
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit() }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(KeyHint, { hints })
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
+    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit(), agenticSessions }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2 }) {
+function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2, agenticSessions }) {
   switch (tab2) {
     case "Status":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
         StatusPanel,
         {
           report: detection.report,
@@ -60759,20 +61287,22 @@ function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, 
         }
       );
     case "Backends":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(BackendsPanel, { report: detection.report, onEditingChange: onFocusChange });
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(BackendsPanel, { report: detection.report, onEditingChange: onFocusChange });
     case "Config":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ConfigPanel, { onEditingChange: onFocusChange });
     case "Actions":
-      return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onPluginRecheck, onExit: onExit2 });
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ActionsPanel, { report: detection.report, onRefresh: () => detection.refresh({ force: true }), onPluginRecheck, onExit: onExit2 });
+    case "Agentic":
+      return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AgenticPanel, { agenticSessions });
     default:
       return null;
   }
 }
-var import_react35, import_jsx_runtime10, TABS, GLOBAL_HINTS, TAB_HINTS;
+var import_react37, import_jsx_runtime11, TABS, GLOBAL_HINTS, TAB_HINTS;
 var init_App2 = __esm({
   async "src/tui/App.tsx"() {
     "use strict";
-    import_react35 = __toESM(require_react(), 1);
+    import_react37 = __toESM(require_react(), 1);
     await init_build2();
     await init_TabBar();
     await init_KeyHint();
@@ -60780,21 +61310,24 @@ var init_App2 = __esm({
     await init_BackendsPanel();
     await init_ConfigPanel();
     await init_ActionsPanel();
+    await init_AgenticPanel();
     init_useDetection();
     await init_PluginStatusBar();
     init_usePluginStatus();
-    import_jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-    TABS = ["Status", "Backends", "Config", "Actions"];
+    init_useAgenticSessions();
+    import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+    TABS = ["Status", "Backends", "Config", "Actions", "Agentic"];
     GLOBAL_HINTS = [
       { key: "Tab", label: "switch" },
-      { key: "1-4", label: "jump" },
+      { key: "1-5", label: "jump" },
       { key: "q", label: "quit" }
     ];
     TAB_HINTS = {
       Status: [{ key: "r", label: "refresh" }],
       Backends: [{ key: "r", label: "refresh" }],
       Config: [],
-      Actions: []
+      Actions: [],
+      Agentic: [{ key: "r", label: "refresh" }]
     };
   }
 });
@@ -60805,7 +61338,7 @@ __export(render_exports, {
   renderTui: () => renderTui
 });
 async function renderTui() {
-  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime11.jsx)(App2, {}));
+  const { waitUntilExit } = render_default(/* @__PURE__ */ (0, import_jsx_runtime12.jsx)(App2, {}));
   try {
     await waitUntilExit();
     return 0;
@@ -60816,13 +61349,1432 @@ async function renderTui() {
     return 1;
   }
 }
-var import_jsx_runtime11;
+var import_jsx_runtime12;
 var init_render2 = __esm({
   async "src/tui/render.tsx"() {
     "use strict";
     await init_build2();
     await init_App2();
-    import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+    import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+  }
+});
+
+// src/agentic/queue.ts
+var MessageQueue;
+var init_queue = __esm({
+  "src/agentic/queue.ts"() {
+    "use strict";
+    MessageQueue = class {
+      pending = /* @__PURE__ */ new Map();
+      /** Enqueue a message for delivery to a target agent. */
+      enqueue(msg) {
+        const target = msg.to;
+        const existing = this.pending.get(target);
+        if (existing) {
+          existing.push(msg);
+        } else {
+          this.pending.set(target, [msg]);
+        }
+      }
+      /** Dequeue all pending messages for an agent. Returns empty array if none. */
+      dequeue(agent) {
+        const msgs = this.pending.get(agent);
+        if (!msgs || msgs.length === 0) return [];
+        this.pending.delete(agent);
+        return msgs;
+      }
+      /** Dequeue all pending messages grouped by target agent. */
+      dequeueAll() {
+        const result = new Map(this.pending);
+        this.pending.clear();
+        return result;
+      }
+      /** Check if there are any pending messages for any agent. */
+      isEmpty() {
+        for (const msgs of this.pending.values()) {
+          if (msgs.length > 0) return false;
+        }
+        return true;
+      }
+      /** Total number of pending messages across all agents. */
+      size() {
+        let count = 0;
+        for (const msgs of this.pending.values()) {
+          count += msgs.length;
+        }
+        return count;
+      }
+      /** Get pending message count per agent (for diagnostics). */
+      counts() {
+        const result = {};
+        for (const [agent, msgs] of this.pending) {
+          if (msgs.length > 0) result[agent] = msgs.length;
+        }
+        return result;
+      }
+      /** Clear all pending messages. */
+      clear() {
+        this.pending.clear();
+      }
+    };
+  }
+});
+
+// src/agentic/session.ts
+import { spawn as spawn3 } from "child_process";
+import { randomUUID } from "crypto";
+var NESTED_SESSION_VARS2, SessionManager;
+var init_session = __esm({
+  "src/agentic/session.ts"() {
+    "use strict";
+    NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
+    SessionManager = class {
+      sessions = /* @__PURE__ */ new Map();
+      /**
+       * Spawn a new agent session. Returns the agent's first response.
+       */
+      async spawn(agent, systemPrompt, initialPrompt, repoPath) {
+        const sessionId = randomUUID();
+        switch (agent.backend) {
+          case "claude": {
+            const output = await this.spawnClaude(
+              sessionId,
+              systemPrompt,
+              initialPrompt,
+              repoPath,
+              agent.model
+            );
+            this.sessions.set(agent.name, {
+              agentName: agent.name,
+              backend: "claude",
+              sessionId,
+              history: [initialPrompt, output]
+            });
+            return { output, sessionId };
+          }
+          default: {
+            const output = await this.statelessRun(
+              agent.backend,
+              systemPrompt,
+              initialPrompt,
+              repoPath,
+              agent.model
+            );
+            this.sessions.set(agent.name, {
+              agentName: agent.name,
+              backend: agent.backend,
+              sessionId,
+              history: [initialPrompt, output]
+            });
+            return { output, sessionId };
+          }
+        }
+      }
+      /**
+       * Resume an agent session with a new message. Returns the agent's response.
+       */
+      async resume(agentName, message, repoPath) {
+        const session = this.sessions.get(agentName);
+        if (!session) throw new Error(`No session for agent: ${agentName}`);
+        switch (session.backend) {
+          case "claude": {
+            const output = await this.resumeClaude(session.sessionId, message, repoPath);
+            session.history.push(message, output);
+            return output;
+          }
+          default: {
+            const output = await this.statelessResume(session, message, repoPath);
+            session.history.push(message, output);
+            return output;
+          }
+        }
+      }
+      /**
+       * Check if an agent has an active session.
+       */
+      hasSession(agentName) {
+        return this.sessions.has(agentName);
+      }
+      /**
+       * Get session info for an agent.
+       */
+      getSession(agentName) {
+        return this.sessions.get(agentName);
+      }
+      /**
+       * Kill all sessions.
+       */
+      clear() {
+        this.sessions.clear();
+      }
+      // ---- Claude (persistent sessions) --------------------------------------
+      spawnClaude(sessionId, systemPrompt, prompt, repoPath, model) {
+        const args = [
+          "-p",
+          `${systemPrompt}
+
+---
+
+${prompt}`,
+          "--session-id",
+          sessionId,
+          "--add-dir",
+          repoPath,
+          "--max-turns",
+          "3",
+          "--output-format",
+          "text"
+        ];
+        if (model) {
+          args.push("--model", model);
+        }
+        args.push("--tools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
+        args.push("--allowedTools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
+        args.push("--disable-slash-commands");
+        args.push("--disallowedTools", "Task");
+        return this.execClaude(args, repoPath);
+      }
+      resumeClaude(sessionId, message, repoPath) {
+        const args = [
+          "-p",
+          message,
+          "-r",
+          sessionId,
+          "--max-turns",
+          "3",
+          "--output-format",
+          "text"
+        ];
+        return this.execClaude(args, repoPath);
+      }
+      execClaude(args, repoPath) {
+        return new Promise((resolve6, reject) => {
+          const env3 = this.cleanEnv();
+          const child = spawn3("claude", args, {
+            env: env3,
+            cwd: repoPath,
+            stdio: ["pipe", "pipe", "pipe"]
+          });
+          let settled = false;
+          const settle = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            fn(value);
+          };
+          child.on("error", (err) => {
+            settle(reject, new Error(`Failed to spawn claude: ${err.message}`));
+          });
+          child.stdin?.end();
+          const stdout = [];
+          const stderr = [];
+          child.stdout.on("data", (chunk) => stdout.push(chunk));
+          child.stderr.on("data", (chunk) => stderr.push(chunk));
+          const timeoutMs = 6e5;
+          const timer = setTimeout(() => {
+            child.kill("SIGTERM");
+            settle(reject, new Error(`claude session timed out after ${timeoutMs / 1e3}s`));
+          }, timeoutMs);
+          child.on("close", (code) => {
+            const out = Buffer.concat(stdout).toString().trim();
+            const err = Buffer.concat(stderr).toString().trim();
+            if (code === 0 && out) {
+              settle(resolve6, out);
+            } else if (out) {
+              settle(resolve6, out);
+            } else {
+              settle(reject, new Error(err || `claude exited with code ${code}`));
+            }
+          });
+        });
+      }
+      // ---- Stateless fallback -------------------------------------------------
+      statelessRun(backend, systemPrompt, prompt, repoPath, model) {
+        const fullPrompt = `${systemPrompt}
+
+---
+
+${prompt}`;
+        return this.execBackend(backend, fullPrompt, repoPath, model);
+      }
+      statelessResume(session, newMessage, repoPath) {
+        const transcript = session.history.map((msg, i) => i % 2 === 0 ? `[Turn ${Math.floor(i / 2) + 1} prompt]: ${msg}` : `[Turn ${Math.floor(i / 2) + 1} response]: ${msg}`).join("\n\n---\n\n");
+        const fullPrompt = `${transcript}
+
+---
+
+[New message]: ${newMessage}`;
+        return this.execBackend(session.backend, fullPrompt, repoPath);
+      }
+      execBackend(backend, prompt, repoPath, model) {
+        return Promise.reject(
+          new Error(`Backend "${backend}" is not yet supported in agentic mode. Use claude.`)
+        );
+      }
+      // ---- Helpers ------------------------------------------------------------
+      cleanEnv() {
+        const env3 = { ...process.env };
+        for (const key of NESTED_SESSION_VARS2) {
+          delete env3[key];
+        }
+        return env3;
+      }
+    };
+  }
+});
+
+// src/agentic/parser.ts
+function parseAgentResponse(text, knownAgents) {
+  const lines = text.split("\n");
+  const messages = [];
+  const noteLines = [];
+  let inCodeBlock = false;
+  let currentMessage = null;
+  for (const line of lines) {
+    if (line.trimStart().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    if (line.trimStart().startsWith(">")) {
+      if (currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = null;
+      }
+      noteLines.push(line);
+      continue;
+    }
+    const match = line.match(/^@([\w.-]+):\s*(.*)/);
+    if (match) {
+      const [, target, content] = match;
+      if (knownAgents.has(target)) {
+        if (currentMessage) {
+          messages.push(currentMessage);
+        }
+        currentMessage = { to: target, content: content.trim() };
+        continue;
+      }
+    }
+    if (currentMessage && line.trim().length > 0) {
+      currentMessage.content += "\n" + line;
+      continue;
+    }
+    if (currentMessage && line.trim().length === 0) {
+      messages.push(currentMessage);
+      currentMessage = null;
+      noteLines.push(line);
+      continue;
+    }
+    noteLines.push(line);
+  }
+  if (currentMessage) {
+    messages.push(currentMessage);
+  }
+  return {
+    messages,
+    notes: noteLines.join("\n").trim()
+  };
+}
+function buildSystemPrompt(role, agents, description, maxTurns) {
+  const otherAgents = agents.filter((a) => a !== role);
+  const rolePart = role.includes(".") ? role.split(".").slice(1).join(".") : role;
+  const roleDesc = description ? `Your role: ${description}` : `Stay focused on your role: ${rolePart}`;
+  const turnBudget = maxTurns && maxTurns > 0 ? `This session has a HARD LIMIT of ${maxTurns} turns. After turn ${maxTurns}, the session ends abruptly \u2014 any undelivered work is lost. Pace yourself and deliver final output to @user before time runs out.` : "";
+  return [
+    `You are "${role}" in a multi-agent session.`,
+    `Other agents: ${otherAgents.join(", ")}`,
+    ...turnBudget ? ["", turnBudget] : [],
+    "",
+    "Agent names use the format firstname.role (e.g. maren.storyteller).",
+    "Always use the FULL name (including the dot) in @mentions.",
+    "",
+    "HOW COMMUNICATION WORKS:",
+    "- Plain text (no @mention) = your working notes. Visible in the transcript",
+    "  but does NOT trigger a response from anyone. Use this for thinking,",
+    "  commentary, or output that doesn't need a reply.",
+    "- @name: message = sends a message to that agent and TRIGGERS THEM TO RESPOND.",
+    "  Only use @mentions when you specifically need that agent to act or reply.",
+    "- @user: message = final output delivered to the human. NOT routed to any agent.",
+    "  ONLY use @user for the session's FINAL deliverable \u2014 the end result that the",
+    "  human asked for. Do NOT use @user for intermediate answers, partial work, or",
+    "  responses meant for other agents.",
+    "- @all: message = broadcast to every agent (triggers ALL of them to respond).",
+    "",
+    "ROUTING RULE \u2014 think about WHO needs your output:",
+    'Before responding, ask: "Which agent needs this to do THEIR job?"',
+    "Route your output to THAT agent. For example, if a judge needs to score",
+    "your answer, send it to the judge \u2014 not to @user. If a reviewer needs to",
+    "see your code, send it to the reviewer. Only send to @user when the ENTIRE",
+    "session task is complete and you're delivering the final result.",
+    "",
+    "CRITICAL: Do NOT @mention an agent unless you need them to do something.",
+    "Unnecessary @mentions create infinite conversation loops. If you're done",
+    "or just want to comment, write plain text instead.",
+    "",
+    "To message another agent, start a NEW LINE with @name: followed by your message.",
+    "Your full message content goes after the @name: on the same line and continues",
+    "on subsequent lines until the next @mention or blank line.",
+    "",
+    "Examples:",
+    "I've analyzed the problem and found the key issue is X.",
+    "",
+    `@${otherAgents[0] ?? "other"}: Based on my analysis, I need you to verify X.`,
+    "Here are the details you'll need to check.",
+    "",
+    "@user: Final report ready.",
+    "",
+    "Rules:",
+    "- @mention = request for action. Plain text = notes/commentary.",
+    "- Each line starting with @name: begins a new message to that agent.",
+    "- Multi-line messages: lines after @name: continue until the next @mention or blank line.",
+    `- ${roleDesc}`,
+    "- When asked to start or go first, produce your output directly \u2014 do not ask others to start.",
+    "- When your work is complete and you have nothing to request, write plain text. Do NOT",
+    "  @mention agents just to say goodbye, acknowledge, or agree \u2014 that wastes their turn."
+  ].join("\n");
+}
+var init_parser = __esm({
+  "src/agentic/parser.ts"() {
+    "use strict";
+  }
+});
+
+// src/agentic/events.ts
+var EventChannel;
+var init_events = __esm({
+  "src/agentic/events.ts"() {
+    "use strict";
+    EventChannel = class {
+      queue = [];
+      resolve = null;
+      done = false;
+      consuming = false;
+      push(event) {
+        if (this.done) return;
+        if (this.resolve) {
+          const r = this.resolve;
+          this.resolve = null;
+          r({ value: event, done: false });
+        } else {
+          this.queue.push(event);
+        }
+      }
+      close() {
+        this.done = true;
+        if (this.resolve) {
+          const r = this.resolve;
+          this.resolve = null;
+          r({ value: void 0, done: true });
+        }
+      }
+      [Symbol.asyncIterator]() {
+        if (this.consuming) {
+          throw new Error("EventChannel supports only one consumer");
+        }
+        this.consuming = true;
+        return {
+          next: () => {
+            if (this.queue.length > 0) {
+              return Promise.resolve({ value: this.queue.shift(), done: false });
+            }
+            if (this.done) {
+              return Promise.resolve({ value: void 0, done: true });
+            }
+            return new Promise((resolve6) => {
+              this.resolve = resolve6;
+            });
+          }
+        };
+      }
+    };
+  }
+});
+
+// src/agentic/types.ts
+var AGENTIC_DEFAULTS;
+var init_types = __esm({
+  "src/agentic/types.ts"() {
+    "use strict";
+    AGENTIC_DEFAULTS = {
+      maxTurns: 20,
+      timeoutSeconds: 900,
+      // 15 minutes
+      maxMessageSize: 50 * 1024,
+      // 50 KB
+      pingPongThreshold: 6,
+      noProgressThreshold: 2,
+      maxAgentTurnsPerRound: 3
+    };
+  }
+});
+
+// src/agentic/names.ts
+function assignAgentNames(agents) {
+  const available = shuffle([...NAME_POOL]);
+  const used = /* @__PURE__ */ new Set();
+  for (const a of agents) {
+    if (a.name.includes(".")) {
+      used.add(a.name.split(".")[0]);
+    }
+  }
+  return agents.map((agent) => {
+    if (agent.name.includes(".")) return { ...agent };
+    let firstName;
+    while (available.length > 0) {
+      const candidate = available.pop();
+      if (!used.has(candidate)) {
+        firstName = candidate;
+        used.add(candidate);
+        break;
+      }
+    }
+    if (!firstName) {
+      firstName = `agent-${used.size}`;
+      used.add(firstName);
+    }
+    return { ...agent, name: `${firstName}.${agent.name}` };
+  });
+}
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+var NAME_POOL;
+var init_names = __esm({
+  "src/agentic/names.ts"() {
+    "use strict";
+    NAME_POOL = [
+      "ada",
+      "akira",
+      "alba",
+      "arlo",
+      "asha",
+      "basil",
+      "bryn",
+      "cleo",
+      "cyrus",
+      "dara",
+      "eiko",
+      "einar",
+      "elara",
+      "ezra",
+      "fern",
+      "gael",
+      "hana",
+      "ines",
+      "idris",
+      "juno",
+      "kai",
+      "kira",
+      "lars",
+      "lena",
+      "lux",
+      "maren",
+      "milo",
+      "nadia",
+      "nico",
+      "nova",
+      "orin",
+      "petra",
+      "quinn",
+      "ravi",
+      "rune",
+      "sage",
+      "soren",
+      "tala",
+      "thea",
+      "teo",
+      "uri",
+      "vera",
+      "wren",
+      "xander",
+      "yara",
+      "zara",
+      "zeke",
+      "io",
+      "leif",
+      "sol"
+    ];
+  }
+});
+
+// src/agentic/orchestrator.ts
+import { randomUUID as randomUUID2 } from "crypto";
+var Orchestrator;
+var init_orchestrator = __esm({
+  "src/agentic/orchestrator.ts"() {
+    "use strict";
+    init_queue();
+    init_bus();
+    init_session();
+    init_parser();
+    init_events();
+    init_types();
+    init_names();
+    Orchestrator = class {
+      queue = new MessageQueue();
+      sessions = new SessionManager();
+      bus;
+      events = new EventChannel();
+      agentStates = /* @__PURE__ */ new Map();
+      sessionId = "";
+      turn = 0;
+      startTime = 0;
+      // External listeners (SSE, dashboard, etc.)
+      listeners = [];
+      // Guardrail state
+      consecutiveExchanges = /* @__PURE__ */ new Map();
+      lastPingPongTurn = -1;
+      noProgressCount = 0;
+      // Lifecycle
+      stopped = false;
+      sessionEnded = false;
+      runLoopPromise = null;
+      constructor(dbPath) {
+        this.bus = new TranscriptBus(dbPath);
+      }
+      /**
+       * Run an agentic session. Returns an AsyncIterable of events that
+       * consumers (CLI, TUI, web dashboard) can subscribe to.
+       */
+      async run(config) {
+        if (this.runLoopPromise) {
+          throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
+        }
+        this.sessionId = randomUUID2().slice(0, 7);
+        this.turn = 0;
+        this.startTime = Date.now();
+        this.stopped = false;
+        this.sessionEnded = false;
+        this.events = new EventChannel();
+        this.agentStates = /* @__PURE__ */ new Map();
+        this.consecutiveExchanges = /* @__PURE__ */ new Map();
+        this.lastPingPongTurn = -1;
+        this.noProgressCount = 0;
+        this.queue.clear();
+        this.sessions.clear();
+        this.bus.createSession(this.sessionId, config.prompt, config.maxTurns);
+        const namedAgents = assignAgentNames(config.agents);
+        config = { ...config, agents: namedAgents };
+        const agentNames = config.agents.map((a) => a.name);
+        const knownTargets = /* @__PURE__ */ new Set([...agentNames, "all", "user"]);
+        for (const agent of config.agents) {
+          this.bus.addAgent(this.sessionId, agent.name, agent.backend, agent.model);
+          this.agentStates.set(agent.name, {
+            name: agent.name,
+            backend: agent.backend,
+            model: agent.model,
+            status: "active",
+            messageCount: 0
+          });
+        }
+        const agentStatesArr = [...this.agentStates.values()];
+        this.emit({
+          type: "session_start",
+          sessionId: this.sessionId,
+          prompt: config.prompt,
+          agents: agentStatesArr,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.runLoopPromise = this.runLoop(config, knownTargets).catch((err) => {
+          this.emit({
+            type: "error",
+            sessionId: this.sessionId,
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: /* @__PURE__ */ new Date()
+          });
+          this.endSession("error");
+        }).finally(() => {
+          this.runLoopPromise = null;
+        });
+        return this.events;
+      }
+      /**
+       * Stop the current session.
+       */
+      stop() {
+        this.stopped = true;
+        this.endSession("stopped");
+      }
+      /**
+       * Stop the loop (if running) and close the transcript database.
+       */
+      async close() {
+        this.stopped = true;
+        this.endSession("stopped");
+        if (this.runLoopPromise) {
+          await this.runLoopPromise;
+        }
+        this.bus.close();
+      }
+      // ---- Main loop ----------------------------------------------------------
+      async runLoop(config, knownTargets) {
+        const { agents, prompt, maxTurns, timeoutSeconds, repoPath } = config;
+        const spawnResults = [];
+        const spawnPromises = agents.map(async (agent) => {
+          const systemPrompt = buildSystemPrompt(
+            agent.name,
+            agents.map((a) => a.name),
+            agent.description,
+            maxTurns
+          );
+          this.emitAgentStatus(agent.name, "active");
+          try {
+            const result = await this.sessions.spawn(
+              agent,
+              systemPrompt,
+              prompt,
+              repoPath
+            );
+            this.bus.updateAgent(this.sessionId, agent.name, {
+              backendSessionId: result.sessionId
+            });
+            return { agent, output: result.output };
+          } catch (err) {
+            throw { agent, error: err };
+          }
+        });
+        const settled = await Promise.allSettled(spawnPromises);
+        for (const result of settled) {
+          if (this.stopped) return;
+          if (result.status === "fulfilled") {
+            const { agent, output } = result.value;
+            this.logAndEmitMessage("user", agent.name, prompt, 0);
+            spawnResults.push({ agent, output });
+            this.emitAgentStatus(agent.name, "idle");
+          } else {
+            const { agent, error: error3 } = result.reason;
+            const errMsg = error3 instanceof Error ? error3.message : String(error3);
+            this.emit({
+              type: "error",
+              sessionId: this.sessionId,
+              agent: agent.name,
+              error: errMsg,
+              timestamp: /* @__PURE__ */ new Date()
+            });
+            this.emitAgentStatus(agent.name, "dead");
+          }
+        }
+        for (const { agent, output } of spawnResults) {
+          const parsed = parseAgentResponse(output, knownTargets);
+          for (const msg of parsed.messages) {
+            this.logAndEmitMessage(agent.name, msg.to, msg.content, 0);
+            if (msg.to === "all") {
+              for (const other of agents) {
+                if (other.name !== agent.name) {
+                  this.queue.enqueue({
+                    sessionId: this.sessionId,
+                    from: agent.name,
+                    to: other.name,
+                    content: msg.content,
+                    timestamp: /* @__PURE__ */ new Date(),
+                    turn: 0
+                  });
+                }
+              }
+            } else if (msg.to !== "user") {
+              this.queue.enqueue({
+                sessionId: this.sessionId,
+                from: agent.name,
+                to: msg.to,
+                content: msg.content,
+                timestamp: /* @__PURE__ */ new Date(),
+                turn: 0
+              });
+            }
+          }
+          if (parsed.notes) {
+            this.logAndEmitMessage(agent.name, "notes", parsed.notes, 0);
+          }
+        }
+        this.emit({
+          type: "turn_complete",
+          sessionId: this.sessionId,
+          turn: 0,
+          pendingCount: this.queue.size(),
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.turn = 1;
+        while (this.turn <= maxTurns && !this.stopped) {
+          if (this.isTimedOut(timeoutSeconds)) {
+            this.emit({
+              type: "guardrail",
+              sessionId: this.sessionId,
+              guard: "timeout",
+              detail: `Session timed out after ${timeoutSeconds}s`,
+              timestamp: /* @__PURE__ */ new Date()
+            });
+            this.endSession("timeout");
+            return;
+          }
+          if (this.queue.isEmpty()) {
+            this.noProgressCount++;
+            if (this.noProgressCount >= AGENTIC_DEFAULTS.noProgressThreshold) {
+              this.emit({
+                type: "guardrail",
+                sessionId: this.sessionId,
+                guard: "converged",
+                detail: `No new messages for ${this.noProgressCount} consecutive turns`,
+                timestamp: /* @__PURE__ */ new Date()
+              });
+              this.endSession("converged");
+              return;
+            }
+          } else {
+            this.noProgressCount = 0;
+          }
+          const pending = this.queue.dequeueAll();
+          if (pending.size === 0) {
+            this.endSession("converged");
+            return;
+          }
+          const resumePromises = [...pending].map(async ([agentName, messages]) => {
+            const agent = agents.find((a) => a.name === agentName);
+            if (!agent) return;
+            const state = this.agentStates.get(agentName);
+            if (!state || state.status === "dead") return;
+            if (this.detectPingPong(messages)) {
+              this.emit({
+                type: "guardrail",
+                sessionId: this.sessionId,
+                guard: "ping_pong",
+                detail: `Breaking conversation cycle involving ${agentName}`,
+                timestamp: /* @__PURE__ */ new Date()
+              });
+              return;
+            }
+            const parts = messages.map((m) => `@${m.from} says: ${m.content}`);
+            if (this.turn >= maxTurns) {
+              parts.unshift(
+                "\u26A0\uFE0F FINAL TURN \u2014 the session ends after this response. Deliver your final output to @user NOW. Do not @mention other agents."
+              );
+            } else if (this.turn >= maxTurns - 1) {
+              parts.unshift(
+                `\u26A0\uFE0F WARNING: Only ${maxTurns - this.turn} turn(s) remaining. Wrap up and prepare to deliver final output to @user.`
+              );
+            }
+            const incomingPrompt = parts.join("\n\n");
+            this.emitAgentStatus(agentName, "active");
+            try {
+              const output = await this.sessions.resume(
+                agentName,
+                incomingPrompt,
+                repoPath
+              );
+              return { agentName, output };
+            } catch (err) {
+              throw { agentName, error: err };
+            }
+          });
+          const resumeResults = await Promise.allSettled(resumePromises);
+          if (this.stopped) break;
+          for (const result of resumeResults) {
+            if (result.status !== "fulfilled" || !result.value) {
+              if (result.status === "rejected") {
+                const { agentName: failedAgent, error: error3 } = result.reason;
+                const errMsg = error3 instanceof Error ? error3.message : String(error3);
+                this.emit({
+                  type: "error",
+                  sessionId: this.sessionId,
+                  agent: failedAgent,
+                  error: errMsg,
+                  timestamp: /* @__PURE__ */ new Date()
+                });
+                this.emitAgentStatus(failedAgent, "dead");
+              }
+              continue;
+            }
+            const { agentName, output } = result.value;
+            const parsed = parseAgentResponse(output, knownTargets);
+            for (const msg of parsed.messages) {
+              this.logAndEmitMessage(agentName, msg.to, msg.content, this.turn);
+              if (msg.to === "all") {
+                for (const other of agents) {
+                  if (other.name !== agentName) {
+                    this.queue.enqueue({
+                      sessionId: this.sessionId,
+                      from: agentName,
+                      to: other.name,
+                      content: msg.content,
+                      timestamp: /* @__PURE__ */ new Date(),
+                      turn: this.turn
+                    });
+                  }
+                }
+              } else if (msg.to !== "user") {
+                this.queue.enqueue({
+                  sessionId: this.sessionId,
+                  from: agentName,
+                  to: msg.to,
+                  content: msg.content,
+                  timestamp: /* @__PURE__ */ new Date(),
+                  turn: this.turn
+                });
+              }
+            }
+            if (parsed.notes) {
+              this.logAndEmitMessage(agentName, "notes", parsed.notes, this.turn);
+            }
+            this.emitAgentStatus(agentName, "idle");
+          }
+          this.emit({
+            type: "turn_complete",
+            sessionId: this.sessionId,
+            turn: this.turn,
+            pendingCount: this.queue.size(),
+            timestamp: /* @__PURE__ */ new Date()
+          });
+          this.turn++;
+        }
+        if (this.stopped) {
+          return;
+        }
+        this.emit({
+          type: "guardrail",
+          sessionId: this.sessionId,
+          guard: "max_turns",
+          detail: `Reached maximum of ${maxTurns} turns`,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.endSession("max_turns");
+      }
+      // ---- Helpers ------------------------------------------------------------
+      /**
+       * Subscribe to events (for SSE broadcast, logging, etc.).
+       * Returns unsubscribe function.
+       */
+      onEvent(listener) {
+        this.listeners.push(listener);
+        return () => {
+          const idx = this.listeners.indexOf(listener);
+          if (idx >= 0) this.listeners.splice(idx, 1);
+        };
+      }
+      emit(event) {
+        this.events.push(event);
+        for (const listener of this.listeners) {
+          try {
+            listener(event);
+          } catch {
+          }
+        }
+      }
+      emitAgentStatus(agent, status) {
+        const state = this.agentStates.get(agent);
+        if (state) {
+          state.status = status;
+          this.bus.updateAgent(this.sessionId, agent, { status });
+        }
+        this.emit({
+          type: "agent_status",
+          sessionId: this.sessionId,
+          agent,
+          status,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+      }
+      logAndEmitMessage(from, to, content, turn) {
+        this.bus.appendMessage({
+          sessionId: this.sessionId,
+          from,
+          to,
+          content,
+          turn
+        });
+        this.emit({
+          type: "message",
+          sessionId: this.sessionId,
+          from,
+          to,
+          content,
+          turn,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+      }
+      endSession(reason) {
+        if (this.sessionEnded) return;
+        this.sessionEnded = true;
+        const elapsed = Date.now() - this.startTime;
+        const busStatus = reason === "error" ? "failed" : reason === "stopped" ? "stopped" : "completed";
+        this.bus.endSession(this.sessionId, busStatus);
+        this.emit({
+          type: "session_end",
+          sessionId: this.sessionId,
+          reason,
+          turn: this.turn,
+          elapsed,
+          timestamp: /* @__PURE__ */ new Date()
+        });
+        this.events.close();
+        this.sessions.clear();
+        this.queue.clear();
+      }
+      isTimedOut(timeoutSeconds) {
+        return Date.now() - this.startTime > timeoutSeconds * 1e3;
+      }
+      detectPingPong(messages) {
+        if (this.turn !== this.lastPingPongTurn) {
+          this.lastPingPongTurn = this.turn;
+          for (const [pair, count] of this.consecutiveExchanges) {
+            if (count <= 1) {
+              this.consecutiveExchanges.delete(pair);
+            } else {
+              this.consecutiveExchanges.set(pair, Math.floor(count / 2));
+            }
+          }
+        }
+        for (const msg of messages) {
+          const pair = [msg.from, msg.to].sort().join(":");
+          const count = (this.consecutiveExchanges.get(pair) ?? 0) + 1;
+          this.consecutiveExchanges.set(pair, count);
+          if (count >= AGENTIC_DEFAULTS.pingPongThreshold) {
+            return true;
+          }
+        }
+        return false;
+      }
+    };
+  }
+});
+
+// src/agentic/index.ts
+var agentic_exports = {};
+__export(agentic_exports, {
+  AGENTIC_DEFAULTS: () => AGENTIC_DEFAULTS,
+  EventChannel: () => EventChannel,
+  MessageQueue: () => MessageQueue,
+  Orchestrator: () => Orchestrator,
+  SessionManager: () => SessionManager,
+  TranscriptBus: () => TranscriptBus,
+  assignAgentNames: () => assignAgentNames,
+  buildSystemPrompt: () => buildSystemPrompt,
+  defaultDbPath: () => defaultDbPath,
+  parseAgentResponse: () => parseAgentResponse
+});
+var init_agentic = __esm({
+  "src/agentic/index.ts"() {
+    "use strict";
+    init_orchestrator();
+    init_bus();
+    init_queue();
+    init_session();
+    init_parser();
+    init_events();
+    init_names();
+    init_types();
+  }
+});
+
+// src/web/event-sink.ts
+var event_sink_exports = {};
+__export(event_sink_exports, {
+  DashboardEventSink: () => DashboardEventSink
+});
+var DEFAULT_URL, BATCH_INTERVAL_MS, MAX_QUEUE_SIZE, DashboardEventSink;
+var init_event_sink = __esm({
+  "src/web/event-sink.ts"() {
+    "use strict";
+    DEFAULT_URL = "http://127.0.0.1:7777/api/ingest";
+    BATCH_INTERVAL_MS = 100;
+    MAX_QUEUE_SIZE = 200;
+    DashboardEventSink = class {
+      queue = [];
+      timer = null;
+      inflight = false;
+      url;
+      dropped = 0;
+      closed = false;
+      constructor(dashboardUrl) {
+        this.url = dashboardUrl ?? DEFAULT_URL;
+        this.timer = setInterval(() => this.flush(), BATCH_INTERVAL_MS);
+      }
+      /**
+       * Enqueue an event for delivery. Non-blocking, never throws.
+       */
+      push(event) {
+        if (this.closed) return;
+        if (this.queue.length >= MAX_QUEUE_SIZE) {
+          this.dropped++;
+          return;
+        }
+        this.queue.push(event);
+      }
+      /**
+       * Flush pending events to the dashboard. Skips if already inflight.
+       */
+      async flush() {
+        if (this.inflight || this.queue.length === 0) return;
+        const batch = this.queue.splice(0);
+        this.inflight = true;
+        try {
+          const res = await fetch(this.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(batch),
+            signal: AbortSignal.timeout(250)
+          });
+          if (!res.ok && this.dropped === 0) {
+          }
+        } catch {
+        } finally {
+          this.inflight = false;
+        }
+      }
+      /**
+       * Final flush and cleanup.
+       */
+      async close() {
+        this.closed = true;
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+        await this.flush();
+        if (this.dropped > 0) {
+          process.stderr.write(`  [dashboard-sink] dropped ${this.dropped} events (queue overflow)
+`);
+        }
+      }
+    };
+  }
+});
+
+// src/web/sse.ts
+var SSEBroadcaster;
+var init_sse = __esm({
+  "src/web/sse.ts"() {
+    "use strict";
+    SSEBroadcaster = class {
+      clients = /* @__PURE__ */ new Set();
+      heartbeatTimer = null;
+      constructor() {
+        this.heartbeatTimer = setInterval(() => {
+          for (const client of this.clients) {
+            try {
+              client.res.write(": heartbeat\n\n");
+            } catch {
+              this.clients.delete(client);
+            }
+          }
+        }, 15e3);
+      }
+      /**
+       * Add a new SSE client. Sets up headers and returns cleanup function.
+       */
+      addClient(res, sessionId) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*"
+        });
+        res.write(": connected\n\n");
+        const client = { res, sessionId };
+        this.clients.add(client);
+        return () => {
+          this.clients.delete(client);
+        };
+      }
+      /**
+       * Broadcast an event to all matching clients.
+       */
+      broadcast(event) {
+        const data = JSON.stringify(event);
+        const sessionId = "sessionId" in event ? event.sessionId : null;
+        for (const client of this.clients) {
+          if (client.sessionId === null || client.sessionId === sessionId) {
+            try {
+              client.res.write(`event: ${event.type}
+data: ${data}
+
+`);
+            } catch {
+              this.clients.delete(client);
+            }
+          }
+        }
+      }
+      /**
+       * Number of connected clients.
+       */
+      get clientCount() {
+        return this.clients.size;
+      }
+      /**
+       * Shut down — close all connections and stop heartbeat.
+       */
+      close() {
+        if (this.heartbeatTimer) {
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+        }
+        for (const client of this.clients) {
+          try {
+            client.res.end();
+          } catch {
+          }
+        }
+        this.clients.clear();
+      }
+    };
+  }
+});
+
+// src/web/routes.ts
+function json(res, data, status = 200) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*"
+  });
+  res.end(JSON.stringify(data));
+}
+function notFound(res, msg = "Not found") {
+  json(res, { error: msg }, 404);
+}
+function error2(res, msg, status = 500) {
+  json(res, { error: msg }, status);
+}
+function handleApiRoute(req, res, bus, sse) {
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const path = url.pathname;
+  const method = req.method ?? "GET";
+  if (method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type"
+    });
+    res.end();
+    return true;
+  }
+  if (path === "/api/ingest" && method === "POST") {
+    const MAX_BODY = 1024 * 1024;
+    let body = "";
+    let size = 0;
+    let aborted = false;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        if (!aborted) {
+          aborted = true;
+          error2(res, "Request body too large", 413);
+          req.destroy();
+        }
+        return;
+      }
+      body += chunk.toString();
+    });
+    req.on("end", () => {
+      if (aborted) return;
+      try {
+        const events = JSON.parse(body);
+        if (Array.isArray(events)) {
+          for (const event of events) {
+            sse.broadcast(event);
+          }
+          json(res, { accepted: events.length });
+        } else {
+          error2(res, "Expected array of events", 400);
+        }
+      } catch {
+        error2(res, "Invalid JSON", 400);
+      }
+    });
+    return true;
+  }
+  if (path === "/api/sessions" && method === "GET") {
+    try {
+      const sessions = bus.listSessions();
+      json(res, sessions);
+    } catch (err) {
+      error2(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+  const sessionMatch = path.match(/^\/api\/sessions\/([^/]+)$/);
+  if (sessionMatch && method === "GET") {
+    try {
+      const id = sessionMatch[1];
+      const session = bus.getSession(id);
+      if (!session) {
+        notFound(res, `Session ${id} not found`);
+        return true;
+      }
+      const transcript = bus.getTranscript(id);
+      json(res, { ...session, transcript });
+    } catch (err) {
+      error2(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+  if (sessionMatch && method === "DELETE") {
+    try {
+      const id = sessionMatch[1];
+      bus.deleteSession(id);
+      json(res, { deleted: id });
+    } catch (err) {
+      error2(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+  if (path === "/api/events" && method === "GET") {
+    const sessionId = url.searchParams.get("session");
+    const cleanup = sse.addClient(res, sessionId);
+    req.on("close", cleanup);
+    return true;
+  }
+  if (path === "/api/stats" && method === "GET") {
+    try {
+      const sessions = bus.listSessions();
+      const active = sessions.filter((s) => s.status === "active").length;
+      const completed = sessions.filter((s) => s.status === "completed").length;
+      const failed = sessions.filter((s) => s.status === "failed").length;
+      const totalMessages = sessions.reduce(
+        (sum, s) => sum + s.agents.reduce((a, ag) => a + ag.messageCount, 0),
+        0
+      );
+      json(res, {
+        totalSessions: sessions.length,
+        active,
+        completed,
+        failed,
+        totalMessages,
+        sseClients: sse.clientCount
+      });
+    } catch (err) {
+      error2(res, err instanceof Error ? err.message : String(err));
+    }
+    return true;
+  }
+  return false;
+}
+var init_routes = __esm({
+  "src/web/routes.ts"() {
+    "use strict";
+  }
+});
+
+// src/web/server.ts
+import { createServer } from "http";
+import { join as join5, extname, resolve as resolve4, relative, sep } from "path";
+import { readFile } from "fs/promises";
+import { existsSync as existsSync9 } from "fs";
+import { fileURLToPath as fileURLToPath2 } from "url";
+function resolvePublicDir() {
+  const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
+  const devPath = join5(thisDir, "public");
+  if (existsSync9(devPath)) return devPath;
+  const cwdPath = join5(process.cwd(), "src", "web", "public");
+  if (existsSync9(cwdPath)) return cwdPath;
+  return devPath;
+}
+async function startDashboard(opts = {}) {
+  const port = opts.port ?? 7777;
+  const bus = new TranscriptBus(opts.dbPath);
+  const sse = new SSEBroadcaster();
+  const publicDir = resolvePublicDir();
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const path = url.pathname;
+    if (path.startsWith("/api/")) {
+      const handled = handleApiRoute(req, res, bus, sse);
+      if (handled) return;
+    }
+    const filePath = path === "/" ? join5(publicDir, "index.html") : join5(publicDir, path);
+    const resolved = resolve4(filePath);
+    const rel = relative(publicDir, resolved);
+    if (rel.startsWith("..") || rel.startsWith(sep)) {
+      res.writeHead(403);
+      res.end("Forbidden");
+      return;
+    }
+    try {
+      const content = await readFile(filePath);
+      const ext = extname(filePath);
+      const mime = MIME[ext] ?? "application/octet-stream";
+      res.writeHead(200, { "Content-Type": mime });
+      res.end(content);
+    } catch {
+      if (!extname(path)) {
+        try {
+          const index = await readFile(join5(publicDir, "index.html"));
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(index);
+        } catch {
+          res.writeHead(404);
+          res.end("Not found");
+        }
+      } else {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+    }
+  });
+  return new Promise((resolve6, reject) => {
+    server.on("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      const dashUrl = `http://127.0.0.1:${port}`;
+      resolve6({
+        server,
+        sse,
+        bus,
+        url: dashUrl,
+        close: async () => {
+          sse.close();
+          bus.close();
+          return new Promise((res) => server.close(() => res()));
+        }
+      });
+    });
+  });
+}
+var MIME;
+var init_server = __esm({
+  "src/web/server.ts"() {
+    "use strict";
+    init_bus();
+    init_sse();
+    init_routes();
+    MIME = {
+      ".html": "text/html",
+      ".css": "text/css",
+      ".js": "application/javascript",
+      ".json": "application/json",
+      ".svg": "image/svg+xml",
+      ".png": "image/png",
+      ".ico": "image/x-icon"
+    };
+  }
+});
+
+// src/web/index.ts
+var web_exports = {};
+__export(web_exports, {
+  DashboardEventSink: () => DashboardEventSink,
+  SSEBroadcaster: () => SSEBroadcaster,
+  startDashboard: () => startDashboard
+});
+var init_web = __esm({
+  "src/web/index.ts"() {
+    "use strict";
+    init_server();
+    init_sse();
+    init_event_sink();
   }
 });
 
@@ -61437,7 +63389,7 @@ var ClaudeBackend = class {
     }, opts.timeoutSeconds * 1e3);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve5, reject) => {
+    const closePromise = new Promise((resolve6, reject) => {
       child.on("close", (code, signal) => {
         if (timedOut) {
           reject(new ClaudeBackendError(
@@ -61453,7 +63405,7 @@ var ClaudeBackend = class {
             stderr || `claude exited with code ${code}`
           ));
         } else {
-          resolve5();
+          resolve6();
         }
       });
     });
@@ -61483,9 +63435,9 @@ var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
 // src/cli.ts
-import { resolve as resolve4, dirname as dirname5 } from "path";
-import { existsSync as existsSync9 } from "fs";
-import { fileURLToPath as fileURLToPath2 } from "url";
+import { resolve as resolve5, dirname as dirname5 } from "path";
+import { existsSync as existsSync10 } from "fs";
+import { fileURLToPath as fileURLToPath3 } from "url";
 import { spawnSync } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -65374,13 +67326,13 @@ var PromisePolyfill = class extends Promise {
   // Available starting from Node 22
   // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
   static withResolver() {
-    let resolve5;
+    let resolve6;
     let reject;
     const promise = new Promise((res, rej) => {
-      resolve5 = res;
+      resolve6 = res;
       reject = rej;
     });
-    return { promise, resolve: resolve5, reject };
+    return { promise, resolve: resolve6, reject };
   }
 };
 
@@ -65416,7 +67368,7 @@ function createPrompt(view) {
       output
     });
     const screen = new ScreenManager(rl);
-    const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
+    const { promise, resolve: resolve6, reject } = PromisePolyfill.withResolver();
     const cancel = () => reject(new CancelPromptError());
     if (signal) {
       const abort = () => reject(new AbortPromptError({ cause: signal.reason }));
@@ -65444,7 +67396,7 @@ function createPrompt(view) {
         cycle(() => {
           try {
             const nextView = view(config, (value) => {
-              setImmediate(() => resolve5(value));
+              setImmediate(() => resolve6(value));
             });
             if (nextView === void 0) {
               const callerFilename = callSites[1]?.getFileName();
@@ -65454,8 +67406,8 @@ function createPrompt(view) {
             const [content, bottomContent] = typeof nextView === "string" ? [nextView] : nextView;
             screen.render(content, bottomContent);
             effectScheduler.run();
-          } catch (error2) {
-            reject(error2);
+          } catch (error3) {
+            reject(error3);
           }
         });
       };
@@ -65467,9 +67419,9 @@ function createPrompt(view) {
       return Object.assign(promise.then((answer) => {
         effectScheduler.clearAll();
         return answer;
-      }, (error2) => {
+      }, (error3) => {
         effectScheduler.clearAll();
-        throw error2;
+        throw error3;
       }).finally(() => {
         cleanups.forEach((cleanup) => cleanup());
         screen.done({ clearContent: Boolean(context.clearPromptOnDone) });
@@ -65976,10 +67928,10 @@ async function doctor(opts) {
 init_config();
 init_version();
 function repoRootDefault() {
-  const thisDir = dirname5(fileURLToPath2(import.meta.url));
-  return resolve4(thisDir, "..");
+  const thisDir = dirname5(fileURLToPath3(import.meta.url));
+  return resolve5(thisDir, "..");
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -66052,7 +68004,7 @@ async function run(argv) {
       return await renderTui2();
     }
     const paths = configPaths();
-    if (!existsSync9(paths.user)) {
+    if (!existsSync10(paths.user)) {
       console.log("");
       console.log(banner("AI coding agent relay"));
       console.log("");
@@ -66207,7 +68159,7 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync9(paths.user)) {
+    if (!existsSync10(paths.user)) {
       configInit(paths.user, true);
     }
     const parts = editorEnv.split(/\s+/);
@@ -66215,7 +68167,7 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync9(paths.user)) {
+    if (!existsSync10(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);
@@ -66240,6 +68192,147 @@ ${banner("AI coding agent relay")}
   addUninstallOptions(
     pluginCmd.command("uninstall").description("Uninstall Claude plugin")
   ).action((opts) => uninstallAction(opts));
+  const agenticCmd = program2.command("agentic").description("Multi-agent sessions with persistent agent-to-agent communication");
+  agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").option("--dashboard-url <url>", "Dashboard URL for live event streaming", "http://127.0.0.1:7777/api/ingest").action(async (opts) => {
+    const { Orchestrator: Orchestrator2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const { DashboardEventSink: DashboardEventSink2 } = await Promise.resolve().then(() => (init_event_sink(), event_sink_exports));
+    const agents = parseAgentList(opts.agents);
+    if (agents.length === 0) {
+      console.error(`  ${theme.crossmark} ${theme.error("No agents specified. Use --agents role:backend,role:backend")}`);
+      exitCode = 1;
+      return;
+    }
+    const orchestrator = new Orchestrator2();
+    const sink = new DashboardEventSink2(opts.dashboardUrl);
+    orchestrator.onEvent((event) => sink.push(event));
+    try {
+      const events = await orchestrator.run({
+        agents,
+        prompt: opts.prompt,
+        maxTurns: parseInt(opts.maxTurns, 10),
+        timeoutSeconds: parseInt(opts.timeout, 10),
+        repoPath: opts.repo,
+        sandbox: opts.sandbox
+      });
+      await formatAgenticEvents(events);
+    } finally {
+      await sink.close();
+      await orchestrator.close();
+    }
+  });
+  agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
+    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const bus = new TranscriptBus2();
+    try {
+      if (opts.session) {
+        const transcript = bus.getTranscript(opts.session);
+        const session = bus.getSession(opts.session);
+        if (!session) {
+          console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+          exitCode = 1;
+          return;
+        }
+        console.log(`
+  ${theme.heading("Session")} ${theme.info(session.id)}`);
+        console.log(`  ${theme.label("Prompt:")} ${session.prompt}`);
+        console.log(`  ${theme.label("Status:")} ${session.status}`);
+        console.log(`  ${theme.label("Agents:")} ${session.agents.map((a) => `${a.name}(${a.backend})`).join(", ")}`);
+        console.log(`  ${theme.label("Messages:")} ${transcript.length}`);
+        console.log("");
+        for (const msg of transcript) {
+          const time = msg.timestamp.toLocaleTimeString();
+          const arrow = theme.hint("\u2192");
+          console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+          console.log(`    ${msg.content.split("\n")[0].slice(0, 120)}`);
+        }
+        console.log("");
+      } else {
+        const sessions = bus.listSessions();
+        if (sessions.length === 0) {
+          console.log(`
+  ${theme.hint("No agentic sessions found.")}
+`);
+          return;
+        }
+        console.log(`
+  ${theme.heading("Agentic Sessions")}
+`);
+        for (const s of sessions) {
+          const status = s.status === "completed" ? theme.success("\u2713") : s.status === "active" ? theme.info("\u25CF") : s.status === "failed" ? theme.error("\u2717") : theme.warning("\u25A0");
+          const agents = s.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
+          const time = s.createdAt.toLocaleString();
+          console.log(`  ${status} ${theme.bold(s.id)}  ${theme.hint(time)}`);
+          console.log(`    ${theme.hint(s.prompt.slice(0, 100))}`);
+          console.log(`    ${theme.hint(`Agents: ${agents}  |  Turns: ${s.turn}`)}`);
+          console.log("");
+        }
+      }
+    } finally {
+      bus.close();
+    }
+  });
+  agenticCmd.command("replay").description("Replay a session transcript").requiredOption("--session <id>", "Session ID to replay").action(async (opts) => {
+    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+    const bus = new TranscriptBus2();
+    try {
+      const session = bus.getSession(opts.session);
+      if (!session) {
+        console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+        exitCode = 1;
+        return;
+      }
+      const transcript = bus.getTranscript(opts.session);
+      console.log(`
+  ${theme.heading("Replay:")} ${theme.info(session.id)}`);
+      console.log(`  ${theme.label("Prompt:")} ${session.prompt}
+`);
+      let lastTurn = -1;
+      for (const msg of transcript) {
+        if (msg.turn !== lastTurn) {
+          console.log(`  ${theme.heading(`\u2500\u2500 Turn ${msg.turn} \u2500\u2500`)}`);
+          lastTurn = msg.turn;
+        }
+        const time = msg.timestamp.toLocaleTimeString();
+        const arrow = theme.hint("\u2192");
+        console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+        for (const line of msg.content.split("\n")) {
+          console.log(`    ${line}`);
+        }
+        console.log("");
+      }
+      console.log(`  ${theme.label("Status:")} ${session.status}  |  ${theme.label("Turns:")} ${session.turn}
+`);
+    } finally {
+      bus.close();
+    }
+  });
+  agenticCmd.command("dashboard").description("Launch web dashboard for session visibility").option("--port <number>", "Port to listen on", "7777").action(async (opts) => {
+    const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_web(), web_exports));
+    const port = parseInt(opts.port, 10);
+    try {
+      const dashboard = await startDashboard2({ port });
+      console.log(`
+  ${theme.heading("Agentic Dashboard")}`);
+      console.log(`  ${theme.success("\u2713")} Running at ${theme.info(dashboard.url)}`);
+      console.log(`  ${theme.hint("Press Ctrl+C to stop")}
+`);
+      const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      spawnSync(openCmd, [dashboard.url], { stdio: "ignore" });
+      await new Promise((resolve6) => {
+        process.on("SIGINT", () => {
+          console.log(`
+  ${theme.hint("Shutting down dashboard...")}`);
+          dashboard.close().then(resolve6);
+        });
+        process.on("SIGTERM", () => {
+          dashboard.close().then(resolve6);
+        });
+      });
+    } catch (err) {
+      console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
+      exitCode = 1;
+    }
+  });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")
   ).action((opts) => installAction(opts));
@@ -66274,6 +68367,67 @@ ${banner("AI coding agent relay")}
     throw err;
   }
   return exitCode;
+}
+function parseAgentList(input) {
+  return input.split(",").map((pair) => {
+    const parts = pair.trim().split(":");
+    if (parts.length < 2) return null;
+    return {
+      name: parts[0],
+      backend: parts[1],
+      model: parts[2] || void 0
+    };
+  }).filter((a) => a !== null);
+}
+async function formatAgenticEvents(events) {
+  for await (const event of events) {
+    const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+    switch (event.type) {
+      case "session_start":
+        console.log(`
+  ${theme.heading("Agentic Session")} ${theme.info(event.sessionId)}`);
+        console.log(`  ${theme.label("Prompt:")} ${event.prompt}`);
+        console.log(`  ${theme.label("Agents:")} ${event.agents.map((a) => `${theme.bold(a.name)}(${a.backend})`).join(", ")}
+`);
+        break;
+      case "message": {
+        const arrow = theme.hint("\u2192");
+        console.log(`  ${theme.hint(time)}  ${theme.bold(event.from)} ${arrow} ${theme.bold(event.to)}`);
+        const lines = event.content.split("\n").slice(0, 3);
+        for (const line of lines) {
+          console.log(`    ${line}`);
+        }
+        if (event.content.split("\n").length > 3) {
+          console.log(`    ${theme.hint(`... (${event.content.split("\n").length - 3} more lines)`)}`);
+        }
+        break;
+      }
+      case "agent_status": {
+        const icon = event.status === "active" ? theme.info("\u25CF") : event.status === "idle" ? theme.hint("\u25CB") : theme.error("\u2717");
+        console.log(`  ${theme.hint(time)}  ${icon} ${event.agent}: ${event.status}`);
+        break;
+      }
+      case "turn_complete":
+        console.log(`  ${theme.hint(`\u2500\u2500 Turn ${event.turn} complete (${event.pendingCount} pending) \u2500\u2500`)}`);
+        break;
+      case "guardrail":
+        console.log(`  ${theme.warning("\u26A0")} ${theme.warning(event.guard)}: ${event.detail}`);
+        break;
+      case "session_end": {
+        const elapsed = (event.elapsed / 1e3).toFixed(1);
+        console.log(`
+  ${theme.heading("Session ended")}: ${event.reason}`);
+        console.log(`  ${theme.label("Turns:")} ${event.turn}  |  ${theme.label("Elapsed:")} ${elapsed}s
+`);
+        break;
+      }
+      case "error": {
+        const prefix = event.agent ? `${event.agent}: ` : "";
+        console.error(`  ${theme.crossmark} ${theme.error(`${prefix}${event.error}`)}`);
+        break;
+      }
+    }
+  }
 }
 
 // src/index.ts
