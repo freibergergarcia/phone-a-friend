@@ -592,6 +592,41 @@
     }
 
     /* ========================================
+       FLOW MODE SWITCHER
+       ======================================== */
+    .flow-mode-btn {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 500;
+      padding: 8px 24px;
+      border-radius: 8px;
+      border: 1px solid var(--border-card);
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+
+    .flow-mode-btn:hover {
+      border-color: rgba(56, 189, 248, 0.25);
+      color: var(--text-primary);
+    }
+
+    .flow-mode-btn.active {
+      background: var(--accent-dim);
+      border-color: rgba(56, 189, 248, 0.3);
+      color: var(--accent);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.08);
+    }
+
+    .flow-mode-btn[data-flow="agentic"].active {
+      background: rgba(52, 211, 153, 0.1);
+      border-color: rgba(52, 211, 153, 0.3);
+      color: var(--accent-green);
+      box-shadow: 0 0 16px rgba(52, 211, 153, 0.08);
+    }
+
+    /* ========================================
        MODES SECTION
        ======================================== */
     .modes {
@@ -963,9 +998,9 @@
     /* ========================================
        RESPONSIVE
        ======================================== */
-    @media (max-width: 900px) {
+    @media (max-width: 1000px) {
       .features-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, 1fr) !important;
       }
     }
 
@@ -1021,7 +1056,7 @@
       }
 
       .features-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
       }
 
       /* Mobile nav: compact brand, show hamburger */
@@ -1555,14 +1590,20 @@
       <div class="container">
         <div class="section-header-centered">
           <p class="section-label reveal">How it works</p>
-          <h2 class="section-title reveal reveal-delay-1">Three steps. No commands.</h2>
+          <h2 class="section-title reveal reveal-delay-1">Two workflows. One tool.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Just describe what you need. Claude picks the right backend,
-            relays your request, and brings the results back.
+            Quick relay for a second opinion, or agentic mode for autonomous multi-agent collaboration.
           </p>
         </div>
 
-        <div class="flow-steps">
+        <!-- Flow mode switcher -->
+        <div class="flow-mode-switcher reveal reveal-delay-2" style="display:flex;justify-content:center;gap:4px;margin-bottom:48px;">
+          <button class="flow-mode-btn active" data-flow="relay" type="button">Relay</button>
+          <button class="flow-mode-btn" data-flow="agentic" type="button">Agentic</button>
+        </div>
+
+        <!-- Relay flow -->
+        <div class="flow-steps" id="flow-relay">
           <div class="flow-step reveal reveal-delay-1">
             <div class="flow-icon icon-claude">💬</div>
             <div class="flow-connector">
@@ -1589,6 +1630,37 @@
             <div class="flow-icon icon-result">✨</div>
             <h3>Get refined results</h3>
             <p>The backend's response flows back to Claude, who synthesizes it and presents the results in your session.</p>
+          </div>
+        </div>
+
+        <!-- Agentic flow -->
+        <div class="flow-steps" id="flow-agentic" style="display:none;">
+          <div class="flow-step">
+            <div class="flow-icon" style="background:linear-gradient(135deg,rgba(52,211,153,0.15),rgba(52,211,153,0.05));border:1px solid rgba(52,211,153,0.2);box-shadow:0 0 30px rgba(52,211,153,0.1);">🚀</div>
+            <div class="flow-connector">
+              <div class="flow-connector-line" style="background:linear-gradient(90deg,rgba(52,211,153,0.12),rgba(167,139,250,0.12));">
+                <div class="flow-connector-pulse" style="background:var(--accent-green);box-shadow:0 0 12px var(--accent-green);"></div>
+              </div>
+            </div>
+            <h3>Spawn agents</h3>
+            <p>Define roles like reviewer, critic, or analyst. Each agent gets a creative name and persistent session.</p>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-icon" style="background:linear-gradient(135deg,rgba(167,139,250,0.15),rgba(167,139,250,0.05));border:1px solid rgba(167,139,250,0.2);box-shadow:0 0 30px rgba(167,139,250,0.1);">💬</div>
+            <div class="flow-connector">
+              <div class="flow-connector-line" style="background:linear-gradient(90deg,rgba(167,139,250,0.12),rgba(56,189,248,0.12));">
+                <div class="flow-connector-pulse delay" style="background:var(--accent-secondary);box-shadow:0 0 12px var(--accent-secondary);"></div>
+              </div>
+            </div>
+            <h3>Agents @mention each other</h3>
+            <p>Agents communicate via @mentions. The orchestrator routes messages, enforces guardrails, and detects convergence.</p>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-icon" style="background:linear-gradient(135deg,rgba(56,189,248,0.15),rgba(56,189,248,0.05));border:1px solid rgba(56,189,248,0.2);box-shadow:0 0 30px rgba(56,189,248,0.1);">📊</div>
+            <h3>Watch it live</h3>
+            <p>Every message, thinking step, and turn is streamed to a real-time web dashboard. Full transcript saved to SQLite for replay.</p>
           </div>
         </div>
       </div>
@@ -1650,9 +1722,14 @@
             <div class="agentic-features">
               <span class="agentic-tag">@mention routing</span>
               <span class="agentic-tag">live dashboard</span>
+              <span class="agentic-tag">creative agent names</span>
               <span class="agentic-tag">guardrails</span>
               <span class="agentic-tag">SQLite persistence</span>
+              <span class="agentic-tag">session replay</span>
               <span class="agentic-tag">Claude agents only</span>
+            </div>
+            <div style="margin-top:20px;border-radius:10px;overflow:hidden;border:1px solid rgba(52,211,153,0.15);box-shadow:0 0 30px rgba(52,211,153,0.05);">
+              <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/web-dashboard.gif" alt="Agentic web dashboard showing live session with agent cards and @mention routing" style="width:100%;display:block;" loading="lazy">
             </div>
             <p style="margin-top: 12px; font-size: 0.8rem; color: var(--text-muted)">See the <a href="https://github.com/freibergergarcia/phone-a-friend#agentic-mode" style="color: var(--accent-green)">full agentic docs</a> for guardrails, session replay, and dashboard API.</p>
           </div>
@@ -1665,30 +1742,30 @@
       <div class="container">
         <div class="section-header-centered">
           <p class="section-label reveal">Features</p>
-          <h2 class="section-title reveal reveal-delay-1">Built for safety and speed.</h2>
+          <h2 class="section-title reveal reveal-delay-1">Built for safety, speed, and observability.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Guard rails, sandboxing, and zero dependencies.
-            Production-ready from the first relay.
+            Guardrails, sandboxing, and a live dashboard.
+            From quick relays to autonomous multi-agent sessions.
           </p>
         </div>
 
-        <div class="features-grid">
+        <div class="features-grid" style="grid-template-columns: repeat(4, 1fr);">
           <div class="feature-card reveal reveal-delay-1">
             <span class="feature-icon">🔌</span>
             <h3>Backend-agnostic</h3>
-            <p>Codex, Gemini, Ollama, and Claude Code today. Add new backends via the RelayBackend protocol — swap or run all four in parallel.</p>
+            <p>Codex, Gemini, Ollama, and Claude Code. Add new backends via the RelayBackend protocol.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-2">
             <span class="feature-icon">🔒</span>
             <h3>Sandboxed by default</h3>
-            <p>Read-only sandbox prevents accidental writes. Escalate to workspace-write or full-access only when needed.</p>
+            <p>Read-only sandbox prevents accidental writes. Escalate only when needed.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-3">
-            <span class="feature-icon">💬</span>
-            <h3>Just talk</h3>
-            <p>No flags, no syntax. Describe what you need in plain English and Claude routes it to the right backend automatically.</p>
+            <span class="feature-icon">📊</span>
+            <h3>Live observability</h3>
+            <p>Real-time web dashboard streams every message, thinking step, and turn via SSE. Watch agents collaborate live.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-4">
@@ -1698,15 +1775,27 @@
           </div>
 
           <div class="feature-card reveal reveal-delay-5">
+            <span class="feature-icon">💬</span>
+            <h3>@mention routing</h3>
+            <p>Agents address each other by name — @ada.reviewer:, @all, @user. The orchestrator handles delivery.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-6">
+            <span class="feature-icon">🧠</span>
+            <h3>Persistent sessions</h3>
+            <p>Agents accumulate context across turns. Later responses build on earlier ones — genuine multi-turn reasoning.</p>
+          </div>
+
+          <div class="feature-card reveal reveal-delay-5">
             <span class="feature-icon">🛡️</span>
-            <h3>Depth guard</h3>
-            <p>Recursive relay prevention via PHONE_A_FRIEND_DEPTH. No infinite agent loops — fail-fast by design.</p>
+            <h3>Guardrails</h3>
+            <p>Turn limits, ping-pong detection, session timeouts, and turn budget warnings. No runaway agents.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-6">
             <span class="feature-icon">🌊</span>
             <h3>Streaming output</h3>
-            <p>Claude and Ollama stream tokens as they arrive — see results in real time instead of waiting for the full response.</p>
+            <p>Claude and Ollama stream tokens as they arrive — see results in real time instead of waiting.</p>
           </div>
         </div>
       </div>
@@ -1752,11 +1841,15 @@
             <li class="install-step reveal reveal-delay-3">
               <span class="step-number">3</span>
               <div class="step-content">
-                <h4>Explore the TUI dashboard</h4>
-                <p>Run the CLI with no arguments to launch an interactive dashboard — backend status, config editing, and actions.</p>
-                <div class="code-block has-copy">
+                <h4>Explore your dashboards</h4>
+                <p>TUI for system health and config. Web dashboard for live agentic session visualization.</p>
+                <div class="code-block has-copy" style="margin-bottom:10px;">
                   <button type="button" class="copy-btn" data-copy="phone-a-friend">copy</button>
-                  <span class="prompt-char">$ </span>phone-a-friend
+                  <span class="prompt-char">$ </span>phone-a-friend<span style="color:var(--text-muted);"> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# TUI dashboard</span>
+                </div>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="phone-a-friend agentic dashboard">copy</button>
+                  <span class="prompt-char">$ </span>phone-a-friend agentic dashboard<span style="color:var(--text-muted);"> &nbsp;# Web dashboard</span>
                 </div>
               </div>
             </li>
@@ -1901,6 +1994,7 @@
         { text: 'Spin up Codex and Ollama to review the auth module', route: 'Routing to phone-a-team (multi-agent)' },
         { text: 'Have Claude Code refactor the config parser', route: 'Routing to phone-a-friend (one-shot relay)' },
         { text: 'Build a team with Gemini and Codex, loop 3 rounds on the API design', route: 'Routing to phone-a-team (multi-agent)' },
+        { text: 'phone-a-friend agentic run --agents reviewer:claude,critic:claude', route: 'Spawning ada.reviewer, fern.critic — live dashboard at localhost:7777' },
       ];
       const el = document.getElementById('hero-typed');
       const routeEl = document.getElementById('hero-route');
@@ -1997,6 +2091,29 @@
         if (!prefersReducedMotion) {
           timer = setTimeout(tick, durations[current]);
         }
+      });
+    })();
+
+    // Flow mode switcher (How it works — Relay vs Agentic)
+    (function() {
+      var btns = document.querySelectorAll('.flow-mode-btn');
+      var relayFlow = document.getElementById('flow-relay');
+      var agenticFlow = document.getElementById('flow-agentic');
+      if (!btns.length || !relayFlow || !agenticFlow) return;
+
+      btns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          btns.forEach(function(b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          var mode = btn.getAttribute('data-flow');
+          if (mode === 'agentic') {
+            relayFlow.style.display = 'none';
+            agenticFlow.style.display = 'flex';
+          } else {
+            relayFlow.style.display = 'flex';
+            agenticFlow.style.display = 'none';
+          }
+        });
       });
     })();
   </script>

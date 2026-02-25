@@ -645,7 +645,7 @@ describe('Orchestrator', () => {
       expect(collected[collected.length - 1].type).toBe('session_end');
     });
 
-    it('notes are logged to bus but not emitted as message events', async () => {
+    it('notes are logged to bus and emitted as message events for live dashboard', async () => {
       // Agent responds with notes and a message
       mockSessions.spawn.mockResolvedValue({
         output: 'Some working notes here\n@critic: check this',
@@ -664,11 +664,12 @@ describe('Orchestrator', () => {
       const noteCalls = busCalls.filter((m) => m.to === 'notes');
       expect(noteCalls.length).toBeGreaterThan(0);
 
-      // But no 'message' event should have to='notes'
+      // Notes are also emitted as message events (needed for live dashboard thinking steps)
       const messageEvents = collected.filter((e) => e.type === 'message') as Array<{
         to: string;
       }>;
-      expect(messageEvents.every((m) => m.to !== 'notes')).toBe(true);
+      const noteEvents = messageEvents.filter((m) => m.to === 'notes');
+      expect(noteEvents.length).toBeGreaterThan(0);
     });
   });
 });
