@@ -24,13 +24,17 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
+<div align="center">
+
 ### TUI Dashboard
 
-<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.png" alt="TUI dashboard" width="600">
+<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.gif" alt="TUI dashboard" width="600">
 
 ### Web Dashboard
 
 <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/web-dashboard.gif" alt="Web dashboard" width="700">
+
+</div>
 
 ## Quick Start
 
