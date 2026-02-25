@@ -12,7 +12,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 src/
   index.ts           Entry point — imports backends, runs CLI
   cli.ts             Commander.js CLI with subcommands
-  relay.ts           Backend-agnostic relay core (relay + relayStream)
+  relay.ts           Backend-agnostic relay core (relay + relayStream + reviewRelay)
   stream-parsers.ts  Stream parsers — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
   context.ts         RelayContext interface
   version.ts         Shared version reader
@@ -21,12 +21,31 @@ src/
   doctor.ts          Health check command
   setup.ts           Interactive setup wizard
   installer.ts       Claude plugin installer (symlink/copy)
+  theme.ts           Shared semantic theme (chalk) for CLI styling + banner
+  display.ts         Display helpers (mark, formatBackendLine)
   backends/
     index.ts         Backend interface, registry, types
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
     ollama.ts        Ollama HTTP API backend (native fetch)
+  agentic/
+    index.ts         Public API — Orchestrator, TranscriptBus exports
+    types.ts         AgentConfig, AgenticSessionConfig, AgentState, Message, AGENTIC_DEFAULTS
+    orchestrator.ts  Main loop — spawn agents, route messages, guardrails, emit events
+    session.ts       SessionManager — Claude CLI subprocess with UUID-based sessions
+    bus.ts           SQLite transcript bus (better-sqlite3) — append-only session log
+    queue.ts         In-memory MessageQueue for runtime routing
+    events.ts        AgenticEvent discriminated union + EventChannel (push/pull bridge)
+    parser.ts        @mention extraction + system prompt builder
+    names.ts         Creative agent name assignment (e.g., ada.reviewer)
+  web/
+    index.ts         Public API — startDashboard export
+    server.ts        HTTP server (node:http) with static file serving
+    routes.ts        REST API — sessions, stats, SSE events, event ingestion
+    sse.ts           SSE broadcaster with heartbeat and session filtering
+    event-sink.ts    Batched fire-and-forget POST bridge from CLI to dashboard
+    public/          Static dashboard frontend (HTML/CSS/JS)
   tui/
     App.tsx          Root TUI component — tab bar + panel routing
     render.tsx       Ink render entry point
@@ -34,9 +53,11 @@ src/
     BackendsPanel.tsx Per-backend list with detail pane
     ConfigPanel.tsx  Config view + inline editing
     ActionsPanel.tsx Async-wrapped executable actions
+    AgenticPanel.tsx Session browser with list view and dashboard URL hint
     hooks/
       useDetection.ts    Async detection with throttled refresh
       usePluginStatus.ts Plugin install status (sync FS check)
+      useAgenticSessions.ts  SQLite session loader for Agentic panel
     components/
       TabBar.tsx             Tab navigation bar
       PluginStatusBar.tsx    Persistent plugin install indicator
@@ -49,8 +70,8 @@ dist/                Built bundle (committed, self-contained)
 
 ## Core Behavior
 
-- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming
-- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` optional
+- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review
+- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
 - Claude backend in `src/backends/claude.ts` (subprocess via `claude -p`, streams via `--output-format stream-json`)
 - Codex backend in `src/backends/codex.ts`
@@ -61,6 +82,93 @@ dist/                Built bundle (committed, self-contained)
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
 - Default sandbox: `read-only`
+
+## Agentic Mode
+
+Multi-agent orchestration where agents communicate via @mentions within a shared session.
+
+### Session lifecycle
+
+```
+run(config)
+  │
+  ├─ 1. Init ─────── Generate session ID, reset state, create SQLite record
+  │                   Assign creative names (e.g. ada.reviewer, fern.critic)
+  │                   Register agents in transcript bus
+  │                   Emit: session_start
+  │
+  ├─ 2. Spawn ────── Phase A — for each agent (sequential):
+  │   (Turn 0)          Build system prompt (role, agent list, turn budget)
+  │                     Spawn Claude subprocess: claude -p --session-id <uuid>
+  │                     Log user→agent prompt delivery, collect response
+  │                     On failure: emit error, mark agent dead
+  │                   Phase B — process all collected responses:
+  │                     Parse each: extract @mentions → queue, notes → transcript
+  │                     Emit: message (per routed msg + notes)
+  │                   Emit: turn_complete (once, after all agents)
+  │
+  ├─ 3. Route ────── while (turn ≤ maxTurns && !stopped):
+  │   (Turn 1..N)     Check timeout → endSession('timeout')
+  │                   Check empty queue → endSession('converged')
+  │                   Dequeue all pending messages, grouped by recipient
+  │                   For each recipient agent:
+  │                     Check ping-pong detection → skip if cycling
+  │                     Build prompt: "@sender says: content" (+ deadline warnings)
+  │                     Resume Claude session: claude -p -r <uuid>
+  │                     Parse response → route @mentions to queue, log notes
+  │                     On failure: emit error, mark agent dead
+  │                   Emit: turn_complete (once, after all recipients)
+  │
+  └─ 4. End ──────── Reason: converged | max_turns | timeout | stopped | error
+                      Update SQLite status, emit session_end, close EventChannel
+```
+
+**Key behaviors:**
+- Turn 0 is two-phase: spawn all agents first, then parse and route all responses together
+- `@all` expands to individual messages for every other agent
+- `@user` messages are logged and emitted but not routed (displayed by CLI consumers)
+- Lines without `@mention` are classified as working notes — persisted but not routed
+- Deadline warnings are injected at `maxTurns - 1` (warning) and `maxTurns` (final)
+- Ping-pong detection uses pair-based counters with per-turn decay (halved each turn)
+- Errors and guardrail triggers emit events and may mark agents dead or end the session
+
+### Architecture
+
+- **Orchestrator-driven**: `Orchestrator` in `src/agentic/orchestrator.ts` runs the main loop — spawns agents, routes messages, enforces guardrails, and emits events
+- **Claude-only backend** currently — spawn via `claude -p --session-id <uuid>`, resume via `claude -p -r <uuid>`
+- **SessionManager** (`src/agentic/session.ts`) wraps Claude CLI subprocesses with UUID-based session IDs for conversation continuity; non-Claude backends are not yet supported; stateless transcript replay infrastructure exists but is not wired up
+- **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
+- **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
+- **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and web dashboard consumers
+- **DashboardEventSink** (`src/web/event-sink.ts`) bridges orchestrator events to the web dashboard via batched fire-and-forget HTTP POST
+
+### Agent naming & message routing
+
+- Agent names get creative prefixes via `src/agentic/names.ts`: e.g., `ada.reviewer`, `fern.critic`
+- Messages use `@name:` at line start for routing (parsed by `src/agentic/parser.ts`)
+- Lines without `@mention` are working notes — logged to the transcript bus but not routed
+- System prompt is injected per-agent with role, agent list, and turn budget (built by `buildSystemPrompt()` in `src/agentic/parser.ts`)
+
+### Guardrails
+
+All defaults are in `AGENTIC_DEFAULTS` (`src/agentic/types.ts`):
+
+| Guard | Default | Description |
+|-------|---------|-------------|
+| `maxTurns` | 20 | Hard cap on total conversation turns |
+| `timeoutSeconds` | 900 (15 min) | Session wall-clock timeout |
+| `pingPongThreshold` | 6 | Detects agents bouncing messages without progress |
+| `noProgressThreshold` | 2 | Stops session when no meaningful output is produced |
+| `maxMessageSize` | 50 KB | Per-message size limit (not yet enforced) |
+| `maxAgentTurnsPerRound` | 3 | Max turns a single agent gets before yielding (not yet enforced) |
+
+### Web dashboard
+
+- Default port 7777, launched via `phone-a-friend agentic dashboard`
+- HTTP server in `src/web/server.ts` (node:http) with static file serving from `src/web/public/`
+- REST API (`src/web/routes.ts`): `GET /api/sessions`, `GET /api/sessions/:id`, `DELETE /api/sessions/:id`, `GET /api/stats`, `POST /api/ingest`
+- SSE at `GET /api/events` for live session updates (`src/web/sse.ts` — broadcaster with heartbeat and session filtering)
+- Static frontend: HTML/CSS/JS in `src/web/public/` with components for session list, agent cards, message feed, and markdown rendering
 
 ## CLI Contract
 
@@ -73,8 +181,13 @@ phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 phone-a-friend --prompt "..."               # Uses default backend from config
-phone-a-friend --to codex --prompt "..." --stream     # Stream tokens as they arrive
+phone-a-friend --to claude --prompt "..." --stream     # Stream tokens as they arrive
 phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
+phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scoped)
+phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
+phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
+phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
+phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -95,6 +208,18 @@ phone-a-friend plugin update --claude       # Update Claude plugin
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 ```
 
+```bash
+# Agentic mode
+phone-a-friend agentic run --agents role:backend,... --prompt "..."
+phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth" --max-turns 15
+phone-a-friend agentic run --agents sec:claude --prompt "Audit" --timeout 600 --sandbox workspace-write
+phone-a-friend agentic run --agents dev:claude --prompt "Build" --dashboard-url http://localhost:8080/api/ingest
+phone-a-friend agentic logs
+phone-a-friend agentic logs --session <id>
+phone-a-friend agentic replay --session <id>
+phone-a-friend agentic dashboard [--port 7777]
+```
+
 Backward-compatible aliases: `install`, `update`, `uninstall` still work.
 
 ### Interactive TUI
@@ -103,18 +228,19 @@ Backward-compatible aliases: `install`, `update`, `uninstall` still work.
 phone-a-friend                                # Launches TUI dashboard (TTY only)
 ```
 
-No-args in a TTY launches a full-screen Ink (React) dashboard with 4 tabs:
+No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Status** — system info + live backend detection (auto-refreshes)
 - **Backends** — navigable backend list with detail pane
 - **Config** — inline config editing with focus model (nav/edit modes)
 - **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+- **Agentic** — session browser with list view and dashboard URL hint
 
 A persistent plugin status bar sits between the tab bar and panel content,
 showing `✓ Claude Plugin: Installed` (green) or `! Claude Plugin: Not Installed` (yellow).
 It updates instantly after Reinstall/Uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
-Global keys: `q` quit, `Tab`/`1-4` switch tabs, `r` refresh detection.
+Global keys: `q` quit, `Tab`/`1-5` switch tabs, `r` refresh detection.
 
 ## Running Tests
 
@@ -173,4 +299,4 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, and interactive TUI dashboard. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, and web dashboard for session visibility. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

@@ -27,6 +27,21 @@ vi.mock('../../src/installer.js', () => ({
   claudeTarget: vi.fn().mockReturnValue('/tmp/test-claude-plugin'),
 }));
 
+// Mock better-sqlite3 for AgenticPanel
+vi.mock('better-sqlite3', () => {
+  const mockDb = {
+    pragma: vi.fn(),
+    exec: vi.fn(),
+    prepare: vi.fn().mockReturnValue({
+      run: vi.fn(),
+      get: vi.fn(),
+      all: vi.fn().mockReturnValue([]),
+    }),
+    close: vi.fn(),
+  };
+  return { default: vi.fn(() => mockDb) };
+});
+
 // Mock config for ConfigPanel (used when navigating to Config tab)
 vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockReturnValue({
@@ -42,7 +57,7 @@ vi.mock('../../src/config.js', () => ({
 
 import { App } from '../../src/tui/App.js';
 
-const TAB_NAMES = ['Status', 'Backends', 'Config', 'Actions'];
+const TAB_NAMES = ['Status', 'Backends', 'Config', 'Actions', 'Agentic'];
 
 // Helper: wait for React state updates to flush
 const tick = () => new Promise((r) => setTimeout(r, 50));
@@ -57,7 +72,7 @@ describe('TUI App', () => {
     expect(lastFrame()).toBeDefined();
   });
 
-  it('shows all 4 tab names in the tab bar', () => {
+  it('shows all 5 tab names in the tab bar', () => {
     const { lastFrame } = render(<App />);
     const frame = lastFrame()!;
     for (const name of TAB_NAMES) {
@@ -108,6 +123,11 @@ describe('TUI App', () => {
     await tick();
     expect(lastFrame()).toContain('Actions');
 
+    // Tab to Agentic (4)
+    stdin.write('\t');
+    await tick();
+    expect(lastFrame()).toContain('Agentic');
+
     // Tab wraps to Status (0)
     stdin.write('\t');
     await tick();
@@ -121,7 +141,7 @@ describe('TUI App', () => {
     expect(frame).toContain('quit');
   });
 
-  it('shows refresh hint only on Status and Backends tabs', async () => {
+  it('shows refresh hint on Status, Backends, and Agentic tabs', async () => {
     const { lastFrame, stdin } = render(<App />);
     // Status tab — should show refresh
     expect(lastFrame()).toContain('refresh');
