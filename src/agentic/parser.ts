@@ -124,6 +124,7 @@ export function buildSystemPrompt(
   role: string,
   agents: string[],
   description?: string,
+  maxTurns?: number,
 ): string {
   const otherAgents = agents.filter((a) => a !== role);
   // Extract the role part (after the dot) for the description fallback
@@ -132,9 +133,14 @@ export function buildSystemPrompt(
     ? `Your role: ${description}`
     : `Stay focused on your role: ${rolePart}`;
 
+  const turnBudget = maxTurns && maxTurns > 0
+    ? `This session has a HARD LIMIT of ${maxTurns} turns. After turn ${maxTurns}, the session ends abruptly — any undelivered work is lost. Pace yourself and deliver final output to @user before time runs out.`
+    : '';
+
   return [
     `You are "${role}" in a multi-agent session.`,
     `Other agents: ${otherAgents.join(', ')}`,
+    ...(turnBudget ? ['', turnBudget] : []),
     '',
     'Agent names use the format firstname.role (e.g. maren.storyteller).',
     'Always use the FULL name (including the dot) in @mentions.',

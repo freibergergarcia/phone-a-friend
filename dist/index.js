@@ -61681,13 +61681,15 @@ function parseAgentResponse(text, knownAgents) {
     notes: noteLines.join("\n").trim()
   };
 }
-function buildSystemPrompt(role, agents, description) {
+function buildSystemPrompt(role, agents, description, maxTurns) {
   const otherAgents = agents.filter((a) => a !== role);
   const rolePart = role.includes(".") ? role.split(".").slice(1).join(".") : role;
   const roleDesc = description ? `Your role: ${description}` : `Stay focused on your role: ${rolePart}`;
+  const turnBudget = maxTurns && maxTurns > 0 ? `This session has a HARD LIMIT of ${maxTurns} turns. After turn ${maxTurns}, the session ends abruptly \u2014 any undelivered work is lost. Pace yourself and deliver final output to @user before time runs out.` : "";
   return [
     `You are "${role}" in a multi-agent session.`,
     `Other agents: ${otherAgents.join(", ")}`,
+    ...turnBudget ? ["", turnBudget] : [],
     "",
     "Agent names use the format firstname.role (e.g. maren.storyteller).",
     "Always use the FULL name (including the dot) in @mentions.",
@@ -62013,7 +62015,8 @@ var init_orchestrator = __esm({
           const systemPrompt = buildSystemPrompt(
             agent.name,
             agents.map((a) => a.name),
-            agent.description
+            agent.description,
+            maxTurns
           );
           try {
             this.emitAgentStatus(agent.name, "active");
@@ -62130,7 +62133,17 @@ var init_orchestrator = __esm({
               });
               continue;
             }
-            const incomingPrompt = messages.map((m) => `@${m.from} says: ${m.content}`).join("\n\n");
+            const parts = messages.map((m) => `@${m.from} says: ${m.content}`);
+            if (this.turn >= maxTurns) {
+              parts.unshift(
+                "\u26A0\uFE0F FINAL TURN \u2014 the session ends after this response. Deliver your final output to @user NOW. Do not @mention other agents."
+              );
+            } else if (this.turn >= maxTurns - 1) {
+              parts.unshift(
+                `\u26A0\uFE0F WARNING: Only ${maxTurns - this.turn} turn(s) remaining. Wrap up and prepare to deliver final output to @user.`
+              );
+            }
+            const incomingPrompt = parts.join("\n\n");
             try {
               this.emitAgentStatus(agentName, "active");
               const output = await this.sessions.resume(

@@ -161,6 +161,7 @@ export class Orchestrator {
         agent.name,
         agents.map((a) => a.name),
         agent.description,
+        maxTurns,
       );
 
       try {
@@ -302,9 +303,20 @@ export class Orchestrator {
         }
 
         // Build prompt from incoming messages
-        const incomingPrompt = messages
-          .map((m) => `@${m.from} says: ${m.content}`)
-          .join('\n\n');
+        const parts = messages.map((m) => `@${m.from} says: ${m.content}`);
+
+        // Inject deadline warning on the last turn
+        if (this.turn >= maxTurns) {
+          parts.unshift(
+            '⚠️ FINAL TURN — the session ends after this response. Deliver your final output to @user NOW. Do not @mention other agents.',
+          );
+        } else if (this.turn >= maxTurns - 1) {
+          parts.unshift(
+            `⚠️ WARNING: Only ${maxTurns - this.turn} turn(s) remaining. Wrap up and prepare to deliver final output to @user.`,
+          );
+        }
+
+        const incomingPrompt = parts.join('\n\n');
 
         try {
           this.emitAgentStatus(agentName, 'active');
