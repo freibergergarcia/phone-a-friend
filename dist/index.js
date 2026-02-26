@@ -75281,11 +75281,13 @@ import { existsSync as existsSync9 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function resolvePublicDir() {
   const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
-  const devPath = join5(thisDir, "public");
+  const distPath = join5(thisDir, "public");
+  if (existsSync9(distPath)) return distPath;
+  const devPath = join5(thisDir, "..", "..", "src", "web", "public");
   if (existsSync9(devPath)) return devPath;
   const cwdPath = join5(process.cwd(), "src", "web", "public");
   if (existsSync9(cwdPath)) return cwdPath;
-  return devPath;
+  return distPath;
 }
 async function startDashboard(opts = {}) {
   const port = opts.port ?? 7777;
