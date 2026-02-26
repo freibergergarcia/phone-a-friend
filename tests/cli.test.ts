@@ -19,6 +19,8 @@ const {
   mockLoadConfig,
   mockSaveConfig,
   mockResolveConfig,
+  mockInquirerSelect,
+  mockExistsSync,
 } = vi.hoisted(() => ({
   mockRelay: vi.fn(() => 'mock feedback'),
   mockReviewRelay: vi.fn(() => 'mock review feedback'),
@@ -45,6 +47,8 @@ const {
     includeDiff: cliOpts.includeDiff === 'true',
     model: cliOpts.model,
   })),
+  mockInquirerSelect: vi.fn(),
+  mockExistsSync: vi.fn(() => true),
 }));
 
 vi.mock('../src/relay.js', async (importOriginal) => {
@@ -72,6 +76,18 @@ vi.mock('../src/setup.js', () => ({
 vi.mock('../src/doctor.js', () => ({
   doctor: mockDoctor,
 }));
+
+vi.mock('@inquirer/prompts', () => ({
+  select: mockInquirerSelect,
+}));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    existsSync: mockExistsSync,
+  };
+});
 
 vi.mock('../src/config.js', () => ({
   configInit: mockConfigInit,
@@ -211,6 +227,9 @@ describe('CLI', () => {
     mockLoadConfig.mockReturnValue({
       defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     });
+    mockInquirerSelect.mockReset();
+    mockExistsSync.mockReset();
+    mockExistsSync.mockReturnValue(true);
     mockResolveConfig.mockReset();
     mockResolveConfig.mockImplementation((cliOpts: Record<string, string | undefined>) => ({
       backend: cliOpts.to ?? 'codex',
@@ -586,5 +605,51 @@ describe('CLI', () => {
     });
     expect(stderr).toContain('bogus-flag');
     expect(mockRelay).not.toHaveBeenCalled();
+  });
+
+  // --- First-run TTY gate ---
+
+  describe('first-run TTY gate', () => {
+    let origIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+      origIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      // Config file does not exist — existsSync returns false for the config path
+      mockExistsSync.mockReturnValue(false);
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
+      // Restore default: existsSync returns true (config exists)
+      mockExistsSync.mockReturnValue(true);
+    });
+
+    it('shows first-run menu and runs setup when chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('setup');
+      const { stdout } = await captureOutputAsync(async () => {
+        const code = await run([]);
+        expect(code).toBe(0);
+      });
+      expect(stdout).toContain('Welcome');
+      expect(mockSetup).toHaveBeenCalledOnce();
+    });
+
+    it('prints quick start examples when chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('quickstart');
+      const { stdout } = await captureOutputAsync(async () => {
+        const code = await run([]);
+        expect(code).toBe(0);
+      });
+      expect(stdout).toContain('Quick start');
+      expect(stdout).toContain('phone-a-friend --to codex');
+      expect(stdout).toContain('agentic run');
+    });
+
+    it('exits cleanly when exit is chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('exit');
+      const code = await run([]);
+      expect(code).toBe(0);
+    });
   });
 });
