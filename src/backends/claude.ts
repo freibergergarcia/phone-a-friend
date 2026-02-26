@@ -204,6 +204,8 @@ export class ClaudeBackend implements Backend {
       outputFormat: 'stream-json',
     });
 
+    // --output-format stream-json requires --verbose in print mode
+    args.push('--verbose');
     // Add --include-partial-messages for incremental streaming
     args.push('--include-partial-messages');
 

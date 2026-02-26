@@ -75944,6 +75944,7 @@ var ClaudeBackend = class {
       ...opts,
       outputFormat: "stream-json"
     });
+    args.push("--verbose");
     args.push("--include-partial-messages");
     const child = spawn("claude", args, {
       stdio: ["ignore", "pipe", "pipe"],
