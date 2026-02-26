@@ -303,6 +303,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
+    .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
@@ -310,8 +311,8 @@ export async function run(argv: string[]): Promise<number> {
       // --base without --review implies review mode
       const isReview = opts.review || opts.base !== undefined;
 
-      // Only pass stream to config resolution when user explicitly passed --no-stream.
-      // Commander's --no-stream sets opts.stream to true (default) or false (flag passed),
+      // Only pass stream to config resolution when user explicitly passed --stream or --no-stream.
+      // Commander sets opts.stream to true (default or --stream) or false (--no-stream),
       // so opts.stream is never undefined — we must check the option value source.
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
 
