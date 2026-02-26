@@ -209,7 +209,11 @@ function syncClaudePluginRegistration(
 function unsyncClaudePluginRegistration(
   marketplaceName: string = MARKETPLACE_NAME,
   pluginName: string = PLUGIN_NAME,
+  _claudeHome?: string,
 ): string[] {
+  // Note: _claudeHome is accepted for signature consistency with the guard
+  // in uninstallHosts, but the `claude` CLI always uses its own default home.
+  // A future version could use it for getMarketplaceSourceType checks here.
   const lines: string[] = [];
 
   try {
@@ -349,8 +353,8 @@ export function getMarketplaceSourceType(
  */
 export function installFromGitHubMarketplace(): string[] {
   const lines: string[] = [];
-  // Unconditionally clean up local symlink (idempotent, handles missing/dangling)
-  lines.push(...uninstallHosts({ target: 'claude' }));
+  // Only remove local symlink; skip marketplace unsync since we re-register immediately
+  lines.push(...uninstallHosts({ target: 'claude', claudeCliUnsync: 'never' }));
   // Clean up legacy marketplace name
   lines.push(...cleanupLegacyMarketplace());
   // Register via GitHub marketplace
@@ -419,10 +423,18 @@ export function installHosts(opts: InstallOptions): string[] {
 export interface UninstallOptions {
   target: 'claude' | 'all';
   claudeHome?: string;
+  /**
+   * Controls whether marketplace registration is removed during uninstall.
+   * - 'auto' (default): skip unsync when marketplace has a remote source (github/npm/git),
+   *   proceed when local/directory or not registered.
+   * - 'always': unconditionally remove marketplace registration (--purge-marketplace).
+   * - 'never': never unsync (used internally when re-registering immediately after).
+   */
+  claudeCliUnsync?: 'auto' | 'always' | 'never';
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome } = opts;
+  const { target, claudeHome, claudeCliUnsync = 'auto' } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -430,11 +442,25 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   const lines = ['phone-a-friend uninstaller'];
 
-  const { status, targetPath } = uninstallClaude(claudeHome);
+  const { status } = uninstallClaude(claudeHome);
   lines.push(`- claude: ${status}`);
 
-  // Also deregister from Claude CLI plugin registry
-  lines.push(...unsyncClaudePluginRegistration());
+  if (claudeCliUnsync === 'never') {
+    lines.push('- claude_cli_unsync: skipped');
+    return lines;
+  }
+
+  if (claudeCliUnsync === 'auto') {
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource) {
+      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${remoteSource})`);
+      lines.push(`  Use --purge-marketplace to force removal.`);
+      return lines;
+    }
+  }
+
+  // 'always' or 'auto' with no remote source
+  lines.push(...unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome));
 
   return lines;
 }

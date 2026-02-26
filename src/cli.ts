@@ -154,9 +154,12 @@ function updateAction(opts: {
   printBackendAvailability();
 }
 
-function uninstallAction(opts: { claude?: boolean; all?: boolean }): void {
+function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketplace?: boolean }): void {
   const target = opts.all ? 'all' : 'claude';
-  const lines = uninstallHosts({ target: target as 'claude' | 'all' });
+  const lines = uninstallHosts({
+    target: target as 'claude' | 'all',
+    claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
+  });
   for (const line of lines) console.log(line);
 }
 
@@ -187,7 +190,8 @@ function addUpdateOptions(cmd: Command): Command {
 function addUninstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Uninstall for Claude', false)
-    .option('--all', 'Alias for --claude', false);
+    .option('--all', 'Alias for --claude', false)
+    .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)');
 }
 
 // ---------------------------------------------------------------------------

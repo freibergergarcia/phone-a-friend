@@ -5024,7 +5024,7 @@ function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME
   }
   return lines;
 }
-function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME) {
+function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, _claudeHome) {
   const lines = [];
   try {
     execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
@@ -5117,7 +5117,7 @@ function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome
 }
 function installFromGitHubMarketplace() {
   const lines = [];
-  lines.push(...uninstallHosts({ target: "claude" }));
+  lines.push(...uninstallHosts({ target: "claude", claudeCliUnsync: "never" }));
   lines.push(...cleanupLegacyMarketplace());
   lines.push(...syncClaudePluginRegistration(GITHUB_REPO));
   return lines;
@@ -5162,14 +5162,26 @@ function installHosts(opts) {
   return lines;
 }
 function uninstallHosts(opts) {
-  const { target, claudeHome } = opts;
+  const { target, claudeHome, claudeCliUnsync = "auto" } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
   }
   const lines = ["phone-a-friend uninstaller"];
-  const { status, targetPath } = uninstallClaude(claudeHome);
+  const { status } = uninstallClaude(claudeHome);
   lines.push(`- claude: ${status}`);
-  lines.push(...unsyncClaudePluginRegistration());
+  if (claudeCliUnsync === "never") {
+    lines.push("- claude_cli_unsync: skipped");
+    return lines;
+  }
+  if (claudeCliUnsync === "auto") {
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource) {
+      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${remoteSource})`);
+      lines.push(`  Use --purge-marketplace to force removal.`);
+      return lines;
+    }
+  }
+  lines.push(...unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome));
   return lines;
 }
 function verifyBackends() {
@@ -78901,7 +78913,10 @@ function updateAction(opts) {
 }
 function uninstallAction(opts) {
   const target = opts.all ? "all" : "claude";
-  const lines = uninstallHosts({ target });
+  const lines = uninstallHosts({
+    target,
+    claudeCliUnsync: opts.purgeMarketplace ? "always" : "auto"
+  });
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
@@ -78911,7 +78926,7 @@ function addUpdateOptions(cmd) {
   return cmd.option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUninstallOptions(cmd) {
-  return cmd.option("--claude", "Uninstall for Claude", false).option("--all", "Alias for --claude", false);
+  return cmd.option("--claude", "Uninstall for Claude", false).option("--all", "Alias for --claude", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)");
 }
 async function run(argv) {
   const normalized = normalizeArgv(argv);

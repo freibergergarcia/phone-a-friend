@@ -527,6 +527,138 @@ describe('getMarketplaceSourceType', () => {
   });
 });
 
+describe('uninstallHosts marketplace unsync guard', () => {
+  let repo: string;
+  let claudeHome: string;
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    repo = makeRepo();
+    claudeHome = makeHome();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+  });
+
+  it('auto mode skips unsync when marketplace has remote source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    expect(lines.some(l => l.includes('skipped') && l.includes('github'))).toBe(true);
+    expect(lines.some(l => l.includes('--purge-marketplace'))).toBe(true);
+    // Should NOT have called claude plugin disable/uninstall/marketplace remove
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBe(0);
+  });
+
+  it('auto mode proceeds when marketplace has directory source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'directory', path: '/some/local/path' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    expect(lines.some(l => l.includes('disable: ok') || l.includes('marketplace_remove: ok'))).toBe(true);
+  });
+
+  it('auto mode proceeds when registry does not exist', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    // No remote source detected, so unsync proceeds
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBeGreaterThan(0);
+  });
+
+  it('always mode unsyncs even with remote source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'claude',
+      claudeHome,
+      claudeCliUnsync: 'always',
+    });
+
+    // Should have called claude commands despite remote source
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBeGreaterThan(0);
+    expect(lines.some(l => l.includes('marketplace_remove: ok'))).toBe(true);
+  });
+
+  it('never mode skips unsync entirely', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'claude',
+      claudeHome,
+      claudeCliUnsync: 'never',
+    });
+
+    expect(lines.some(l => l.includes('claude_cli_unsync: skipped'))).toBe(true);
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBe(0);
+  });
+});
+
 describe('installHosts marketplace sync guard', () => {
   let repo: string;
   let claudeHome: string;
