@@ -4892,6 +4892,7 @@ import {
   existsSync as existsSync3,
   lstatSync,
   mkdirSync,
+  readFileSync as readFileSync4,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
@@ -5101,6 +5102,19 @@ function uninstallClaude(claudeHome) {
 function isValidRepoRoot(repoRoot) {
   return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
 }
+function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
+  const home = claudeHome ?? join2(homedir(), ".claude");
+  const registryPath = join2(home, "plugins", "known_marketplaces.json");
+  try {
+    const data = JSON.parse(readFileSync4(registryPath, "utf-8"));
+    const entry = data[marketplaceName];
+    if (!entry?.source?.source) return null;
+    const sourceType = entry.source.source;
+    return sourceType === "directory" ? null : sourceType;
+  } catch {
+    return null;
+  }
+}
 function installFromGitHubMarketplace() {
   const lines = [];
   lines.push(...uninstallHosts({ target: "claude" }));
@@ -5115,7 +5129,8 @@ function installHosts(opts) {
     mode = "symlink",
     force = false,
     claudeHome,
-    syncClaudeCli = true
+    syncClaudeCli = true,
+    forceMarketplaceSync = false
   } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -5135,8 +5150,14 @@ function installHosts(opts) {
   const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
   lines.push(`- claude: ${status} -> ${targetPath}`);
   if (syncClaudeCli) {
-    lines.push(...cleanupLegacyMarketplace());
-    lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource && !forceMarketplaceSync) {
+      lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
+      lines.push(`  Use --force-marketplace-sync to overwrite, or --no-claude-cli-sync to skip.`);
+    } else {
+      lines.push(...cleanupLegacyMarketplace());
+      lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    }
   }
   return lines;
 }
@@ -16429,7 +16450,7 @@ var init_RemoveFileError = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn2, spawnSync } from "child_process";
-import { readFileSync as readFileSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
+import { readFileSync as readFileSync5, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
 import path from "path";
 import os2 from "os";
 import { randomUUID } from "crypto";
@@ -16554,7 +16575,7 @@ var init_dist7 = __esm({
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync4(this.tempFile);
+          const tempFileBuffer = readFileSync5(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -18599,7 +18620,7 @@ var init_dist18 = __esm({
 });
 
 // src/config.ts
-import { readFileSync as readFileSync5, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
 import { homedir as homedir2 } from "os";
 import { join as join3, dirname as dirname3 } from "path";
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
@@ -18627,7 +18648,7 @@ function loadConfigFromFile(filePath) {
     return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   }
   try {
-    const content = readFileSync5(filePath, "utf-8");
+    const content = readFileSync6(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge2(
       { defaults: { ...DEFAULT_CONFIG.defaults } },
@@ -18643,7 +18664,7 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   config = loadConfigFromFile(paths.user);
   if (paths.repo && existsSync4(paths.repo)) {
-    const repoConfig = parse(readFileSync5(paths.repo, "utf-8"));
+    const repoConfig = parse(readFileSync6(paths.repo, "utf-8"));
     config = deepMerge2(config, repoConfig);
   }
   return config;
@@ -18673,7 +18694,7 @@ function configGet(key, cfg) {
 function configSet(key, rawValue, filePath) {
   let cfg;
   if (existsSync4(filePath)) {
-    const content = readFileSync5(filePath, "utf-8");
+    const content = readFileSync6(filePath, "utf-8");
     cfg = parse(content);
   } else {
     cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
@@ -78860,7 +78881,8 @@ function installAction(opts) {
     target,
     mode: opts.mode ?? "symlink",
     force: opts.force ?? false,
-    syncClaudeCli: opts.claudeCliSync !== false
+    syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
@@ -78871,7 +78893,8 @@ function updateAction(opts) {
     target: "claude",
     mode: opts.mode ?? "symlink",
     force: true,
-    syncClaudeCli: opts.claudeCliSync !== false
+    syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
@@ -78882,10 +78905,10 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--all", "Alias for --claude", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--github", "Use GitHub marketplace (npm source) instead of local symlink");
+  return cmd.option("--claude", "Install for Claude", false).option("--all", "Alias for --claude", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync");
+  return cmd.option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUninstallOptions(cmd) {
   return cmd.option("--claude", "Uninstall for Claude", false).option("--all", "Alias for --claude", false);

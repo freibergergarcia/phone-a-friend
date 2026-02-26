@@ -9,6 +9,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -314,6 +315,29 @@ function isValidRepoRoot(repoRoot: string): boolean {
   return existsSync(join(repoRoot, '.claude-plugin', 'plugin.json'));
 }
 
+/**
+ * Check if the marketplace is already registered with a remote (non-directory) source.
+ * Returns the source type (e.g. "github", "git", "npm") if remote, or null if
+ * local/directory or not registered.
+ */
+export function getMarketplaceSourceType(
+  marketplaceName: string = MARKETPLACE_NAME,
+  claudeHome?: string,
+): string | null {
+  const home = claudeHome ?? join(homedir(), '.claude');
+  const registryPath = join(home, 'plugins', 'known_marketplaces.json');
+  try {
+    const data = JSON.parse(readFileSync(registryPath, 'utf-8'));
+    const entry = data[marketplaceName];
+    if (!entry?.source?.source) return null;
+    const sourceType = entry.source.source;
+    // "directory" is a local source; everything else is remote
+    return sourceType === 'directory' ? null : sourceType;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -341,6 +365,8 @@ export interface InstallOptions {
   force?: boolean;
   claudeHome?: string;
   syncClaudeCli?: boolean;
+  /** Force overwrite of a remote marketplace source with local path. */
+  forceMarketplaceSync?: boolean;
 }
 
 export function installHosts(opts: InstallOptions): string[] {
@@ -351,6 +377,7 @@ export function installHosts(opts: InstallOptions): string[] {
     force = false,
     claudeHome,
     syncClaudeCli = true,
+    forceMarketplaceSync = false,
   } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
@@ -375,8 +402,15 @@ export function installHosts(opts: InstallOptions): string[] {
   lines.push(`- claude: ${status} -> ${targetPath}`);
 
   if (syncClaudeCli) {
-    lines.push(...cleanupLegacyMarketplace());
-    lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    // Guard: don't overwrite a remote marketplace source with a local path
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource && !forceMarketplaceSync) {
+      lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
+      lines.push(`  Use --force-marketplace-sync to overwrite, or --no-claude-cli-sync to skip.`);
+    } else {
+      lines.push(...cleanupLegacyMarketplace());
+      lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    }
   }
 
   return lines;

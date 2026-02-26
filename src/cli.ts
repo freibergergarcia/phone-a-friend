@@ -101,6 +101,7 @@ function installAction(opts: {
   repoRoot?: string;
   claudeCliSync?: boolean;
   github?: boolean;
+  forceMarketplaceSync?: boolean;
 }): void {
   if (opts.github) {
     // Reject flags that don't apply to marketplace install
@@ -129,6 +130,7 @@ function installAction(opts: {
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: opts.force ?? false,
     syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
@@ -138,6 +140,7 @@ function updateAction(opts: {
   mode?: string;
   repoRoot?: string;
   claudeCliSync?: boolean;
+  forceMarketplaceSync?: boolean;
 }): void {
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
@@ -145,6 +148,7 @@ function updateAction(opts: {
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
@@ -168,14 +172,16 @@ function addInstallOptions(cmd: Command): Command {
     .option('--force', 'Replace existing installation', false)
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
-    .option('--github', 'Use GitHub marketplace (npm source) instead of local symlink');
+    .option('--github', 'Use GitHub marketplace (npm source) instead of local symlink')
+    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
 
 function addUpdateOptions(cmd: Command): Command {
   return cmd
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
-    .option('--no-claude-cli-sync', 'Skip Claude CLI sync');
+    .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
+    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
 
 function addUninstallOptions(cmd: Command): Command {
