@@ -75689,8 +75689,18 @@ async function* parseClaudeStreamJSON(stdout) {
         }
         continue;
       }
-      if (type === "assistant" || type === "message") {
-        const message = parsed.message ?? parsed;
+      const inner = type === "stream_event" ? parsed.event : parsed;
+      const innerType = inner?.type ?? type;
+      if (innerType === "content_block_delta") {
+        const delta = inner.delta;
+        if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+          emittedLength += delta.text.length;
+          yield delta.text;
+        }
+        continue;
+      }
+      if (innerType === "assistant" || innerType === "message") {
+        const message = inner?.message ?? inner;
         const contentBlocks = message.content;
         if (Array.isArray(contentBlocks)) {
           let fullText = "";
@@ -75980,9 +75990,10 @@ var ClaudeBackend = class {
       ...opts,
       outputFormat: "stream-json"
     });
+    args.push("--verbose");
     args.push("--include-partial-messages");
     const child = spawn("claude", args, {
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env)
     });
@@ -75991,6 +76002,10 @@ var ClaudeBackend = class {
       timedOut = true;
       child.kill("SIGTERM");
     }, opts.timeoutSeconds * 1e3);
+    const onSigint = () => {
+      child.kill("SIGTERM");
+    };
+    process.on("SIGINT", onSigint);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     const closePromise = new Promise((resolve5, reject) => {
@@ -76029,6 +76044,7 @@ var ClaudeBackend = class {
       throw new ClaudeBackendError(`claude stream error: ${msg}`);
     } finally {
       clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
       if (!child.killed) {
         child.kill("SIGTERM");
       }
@@ -79031,7 +79047,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     const streamExplicit = command.getOptionValueSource("stream") === "cli";
     const resolved = resolveConfig({

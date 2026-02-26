@@ -204,11 +204,13 @@ export class ClaudeBackend implements Backend {
       outputFormat: 'stream-json',
     });
 
+    // --output-format stream-json requires --verbose in print mode
+    args.push('--verbose');
     // Add --include-partial-messages for incremental streaming
     args.push('--include-partial-messages');
 
     const child = spawn('claude', args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env),
     });
@@ -218,6 +220,10 @@ export class ClaudeBackend implements Backend {
       timedOut = true;
       child.kill('SIGTERM');
     }, opts.timeoutSeconds * 1000);
+
+    // Forward SIGINT to the child so Ctrl+C kills the subprocess
+    const onSigint = () => { child.kill('SIGTERM'); };
+    process.on('SIGINT', onSigint);
 
     // Drain stderr to prevent pipe backpressure stalling the child
     const stderrChunks: Buffer[] = [];
@@ -263,6 +269,7 @@ export class ClaudeBackend implements Backend {
       throw new ClaudeBackendError(`claude stream error: ${msg}`);
     } finally {
       clearTimeout(timer);
+      process.removeListener('SIGINT', onSigint);
       if (!child.killed) {
         child.kill('SIGTERM');
       }
