@@ -10,6 +10,7 @@ const {
   mockInstallHosts,
   mockUninstallHosts,
   mockVerifyBackends,
+  mockInstallFromGitHubMarketplace,
   mockSetup,
   mockDoctor,
   mockConfigInit,
@@ -31,6 +32,7 @@ const {
     { name: 'codex', available: true, hint: '' },
     { name: 'gemini', available: false, hint: 'npm install -g @google/gemini-cli' },
   ]),
+  mockInstallFromGitHubMarketplace: vi.fn(() => ['marketplace installed']),
   mockSetup: vi.fn(),
   mockDoctor: vi.fn(() => Promise.resolve({ exitCode: 0, output: 'Health Check' })),
   mockConfigInit: vi.fn(),
@@ -67,8 +69,10 @@ vi.mock('../src/installer.js', () => ({
   uninstallHosts: mockUninstallHosts,
   verifyBackends: mockVerifyBackends,
   isPluginInstalled: mockIsPluginInstalled,
+  installFromGitHubMarketplace: mockInstallFromGitHubMarketplace,
   PLUGIN_NAME: 'phone-a-friend',
   MARKETPLACE_NAME: 'phone-a-friend-marketplace',
+  GITHUB_REPO: 'freibergergarcia/phone-a-friend',
   InstallerError: class InstallerError extends Error {},
 }));
 
@@ -217,6 +221,8 @@ describe('CLI', () => {
       { name: 'codex', available: true, hint: '' },
       { name: 'gemini', available: false, hint: 'npm install -g @google/gemini-cli' },
     ]);
+    mockInstallFromGitHubMarketplace.mockReset();
+    mockInstallFromGitHubMarketplace.mockReturnValue(['marketplace installed']);
     mockSetup.mockReset();
     mockSetup.mockResolvedValue(undefined);
     mockDoctor.mockReset();
@@ -496,6 +502,43 @@ describe('CLI', () => {
     const code = await run(['plugin', 'uninstall', '--claude']);
     expect(code).toBe(0);
     expect(mockUninstallHosts).toHaveBeenCalledOnce();
+  });
+
+  // --- Plugin install --github ---
+
+  it('plugin install --github calls installFromGitHubMarketplace', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'install', '--github']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallFromGitHubMarketplace).toHaveBeenCalledOnce();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+    expect(stdout).toContain('GitHub marketplace');
+  });
+
+  it('plugin install --github rejects --mode copy', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--mode', 'copy']);
+    });
+    expect(stderr).toContain('--mode is not compatible with --github');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --repo-root', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--repo-root', '/foo']);
+    });
+    expect(stderr).toContain('--repo-root is not compatible with --github');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+  });
+
+  it('install --github works via backward-compat alias', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['install', '--github']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallFromGitHubMarketplace).toHaveBeenCalledOnce();
+    expect(stdout).toContain('GitHub marketplace');
   });
 
   // --- Setup subcommand ---
