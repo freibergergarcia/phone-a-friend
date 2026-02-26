@@ -40,12 +40,10 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 **Prerequisites:** Node.js 20+ and at least one backend:
 
-```bash
-npm install -g @openai/codex       # Codex CLI
-npm install -g @google/gemini-cli  # Gemini CLI
-# Ollama: https://ollama.com/download (local HTTP API)
-npm install -g @anthropic-ai/claude-code  # Claude Code CLI
-```
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
+- [Codex CLI](https://developers.openai.com/codex/quickstart/)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- [Ollama](https://ollama.com/download)
 
 **Install:**
 
@@ -64,14 +62,6 @@ cd phone-a-friend
 npm install && npm run build
 ./dist/index.js   # first run guides you through setup
 ```
-
-**Uninstall:**
-
-```bash
-npm uninstall -g @freibergergarcia/phone-a-friend
-```
-
-The Claude Code plugin is removed automatically.
 
 Then from Claude Code, just talk naturally — the plugin loads the skills automatically:
 
@@ -204,6 +194,14 @@ phone-a-friend agentic dashboard --port 8080
 Full usage guide, examples, CLI reference, and configuration details:
 
 **[freibergergarcia.github.io/phone-a-friend](https://freibergergarcia.github.io/phone-a-friend/)**
+
+## Uninstall
+
+```bash
+npm uninstall -g @freibergergarcia/phone-a-friend
+```
+
+The Claude Code plugin is removed automatically.
 
 ## Contributing
 
