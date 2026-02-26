@@ -21,6 +21,7 @@ const {
   mockResolveConfig,
   mockInquirerSelect,
   mockExistsSync,
+  mockIsPluginInstalled,
 } = vi.hoisted(() => ({
   mockRelay: vi.fn(() => 'mock feedback'),
   mockReviewRelay: vi.fn(() => 'mock review feedback'),
@@ -49,6 +50,7 @@ const {
   })),
   mockInquirerSelect: vi.fn(),
   mockExistsSync: vi.fn(() => true),
+  mockIsPluginInstalled: vi.fn(() => true),
 }));
 
 vi.mock('../src/relay.js', async (importOriginal) => {
@@ -64,6 +66,7 @@ vi.mock('../src/installer.js', () => ({
   installHosts: mockInstallHosts,
   uninstallHosts: mockUninstallHosts,
   verifyBackends: mockVerifyBackends,
+  isPluginInstalled: mockIsPluginInstalled,
   PLUGIN_NAME: 'phone-a-friend',
   MARKETPLACE_NAME: 'phone-a-friend-marketplace',
   InstallerError: class InstallerError extends Error {},
@@ -230,6 +233,8 @@ describe('CLI', () => {
     mockInquirerSelect.mockReset();
     mockExistsSync.mockReset();
     mockExistsSync.mockReturnValue(true);
+    mockIsPluginInstalled.mockReset();
+    mockIsPluginInstalled.mockReturnValue(true);
     mockResolveConfig.mockReset();
     mockResolveConfig.mockImplementation((cliOpts: Record<string, string | undefined>) => ({
       backend: cliOpts.to ?? 'codex',
@@ -251,6 +256,14 @@ describe('CLI', () => {
   it('prints version and exits 0', async () => {
     const { stdout } = await captureOutputAsync(async () => {
       const code = await run(['--version']);
+      expect(code).toBe(0);
+    });
+    expect(stdout.trim()).toMatch(/^phone-a-friend \d+\.\d+\.\d+/);
+  });
+
+  it('-v prints version (lowercase alias)', async () => {
+    const { stdout } = await captureOutputAsync(async () => {
+      const code = await run(['-v']);
       expect(code).toBe(0);
     });
     expect(stdout.trim()).toMatch(/^phone-a-friend \d+\.\d+\.\d+/);
@@ -650,6 +663,53 @@ describe('CLI', () => {
       mockInquirerSelect.mockResolvedValue('exit');
       const code = await run([]);
       expect(code).toBe(0);
+    });
+  });
+
+  describe('plugin-not-installed TTY prompt', () => {
+    let origIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+      origIsTTY = process.stdout.isTTY;
+      Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      // Config exists but plugin is not installed
+      mockExistsSync.mockReturnValue(true);
+      mockIsPluginInstalled.mockReturnValue(false);
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
+      mockExistsSync.mockReturnValue(true);
+      mockIsPluginInstalled.mockReturnValue(true);
+    });
+
+    it('shows plugin-not-installed prompt and runs setup when chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('setup');
+      const { stdout } = await captureOutputAsync(async () => {
+        const code = await run([]);
+        expect(code).toBe(0);
+      });
+      expect(stdout).toContain('Claude plugin is not installed');
+      expect(mockSetup).toHaveBeenCalledOnce();
+    });
+
+    it('installs plugin when install is chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('install');
+      const { stdout } = await captureOutputAsync(async () => {
+        const code = await run([]);
+        expect(code).toBe(0);
+      });
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
+      const opts = mockInstallHosts.mock.calls[0][0];
+      expect(opts.force).toBe(true);
+    });
+
+    it('exits cleanly when exit is chosen', async () => {
+      mockInquirerSelect.mockResolvedValue('exit');
+      const code = await run([]);
+      expect(code).toBe(0);
+      expect(mockSetup).not.toHaveBeenCalled();
+      expect(mockInstallHosts).not.toHaveBeenCalled();
     });
   });
 });
