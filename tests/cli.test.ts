@@ -65,7 +65,7 @@ vi.mock('../src/installer.js', () => ({
   uninstallHosts: mockUninstallHosts,
   verifyBackends: mockVerifyBackends,
   PLUGIN_NAME: 'phone-a-friend',
-  MARKETPLACE_NAME: 'phone-a-friend-dev',
+  MARKETPLACE_NAME: 'phone-a-friend-marketplace',
   InstallerError: class InstallerError extends Error {},
 }));
 
