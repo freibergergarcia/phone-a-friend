@@ -52,7 +52,7 @@ function makeHome(): string {
 describe('installer constants', () => {
   it('exports expected constants', () => {
     expect(PLUGIN_NAME).toBe('phone-a-friend');
-    expect(MARKETPLACE_NAME).toBe('phone-a-friend-dev');
+    expect(MARKETPLACE_NAME).toBe('phone-a-friend-marketplace');
   });
 });
 
@@ -259,11 +259,12 @@ describe('installHosts', () => {
       syncClaudeCli: true,
     });
 
-    // Should have called claude plugin commands
+    // Should have called claude plugin commands:
+    // 3 legacy cleanup (disable, uninstall, marketplace remove) + 5 registration (marketplace add, update, install, enable, update)
     const claudeCalls = mockExecFileSync.mock.calls.filter(
       (c: unknown[]) => c[0] === 'claude',
     );
-    expect(claudeCalls.length).toBe(5); // marketplace add, marketplace update, install, enable, update
+    expect(claudeCalls.length).toBe(8);
     expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
   });
 
@@ -328,6 +329,25 @@ describe('uninstallHosts', () => {
     expect(() =>
       uninstallHosts({ target: 'invalid' as 'claude' }),
     ).toThrow(/Invalid target/);
+  });
+
+  it('removes marketplace registration on uninstall', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    // Should call: disable, uninstall, marketplace remove (+ legacy variants)
+    const marketplaceRemoveCalls = claudeCalls.filter(
+      (c: unknown[]) => (c[1] as string[]).includes('marketplace') && (c[1] as string[]).includes('remove'),
+    );
+    expect(marketplaceRemoveCalls.length).toBeGreaterThanOrEqual(1);
+    expect(lines.some(l => l.includes('marketplace_remove'))).toBe(true);
   });
 });
 

@@ -4975,6 +4975,26 @@ function looksLikeOkIfAlready(output) {
     "already up to date"
   ].some((token) => text.includes(token));
 }
+function cleanupLegacyMarketplace() {
+  const lines = [];
+  try {
+    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    return lines;
+  }
+  const commands = [
+    [["claude", "plugin", "disable", `${PLUGIN_NAME}@${LEGACY_MARKETPLACE_NAME}`, "-s", "user"], "legacy_disable"],
+    [["claude", "plugin", "uninstall", `${PLUGIN_NAME}@${LEGACY_MARKETPLACE_NAME}`, "-s", "user"], "legacy_uninstall"],
+    [["claude", "plugin", "marketplace", "remove", LEGACY_MARKETPLACE_NAME], "legacy_marketplace_remove"]
+  ];
+  for (const [cmd, label] of commands) {
+    const { code } = runClaudeCommand(cmd);
+    if (code === 0) {
+      lines.push(`- claude_cli_${label}: ok`);
+    }
+  }
+  return lines;
+}
 function syncClaudePluginRegistration(repoRoot, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
   const lines = [];
   try {
@@ -5013,7 +5033,8 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   }
   const commands = [
     [["claude", "plugin", "disable", `${pluginName}@${marketplaceName}`, "-s", "user"], "disable"],
-    [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"]
+    [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"],
+    [["claude", "plugin", "marketplace", "remove", marketplaceName], "marketplace_remove"]
   ];
   for (const [cmd, label] of commands) {
     const { code, output } = runClaudeCommand(cmd);
@@ -5023,6 +5044,19 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
       lines.push(`- claude_cli_${label}: failed`);
       if (output) {
         lines.push(`  output: ${output}`);
+      }
+    }
+  }
+  if (marketplaceName !== LEGACY_MARKETPLACE_NAME) {
+    const legacyCommands = [
+      [["claude", "plugin", "disable", `${pluginName}@${LEGACY_MARKETPLACE_NAME}`, "-s", "user"], "legacy_disable"],
+      [["claude", "plugin", "uninstall", `${pluginName}@${LEGACY_MARKETPLACE_NAME}`, "-s", "user"], "legacy_uninstall"],
+      [["claude", "plugin", "marketplace", "remove", LEGACY_MARKETPLACE_NAME], "legacy_marketplace_remove"]
+    ];
+    for (const [cmd, label] of legacyCommands) {
+      const { code, output } = runClaudeCommand(cmd);
+      if (code === 0) {
+        lines.push(`- claude_cli_${label}: ok`);
       }
     }
   }
@@ -5089,6 +5123,7 @@ function installHosts(opts) {
   const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
   lines.push(`- claude: ${status} -> ${targetPath}`);
   if (syncClaudeCli) {
+    lines.push(...cleanupLegacyMarketplace());
     lines.push(...syncClaudePluginRegistration(resolvedRepo));
   }
   return lines;
@@ -5112,13 +5147,14 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, INSTALL_TARGETS, INSTALL_MODES, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, INSTALL_TARGETS, INSTALL_MODES, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
     init_backends();
     PLUGIN_NAME = "phone-a-friend";
-    MARKETPLACE_NAME = "phone-a-friend-dev";
+    MARKETPLACE_NAME = "phone-a-friend-marketplace";
+    LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
     InstallerError = class extends Error {
