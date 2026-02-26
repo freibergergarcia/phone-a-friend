@@ -23,6 +23,7 @@ import {
   installHosts,
   uninstallHosts,
   verifyBackends,
+  isPluginInstalled,
   InstallerError,
 } from './installer.js';
 import { setup } from './setup.js';
@@ -53,7 +54,7 @@ function repoRootDefault(): string {
 const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
-const TOP_LEVEL_FLAGS = new Set(['-V', '--version', '-h', '--help']);
+const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);
 
 function normalizeArgv(argv: string[]): string[] {
   if (argv.length === 0) return argv;
@@ -223,7 +224,41 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     if (isTTY) {
-      // Config exists: launch TUI directly (current behavior)
+      // Config exists but plugin not installed: offer to reinstall
+      if (!isPluginInstalled()) {
+        const { select } = await import('@inquirer/prompts');
+        console.log('');
+        console.log(banner('AI coding agent relay'));
+        console.log('');
+        console.log(`  ${theme.warning('Claude plugin is not installed.')}`);
+        console.log('');
+
+        const choice = await select({
+          message: 'What would you like to do?',
+          choices: [
+            { name: 'Run setup wizard (installs plugin + configures backend)', value: 'setup' },
+            { name: 'Install plugin only', value: 'install' },
+            { name: 'Open TUI dashboard', value: 'tui' },
+            { name: 'Exit', value: 'exit' },
+          ],
+        });
+
+        if (choice === 'setup') {
+          await setup();
+          return 0;
+        }
+        if (choice === 'install') {
+          installAction({ claude: true, force: true });
+          return 0;
+        }
+        if (choice === 'tui') {
+          const { renderTui } = await import('./tui/render.js');
+          return await renderTui();
+        }
+        return 0;
+      }
+
+      // Config exists + plugin installed: launch TUI directly
       const { renderTui } = await import('./tui/render.js');
       return await renderTui();
     }
@@ -246,7 +281,7 @@ export async function run(argv: string[]): Promise<number> {
 
   const program = new Command()
     .name('phone-a-friend')
-    .version(`phone-a-friend ${getVersion()}`, '-V, --version')
+    .version(`phone-a-friend ${getVersion()}`, '-v, --version')
     .description('CLI relay for AI coding agent collaboration')
     .addHelpText('before', `\n${banner('AI coding agent relay')}\n`)
     .configureOutput({
