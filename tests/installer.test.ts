@@ -17,9 +17,13 @@ import {
   installHosts,
   uninstallHosts,
   verifyBackends,
+  isPluginInstalled,
+  installFromGitHubMarketplace,
+  getMarketplaceSourceType,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
+  GITHUB_REPO,
 } from '../src/installer.js';
 
 // ---------------------------------------------------------------------------
@@ -372,5 +376,399 @@ describe('verifyBackends', () => {
     expect(byName['codex'].available).toBe(true);
     expect(byName['gemini'].available).toBe(false);
     expect(byName['gemini'].hint).toContain('npm');
+  });
+});
+
+describe('isPluginInstalled (marketplace cache)', () => {
+  it('returns true when plugin exists in marketplace cache', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const cacheDir = path.join(tmpHome, 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    expect(isPluginInstalled(tmpHome)).toBe(true);
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns false when neither local nor cache install exists', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    fs.mkdirSync(path.join(tmpHome, 'plugins'), { recursive: true });
+    expect(isPluginInstalled(tmpHome)).toBe(false);
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns true when local symlink exists (existing behavior)', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const repo = makeRepo();
+    const pluginPath = path.join(tmpHome, 'plugins', PLUGIN_NAME);
+    fs.mkdirSync(path.join(tmpHome, 'plugins'), { recursive: true });
+    fs.symlinkSync(repo, pluginPath);
+    expect(isPluginInstalled(tmpHome)).toBe(true);
+    fs.rmSync(tmpHome, { recursive: true });
+    fs.rmSync(repo, { recursive: true });
+  });
+});
+
+describe('installFromGitHubMarketplace', () => {
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls claude plugin commands with GitHub repo as source', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installFromGitHubMarketplace();
+
+    // Verify marketplace add uses GitHub repo, not a local path
+    const marketplaceAddCall = mockExecFileSync.mock.calls.find(
+      (c: unknown[]) =>
+        c[0] === 'claude' &&
+        (c[1] as string[]).includes('marketplace') &&
+        (c[1] as string[]).includes('add'),
+    );
+    expect(marketplaceAddCall).toBeDefined();
+    expect((marketplaceAddCall![1] as string[])).toContain(GITHUB_REPO);
+    expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
+  });
+
+  it('cleans up existing local symlink before marketplace registration', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const repo = makeRepo();
+    const pluginDir = path.join(tmpHome, 'plugins');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    const target = path.join(pluginDir, PLUGIN_NAME);
+    fs.symlinkSync(repo, target);
+    expect(fs.existsSync(target)).toBe(true);
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    // Note: installFromGitHubMarketplace uses default homedir, not our temp.
+    // We test the uninstallHosts call is included in the output.
+    const lines = installFromGitHubMarketplace();
+    expect(lines.some(l => l.includes('uninstaller'))).toBe(true);
+
+    fs.rmSync(tmpHome, { recursive: true });
+    fs.rmSync(repo, { recursive: true });
+  });
+
+  it('succeeds even when no local symlink exists (idempotent)', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installFromGitHubMarketplace();
+    // uninstallHosts reports not-installed, but no error
+    expect(lines.some(l => l.includes('not-installed') || l.includes('marketplace_add: ok'))).toBe(true);
+  });
+
+  it('exports GITHUB_REPO constant', () => {
+    expect(GITHUB_REPO).toBe('freibergergarcia/phone-a-friend');
+  });
+});
+
+describe('getMarketplaceSourceType', () => {
+  it('returns source type for remote marketplace (github)', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const pluginsDir = path.join(tmpHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+    expect(getMarketplaceSourceType(MARKETPLACE_NAME, tmpHome)).toBe('github');
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns null for local directory marketplace', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const pluginsDir = path.join(tmpHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'directory', path: '/some/local/path' },
+        },
+      }),
+    );
+    expect(getMarketplaceSourceType(MARKETPLACE_NAME, tmpHome)).toBeNull();
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns null when marketplace is not registered', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const pluginsDir = path.join(tmpHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({}),
+    );
+    expect(getMarketplaceSourceType(MARKETPLACE_NAME, tmpHome)).toBeNull();
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns null when registry file does not exist', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    expect(getMarketplaceSourceType(MARKETPLACE_NAME, tmpHome)).toBeNull();
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+});
+
+describe('uninstallHosts marketplace unsync guard', () => {
+  let repo: string;
+  let claudeHome: string;
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    repo = makeRepo();
+    claudeHome = makeHome();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+  });
+
+  it('auto mode skips unsync when marketplace has remote source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    expect(lines.some(l => l.includes('skipped') && l.includes('github'))).toBe(true);
+    expect(lines.some(l => l.includes('--purge-marketplace'))).toBe(true);
+    // Should NOT have called claude plugin disable/uninstall/marketplace remove
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBe(0);
+  });
+
+  it('auto mode proceeds when marketplace has directory source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'directory', path: '/some/local/path' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    expect(lines.some(l => l.includes('disable: ok') || l.includes('marketplace_remove: ok'))).toBe(true);
+  });
+
+  it('auto mode proceeds when registry does not exist', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    // No remote source detected, so unsync proceeds
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBeGreaterThan(0);
+  });
+
+  it('always mode unsyncs even with remote source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'claude',
+      claudeHome,
+      claudeCliUnsync: 'always',
+    });
+
+    // Should have called claude commands despite remote source
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBeGreaterThan(0);
+    expect(lines.some(l => l.includes('marketplace_remove: ok'))).toBe(true);
+  });
+
+  it('never mode skips unsync entirely', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'claude',
+      claudeHome,
+      claudeCliUnsync: 'never',
+    });
+
+    expect(lines.some(l => l.includes('claude_cli_unsync: skipped'))).toBe(true);
+    const claudeCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) => c[0] === 'claude',
+    );
+    expect(claudeCalls.length).toBe(0);
+  });
+});
+
+describe('installHosts marketplace sync guard', () => {
+  let repo: string;
+  let claudeHome: string;
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    repo = makeRepo();
+    claudeHome = makeHome();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+  });
+
+  it('skips sync when marketplace has remote source', () => {
+    // Set up a remote marketplace registration
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'claude',
+      mode: 'symlink',
+      force: false,
+      claudeHome,
+      syncClaudeCli: true,
+    });
+
+    expect(lines.some(l => l.includes('skipped') && l.includes('github'))).toBe(true);
+    // Should NOT have called claude plugin marketplace add
+    const marketplaceAddCalls = mockExecFileSync.mock.calls.filter(
+      (c: unknown[]) =>
+        c[0] === 'claude' &&
+        (c[1] as string[]).includes('marketplace') &&
+        (c[1] as string[]).includes('add'),
+    );
+    expect(marketplaceAddCalls.length).toBe(0);
+  });
+
+  it('allows sync when forceMarketplaceSync is true', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'github', repo: 'freibergergarcia/phone-a-friend' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'claude',
+      mode: 'symlink',
+      force: false,
+      claudeHome,
+      syncClaudeCli: true,
+      forceMarketplaceSync: true,
+    });
+
+    expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
+  });
+
+  it('syncs normally when marketplace has directory source', () => {
+    const pluginsDir = path.join(claudeHome, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        [MARKETPLACE_NAME]: {
+          source: { source: 'directory', path: '/some/local/path' },
+        },
+      }),
+    );
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'claude',
+      mode: 'symlink',
+      force: false,
+      claudeHome,
+      syncClaudeCli: true,
+    });
+
+    expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
   });
 });

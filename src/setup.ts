@@ -198,6 +198,14 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log(`    ${theme.info('phone-a-friend --to ' + selectedBackend + ' --prompt "What does this project do?"')}`);
   console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude --prompt "Review auth"')}`);
   console.log('');
+  console.log(`  ${theme.hint('Marketplace:')}`);
+  console.log(`    You can also install the Claude Code plugin via the marketplace:`);
+  console.log(`    ${theme.info('/plugin marketplace add freibergergarcia/phone-a-friend')}`);
+  console.log(`    ${theme.info('/plugin install phone-a-friend@phone-a-friend-marketplace')}`);
+  console.log('');
+  console.log(`    ${theme.hint('Note: Marketplace install provides Claude Code commands and skills only.')}`);
+  console.log(`    ${theme.hint('The full CLI (agentic mode, TUI, web dashboard) requires the global npm install.')}`);
+  console.log('');
   console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log('');
 }

@@ -54,6 +54,29 @@ phone-a-friend    # first run shows a guided menu — choose Setup
 
 The setup wizard detects your backends, installs the Claude Code plugin, and verifies everything works.
 
+**Claude Code marketplace (commands and skills only):**
+
+If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup),
+you can install directly from the marketplace:
+
+```
+/plugin marketplace add freibergergarcia/phone-a-friend
+/plugin install phone-a-friend@phone-a-friend-marketplace
+```
+
+This fetches the latest version from npm automatically. To update later:
+
+```
+/plugin marketplace update phone-a-friend-marketplace
+/plugin update phone-a-friend@phone-a-friend-marketplace
+```
+
+> [!NOTE]
+> Marketplace install gives you Claude Code integration (slash commands
+> and skills). For the full CLI including agentic mode, the TUI dashboard, and
+> the web dashboard on localhost, install globally with
+> `npm install -g @freibergergarcia/phone-a-friend`.
+
 **From source:**
 
 ```bash

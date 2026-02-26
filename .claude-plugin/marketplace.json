@@ -3,10 +3,17 @@
   "owner": {
     "name": "Bruno Freiberger"
   },
+  "metadata": {
+    "description": "Plugins for AI agent collaboration via phone-a-friend"
+  },
   "plugins": [
     {
       "name": "phone-a-friend",
-      "source": "./"
+      "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
+      "source": {
+        "source": "npm",
+        "package": "@freibergergarcia/phone-a-friend"
+      }
     }
   ]
 }

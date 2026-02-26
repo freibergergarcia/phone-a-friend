@@ -9,6 +9,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -28,6 +29,9 @@ export const MARKETPLACE_NAME = 'phone-a-friend-marketplace';
 
 /** Previous marketplace name; cleaned up during install/uninstall for existing users. */
 const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
+
+/** GitHub repository for marketplace distribution. */
+export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
 const INSTALL_TARGETS = new Set(['claude', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
@@ -164,7 +168,7 @@ function cleanupLegacyMarketplace(): string[] {
 }
 
 function syncClaudePluginRegistration(
-  repoRoot: string,
+  source: string,
   marketplaceName: string = MARKETPLACE_NAME,
   pluginName: string = PLUGIN_NAME,
   scope: string = 'user',
@@ -180,7 +184,7 @@ function syncClaudePluginRegistration(
   }
 
   const commands: [string[], string][] = [
-    [['claude', 'plugin', 'marketplace', 'add', repoRoot], 'marketplace_add'],
+    [['claude', 'plugin', 'marketplace', 'add', source], 'marketplace_add'],
     [['claude', 'plugin', 'marketplace', 'update', marketplaceName], 'marketplace_update'],
     [['claude', 'plugin', 'install', `${pluginName}@${marketplaceName}`, '-s', scope], 'install'],
     [['claude', 'plugin', 'enable', `${pluginName}@${marketplaceName}`, '-s', scope], 'enable'],
@@ -205,7 +209,11 @@ function syncClaudePluginRegistration(
 function unsyncClaudePluginRegistration(
   marketplaceName: string = MARKETPLACE_NAME,
   pluginName: string = PLUGIN_NAME,
+  _claudeHome?: string,
 ): string[] {
+  // Note: _claudeHome is accepted for signature consistency with the guard
+  // in uninstallHosts, but the `claude` CLI always uses its own default home.
+  // A future version could use it for getMarketplaceSourceType checks here.
   const lines: string[] = [];
 
   try {
@@ -260,13 +268,24 @@ export function claudeTarget(claudeHome?: string): string {
 
 export function isPluginInstalled(claudeHome?: string): boolean {
   const target = claudeTarget(claudeHome);
+  // Check local symlink/copy install
   try {
-    // For symlinks: check that it exists and is not dangling
-    if (isSymlink(target)) {
-      return existsSync(target);
-    }
-    // For copies: check directory exists
-    return existsSync(target);
+    const resolved = realpathSync(target);
+    if (existsSync(resolved)) return true;
+  } catch {
+    // Dangling symlink or missing path, fall through
+  }
+  if (existsSync(target)) return true;
+
+  // Heuristic: check marketplace cache install.
+  // This is best-effort. Cache presence after marketplace uninstall could
+  // theoretically be a false positive, but in practice Claude Code removes
+  // the cache directory on uninstall. The authoritative check would be
+  // parsing `claude plugin list`, but that's too slow for a TUI status bar.
+  const home = claudeHome ?? join(homedir(), '.claude');
+  const cacheBase = join(home, 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
+  try {
+    return existsSync(cacheBase);
   } catch {
     return false;
   }
@@ -300,9 +319,48 @@ function isValidRepoRoot(repoRoot: string): boolean {
   return existsSync(join(repoRoot, '.claude-plugin', 'plugin.json'));
 }
 
+/**
+ * Check if the marketplace is already registered with a remote (non-directory) source.
+ * Returns the source type (e.g. "github", "git", "npm") if remote, or null if
+ * local/directory or not registered.
+ */
+export function getMarketplaceSourceType(
+  marketplaceName: string = MARKETPLACE_NAME,
+  claudeHome?: string,
+): string | null {
+  const home = claudeHome ?? join(homedir(), '.claude');
+  const registryPath = join(home, 'plugins', 'known_marketplaces.json');
+  try {
+    const data = JSON.parse(readFileSync(registryPath, 'utf-8'));
+    const entry = data[marketplaceName];
+    if (!entry?.source?.source) return null;
+    const sourceType = entry.source.source;
+    // "directory" is a local source; everything else is remote
+    return sourceType === 'directory' ? null : sourceType;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Install the plugin via GitHub marketplace (npm source).
+ * Cleans up any existing local symlink, removes legacy marketplace,
+ * and registers via the GitHub-hosted marketplace.
+ */
+export function installFromGitHubMarketplace(): string[] {
+  const lines: string[] = [];
+  // Only remove local symlink; skip marketplace unsync since we re-register immediately
+  lines.push(...uninstallHosts({ target: 'claude', claudeCliUnsync: 'never' }));
+  // Clean up legacy marketplace name
+  lines.push(...cleanupLegacyMarketplace());
+  // Register via GitHub marketplace
+  lines.push(...syncClaudePluginRegistration(GITHUB_REPO));
+  return lines;
+}
 
 export interface InstallOptions {
   repoRoot: string;
@@ -311,6 +369,8 @@ export interface InstallOptions {
   force?: boolean;
   claudeHome?: string;
   syncClaudeCli?: boolean;
+  /** Force overwrite of a remote marketplace source with local path. */
+  forceMarketplaceSync?: boolean;
 }
 
 export function installHosts(opts: InstallOptions): string[] {
@@ -321,6 +381,7 @@ export function installHosts(opts: InstallOptions): string[] {
     force = false,
     claudeHome,
     syncClaudeCli = true,
+    forceMarketplaceSync = false,
   } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
@@ -345,8 +406,15 @@ export function installHosts(opts: InstallOptions): string[] {
   lines.push(`- claude: ${status} -> ${targetPath}`);
 
   if (syncClaudeCli) {
-    lines.push(...cleanupLegacyMarketplace());
-    lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    // Guard: don't overwrite a remote marketplace source with a local path
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource && !forceMarketplaceSync) {
+      lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
+      lines.push(`  Use --force-marketplace-sync to overwrite, or --no-claude-cli-sync to skip.`);
+    } else {
+      lines.push(...cleanupLegacyMarketplace());
+      lines.push(...syncClaudePluginRegistration(resolvedRepo));
+    }
   }
 
   return lines;
@@ -355,10 +423,18 @@ export function installHosts(opts: InstallOptions): string[] {
 export interface UninstallOptions {
   target: 'claude' | 'all';
   claudeHome?: string;
+  /**
+   * Controls whether marketplace registration is removed during uninstall.
+   * - 'auto' (default): skip unsync when marketplace has a remote source (github/npm/git),
+   *   proceed when local/directory or not registered.
+   * - 'always': unconditionally remove marketplace registration (--purge-marketplace).
+   * - 'never': never unsync (used internally when re-registering immediately after).
+   */
+  claudeCliUnsync?: 'auto' | 'always' | 'never';
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome } = opts;
+  const { target, claudeHome, claudeCliUnsync = 'auto' } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -366,11 +442,25 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   const lines = ['phone-a-friend uninstaller'];
 
-  const { status, targetPath } = uninstallClaude(claudeHome);
+  const { status } = uninstallClaude(claudeHome);
   lines.push(`- claude: ${status}`);
 
-  // Also deregister from Claude CLI plugin registry
-  lines.push(...unsyncClaudePluginRegistration());
+  if (claudeCliUnsync === 'never') {
+    lines.push('- claude_cli_unsync: skipped');
+    return lines;
+  }
+
+  if (claudeCliUnsync === 'auto') {
+    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
+    if (remoteSource) {
+      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${remoteSource})`);
+      lines.push(`  Use --purge-marketplace to force removal.`);
+      return lines;
+    }
+  }
+
+  // 'always' or 'auto' with no remote source
+  lines.push(...unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome));
 
   return lines;
 }

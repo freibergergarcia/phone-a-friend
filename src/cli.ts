@@ -24,6 +24,7 @@ import {
   uninstallHosts,
   verifyBackends,
   isPluginInstalled,
+  installFromGitHubMarketplace,
   InstallerError,
 } from './installer.js';
 import { setup } from './setup.js';
@@ -99,7 +100,29 @@ function installAction(opts: {
   force?: boolean;
   repoRoot?: string;
   claudeCliSync?: boolean;
+  github?: boolean;
+  forceMarketplaceSync?: boolean;
 }): void {
+  if (opts.github) {
+    // Reject flags that don't apply to marketplace install
+    if (opts.mode && opts.mode !== 'symlink') {
+      console.error('Error: --mode is not compatible with --github');
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.repoRoot) {
+      console.error('Error: --repo-root is not compatible with --github');
+      process.exitCode = 1;
+      return;
+    }
+    // GitHub marketplace flow
+    const lines = ['phone-a-friend installer (GitHub marketplace)'];
+    lines.push(...installFromGitHubMarketplace());
+    for (const line of lines) console.log(line);
+    printBackendAvailability();
+    return;
+  }
+  // Existing local install flow
   const target = opts.all ? 'all' : 'claude';
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
@@ -107,6 +130,7 @@ function installAction(opts: {
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: opts.force ?? false,
     syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
@@ -116,6 +140,7 @@ function updateAction(opts: {
   mode?: string;
   repoRoot?: string;
   claudeCliSync?: boolean;
+  forceMarketplaceSync?: boolean;
 }): void {
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
@@ -123,14 +148,18 @@ function updateAction(opts: {
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
+    forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
 }
 
-function uninstallAction(opts: { claude?: boolean; all?: boolean }): void {
+function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketplace?: boolean }): void {
   const target = opts.all ? 'all' : 'claude';
-  const lines = uninstallHosts({ target: target as 'claude' | 'all' });
+  const lines = uninstallHosts({
+    target: target as 'claude' | 'all',
+    claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
+  });
   for (const line of lines) console.log(line);
 }
 
@@ -145,20 +174,24 @@ function addInstallOptions(cmd: Command): Command {
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
     .option('--repo-root <path>', 'Repository root path')
-    .option('--no-claude-cli-sync', 'Skip Claude CLI sync');
+    .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
+    .option('--github', 'Use GitHub marketplace (npm source) instead of local symlink')
+    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
 
 function addUpdateOptions(cmd: Command): Command {
   return cmd
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
-    .option('--no-claude-cli-sync', 'Skip Claude CLI sync');
+    .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
+    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
 
 function addUninstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Uninstall for Claude', false)
-    .option('--all', 'Alias for --claude', false);
+    .option('--all', 'Alias for --claude', false)
+    .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)');
 }
 
 // ---------------------------------------------------------------------------

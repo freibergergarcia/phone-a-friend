@@ -204,6 +204,7 @@ phone-a-friend config edit                  # Open in $EDITOR
 
 # Plugin management
 phone-a-friend plugin install --claude      # Install as Claude plugin
+phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 ```
@@ -296,6 +297,21 @@ Config files (TOML format):
 - Repo: `.phone-a-friend.toml` (optional, merges over user config)
 
 Precedence: CLI flags > env vars > repo config > user config > defaults
+
+## Marketplace distribution
+
+Users can install the Claude Code plugin (commands and skills) via the marketplace:
+
+    /plugin marketplace add freibergergarcia/phone-a-friend
+    /plugin install phone-a-friend@phone-a-friend-marketplace
+
+The marketplace manifest at `.claude-plugin/marketplace.json` points to the npm
+package `@freibergergarcia/phone-a-friend`. Claude Code fetches and caches the
+plugin from npm when users install through the marketplace.
+
+Marketplace install provides Claude Code integration only (slash commands and skills).
+For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
+still need `npm install -g @freibergergarcia/phone-a-friend`.
 
 ## Scope
 
