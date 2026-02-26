@@ -4867,9 +4867,12 @@ var init_relay = __esm({
 import { readFileSync as readFileSync3 } from "fs";
 import { resolve as resolve2, dirname } from "path";
 import { fileURLToPath } from "url";
-function getVersion() {
+function getPackageRoot() {
   const thisDir = dirname(fileURLToPath(import.meta.url));
-  const pkgPath = resolve2(thisDir, "..", "package.json");
+  return resolve2(thisDir, "..");
+}
+function getVersion() {
+  const pkgPath = resolve2(getPackageRoot(), "package.json");
   try {
     const pkg = JSON.parse(readFileSync3(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
@@ -6536,13 +6539,13 @@ var init_promise_polyfill = __esm({
       // Available starting from Node 22
       // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
       static withResolver() {
-        let resolve6;
+        let resolve5;
         let reject;
         const promise = new Promise((res, rej) => {
-          resolve6 = res;
+          resolve5 = res;
           reject = rej;
         });
-        return { promise, resolve: resolve6, reject };
+        return { promise, resolve: resolve5, reject };
       }
     };
   }
@@ -6581,7 +6584,7 @@ function createPrompt(view) {
       output
     });
     const screen = new ScreenManager(rl);
-    const { promise, resolve: resolve6, reject } = PromisePolyfill.withResolver();
+    const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
     const cancel = () => reject(new CancelPromptError());
     if (signal) {
       const abort = () => reject(new AbortPromptError({ cause: signal.reason }));
@@ -6609,7 +6612,7 @@ function createPrompt(view) {
         cycle(() => {
           try {
             const nextView = view(config, (value) => {
-              setImmediate(() => resolve6(value));
+              setImmediate(() => resolve5(value));
             });
             if (nextView === void 0) {
               const callerFilename = callSites[1]?.getFileName();
@@ -12475,7 +12478,7 @@ var require_lib2 = __commonJS({
       return matches;
     };
     exports.analyse = analyse;
-    var detectFile = (filepath, opts = {}) => new Promise((resolve6, reject) => {
+    var detectFile = (filepath, opts = {}) => new Promise((resolve5, reject) => {
       let fd;
       const fs3 = (0, node_1.default)();
       const handler = (err, buffer) => {
@@ -12485,7 +12488,7 @@ var require_lib2 = __commonJS({
         if (err) {
           reject(err);
         } else if (buffer) {
-          resolve6((0, exports.detect)(buffer));
+          resolve5((0, exports.detect)(buffer));
         } else {
           reject(new Error("No error and no buffer received"));
         }
@@ -19544,21 +19547,21 @@ var require_react_development = __commonJS({
         );
         actScopeDepth = prevActScopeDepth;
       }
-      function recursivelyFlushAsyncActWork(returnValue, resolve6, reject) {
+      function recursivelyFlushAsyncActWork(returnValue, resolve5, reject) {
         var queue = ReactSharedInternals.actQueue;
         if (null !== queue)
           if (0 !== queue.length)
             try {
               flushActQueue(queue);
               enqueueTask(function() {
-                return recursivelyFlushAsyncActWork(returnValue, resolve6, reject);
+                return recursivelyFlushAsyncActWork(returnValue, resolve5, reject);
               });
               return;
             } catch (error3) {
               ReactSharedInternals.thrownErrors.push(error3);
             }
           else ReactSharedInternals.actQueue = null;
-        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve6(returnValue);
+        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve5(returnValue);
       }
       function flushActQueue(queue) {
         if (!isFlushing) {
@@ -19745,7 +19748,7 @@ var require_react_development = __commonJS({
             ));
           });
           return {
-            then: function(resolve6, reject) {
+            then: function(resolve5, reject) {
               didAwaitActCall = true;
               thenable.then(
                 function(returnValue) {
@@ -19755,7 +19758,7 @@ var require_react_development = __commonJS({
                       flushActQueue(queue), enqueueTask(function() {
                         return recursivelyFlushAsyncActWork(
                           returnValue,
-                          resolve6,
+                          resolve5,
                           reject
                         );
                       });
@@ -19769,7 +19772,7 @@ var require_react_development = __commonJS({
                       ReactSharedInternals.thrownErrors.length = 0;
                       reject(_thrownError);
                     }
-                  } else resolve6(returnValue);
+                  } else resolve5(returnValue);
                 },
                 function(error3) {
                   popActScope(prevActQueue, prevActScopeDepth);
@@ -19791,15 +19794,15 @@ var require_react_development = __commonJS({
         if (0 < ReactSharedInternals.thrownErrors.length)
           throw callback = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, callback;
         return {
-          then: function(resolve6, reject) {
+          then: function(resolve5, reject) {
             didAwaitActCall = true;
             0 === prevActScopeDepth ? (ReactSharedInternals.actQueue = queue, enqueueTask(function() {
               return recursivelyFlushAsyncActWork(
                 returnValue$jscomp$0,
-                resolve6,
+                resolve5,
                 reject
               );
-            })) : resolve6(returnValue$jscomp$0);
+            })) : resolve5(returnValue$jscomp$0);
           }
         };
       };
@@ -24462,8 +24465,8 @@ var require_react_reconciler_production = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve6) {
-              entangledListeners.push(resolve6);
+            then: function(resolve5) {
+              entangledListeners.push(resolve5);
             }
           };
         }
@@ -24486,8 +24489,8 @@ var require_react_reconciler_production = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve6) {
-            listeners.push(resolve6);
+          then: function(resolve5) {
+            listeners.push(resolve5);
           }
         };
         thenable.then(
@@ -34086,8 +34089,8 @@ var require_react_reconciler_development = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve6) {
-              entangledListeners.push(resolve6);
+            then: function(resolve5) {
+              entangledListeners.push(resolve5);
             }
           };
         }
@@ -34110,8 +34113,8 @@ var require_react_reconciler_development = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve6) {
-            listeners.push(resolve6);
+          then: function(resolve5) {
+            listeners.push(resolve5);
           }
         };
         thenable.then(
@@ -71108,8 +71111,8 @@ var init_ink = __esm({
         }
       }
       async waitUntilExit() {
-        this.exitPromise ||= new Promise((resolve6, reject) => {
-          this.resolveExitPromise = resolve6;
+        this.exitPromise ||= new Promise((resolve5, reject) => {
+          this.resolveExitPromise = resolve5;
           this.rejectExitPromise = reject;
         });
         if (!this.beforeExitHandler) {
@@ -72944,7 +72947,7 @@ function buildActions(report, onRefresh, processRef) {
       label: "Reinstall Plugin",
       description: "Reinstall Claude Code plugin",
       run: async () => {
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve5, reject) => {
           const proc = spawn3(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -72958,7 +72961,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve6(output.trim() || "Plugin reinstalled");
+            if (code === 0) resolve5(output.trim() || "Plugin reinstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -72974,7 +72977,7 @@ function buildActions(report, onRefresh, processRef) {
       confirm: "Uninstall plugin and exit? (y/n)",
       exitAfter: true,
       run: async () => {
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve5, reject) => {
           const proc = spawn3(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
@@ -72988,7 +72991,7 @@ function buildActions(report, onRefresh, processRef) {
           });
           proc.on("close", (code) => {
             processRef.current = null;
-            if (code === 0) resolve6(output.trim() || "Plugin uninstalled");
+            if (code === 0) resolve5(output.trim() || "Plugin uninstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -73011,12 +73014,12 @@ function buildActions(report, onRefresh, processRef) {
         const parts = editorEnv.split(/\s+/);
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve5, reject) => {
           const proc = spawn3(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
-            resolve6("Editor closed");
+            resolve5("Editor closed");
           });
           proc.on("error", (err) => {
             processRef.current = null;
@@ -74067,7 +74070,7 @@ ${prompt}`,
         return this.execClaude(args, repoPath);
       }
       execClaude(args, repoPath) {
-        return new Promise((resolve6, reject) => {
+        return new Promise((resolve5, reject) => {
           const env3 = this.cleanEnv();
           const child = spawn4("claude", args, {
             env: env3,
@@ -74098,9 +74101,9 @@ ${prompt}`,
             const out = Buffer.concat(stdout).toString().trim();
             const err = Buffer.concat(stderr).toString().trim();
             if (code === 0 && out) {
-              settle(resolve6, out);
+              settle(resolve5, out);
             } else if (out) {
-              settle(resolve6, out);
+              settle(resolve5, out);
             } else {
               settle(reject, new Error(err || `claude exited with code ${code}`));
             }
@@ -74311,8 +74314,8 @@ var init_events = __esm({
             if (this.done) {
               return Promise.resolve({ value: void 0, done: true });
             }
-            return new Promise((resolve6) => {
-              this.resolve = resolve6;
+            return new Promise((resolve5) => {
+              this.resolve = resolve5;
             });
           }
         };
@@ -75244,11 +75247,11 @@ async function startDashboard(opts = {}) {
       }
     }
   });
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve5, reject) => {
     server.on("error", reject);
     server.listen(port, "127.0.0.1", () => {
       const dashUrl = `http://127.0.0.1:${port}`;
-      resolve6({
+      resolve5({
         server,
         sse,
         bus,
@@ -75908,7 +75911,7 @@ var ClaudeBackend = class {
     }, opts.timeoutSeconds * 1e3);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve6, reject) => {
+    const closePromise = new Promise((resolve5, reject) => {
       child.on("close", (code, signal) => {
         if (timedOut) {
           reject(new ClaudeBackendError(
@@ -75924,7 +75927,7 @@ var ClaudeBackend = class {
             stderr || `claude exited with code ${code}`
           ));
         } else {
-          resolve6();
+          resolve5();
         }
       });
     });
@@ -75954,9 +75957,7 @@ var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
 // src/cli.ts
-import { resolve as resolve5, dirname as dirname5 } from "path";
 import { existsSync as existsSync10 } from "fs";
-import { fileURLToPath as fileURLToPath3 } from "url";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -78506,6 +78507,7 @@ function formatBackendModels(b) {
 }
 
 // src/setup.ts
+init_version();
 function printBackendLine(b) {
   console.log(`    ${formatBackendLine(b).trimStart()}`);
   const modelsLine = formatBackendModels(b);
@@ -78580,7 +78582,7 @@ async function setup(opts) {
     });
     if (installPlugin) {
       try {
-        const repoRoot = opts?.repoRoot ?? process.cwd();
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
         const lines = installHosts({
           repoRoot,
           target: "claude",
@@ -78748,8 +78750,7 @@ async function doctor(opts) {
 init_config();
 init_version();
 function repoRootDefault() {
-  const thisDir = dirname5(fileURLToPath3(import.meta.url));
-  return resolve5(thisDir, "..");
+  return getPackageRoot();
 }
 var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-V", "--version", "-h", "--help"]);
@@ -79183,14 +79184,14 @@ ${banner("AI coding agent relay")}
 `);
       const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       spawnSync2(openCmd, [dashboard.url], { stdio: "ignore" });
-      await new Promise((resolve6) => {
+      await new Promise((resolve5) => {
         process.on("SIGINT", () => {
           console.log(`
   ${theme.hint("Shutting down dashboard...")}`);
-          dashboard.close().then(resolve6);
+          dashboard.close().then(resolve5);
         });
         process.on("SIGTERM", () => {
-          dashboard.close().then(resolve6);
+          dashboard.close().then(resolve5);
         });
       });
     } catch (err) {

@@ -13,6 +13,7 @@ import { loadConfig, saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } f
 import { installHosts } from './installer.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
+import { getPackageRoot } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,7 +130,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     });
     if (installPlugin) {
       try {
-        const repoRoot = opts?.repoRoot ?? process.cwd();
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
         const lines = installHosts({
           repoRoot,
           target: 'claude',

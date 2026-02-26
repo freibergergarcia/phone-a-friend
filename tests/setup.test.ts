@@ -13,6 +13,7 @@ const {
   mockInstallHosts,
   mockSelect,
   mockConfirm,
+  mockGetPackageRoot,
 } = vi.hoisted(() => ({
   mockDetectAll: vi.fn(),
   mockSaveConfig: vi.fn(),
@@ -21,6 +22,7 @@ const {
   mockInstallHosts: vi.fn(() => ['installed']),
   mockSelect: vi.fn(),
   mockConfirm: vi.fn(),
+  mockGetPackageRoot: vi.fn(() => '/mock/package/root'),
 }));
 
 vi.mock('../src/detection.js', () => ({
@@ -44,6 +46,14 @@ vi.mock('@inquirer/prompts', () => ({
   select: mockSelect,
   confirm: mockConfirm,
 }));
+
+vi.mock('../src/version.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/version.js')>();
+  return {
+    ...actual,
+    getPackageRoot: mockGetPackageRoot,
+  };
+});
 
 // Helper to build reports
 function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
@@ -169,6 +179,21 @@ describe('setup', () => {
     await setup.setup();
 
     expect(mockInstallHosts).toHaveBeenCalled();
+  });
+
+  it('uses package root (not cwd) for plugin install', async () => {
+    mockDetectAll.mockResolvedValue(makeReport());
+    mockConfirm
+      .mockResolvedValueOnce(true)  // yes install claude
+      .mockResolvedValueOnce(false); // no test run
+
+    await setup.setup();
+
+    expect(mockInstallHosts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoRoot: '/mock/package/root',
+      }),
+    );
   });
 
   it('does not offer Claude plugin install when claude is not in PATH', async () => {

@@ -36,15 +36,14 @@ import {
   resolveConfig,
   DEFAULT_CONFIG,
 } from './config.js';
-import { getVersion } from './version.js';
+import { getVersion, getPackageRoot } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Repo root default
 // ---------------------------------------------------------------------------
 
 function repoRootDefault(): string {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
-  return resolve(thisDir, '..');
+  return getPackageRoot();
 }
 
 // ---------------------------------------------------------------------------
