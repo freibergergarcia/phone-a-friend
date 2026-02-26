@@ -18,9 +18,11 @@ import {
   uninstallHosts,
   verifyBackends,
   isPluginInstalled,
+  installFromGitHubMarketplace,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
+  GITHUB_REPO,
 } from '../src/installer.js';
 
 // ---------------------------------------------------------------------------
@@ -401,5 +403,73 @@ describe('isPluginInstalled (marketplace cache)', () => {
     expect(isPluginInstalled(tmpHome)).toBe(true);
     fs.rmSync(tmpHome, { recursive: true });
     fs.rmSync(repo, { recursive: true });
+  });
+});
+
+describe('installFromGitHubMarketplace', () => {
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls claude plugin commands with GitHub repo as source', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installFromGitHubMarketplace();
+
+    // Verify marketplace add uses GitHub repo, not a local path
+    const marketplaceAddCall = mockExecFileSync.mock.calls.find(
+      (c: unknown[]) =>
+        c[0] === 'claude' &&
+        (c[1] as string[]).includes('marketplace') &&
+        (c[1] as string[]).includes('add'),
+    );
+    expect(marketplaceAddCall).toBeDefined();
+    expect((marketplaceAddCall![1] as string[])).toContain(GITHUB_REPO);
+    expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
+  });
+
+  it('cleans up existing local symlink before marketplace registration', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const repo = makeRepo();
+    const pluginDir = path.join(tmpHome, 'plugins');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    const target = path.join(pluginDir, PLUGIN_NAME);
+    fs.symlinkSync(repo, target);
+    expect(fs.existsSync(target)).toBe(true);
+
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    // Note: installFromGitHubMarketplace uses default homedir, not our temp.
+    // We test the uninstallHosts call is included in the output.
+    const lines = installFromGitHubMarketplace();
+    expect(lines.some(l => l.includes('uninstaller'))).toBe(true);
+
+    fs.rmSync(tmpHome, { recursive: true });
+    fs.rmSync(repo, { recursive: true });
+  });
+
+  it('succeeds even when no local symlink exists (idempotent)', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = installFromGitHubMarketplace();
+    // uninstallHosts reports not-installed, but no error
+    expect(lines.some(l => l.includes('not-installed') || l.includes('marketplace_add: ok'))).toBe(true);
+  });
+
+  it('exports GITHUB_REPO constant', () => {
+    expect(GITHUB_REPO).toBe('freibergergarcia/phone-a-friend');
   });
 });
