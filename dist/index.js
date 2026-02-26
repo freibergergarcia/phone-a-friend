@@ -75643,8 +75643,18 @@ async function* parseClaudeStreamJSON(stdout) {
         }
         continue;
       }
-      if (type === "assistant" || type === "message") {
-        const message = parsed.message ?? parsed;
+      const inner = type === "stream_event" ? parsed.event : parsed;
+      const innerType = inner?.type ?? type;
+      if (innerType === "content_block_delta") {
+        const delta = inner.delta;
+        if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+          emittedLength += delta.text.length;
+          yield delta.text;
+        }
+        continue;
+      }
+      if (innerType === "assistant" || innerType === "message") {
+        const message = inner?.message ?? inner;
         const contentBlocks = message.content;
         if (Array.isArray(contentBlocks)) {
           let fullText = "";
@@ -75936,7 +75946,7 @@ var ClaudeBackend = class {
     });
     args.push("--include-partial-messages");
     const child = spawn("claude", args, {
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env)
     });

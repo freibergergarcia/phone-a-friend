@@ -208,7 +208,7 @@ export class ClaudeBackend implements Backend {
     args.push('--include-partial-messages');
 
     const child = spawn('claude', args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env),
     });

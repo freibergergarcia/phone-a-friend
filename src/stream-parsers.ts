@@ -233,10 +233,27 @@ export async function* parseClaudeStreamJSON(
         continue;
       }
 
-      // Assistant messages: { type: "assistant", content: [{ type: "text", text: "..." }] }
+      // Content block delta: incremental text from --include-partial-messages
+      // { type: "content_block_delta", delta: { type: "text_delta", text: "..." } }
+      // Or wrapped: { type: "stream_event", event: { type: "content_block_delta", ... } }
+      const inner = type === 'stream_event'
+        ? (parsed.event as Record<string, unknown> | undefined)
+        : parsed;
+      const innerType = (inner?.type as string | undefined) ?? type;
+
+      if (innerType === 'content_block_delta') {
+        const delta = (inner as Record<string, unknown>).delta as { type?: string; text?: string } | undefined;
+        if (delta?.type === 'text_delta' && typeof delta.text === 'string' && delta.text.length > 0) {
+          emittedLength += delta.text.length;
+          yield delta.text;
+        }
+        continue;
+      }
+
+      // Assistant messages (snapshot-style): { type: "assistant", content: [{ type: "text", text: "..." }] }
       // Or nested: { type: "assistant", message: { content: [...] } }
-      if (type === 'assistant' || type === 'message') {
-        const message = (parsed.message ?? parsed) as Record<string, unknown>;
+      if (innerType === 'assistant' || innerType === 'message') {
+        const message = ((inner as Record<string, unknown>)?.message ?? inner) as Record<string, unknown>;
         const contentBlocks = message.content as { type?: string; text?: string }[] | undefined;
 
         if (Array.isArray(contentBlocks)) {
