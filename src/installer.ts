@@ -260,13 +260,24 @@ export function claudeTarget(claudeHome?: string): string {
 
 export function isPluginInstalled(claudeHome?: string): boolean {
   const target = claudeTarget(claudeHome);
+  // Check local symlink/copy install
   try {
-    // For symlinks: check that it exists and is not dangling
-    if (isSymlink(target)) {
-      return existsSync(target);
-    }
-    // For copies: check directory exists
-    return existsSync(target);
+    const resolved = realpathSync(target);
+    if (existsSync(resolved)) return true;
+  } catch {
+    // Dangling symlink or missing path, fall through
+  }
+  if (existsSync(target)) return true;
+
+  // Heuristic: check marketplace cache install.
+  // This is best-effort. Cache presence after marketplace uninstall could
+  // theoretically be a false positive, but in practice Claude Code removes
+  // the cache directory on uninstall. The authoritative check would be
+  // parsing `claude plugin list`, but that's too slow for a TUI status bar.
+  const home = claudeHome ?? join(homedir(), '.claude');
+  const cacheBase = join(home, 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
+  try {
+    return existsSync(cacheBase);
   } catch {
     return false;
   }

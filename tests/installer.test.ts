@@ -17,6 +17,7 @@ import {
   installHosts,
   uninstallHosts,
   verifyBackends,
+  isPluginInstalled,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
@@ -372,5 +373,33 @@ describe('verifyBackends', () => {
     expect(byName['codex'].available).toBe(true);
     expect(byName['gemini'].available).toBe(false);
     expect(byName['gemini'].hint).toContain('npm');
+  });
+});
+
+describe('isPluginInstalled (marketplace cache)', () => {
+  it('returns true when plugin exists in marketplace cache', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const cacheDir = path.join(tmpHome, 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    expect(isPluginInstalled(tmpHome)).toBe(true);
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns false when neither local nor cache install exists', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    fs.mkdirSync(path.join(tmpHome, 'plugins'), { recursive: true });
+    expect(isPluginInstalled(tmpHome)).toBe(false);
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('returns true when local symlink exists (existing behavior)', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-test-'));
+    const repo = makeRepo();
+    const pluginPath = path.join(tmpHome, 'plugins', PLUGIN_NAME);
+    fs.mkdirSync(path.join(tmpHome, 'plugins'), { recursive: true });
+    fs.symlinkSync(repo, pluginPath);
+    expect(isPluginInstalled(tmpHome)).toBe(true);
+    fs.rmSync(tmpHome, { recursive: true });
+    fs.rmSync(repo, { recursive: true });
   });
 });
