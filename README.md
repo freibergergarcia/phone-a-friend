@@ -40,12 +40,10 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 **Prerequisites:** Node.js 20+ and at least one backend:
 
-```bash
-npm install -g @openai/codex       # Codex CLI
-npm install -g @google/gemini-cli  # Gemini CLI
-# Ollama: https://ollama.com/download (local HTTP API)
-npm install -g @anthropic-ai/claude-code  # Claude Code CLI
-```
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
+- [Codex CLI](https://developers.openai.com/codex/quickstart/)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- [Ollama](https://ollama.com/download)
 
 **Install:**
 
