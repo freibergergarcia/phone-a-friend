@@ -22,7 +22,7 @@
     "phone-a-friend": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup && cp -r src/web/public dist/public",
+    "build": "tsup && rm -rf dist/public && cp -r src/web/public dist/public",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "tsup src/index.ts --format esm --watch",
