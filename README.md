@@ -47,28 +47,31 @@ npm install -g @google/gemini-cli  # Gemini CLI
 npm install -g @anthropic-ai/claude-code  # Claude Code CLI
 ```
 
-**Install globally via npm:**
+**Install:**
 
 ```bash
 npm install -g @freibergergarcia/phone-a-friend
-phone-a-friend plugin install --claude
+phone-a-friend    # first run shows a guided menu — choose Setup
 ```
 
-**Or install from source:**
+The setup wizard detects your backends, installs the Claude Code plugin, and verifies everything works.
+
+**From source:**
 
 ```bash
 git clone https://github.com/freibergergarcia/phone-a-friend.git
 cd phone-a-friend
 npm install && npm run build
-./dist/index.js plugin install --claude
+./dist/index.js   # first run guides you through setup
 ```
 
-**Verify your setup:**
+**Uninstall:**
 
 ```bash
-phone-a-friend doctor         # Check which backends are available
-phone-a-friend setup          # Interactive wizard (guided config)
+npm uninstall -g @freibergergarcia/phone-a-friend
 ```
+
+The Claude Code plugin is removed automatically.
 
 Then from Claude Code, just talk naturally — the plugin loads the skills automatically:
 
@@ -82,7 +85,7 @@ Build a team with Claude and Ollama. Have them review the website copy,
 loop through 3 rounds, and converge on final suggestions.
 ```
 
-No slash commands needed — Claude picks up the skills once the plugin is installed. Mention one backend and it routes through `phone-a-friend`; mention multiple and it spins up `phone-a-team` automatically. You can also use `/phone-a-friend` or `/phone-a-team` explicitly if you prefer.
+No slash commands needed. Once the plugin is installed (the setup wizard does this automatically), Claude loads the `/phone-a-friend` and `/phone-a-team` skills. Mention one backend and Claude routes through `/phone-a-friend`; mention multiple and Claude can use `/phone-a-team` for iterative refinement. You can also invoke either skill explicitly.
 
 > [!TIP]
 > **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
@@ -129,7 +132,6 @@ phone-a-friend setup           # Guided setup wizard
 phone-a-friend doctor          # Health check all backends
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
-phone-a-friend plugin install --claude   # Install as Claude Code plugin
 ```
 
 ## Backends

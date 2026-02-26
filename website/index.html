@@ -1811,7 +1811,7 @@
           <p class="section-label reveal">Get started</p>
           <h2 class="section-title reveal reveal-delay-1">Up and running in seconds.</h2>
           <p class="section-subtitle reveal reveal-delay-2">
-            Install via npm, register the plugin, and start talking.
+            Install via npm, run setup, and start talking.
           </p>
         </div>
 
@@ -1820,11 +1820,10 @@
             <li class="install-step reveal reveal-delay-1">
               <span class="step-number">1</span>
               <div class="step-content">
-                <h4>Install the CLI and plugin</h4>
+                <h4>Install the CLI</h4>
                 <div class="code-block has-copy">
-                  <button type="button" class="copy-btn" data-copy="npm install -g @freibergergarcia/phone-a-friend && phone-a-friend plugin install --claude">copy</button>
-                  <span class="prompt-char">$ </span>npm install -g @freibergergarcia/phone-a-friend<br>
-                  <span class="prompt-char">$ </span>phone-a-friend plugin install --claude
+                  <button type="button" class="copy-btn" data-copy="npm install -g @freibergergarcia/phone-a-friend">copy</button>
+                  <span class="prompt-char">$ </span>npm install -g @freibergergarcia/phone-a-friend
                 </div>
               </div>
             </li>
@@ -1832,11 +1831,11 @@
             <li class="install-step reveal reveal-delay-2">
               <span class="step-number">2</span>
               <div class="step-content">
-                <h4>Start relaying</h4>
-                <p>Just talk naturally — Claude picks up the skills automatically once the plugin is installed.</p>
+                <h4>Run setup</h4>
+                <p>First run shows a guided menu. Choose Setup to configure backends and install the Claude plugin automatically.</p>
                 <div class="code-block has-copy">
-                  <button type="button" class="copy-btn" data-copy="Ask Gemini to review the error handling in relay.ts">copy</button>
-                  <span class="prompt-char">&gt; </span>Ask Gemini to review the error handling in relay.ts
+                  <button type="button" class="copy-btn" data-copy="phone-a-friend">copy</button>
+                  <span class="prompt-char">$ </span>phone-a-friend
                 </div>
               </div>
             </li>
@@ -1844,15 +1843,23 @@
             <li class="install-step reveal reveal-delay-3">
               <span class="step-number">3</span>
               <div class="step-content">
-                <h4>Explore your dashboards</h4>
-                <p>TUI for system health and config. Web dashboard for live agentic session visualization.</p>
-                <div class="code-block has-copy" style="margin-bottom:10px;">
-                  <button type="button" class="copy-btn" data-copy="phone-a-friend">copy</button>
-                  <span class="prompt-char">$ </span>phone-a-friend<span style="color:var(--text-muted);"> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# TUI dashboard</span>
-                </div>
+                <h4>Start relaying</h4>
+                <p>Talk naturally in Claude Code. The plugin loads <code>/phone-a-friend</code> and <code>/phone-a-team</code> skills automatically.</p>
                 <div class="code-block has-copy">
-                  <button type="button" class="copy-btn" data-copy="phone-a-friend agentic dashboard">copy</button>
-                  <span class="prompt-char">$ </span>phone-a-friend agentic dashboard<span style="color:var(--text-muted);"> &nbsp;# Web dashboard</span>
+                  <button type="button" class="copy-btn" data-copy="Ask Gemini to review the error handling in relay.ts">copy</button>
+                  <span class="prompt-char">&gt; </span>Ask Gemini to review the error handling in relay.ts
+                </div>
+              </div>
+            </li>
+
+            <li class="install-step reveal reveal-delay-4">
+              <span class="step-number">&nbsp;</span>
+              <div class="step-content">
+                <h4>Uninstall</h4>
+                <p>The Claude plugin is removed automatically.</p>
+                <div class="code-block has-copy">
+                  <button type="button" class="copy-btn" data-copy="npm uninstall -g @freibergergarcia/phone-a-friend">copy</button>
+                  <span class="prompt-char">$ </span>npm uninstall -g @freibergergarcia/phone-a-friend
                 </div>
               </div>
             </li>
