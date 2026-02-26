@@ -34,21 +34,23 @@ const MIME: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 function resolvePublicDir(): string {
-  // In dev: src/web/public/
-  // In built dist: look relative to this file
   const thisDir = typeof __dirname !== 'undefined'
     ? __dirname
     : fileURLToPath(new URL('.', import.meta.url));
 
-  // Try src/web/public first (dev mode)
-  const devPath = join(thisDir, 'public');
+  // 1. Built dist: dist/public/ (copied by postbuild, works for npm installs)
+  const distPath = join(thisDir, 'public');
+  if (existsSync(distPath)) return distPath;
+
+  // 2. Dev mode from repo root: src/web/public/
+  const devPath = join(thisDir, '..', '..', 'src', 'web', 'public');
   if (existsSync(devPath)) return devPath;
 
-  // Fallback: relative to CWD
+  // 3. CWD fallback (running from repo root)
   const cwdPath = join(process.cwd(), 'src', 'web', 'public');
   if (existsSync(cwdPath)) return cwdPath;
 
-  return devPath; // Will 404 gracefully
+  return distPath; // Will 404 gracefully
 }
 
 // ---------------------------------------------------------------------------
