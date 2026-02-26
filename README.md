@@ -65,14 +65,6 @@ npm install && npm run build
 ./dist/index.js   # first run guides you through setup
 ```
 
-**Uninstall:**
-
-```bash
-npm uninstall -g @freibergergarcia/phone-a-friend
-```
-
-The Claude Code plugin is removed automatically.
-
 Then from Claude Code, just talk naturally — the plugin loads the skills automatically:
 
 ```
@@ -204,6 +196,14 @@ phone-a-friend agentic dashboard --port 8080
 Full usage guide, examples, CLI reference, and configuration details:
 
 **[freibergergarcia.github.io/phone-a-friend](https://freibergergarcia.github.io/phone-a-friend/)**
+
+## Uninstall
+
+```bash
+npm uninstall -g @freibergergarcia/phone-a-friend
+```
+
+The Claude Code plugin is removed automatically.
 
 ## Contributing
 
