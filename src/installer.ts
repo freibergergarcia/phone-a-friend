@@ -29,6 +29,9 @@ export const MARKETPLACE_NAME = 'phone-a-friend-marketplace';
 /** Previous marketplace name; cleaned up during install/uninstall for existing users. */
 const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 
+/** GitHub repository for marketplace distribution. */
+export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
+
 const INSTALL_TARGETS = new Set(['claude', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
 
@@ -164,7 +167,7 @@ function cleanupLegacyMarketplace(): string[] {
 }
 
 function syncClaudePluginRegistration(
-  repoRoot: string,
+  source: string,
   marketplaceName: string = MARKETPLACE_NAME,
   pluginName: string = PLUGIN_NAME,
   scope: string = 'user',
@@ -180,7 +183,7 @@ function syncClaudePluginRegistration(
   }
 
   const commands: [string[], string][] = [
-    [['claude', 'plugin', 'marketplace', 'add', repoRoot], 'marketplace_add'],
+    [['claude', 'plugin', 'marketplace', 'add', source], 'marketplace_add'],
     [['claude', 'plugin', 'marketplace', 'update', marketplaceName], 'marketplace_update'],
     [['claude', 'plugin', 'install', `${pluginName}@${marketplaceName}`, '-s', scope], 'install'],
     [['claude', 'plugin', 'enable', `${pluginName}@${marketplaceName}`, '-s', scope], 'enable'],
@@ -314,6 +317,22 @@ function isValidRepoRoot(repoRoot: string): boolean {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Install the plugin via GitHub marketplace (npm source).
+ * Cleans up any existing local symlink, removes legacy marketplace,
+ * and registers via the GitHub-hosted marketplace.
+ */
+export function installFromGitHubMarketplace(): string[] {
+  const lines: string[] = [];
+  // Unconditionally clean up local symlink (idempotent, handles missing/dangling)
+  lines.push(...uninstallHosts({ target: 'claude' }));
+  // Clean up legacy marketplace name
+  lines.push(...cleanupLegacyMarketplace());
+  // Register via GitHub marketplace
+  lines.push(...syncClaudePluginRegistration(GITHUB_REPO));
+  return lines;
+}
 
 export interface InstallOptions {
   repoRoot: string;
