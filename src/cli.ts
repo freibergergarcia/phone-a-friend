@@ -171,14 +171,66 @@ export async function run(argv: string[]): Promise<number> {
 
   // Smart no-args behavior
   if (normalized.length === 0) {
-    // TTY guard: launch TUI only in interactive terminal
-    if (process.stdout.isTTY && process.env.TERM !== 'dumb') {
+    const paths = configPaths();
+    const isFirstRun = !existsSync(paths.user);
+    const isTTY = process.stdout.isTTY && process.env.TERM !== 'dumb';
+
+    if (isTTY && isFirstRun) {
+      // First-run interactive menu
+      const { select } = await import('@inquirer/prompts');
+      console.log('');
+      console.log(banner('AI coding agent relay'));
+      console.log('');
+      console.log(`  ${theme.heading('Welcome!')} No configuration found yet.`);
+      console.log('');
+
+      const choice = await select({
+        message: 'What would you like to do?',
+        choices: [
+          { name: 'Run setup wizard (recommended)', value: 'setup' },
+          { name: 'Show quick start examples', value: 'quickstart' },
+          { name: 'Open TUI dashboard', value: 'tui' },
+          { name: 'Exit', value: 'exit' },
+        ],
+      });
+
+      if (choice === 'setup') {
+        await setup();
+        return 0;
+      }
+      if (choice === 'quickstart') {
+        console.log('');
+        console.log(`  ${theme.heading('Quick start')}`);
+        console.log('');
+        console.log(`  ${theme.hint('Relay a prompt to a backend:')}`);
+        console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
+        console.log('');
+        console.log(`  ${theme.hint('Stream tokens as they arrive:')}`);
+        console.log(`    ${theme.info('phone-a-friend --to claude --prompt "Review this code" --stream')}`);
+        console.log('');
+        console.log(`  ${theme.hint('Multi-agent session:')}`);
+        console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth"')}`);
+        console.log('');
+        console.log(`  ${theme.hint('Run setup anytime:')} ${theme.info('phone-a-friend setup')}`);
+        console.log('');
+        return 0;
+      }
+      if (choice === 'tui') {
+        const { renderTui } = await import('./tui/render.js');
+        return await renderTui();
+      }
+      // exit
+      return 0;
+    }
+
+    if (isTTY) {
+      // Config exists: launch TUI directly (current behavior)
       const { renderTui } = await import('./tui/render.js');
       return await renderTui();
     }
+
     // Non-interactive: show setup nudge or help
-    const paths = configPaths();
-    if (!existsSync(paths.user)) {
+    if (isFirstRun) {
       console.log('');
       console.log(banner('AI coding agent relay'));
       console.log('');
@@ -190,7 +242,7 @@ export async function run(argv: string[]): Promise<number> {
       console.log('');
       return 0;
     }
-    // Config exists — fall through to Commander help
+    // Config exists, non-TTY: fall through to Commander help
   }
 
   const program = new Command()
