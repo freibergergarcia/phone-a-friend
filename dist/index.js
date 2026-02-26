@@ -75945,6 +75945,10 @@ var ClaudeBackend = class {
       timedOut = true;
       child.kill("SIGTERM");
     }, opts.timeoutSeconds * 1e3);
+    const onSigint = () => {
+      child.kill("SIGTERM");
+    };
+    process.on("SIGINT", onSigint);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     const closePromise = new Promise((resolve5, reject) => {
@@ -75983,6 +75987,7 @@ var ClaudeBackend = class {
       throw new ClaudeBackendError(`claude stream error: ${msg}`);
     } finally {
       clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
       if (!child.killed) {
         child.kill("SIGTERM");
       }
