@@ -13,6 +13,7 @@ import { loadConfig, saveConfig, configPaths, DEFAULT_CONFIG, type PafConfig } f
 import { installHosts } from './installer.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
+import { getPackageRoot } from './version.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,7 +130,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     });
     if (installPlugin) {
       try {
-        const repoRoot = opts?.repoRoot ?? process.cwd();
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
         const lines = installHosts({
           repoRoot,
           target: 'claude',
@@ -192,6 +193,10 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log('');
   console.log(`  ${theme.label('Backend:')}  ${selectedBackend}`);
   console.log(`  ${theme.label('Config:')}   ${paths.user}`);
+  console.log('');
+  console.log(`  ${theme.hint('Next steps:')}`);
+  console.log(`    ${theme.info('phone-a-friend --to ' + selectedBackend + ' --prompt "What does this project do?"')}`);
+  console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude --prompt "Review auth"')}`);
   console.log('');
   console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log('');
