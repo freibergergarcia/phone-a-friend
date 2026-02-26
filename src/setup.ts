@@ -193,6 +193,10 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log(`  ${theme.label('Backend:')}  ${selectedBackend}`);
   console.log(`  ${theme.label('Config:')}   ${paths.user}`);
   console.log('');
+  console.log(`  ${theme.hint('Next steps:')}`);
+  console.log(`    ${theme.info('phone-a-friend --to ' + selectedBackend + ' --prompt "What does this project do?"')}`);
+  console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude --prompt "Review auth"')}`);
+  console.log('');
   console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log('');
 }

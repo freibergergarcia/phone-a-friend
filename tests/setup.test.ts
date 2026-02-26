@@ -224,6 +224,14 @@ describe('setup', () => {
     expect(fullOutput).toContain('No relay backends');
   });
 
+  it('shows agentic mode tip after setup', async () => {
+    mockDetectAll.mockResolvedValue(makeReport());
+    await setup.setup();
+
+    const fullOutput = output.join('\n');
+    expect(fullOutput).toContain('agentic');
+  });
+
   it('shows alias suggestion after success', async () => {
     mockDetectAll.mockResolvedValue(makeReport());
     await setup.setup();
