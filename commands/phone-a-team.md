@@ -137,7 +137,7 @@ If models are available, select using this precedence:
    not found in local models: [bar, baz]. Proceeding anyway — it may be a
    tag variant.") but proceed.
 2. If no override, check config: run
-   `./phone-a-friend config get backends.ollama.model`. If a value is
+   `phone-a-friend config get backends.ollama.model`. If a value is
    returned, set `OLLAMA_SELECTED_MODEL` to that value. Validate against
    `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
@@ -213,7 +213,7 @@ command:
 
    Run this now:
 
-   ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
+   phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
      [--context-text "<context>"] [--include-diff] [--sandbox <mode>] \
      [--model <model>]
 
@@ -285,7 +285,7 @@ Before executing any round, select the execution mode based on team state:
   teammate(s) via `SendMessage`.
 
 **Without team (`TEAM_ACTIVE=false`):**
-- **DO phase**: Lead runs `./phone-a-friend` relay calls directly via Bash.
+- **DO phase**: Lead runs `phone-a-friend` relay calls directly via Bash.
   For `--backend both`, run sequentially.
 - **REVIEW/DECIDE phases**: Same as above.
 
@@ -300,7 +300,7 @@ Delegate the task to the backend via the relay. The lead's job is to
 
 - **Single backend**: Relay the task (or sub-task) via phone-a-friend:
   ```bash
-  ./phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
   ```
   For gemini, always include `--model` per the Gemini Model Priority section.
   For ollama, always include `--model` using `OLLAMA_SELECTED_MODEL` from preflight.
