@@ -19,6 +19,57 @@ synthesized result to the user.
 
 - Task description and options: `$ARGUMENTS`
 
+## Step 0 — Relay mode
+
+```bash
+command -v phone-a-friend
+```
+
+- If found: set `RELAY_MODE = binary`
+- If not found: set `RELAY_MODE = direct`
+
+No hard abort. The skill continues either way.
+
+### Direct call reference
+
+When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
+`phone-a-friend` binary:
+
+| Backend | Direct command |
+|---------|---------------|
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>"` |
+| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
+| **Ollama** | `curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d '{"model":"<model>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \| jq -r '.message.content'` |
+
+Sandbox mapping for direct mode:
+- **Codex**: pass the mode string directly (`--sandbox read-only` or
+  `--sandbox workspace-write`)
+- **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
+  For workspace-write, omit `--sandbox`.
+- **Ollama**: no sandbox support. All context must be in the prompt.
+
+In direct mode, combine prompt + context + diff into a single string using
+this template:
+
+```
+You are helping another coding agent by reviewing or advising on work in a local repository.
+Repository path: <repo-path>
+Use the repository files for context when needed.
+Respond with concise, actionable feedback.
+
+Request:
+<relay-prompt>
+
+Additional Context:
+<context-payload>
+
+Git Diff:
+<diff output from git diff HEAD, if --include-diff is used>
+```
+
+Omit the "Additional Context" or "Git Diff" sections if they are not used for
+a given relay call.
+
 ## Step 1 — Parse Arguments
 
 Extract the `--backend` flag, `--max-rounds` flag, and task description from
@@ -136,10 +187,12 @@ If models are available, select using this precedence:
    in `OLLAMA_AVAILABLE_MODELS`. If not found, **warn** (e.g., "Model 'foo'
    not found in local models: [bar, baz]. Proceeding anyway — it may be a
    tag variant.") but proceed.
-2. If no override, check config: run
+2. If no override and `RELAY_MODE = binary`: check config by running
    `phone-a-friend config get backends.ollama.model`. If a value is
    returned, set `OLLAMA_SELECTED_MODEL` to that value. Validate against
    `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
+   If `RELAY_MODE = direct`: skip this step (the binary is not available to
+   query config). Fall through to option 3.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
    model in `OLLAMA_AVAILABLE_MODELS`.
 
@@ -206,6 +259,7 @@ command:
 
 3. **Each teammate's prompt** must use this template:
 
+   **Binary mode** (`RELAY_MODE = binary`):
    ```
    You are a relay worker. Your ONLY job: run the command below via Bash,
    then send the FULL output (not a summary) back to the team lead via
@@ -228,12 +282,38 @@ command:
    the message, and approve: true. Do NOT just say "shutting down" in text.
    ```
 
-   Backend-specific additions:
-   - For **gemini** workers: always include `--model` per the Gemini Model
-     Priority section below.
-   - For **ollama** workers: always include `--model` using
+   **Direct mode** (`RELAY_MODE = direct`):
+   ```
+   You are a relay worker. Your ONLY job: run the command below via Bash,
+   then send the FULL output (not a summary) back to the team lead via
+   SendMessage.
+
+   Run this now:
+
+   <direct-command>
+
+   After the command completes, send the FULL unedited output to the team
+   lead via SendMessage. Include:
+   - The complete command output (stdout and stderr)
+   - Whether the command succeeded or failed (exit code)
+   Do NOT summarize, interpret, or editorialize. Send the raw output.
+
+   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
+   respond using SendMessage with type: "shutdown_response", request_id from
+   the message, and approve: true. Do NOT just say "shutting down" in text.
+   ```
+
+   Where `<direct-command>` is the backend-specific command from the "Direct
+   call reference" section. Build `<combined-prompt>` using the template from
+   that section, substituting the relay prompt, context payload, and diff as
+   applicable.
+
+   Backend-specific additions (both modes):
+   - For **gemini** workers: always include `--model` / `-m` per the Gemini
+     Model Priority section below.
+   - For **ollama** workers: always include `--model` / model field using
      `OLLAMA_SELECTED_MODEL` discovered during preflight (Step 2). Never
-     omit `--model` for Ollama — the API returns HTTP 400 when no model is
+     omit the model for Ollama — the API returns HTTP 400 when no model is
      specified and no server default is configured.
 
 4. **Seed first task immediately** after spawning — include the Round 1
@@ -285,8 +365,10 @@ Before executing any round, select the execution mode based on team state:
   teammate(s) via `SendMessage`.
 
 **Without team (`TEAM_ACTIVE=false`):**
-- **DO phase**: Lead runs `phone-a-friend` relay calls directly via Bash.
-  For `--backend both`, run sequentially.
+- **DO phase**: Lead runs relay calls directly via Bash. In binary mode,
+  use `phone-a-friend` commands. In direct mode, use backend CLIs directly
+  (see "Direct call reference" in Step 0). For `--backend both`, run
+  sequentially.
 - **REVIEW/DECIDE phases**: Same as above.
 
 ### Round Structure
@@ -298,12 +380,31 @@ Each round has three phases:
 Delegate the task to the backend via the relay. The lead's job is to
 **orchestrate**, not to do the backend's work.
 
-- **Single backend**: Relay the task (or sub-task) via phone-a-friend:
+- **Single backend**: Relay the task (or sub-task) to the backend.
+
+  **Binary mode** (`RELAY_MODE = binary`):
   ```bash
   phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
   ```
-  For gemini, always include `--model` per the Gemini Model Priority section.
-  For ollama, always include `--model` using `OLLAMA_SELECTED_MODEL` from preflight.
+
+  **Direct mode** (`RELAY_MODE = direct`):
+  ```bash
+  # Codex:
+  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>"
+  # Gemini (omit --sandbox for workspace-write):
+  gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
+  # Ollama:
+  curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
+    -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \
+    | jq -r '.message.content'
+  ```
+
+  In direct mode, build `<combined-prompt>` using the template from the
+  "Direct call reference" section. If `--include-diff` is used, run
+  `git diff HEAD` and append the output to the template's "Git Diff" section.
+
+  For gemini, always include `--model` / `-m` per the Gemini Model Priority section.
+  For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
