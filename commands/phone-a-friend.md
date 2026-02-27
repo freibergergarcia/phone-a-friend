@@ -43,9 +43,9 @@ I'm working on this task and got the above response. Please review it and return
 4. Run:
 
 ```bash
-./phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
+phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
 # For gemini, always include --model (see "Gemini Model Priority" below):
-./phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
+phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
 ```
 
 5. Return backend feedback in concise review format:
