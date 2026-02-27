@@ -16,6 +16,47 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 
 - Review focus (optional): `$ARGUMENTS`
 
+## Relay mode
+
+```bash
+command -v phone-a-friend
+```
+
+- If found: set `RELAY_MODE = binary`
+- If not found: set `RELAY_MODE = direct`
+
+No hard abort. The skill continues either way.
+
+### Direct call reference
+
+When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
+`phone-a-friend` binary:
+
+| Backend | Direct command |
+|---------|---------------|
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>"` |
+| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
+
+In direct mode, combine prompt + context into a single string using this
+template:
+
+```
+You are helping another coding agent by reviewing or advising on work in a local repository.
+Repository path: <repo-path>
+Use the repository files for context when needed.
+Respond with concise, actionable feedback.
+
+Request:
+<relay-prompt>
+
+Additional Context:
+<context-payload>
+```
+
+In direct mode, also verify the backend CLI is available (`command -v codex` or
+`command -v gemini`) before calling it. If not found, tell the user how to
+install it and stop.
+
 ## Workflow
 
 1. Identify:
@@ -42,11 +83,24 @@ I'm working on this task and got the above response. Please review it and return
 
 4. Run:
 
-```bash
-phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
-# For gemini, always include --model (see "Gemini Model Priority" below):
-phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
-```
+   **Binary mode** (`RELAY_MODE = binary`):
+   ```bash
+   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
+   # For gemini, always include --model (see "Gemini Model Priority" below):
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
+   ```
+
+   **Direct mode** (`RELAY_MODE = direct`):
+   ```bash
+   # Codex:
+   codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>"
+   # Gemini (always include -m, see "Gemini Model Priority" below):
+   gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
+   ```
+
+   In direct mode, build `<combined-prompt>` using the template from the
+   "Direct call reference" section, substituting `<relay-prompt>` and
+   `<context-payload>` into the template.
 
 5. Return backend feedback in concise review format:
    - Critical issues

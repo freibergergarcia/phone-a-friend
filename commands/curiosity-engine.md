@@ -14,6 +14,44 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
 
 - Arguments: `$ARGUMENTS`
 
+## Step 0 — Relay mode
+
+```bash
+command -v phone-a-friend
+```
+
+- If found: set `RELAY_MODE = binary`
+- If not found: set `RELAY_MODE = direct`
+
+No hard abort. The skill continues either way.
+
+### Direct call reference
+
+When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
+`phone-a-friend` binary:
+
+| Backend | Direct command |
+|---------|---------------|
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>"` |
+| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
+| **Ollama** | `curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d '{"model":"<model>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \| jq -r '.message.content'` |
+
+In direct mode, combine the relay prompt into a single string using this
+template:
+
+```
+You are helping another coding agent by reviewing or advising on work in a local repository.
+Repository path: <repo-path>
+Use the repository files for context when needed.
+Respond with concise, actionable feedback.
+
+Request:
+<relay-prompt>
+```
+
+No "Additional Context" section is needed for curiosity-engine (prompts are
+self-contained).
+
 ## Step 1 — Parse Arguments
 
 Extract `--topic`, `--rounds`, and `--backend` from `$ARGUMENTS`.
@@ -42,8 +80,16 @@ command -v gemini  # if BACKEND=gemini
 ### Ollama backend
 
 ```bash
-curl -sf http://localhost:11434/api/tags > /dev/null 2>&1
+curl -sf http://localhost:11434/api/tags
 ```
+
+If reachable and `RELAY_MODE = direct`: parse the JSON response to extract
+model names from `models[].name`. Set `OLLAMA_SELECTED_MODEL` to the first
+model in the list. If the list is empty, abort: "Ollama server is running but
+has no models pulled. Install one with: `ollama pull <model-name>`". Report
+the selected model to the user: "Ollama: using model `<name>`".
+
+If `RELAY_MODE = binary`, the binary handles model selection internally.
 
 | BACKEND  | Available | Action |
 |----------|-----------|--------|
@@ -51,7 +97,7 @@ curl -sf http://localhost:11434/api/tags > /dev/null 2>&1
 | codex    | no        | abort: "codex CLI not found. Install: `npm install -g @openai/codex`" |
 | gemini   | yes       | proceed |
 | gemini   | no        | abort: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
-| ollama   | reachable | proceed |
+| ollama   | reachable | proceed (discover model if direct mode) |
 | ollama   | not reachable | abort: "Ollama not reachable at localhost:11434. Is Ollama running?" |
 
 ## Step 3 — Serve Round 1
@@ -71,8 +117,21 @@ Display to user:
 
 Then relay to backend:
 
+**Binary mode** (`RELAY_MODE = binary`):
 ```bash
 phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --prompt "<relay-prompt>"
+```
+
+**Direct mode** (`RELAY_MODE = direct`):
+```bash
+# Codex:
+codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<relay-prompt>"
+# Gemini (always include -m):
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<relay-prompt>"
+# Ollama (use OLLAMA_SELECTED_MODEL from Step 2):
+curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
+  -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<relay-prompt>"}],"stream":false}' \
+  | jq -r '.message.content'
 ```
 
 Where `<relay-prompt>` is:
@@ -95,8 +154,9 @@ Do not add any text before ANSWER: or after the QUESTION line.
 
 ## Step 4 — Parse Backend Response
 
-If the `phone-a-friend` call produces no output, empty stdout, or a non-zero exit code:
-Display: `⚠️  phone-a-friend call failed for round <ROUND>. Ending game early.`
+If the relay call (binary or direct) produces no output, empty stdout, or a
+non-zero exit code:
+Display: `⚠️  Relay call failed for round <ROUND>. Ending game early.`
 Jump to Step 6 (Synthesis).
 
 After each relay call, parse the response for `ANSWER:` and `QUESTION:` fields.
@@ -113,8 +173,21 @@ After each relay call, parse the response for `ANSWER:` and `QUESTION:` fields.
 
 Send one correction relay if `ANSWER:` or `QUESTION:` is missing:
 
+**Binary mode** (`RELAY_MODE = binary`):
 ```bash
 phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --prompt "<re-prompt>"
+```
+
+**Direct mode** (`RELAY_MODE = direct`):
+```bash
+# Codex:
+codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<re-prompt>"
+# Gemini:
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<re-prompt>"
+# Ollama:
+curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
+  -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<re-prompt>"}],"stream":false}' \
+  | jq -r '.message.content'
 ```
 
 Where `<re-prompt>` is:
@@ -220,8 +293,14 @@ When BACKEND=gemini, always pass `--model` using the first available model from 
 
 When BACKEND=gemini, the relay command must include `--model`:
 
+**Binary mode:**
 ```bash
 phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --prompt "<relay-prompt>"
+```
+
+**Direct mode:**
+```bash
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m gemini-2.5-flash --prompt "<relay-prompt>"
 ```
 
 On capacity/transient errors (429, 500, 503), try the next model before treating as round failure.
