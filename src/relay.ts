@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getBackend, BackendError, type Backend, type SandboxMode } from './backends/index.js';
+import { JobManager, type Job } from './jobs.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -218,6 +219,10 @@ export interface RelayOptions {
   sandbox?: SandboxMode;
 }
 
+export interface BackgroundRelayOptions extends RelayOptions {
+  jobManager?: JobManager;
+}
+
 interface PreparedRelay {
   selectedBackend: Backend;
   fullPrompt: string;
@@ -411,4 +416,29 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Background relay
+// ---------------------------------------------------------------------------
+
+export function relayBackground(opts: BackgroundRelayOptions): { job: Job; promise: Promise<void> } {
+  const manager = opts.jobManager ?? new JobManager();
+  const job = manager.create({
+    backend: opts.backend ?? DEFAULT_BACKEND,
+    prompt: opts.prompt,
+    repoPath: opts.repoPath,
+    model: opts.model ?? undefined,
+    sandbox: opts.sandbox,
+  });
+
+  manager.update(job.id, { status: 'running' });
+
+  const promise = relay(opts)
+    .then((result) => { manager.update(job.id, { status: 'completed', result }); })
+    .catch((err) => {
+      manager.update(job.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
+    });
+
+  return { job, promise };
 }

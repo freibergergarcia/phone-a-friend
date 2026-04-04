@@ -4,8 +4,7 @@
  * Ported from phone_a_friend/backends/codex.py
  */
 
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -13,6 +12,7 @@ import {
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  spawnCli,
   type Backend,
   type ReviewOptions,
   type SandboxMode,
@@ -71,35 +71,21 @@ export class CodexBackend implements Backend {
 
       let stdout = '';
       try {
-        const result = execFileSync('codex', args, {
-          timeout: opts.timeoutSeconds * 1000,
+        const result = await spawnCli('codex', args, {
+          timeoutMs: opts.timeoutSeconds * 1000,
           env: opts.env,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
+          label: 'codex exec',
         });
-        stdout = result.trim();
+        stdout = result.stdout;
       } catch (err: unknown) {
-        const execErr = err as NodeJS.ErrnoException & {
-          status?: number;
-          stdout?: Buffer | string;
-          stderr?: Buffer | string;
-          killed?: boolean;
-          signal?: string;
-        };
-
-        // Timeout detection
-        if (execErr.killed || execErr.signal === 'SIGTERM' || execErr.code === 'ETIMEDOUT') {
-          throw new CodexBackendError(
-            `codex exec timed out after ${opts.timeoutSeconds}s`,
-          );
-        }
-
-        // Non-zero exit code
+        // On failure, check if codex wrote a useful last-message before dying
         const lastMessage = readOutputFile(outputPath);
-        const stderr = execErr.stderr?.toString().trim() ?? '';
-        const stdoutStr = execErr.stdout?.toString().trim() ?? '';
-        const detail = stderr || stdoutStr || lastMessage || `codex exec exited with code ${execErr.status ?? 1}`;
-        throw new CodexBackendError(detail);
+        if (lastMessage) return lastMessage;
+
+        if (err instanceof BackendError) {
+          throw new CodexBackendError(err.message);
+        }
+        throw err;
       }
 
       // Read output file (preferred)
@@ -158,33 +144,21 @@ export class CodexBackend implements Backend {
 
       let stdout = '';
       try {
-        const result = execFileSync('codex', args, {
-          timeout: opts.timeoutSeconds * 1000,
+        const result = await spawnCli('codex', args, {
+          timeoutMs: opts.timeoutSeconds * 1000,
           env: opts.env,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
+          label: 'codex exec review',
         });
-        stdout = result.trim();
+        stdout = result.stdout;
       } catch (err: unknown) {
-        const execErr = err as NodeJS.ErrnoException & {
-          status?: number;
-          stdout?: Buffer | string;
-          stderr?: Buffer | string;
-          killed?: boolean;
-          signal?: string;
-        };
-
-        if (execErr.killed || execErr.signal === 'SIGTERM' || execErr.code === 'ETIMEDOUT') {
-          throw new CodexBackendError(
-            `codex exec review timed out after ${opts.timeoutSeconds}s`,
-          );
-        }
-
+        // On failure, check if codex wrote a useful last-message before dying
         const lastMessage = readOutputFile(outputPath);
-        const stderr = execErr.stderr?.toString().trim() ?? '';
-        const stdoutStr = execErr.stdout?.toString().trim() ?? '';
-        const detail = stderr || stdoutStr || lastMessage || `codex exec review exited with code ${execErr.status ?? 1}`;
-        throw new CodexBackendError(detail);
+        if (lastMessage) return lastMessage;
+
+        if (err instanceof BackendError) {
+          throw new CodexBackendError(err.message);
+        }
+        throw err;
       }
 
       const lastMessage = readOutputFile(outputPath);

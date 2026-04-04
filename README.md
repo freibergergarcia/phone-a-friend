@@ -115,6 +115,18 @@ phone-a-friend --to gemini --prompt "Analyze the architecture" --model gemini-2.
 phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
+phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
+```
+
+### Job tracking
+
+The `--quiet` flag saves the result to a local job store for later retrieval:
+
+```bash
+phone-a-friend --to codex --prompt "Review this" --quiet   # Returns job ID immediately
+phone-a-friend job status                                    # List all jobs
+phone-a-friend job result <id>                               # Show stored output
+phone-a-friend job cancel <id>                               # Cancel a pending/running job
 ```
 
 ### Review

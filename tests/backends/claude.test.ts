@@ -45,7 +45,7 @@ function mockChildProcess(
   exitCode = 0,
   opts?: { stderr?: string; signal?: string },
 ) {
-  const stdoutStream = Readable.from([stdout]);
+  const stdoutStream = Readable.from([Buffer.from(stdout)]);
   const stderrStream = Readable.from(opts?.stderr ? [Buffer.from(opts.stderr)] : []);
   const child = new EventEmitter() as EventEmitter & {
     stdout: Readable;
@@ -65,6 +65,32 @@ function mockChildProcess(
     const sig = opts?.signal ?? null;
     child.exitCode = sig ? null : exitCode;
     process.nextTick(() => child.emit('close', sig ? null : exitCode, sig));
+  });
+
+  return child;
+}
+
+/** Create a mock child that never completes (for timeout tests) */
+function mockHangingChild() {
+  const stdoutStream = new Readable({ read() {} });
+  const stderrStream = new Readable({ read() {} });
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: Readable;
+    stderr: Readable;
+    killed: boolean;
+    exitCode: number | null;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.stdout = stdoutStream;
+  child.stderr = stderrStream;
+  child.killed = false;
+  child.exitCode = null;
+  child.kill = vi.fn(() => {
+    child.killed = true;
+    // Simulate OS behavior: end streams and emit close on kill
+    stdoutStream.push(null);
+    stderrStream.push(null);
+    process.nextTick(() => child.emit('close', null, 'SIGTERM'));
   });
 
   return child;
@@ -93,25 +119,17 @@ describe('ClaudeBackend', () => {
   });
 
   it('builds correct args for read-only sandbox', async () => {
-    let observedOpts: Record<string, unknown> = {};
-
-    mockExecFileSync.mockImplementation(
-      (cmd: string, _args: string[], opts?: Record<string, unknown>) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        observedOpts = opts ?? {};
-        return 'Claude feedback';
-      },
-    );
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('Claude feedback', 0));
 
     const result = await CLAUDE_BACKEND.run(makeOpts());
 
     expect(result).toBe('Claude feedback');
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    expect(claudeCall).toBeDefined();
-    const args = claudeCall![1] as string[];
+    const spawnCall = mockSpawn.mock.calls[0];
+    expect(spawnCall[0]).toBe('claude');
+    const args = spawnCall[1] as string[];
+    const spawnOpts = spawnCall[2] as Record<string, unknown>;
 
     // Print mode
     expect(args[0]).toBe('-p');
@@ -146,24 +164,19 @@ describe('ClaudeBackend', () => {
     expect(args[args.indexOf('--max-turns') + 1]).toBe('10');
 
     // cwd set to repo path
-    expect(observedOpts.cwd).toBe('/tmp/repo');
+    expect(spawnOpts.cwd).toBe('/tmp/repo');
 
     // No --dangerously-skip-permissions
     expect(args).not.toContain('--dangerously-skip-permissions');
   });
 
   it('builds correct args for workspace-write sandbox', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'ok';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ sandbox: 'workspace-write' }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
 
     expect(args).toContain('--tools');
     expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch');
@@ -176,17 +189,12 @@ describe('ClaudeBackend', () => {
   });
 
   it('uses --dangerously-skip-permissions for danger-full-access', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'ok';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ sandbox: 'danger-full-access' }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
 
     expect(args).toContain('--dangerously-skip-permissions');
     // Should NOT have --tools or --allowedTools
@@ -195,64 +203,44 @@ describe('ClaudeBackend', () => {
   });
 
   it('passes --model when model is provided', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'opus feedback';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('opus feedback', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ model: 'opus' }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
     const modelIdx = args.indexOf('--model');
     expect(modelIdx).toBeGreaterThan(-1);
     expect(args[modelIdx + 1]).toBe('opus');
   });
 
   it('does not pass --model when model is null', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'ok';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ model: null }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
     expect(args).not.toContain('--model');
   });
 
   it('passes CLAUDE_MAX_TURNS from env', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'ok';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ env: { CLAUDE_MAX_TURNS: '5' } }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
     expect(args[args.indexOf('--max-turns') + 1]).toBe('5');
   });
 
   it('passes CLAUDE_MAX_BUDGET from env', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return 'ok';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ env: { CLAUDE_MAX_BUDGET: '3.50' } }));
 
-    const claudeCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'claude',
-    );
-    const args = claudeCall![1] as string[];
+    const args = mockSpawn.mock.calls[0][1] as string[];
     expect(args).toContain('--max-budget-usd');
     expect(args[args.indexOf('--max-budget-usd') + 1]).toBe('3.50');
   });
@@ -269,37 +257,17 @@ describe('ClaudeBackend', () => {
   });
 
   it('throws on timeout', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      const err = new Error('TIMEOUT') as Error & {
-        killed: boolean;
-        signal: string;
-        code: string;
-      };
-      err.killed = true;
-      err.signal = 'SIGTERM';
-      err.code = 'ETIMEDOUT';
-      throw err;
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockHangingChild());
 
     await expect(
-      CLAUDE_BACKEND.run(makeOpts({ timeoutSeconds: 10 })),
-    ).rejects.toThrow(/timed out after 10s/);
+      CLAUDE_BACKEND.run(makeOpts({ timeoutSeconds: 0.01 })),
+    ).rejects.toThrow(/timed out/);
   });
 
   it('throws on non-zero exit code with stderr', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      const err = new Error('command failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      err.status = 1;
-      err.stdout = Buffer.from('');
-      err.stderr = Buffer.from('API error: rate limited');
-      throw err;
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('', 1, { stderr: 'API error: rate limited' }));
 
     await expect(
       CLAUDE_BACKEND.run(makeOpts()),
@@ -307,15 +275,8 @@ describe('ClaudeBackend', () => {
   });
 
   it('strips CLAUDECODE and CLAUDE_CODE_SESSION from subprocess env', async () => {
-    let observedEnv: Record<string, string> = {};
-
-    mockExecFileSync.mockImplementation(
-      (cmd: string, _args: string[], opts?: Record<string, unknown>) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        observedEnv = (opts?.env ?? {}) as Record<string, string>;
-        return 'ok';
-      },
-    );
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({
       env: {
@@ -326,10 +287,11 @@ describe('ClaudeBackend', () => {
       },
     }));
 
-    expect(observedEnv).not.toHaveProperty('CLAUDECODE');
-    expect(observedEnv).not.toHaveProperty('CLAUDE_CODE_SESSION');
-    expect(observedEnv).toHaveProperty('PATH', '/usr/bin');
-    expect(observedEnv).toHaveProperty('HOME', '/home/user');
+    const spawnEnv = (mockSpawn.mock.calls[0][2] as Record<string, unknown>).env as Record<string, string>;
+    expect(spawnEnv).not.toHaveProperty('CLAUDECODE');
+    expect(spawnEnv).not.toHaveProperty('CLAUDE_CODE_SESSION');
+    expect(spawnEnv).toHaveProperty('PATH', '/usr/bin');
+    expect(spawnEnv).toHaveProperty('HOME', '/home/user');
   });
 
   it('strips nested-session env vars in runStream()', async () => {
@@ -339,10 +301,7 @@ describe('ClaudeBackend', () => {
     ].join('\n');
 
     const child = mockChildProcess(lines, 0);
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return '';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
     mockSpawn.mockReturnValue(child);
 
     for await (const _ of CLAUDE_BACKEND.runStream!(makeOpts({
@@ -363,10 +322,8 @@ describe('ClaudeBackend', () => {
   });
 
   it('throws when claude produces no output', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/claude';
-      return '';
-    });
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('', 0));
 
     await expect(
       CLAUDE_BACKEND.run(makeOpts()),
@@ -387,10 +344,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 0);
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       const chunks: string[] = [];
@@ -409,10 +363,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 0);
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       const chunks: string[] = [];
@@ -444,10 +395,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 1);
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       const gen = CLAUDE_BACKEND.runStream!(makeOpts());
@@ -461,10 +409,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 0);
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       for await (const _ of CLAUDE_BACKEND.runStream!(makeOpts())) {
@@ -483,10 +428,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 1, { stderr: 'API error: rate limited' });
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       const gen = CLAUDE_BACKEND.runStream!(makeOpts());
@@ -502,10 +444,7 @@ describe('ClaudeBackend', () => {
       ].join('\n');
 
       const child = mockChildProcess(lines, 0, { signal: 'SIGKILL' });
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/claude';
-        return '';
-      });
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
       mockSpawn.mockReturnValue(child);
 
       const gen = CLAUDE_BACKEND.runStream!(makeOpts());
