@@ -119,7 +119,7 @@ Then relay to backend:
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --prompt "<relay-prompt>"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast [--model <model>] --prompt "<relay-prompt>"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -175,7 +175,7 @@ Send one correction relay if `ANSWER:` or `QUESTION:` is missing:
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --prompt "<re-prompt>"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast [--model <model>] --prompt "<re-prompt>"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -295,7 +295,7 @@ When BACKEND=gemini, the relay command must include `--model`:
 
 **Binary mode:**
 ```bash
-phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --prompt "<relay-prompt>"
+phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --fast --prompt "<relay-prompt>"
 ```
 
 **Direct mode:**

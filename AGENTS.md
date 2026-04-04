@@ -24,6 +24,7 @@ src/
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
+  sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   backends/
     index.ts         Backend interface, registry, types, spawnCli() async subprocess utility
     claude.ts        Claude CLI subprocess backend (`claude -p`)
@@ -73,7 +74,8 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
@@ -192,6 +194,9 @@ phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra co
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
+phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
+phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a session
+phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -333,6 +338,38 @@ The `--quiet` flag runs a relay without interactive output and persists the resu
 - `--quiet` keeps the process alive until the job finishes (not truly detached). For detached execution, users can combine with `nohup` or `&`.
 - `job cancel` marks the job as cancelled in the store but cannot kill the subprocess (PID tracking is not yet implemented)
 
+## Structured output
+
+The `--schema` flag requests JSON output matching a JSON Schema from backends that support it.
+
+- Claude: native enforcement via `--output-format json --json-schema`
+- Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
+- Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
+- Ollama: `format: "json"` in HTTP body with schema injected into prompt (best-effort)
+- Streaming is disabled when `--schema` is active (structured output requires batch mode)
+
+## Session continuity
+
+The `--session <id>` flag enables relay session persistence and resumption across calls.
+
+- `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
+- Sessions are capped at 100, oldest by last-used are pruned on overflow
+- Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
+- Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
+- Ollama: stateless replay (full history prepended to each request)
+- Streaming is disabled when `--session` is active
+
+### Known limitations
+
+- **Codex resume + schema**: `codex exec resume` does not accept `--output-schema`. Schema is enforced on turn 1 only; subsequent turns rely on model conversation context to maintain the format, with no server-side validation.
+- **Gemini sessions**: session ID extraction from Gemini JSON output is best-effort (field names unverified against live CLI). Without a confirmed session ID, `--resume` is not used and each call starts a fresh conversation. Gemini cannot replay history like Ollama (CLI subprocess, not HTTP).
+- **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the diff inlined.
+- **Streaming + sessions**: `relayStream()` forwards session options to backends but does not implement session lifecycle (validation, history persistence). The CLI gates this combination off; only programmatic callers are affected.
+
+## Fast spawn
+
+The `--fast` flag maps to `--bare` for the Claude backend, skipping project context loading (CLAUDE.md, MCP servers, skills, hooks). No-op for other backends. Useful for self-contained tasks where project conventions and tools are not needed.
+
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, and background job tracking. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

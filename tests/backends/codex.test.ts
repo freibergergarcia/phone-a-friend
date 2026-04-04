@@ -395,16 +395,19 @@ describe('CodexBackend', () => {
       const args = codexCall![1] as string[];
       expect(args[0]).toBe('exec');
       expect(args[1]).toBe('review');
-      expect(args).toContain('-C');
-      expect(args).toContain('/tmp/repo');
+      // codex exec review does not accept -C or --sandbox; uses cwd instead
+      expect(args).not.toContain('-C');
+      expect(args).not.toContain('--sandbox');
       expect(args).toContain('--base');
       expect(args[args.indexOf('--base') + 1]).toBe('main');
-      expect(args).toContain('--sandbox');
-      expect(args).toContain('read-only');
       expect(args).toContain('--output-last-message');
+      expect(args).toContain('--skip-git-repo-check');
+      // cwd should be set to repoPath
+      const spawnOpts = codexCall![2] as Record<string, unknown>;
+      expect(spawnOpts.cwd).toBe('/tmp/repo');
     });
 
-    it('passes custom prompt as positional arg', async () => {
+    it('drops custom prompt when --base is present (mutually exclusive in codex exec review)', async () => {
       mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
         return '';
@@ -429,7 +432,9 @@ describe('CodexBackend', () => {
         (c: unknown[]) => c[0] === 'codex',
       );
       const args = codexCall![1] as string[];
-      expect(args[args.length - 1]).toBe('Focus on security issues');
+      // Prompt is dropped because --base and [PROMPT] are mutually exclusive
+      expect(args).not.toContain('Focus on security issues');
+      expect(args).toContain('--base');
     });
 
     it('passes -m when model is set', async () => {

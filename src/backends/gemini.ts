@@ -13,10 +13,12 @@
  */
 
 import {
+  type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  SpawnCliError,
   spawnCli,
   type Backend,
   type SandboxMode,
@@ -38,14 +40,7 @@ export class GeminiBackend implements Backend {
     'danger-full-access',
   ]);
 
-  async run(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): Promise<string> {
+  async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath('gemini')) {
       throw new GeminiBackendError(
         `gemini CLI not found in PATH. Install it: ${INSTALL_HINTS.gemini}`,
@@ -53,6 +48,10 @@ export class GeminiBackend implements Backend {
     }
 
     const args: string[] = [];
+    const useJsonOutput = Boolean(opts.schema);
+    const prompt = opts.schema
+      ? injectSchemaPrompt(opts.prompt, opts.schema)
+      : opts.prompt;
 
     // Sandbox is boolean: on for read-only/workspace-write, off for full access
     if (opts.sandbox !== 'danger-full-access') {
@@ -62,13 +61,17 @@ export class GeminiBackend implements Backend {
     // Auto-approve tool actions in headless mode (--sandbox constrains scope)
     args.push('--yolo');
     args.push('--include-directories', opts.repoPath);
-    args.push('--output-format', 'text');
+    args.push('--output-format', useJsonOutput ? 'json' : 'text');
+
+    if (opts.resumeSession && opts.sessionId) {
+      args.push('--resume', opts.sessionId);
+    }
 
     if (opts.model) {
       args.push('-m', opts.model);
     }
 
-    args.push('--prompt', opts.prompt);
+    args.push('--prompt', prompt);
 
     try {
       const result = await spawnCli('gemini', args, {
@@ -82,8 +85,24 @@ export class GeminiBackend implements Backend {
         throw new GeminiBackendError('gemini completed without producing output');
       }
 
+      if (useJsonOutput) {
+        maybeEmitGeminiSessionId(result.stdout, opts.onSessionCreated);
+        return extractGeminiResult(result.stdout);
+      }
+
       return result.stdout;
     } catch (err: unknown) {
+      if (err instanceof SpawnCliError && err.exitCode === 53) {
+        if (err.stdout) {
+          try {
+            maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
+            return useJsonOutput ? extractGeminiResult(err.stdout) : err.stdout;
+          } catch {
+            throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
+          }
+        }
+        throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
+      }
       if (err instanceof GeminiBackendError) throw err;
       if (err instanceof BackendError) {
         throw new GeminiBackendError(err.message);
@@ -91,6 +110,63 @@ export class GeminiBackend implements Backend {
       throw err;
     }
   }
+}
+
+function injectSchemaPrompt(prompt: string, schema: string): string {
+  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
+}
+
+function maybeEmitGeminiSessionId(
+  jsonOutput: string,
+  onSessionCreated?: (sessionId: string) => void,
+): void {
+  const sessionId = extractGeminiSessionId(jsonOutput);
+  if (sessionId && onSessionCreated) {
+    onSessionCreated(sessionId);
+  }
+}
+
+/**
+ * Best-effort session ID extraction from Gemini JSON output.
+ * The exact field name is unverified against live Gemini CLI output.
+ * If no session ID is found, session resume for Gemini will silently
+ * not work (new session each time). This is acceptable until the
+ * Gemini CLI's JSON output format is confirmed.
+ */
+function extractGeminiSessionId(jsonOutput: string): string | undefined {
+  try {
+    const result = JSON.parse(jsonOutput) as Record<string, unknown>;
+    if (typeof result.sessionId === 'string') return result.sessionId;
+    if (typeof result.session_id === 'string') return result.session_id;
+    const stats = result.stats;
+    if (stats && typeof stats === 'object') {
+      const statsRecord = stats as Record<string, unknown>;
+      if (typeof statsRecord.sessionId === 'string') return statsRecord.sessionId;
+      if (typeof statsRecord.session_id === 'string') return statsRecord.session_id;
+    }
+  } catch {
+    // Ignore parse failures; extractGeminiResult will surface them later if needed.
+  }
+  return undefined;
+}
+
+export function extractGeminiResult(jsonOutput: string): string {
+  let result: Record<string, unknown>;
+  try {
+    result = JSON.parse(jsonOutput) as Record<string, unknown>;
+  } catch (err) {
+    throw new GeminiBackendError(`gemini returned invalid JSON output: ${err}`);
+  }
+
+  if (result.error) {
+    throw new GeminiBackendError(String(result.error));
+  }
+
+  if (typeof result.response !== 'string') {
+    throw new GeminiBackendError('gemini JSON output did not include a response field');
+  }
+
+  return result.response;
 }
 
 export const GEMINI_BACKEND = new GeminiBackend();

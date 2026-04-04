@@ -301,6 +301,22 @@ describe('CLI', () => {
     expect(opts.includeDiff).toBe(true);
   });
 
+  it('passes schema, session, and fast flags through to relay', async () => {
+    await run([
+      'relay',
+      '--prompt', 'Review latest changes',
+      '--repo', tmpDir,
+      '--schema', '{"type":"object"}',
+      '--session', 'codex-review',
+      '--fast',
+    ]);
+
+    const opts = mockRelay.mock.calls[0][0];
+    expect(opts.schema).toBe('{"type":"object"}');
+    expect(opts.session).toBe('codex-review');
+    expect(opts.fast).toBe(true);
+  });
+
   it('relay with --context-file passes contextFile', async () => {
     const contextPath = path.join(tmpDir, 'ctx.md');
     fs.writeFileSync(contextPath, 'context content');

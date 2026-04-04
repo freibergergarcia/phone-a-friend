@@ -230,6 +230,11 @@ command:
 - `WORKERS` = list of teammate names (if team created)
 - `OLLAMA_SELECTED_MODEL` = string (set during Step 2 preflight if Ollama
   is a requested backend; used in all Ollama relay calls)
+- `SESSION_IDS` = map of backend name to session ID (binary mode only).
+  Generated as `paf-team-<backend>-<task-slug>-<4-char-random>` (e.g.,
+  `paf-team-codex-review-auth-b7e1`). The random suffix prevents
+  collisions across runs and repos. One session ID per backend. Used in
+  all relay calls so the backend remembers previous rounds.
 
 ### Algorithm
 
@@ -269,7 +274,7 @@ command:
 
    phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
      [--context-text "<context>"] [--include-diff] [--sandbox <mode>] \
-     [--model <model>]
+     [--model <model>] --fast --session <SESSION_ID>
 
    After the relay completes, send the FULL unedited output to the team
    lead via SendMessage. Include:
@@ -384,8 +389,13 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>] --fast --session <SESSION_ID>
   ```
+
+  Always include `--fast` (relay prompts are self-contained) and
+  `--session` using the backend-specific ID from `SESSION_IDS`. The session
+  lets the backend remember previous rounds, so follow-up prompts can focus
+  on feedback deltas rather than re-sending full context.
 
   **Direct mode** (`RELAY_MODE = direct`):
   ```bash
@@ -398,6 +408,9 @@ Delegate the task to the backend via the relay. The lead's job is to
     -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \
     | jq -r '.message.content'
   ```
+
+  Note: `--fast` and `--session` are not available in direct mode. Direct
+  mode relay calls are always stateless (each round starts fresh).
 
   In direct mode, build `<combined-prompt>` using the template from the
   "Direct call reference" section. If `--include-diff` is used, run
@@ -497,14 +510,27 @@ codebase. Read at most 2-3 files for preflight context. The backend has
 `--repo` access and can read files itself. The lead's job is to orchestrate,
 not to become an expert on the codebase before delegating.
 
-**Per-round relay rules**:
+**Per-round relay rules (binary mode with `--session`)**:
+When `--session` is active, session-capable backends (Claude, Codex)
+remember previous rounds natively. Each relay call only needs to send:
+  - The specific feedback or revision request for this round
+  - Any new context (e.g., updated diff after changes)
+Do NOT re-send the full task description, prior outputs, or summaries.
+The backend already has them in its session history.
+
+**Exception: Gemini and Ollama with `--session`**: Gemini may not resume
+natively (best-effort). Ollama replays full history each call (prompt size
+grows per turn). For these backends, always include enough context for the
+backend to answer independently, even in follow-up rounds. Include a brief
+task recap + the latest output alongside the feedback.
+
+**Per-round relay rules (direct mode, no session)**:
 - Each relay call sends ONLY:
   - The original TASK_DESCRIPTION
   - The latest output or delta from the previous round
   - A 2-3 sentence summary of prior rounds (if referencing them)
 - Do NOT send the full conversation history or all prior round outputs.
-- Do NOT accumulate context across rounds. Each round starts fresh with
-  task + latest state + brief summary.
+- Each round starts fresh with task + latest state + brief summary.
 
 ## Step 6 — Sandbox Policy
 

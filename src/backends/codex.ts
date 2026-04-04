@@ -4,14 +4,16 @@
  * Ported from phone_a_friend/backends/codex.py
  */
 
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  SpawnCliError,
   spawnCli,
   type Backend,
   type ReviewOptions,
@@ -34,14 +36,7 @@ export class CodexBackend implements Backend {
     'danger-full-access',
   ]);
 
-  async run(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): Promise<string> {
+  async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath('codex')) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`,
@@ -50,24 +45,24 @@ export class CodexBackend implements Backend {
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'phone-a-friend-'));
     const outputPath = join(tmpDir, 'codex-last-message.txt');
+    const schemaPath = opts.schema ? join(tmpDir, 'codex-output-schema.json') : null;
 
     try {
-      const args = [
-        'exec',
-        '-C',
-        opts.repoPath,
-        '--skip-git-repo-check',
-        '--sandbox',
-        opts.sandbox,
-        '--output-last-message',
+      const args = buildCodexExecArgs({
+        prompt: opts.prompt,
+        repoPath: opts.repoPath,
+        sandbox: opts.sandbox,
+        model: opts.model,
         outputPath,
-      ];
+        schemaPath,
+        persistSession: opts.persistSession ?? false,
+        sessionId: opts.sessionId ?? null,
+        resumeSession: opts.resumeSession ?? false,
+      });
 
-      if (opts.model) {
-        args.push('-m', opts.model);
+      if (schemaPath) {
+        writeSchemaFile(schemaPath, opts.schema ?? '');
       }
-
-      args.push(opts.prompt);
 
       let stdout = '';
       try {
@@ -77,7 +72,12 @@ export class CodexBackend implements Backend {
           label: 'codex exec',
         });
         stdout = result.stdout;
+        maybeEmitSessionId(stdout, opts.onSessionCreated);
       } catch (err: unknown) {
+        if (err instanceof SpawnCliError) {
+          maybeEmitSessionId(err.stdout, opts.onSessionCreated);
+        }
+
         // On failure, check if codex wrote a useful last-message before dying
         const lastMessage = readOutputFile(outputPath);
         if (lastMessage) return lastMessage;
@@ -121,24 +121,25 @@ export class CodexBackend implements Backend {
     const outputPath = join(tmpDir, 'codex-last-message.txt');
 
     try {
+      // codex exec review does not accept -C or --sandbox; use cwd instead
       const args = [
         'exec',
         'review',
-        '-C',
-        opts.repoPath,
         '--base',
         opts.base,
-        '--sandbox',
-        opts.sandbox,
         '--output-last-message',
         outputPath,
+        '--skip-git-repo-check',
       ];
 
       if (opts.model) {
         args.push('-m', opts.model);
       }
 
-      if (opts.prompt) {
+      // codex exec review: --base and positional [PROMPT] are mutually exclusive.
+      // When --base is used, omit the custom prompt (review uses the diff as context).
+      // Custom prompts with --base fall through to the generic run() path in relay.ts.
+      if (opts.prompt && !opts.base) {
         args.push(opts.prompt);
       }
 
@@ -147,6 +148,7 @@ export class CodexBackend implements Backend {
         const result = await spawnCli('codex', args, {
           timeoutMs: opts.timeoutSeconds * 1000,
           env: opts.env,
+          cwd: opts.repoPath,
           label: 'codex exec review',
         });
         stdout = result.stdout;
@@ -179,6 +181,110 @@ export class CodexBackend implements Backend {
       }
     }
   }
+}
+
+interface CodexExecArgsOptions {
+  prompt: string;
+  repoPath: string;
+  sandbox: SandboxMode;
+  model: string | null;
+  outputPath: string;
+  schemaPath: string | null;
+  persistSession: boolean;
+  sessionId: string | null;
+  resumeSession: boolean;
+}
+
+interface CodexMetadata {
+  threadId?: string;
+  usage?: {
+    input_tokens: number;
+    cached_input_tokens: number;
+    output_tokens: number;
+  };
+  failed?: boolean;
+}
+
+function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
+  const isResume = opts.resumeSession && opts.sessionId;
+  const args = isResume
+    ? ['exec', 'resume', opts.sessionId!]
+    : ['exec'];
+
+  // codex exec resume only accepts: --skip-git-repo-check, --ephemeral, --json, -o, -m
+  // Full exec accepts: -C, --sandbox, --output-last-message, and all the above
+  if (isResume) {
+    args.push('-o', opts.outputPath);
+  } else {
+    args.push(
+      '-C',
+      opts.repoPath,
+      '--sandbox',
+      opts.sandbox,
+      '--output-last-message',
+      opts.outputPath,
+    );
+  }
+
+  args.push('--skip-git-repo-check');
+
+  if (!isResume && !opts.persistSession) {
+    args.push('--ephemeral');
+  }
+
+  // exec resume does not accept --output-schema; only --json is allowed
+  if (opts.schemaPath && !isResume) {
+    args.push('--output-schema', opts.schemaPath, '--json');
+  } else if (opts.persistSession || isResume) {
+    args.push('--json');
+  }
+
+  if (opts.model) {
+    args.push('-m', opts.model);
+  }
+
+  args.push(opts.prompt);
+  return args;
+}
+
+function writeSchemaFile(schemaPath: string, schema: string): void {
+  try {
+    writeFileSync(schemaPath, schema, 'utf-8');
+  } catch (err) {
+    throw new CodexBackendError(`Failed writing Codex schema file: ${err}`);
+  }
+}
+
+function maybeEmitSessionId(
+  jsonlOutput: string,
+  onSessionCreated?: (sessionId: string) => void,
+): void {
+  const threadId = parseCodexMetadata(jsonlOutput).threadId;
+  if (threadId && onSessionCreated) {
+    onSessionCreated(threadId);
+  }
+}
+
+export function parseCodexMetadata(jsonlOutput: string): CodexMetadata {
+  const meta: CodexMetadata = {};
+  for (const line of jsonlOutput.trim().split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === 'thread.started' && typeof event.thread_id === 'string') {
+        meta.threadId = event.thread_id;
+      }
+      if (event.type === 'turn.completed' && typeof event.usage === 'object' && event.usage !== null) {
+        meta.usage = event.usage as CodexMetadata['usage'];
+      }
+      if (event.type === 'turn.failed') {
+        meta.failed = true;
+      }
+    } catch {
+      // Ignore malformed JSONL lines from mixed stdout.
+    }
+  }
+  return meta;
 }
 
 function readOutputFile(outputPath: string): string {

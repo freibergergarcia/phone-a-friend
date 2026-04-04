@@ -214,6 +214,60 @@ describe('ClaudeBackend', () => {
     expect(args[modelIdx + 1]).toBe('opus');
   });
 
+  it('passes --json-schema and json output format when schema is provided', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('{"ok":true}', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('--output-format');
+    expect(args[args.indexOf('--output-format') + 1]).toBe('json');
+    expect(args).toContain('--json-schema');
+    expect(args[args.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
+  });
+
+  it('passes --bare when fast mode is enabled', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({ fast: true }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('--bare');
+  });
+
+  it('starts a persisted session with --session-id and without --no-session-persistence', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({
+      sessionId: 'uuid-1',
+      persistSession: true,
+    }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('--session-id');
+    expect(args[args.indexOf('--session-id') + 1]).toBe('uuid-1');
+    expect(args).not.toContain('--no-session-persistence');
+  });
+
+  it('resumes a persisted session with -r', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({
+      sessionId: 'uuid-1',
+      persistSession: true,
+      resumeSession: true,
+    }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain('-r');
+    expect(args[args.indexOf('-r') + 1]).toBe('uuid-1');
+    expect(args).not.toContain('--add-dir');
+  });
+
   it('does not pass --model when model is null', async () => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
     mockSpawn.mockReturnValue(mockChildProcess('ok', 0));

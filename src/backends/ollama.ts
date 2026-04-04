@@ -8,6 +8,7 @@
  */
 
 import {
+  type BackendRunOptions,
   BackendError,
   registerBackend,
   type Backend,
@@ -33,22 +34,20 @@ export class OllamaBackend implements Backend {
     'danger-full-access',
   ]);
 
-  async run(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): Promise<string> {
+  async run(opts: BackendRunOptions): Promise<string> {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, '');
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? undefined;
+    const prompt = opts.schema
+      ? injectSchemaPrompt(opts.prompt, opts.schema)
+      : opts.prompt;
+    const history = opts.sessionHistory ?? [];
 
     const body: Record<string, unknown> = {
-      messages: [{ role: 'user', content: opts.prompt }],
+      messages: [...history, { role: 'user', content: prompt }],
       stream: false,
     };
     if (model) body.model = model;
+    if (opts.schema) body.format = 'json';
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
@@ -104,22 +103,20 @@ export class OllamaBackend implements Backend {
     return content;
   }
 
-  async *runStream(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): AsyncGenerator<string> {
+  async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, '');
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? undefined;
+    const prompt = opts.schema
+      ? injectSchemaPrompt(opts.prompt, opts.schema)
+      : opts.prompt;
+    const history = opts.sessionHistory ?? [];
 
     const body: Record<string, unknown> = {
-      messages: [{ role: 'user', content: opts.prompt }],
+      messages: [...history, { role: 'user', content: prompt }],
       stream: true,
     };
     if (model) body.model = model;
+    if (opts.schema) body.format = 'json';
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
@@ -208,6 +205,10 @@ export class OllamaBackend implements Backend {
     const detail = originalErr instanceof Error ? originalErr.message : String(originalErr);
     throw new OllamaBackendError(`Ollama request failed: ${detail}`);
   }
+}
+
+function injectSchemaPrompt(prompt: string, schema: string): string {
+  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
 }
 
 export const OLLAMA_BACKEND = new OllamaBackend();

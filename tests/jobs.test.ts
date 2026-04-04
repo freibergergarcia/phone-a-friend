@@ -62,11 +62,44 @@ describe('JobManager', () => {
     expect(manager.get(job.id)?.pid).toBe(12345);
   });
 
+  it('tracks progress on update', () => {
+    const job = manager.create({ backend: 'codex', prompt: 'a', repoPath: '/tmp' });
+    manager.update(job.id, { status: 'running', progress: 'Turn 2' });
+    expect(manager.get(job.id)?.progress).toBe('Turn 2');
+  });
+
   it('cancels a running job', () => {
     const job = manager.create({ backend: 'codex', prompt: 'a', repoPath: '/tmp' });
     manager.update(job.id, { status: 'running', pid: 12345 });
     manager.update(job.id, { status: 'cancelled' });
     expect(manager.get(job.id)?.status).toBe('cancelled');
+  });
+
+  it('does not overwrite cancelled with completed', () => {
+    const job = manager.create({ backend: 'codex', prompt: 'a', repoPath: '/tmp' });
+    manager.update(job.id, { status: 'cancelled' });
+    const cancelled = manager.get(job.id);
+    manager.update(job.id, { status: 'completed', result: 'done', progress: 'ignored', pid: 12345 });
+    const updated = manager.get(job.id);
+    expect(updated?.status).toBe('cancelled');
+    expect(updated?.result).toBeUndefined();
+    expect(updated?.progress).toBeUndefined();
+    expect(updated?.pid).toBeUndefined();
+    expect(updated?.updatedAt).toBe(cancelled?.updatedAt);
+  });
+
+  it('does not overwrite failed with completed', () => {
+    const job = manager.create({ backend: 'codex', prompt: 'a', repoPath: '/tmp' });
+    manager.update(job.id, { status: 'failed', error: 'boom' });
+    const failed = manager.get(job.id);
+    manager.update(job.id, { status: 'running', result: 'done', progress: 'ignored', pid: 12345 });
+    const updated = manager.get(job.id);
+    expect(updated?.status).toBe('failed');
+    expect(updated?.error).toBe('boom');
+    expect(updated?.result).toBeUndefined();
+    expect(updated?.progress).toBeUndefined();
+    expect(updated?.pid).toBeUndefined();
+    expect(updated?.updatedAt).toBe(failed?.updatedAt);
   });
 
   it('prunes old completed jobs beyond max limit', () => {

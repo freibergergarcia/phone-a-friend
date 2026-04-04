@@ -12,7 +12,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawn: mockSpawn };
 });
 
-import { spawnCli, BackendError } from '../../src/backends/index.js';
+import { spawnCli, BackendError, SpawnCliError } from '../../src/backends/index.js';
 
 function fakeChild(exitCode = 0, stdout = '', stderr = '') {
   const child = new EventEmitter() as ChildProcess;
@@ -59,17 +59,23 @@ describe('spawnCli()', () => {
     expect(result.stderr).toBe('warn');
   });
 
-  it('rejects with BackendError on non-zero exit code', async () => {
+  it('rejects with SpawnCliError on non-zero exit code and preserves stdout/stderr', async () => {
     mockSpawn.mockReturnValue(fakeChild(1, '', 'bad input'));
     const err = await spawnCli('bad', [], { timeoutMs: 5000 }).catch((e) => e);
-    expect(err).toBeInstanceOf(BackendError);
+    expect(err).toBeInstanceOf(SpawnCliError);
     expect(err.message).toBe('bad input');
+    expect(err.stdout).toBe('');
+    expect(err.stderr).toBe('bad input');
+    expect(err.exitCode).toBe(1);
   });
 
   it('uses stdout as error detail when stderr is empty', async () => {
     mockSpawn.mockReturnValue(fakeChild(1, 'stdout error', ''));
-    await expect(spawnCli('bad', [], { timeoutMs: 5000 }))
-      .rejects.toThrow('stdout error');
+    const err = await spawnCli('bad', [], { timeoutMs: 5000 }).catch((e) => e);
+    expect(err).toBeInstanceOf(SpawnCliError);
+    expect(err.message).toBe('stdout error');
+    expect(err.stdout).toBe('stdout error');
+    expect(err.stderr).toBe('');
   });
 
   it('rejects on timeout with descriptive message', async () => {

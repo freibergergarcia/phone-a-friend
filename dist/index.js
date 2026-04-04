@@ -110,14 +110,14 @@ function spawnCli(command, args, opts) {
       }
       if (code !== 0 && code !== null) {
         const detail = stderr || stdout || `${label} exited with code ${code}`;
-        reject(new BackendError(detail));
+        reject(new SpawnCliError(detail, stdout, stderr, code));
         return;
       }
       resolve5({ stdout, stderr, exitCode: code ?? 0 });
     });
   });
 }
-var BackendError, INSTALL_HINTS, registry;
+var BackendError, SpawnCliError, INSTALL_HINTS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -125,6 +125,18 @@ var init_backends = __esm({
       constructor(message) {
         super(message);
         this.name = "BackendError";
+      }
+    };
+    SpawnCliError = class extends BackendError {
+      stdout;
+      stderr;
+      exitCode;
+      constructor(message, stdout, stderr, exitCode) {
+        super(message);
+        this.name = "SpawnCliError";
+        this.stdout = stdout;
+        this.stderr = stderr;
+        this.exitCode = exitCode;
       }
     };
     INSTALL_HINTS = {
@@ -4592,7 +4604,7 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync2, writeFileSync, existsSync as existsSync2, mkdirSync } from "fs";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync } from "fs";
 import { dirname, join as join2 } from "path";
 import { homedir } from "os";
 import { randomUUID } from "crypto";
@@ -4620,7 +4632,7 @@ var init_jobs = __esm({
       }
       save(jobs) {
         mkdirSync(dirname(this.filePath), { recursive: true });
-        writeFileSync(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
+        writeFileSync2(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
         const jobs = this.load();
@@ -4657,9 +4669,87 @@ var init_jobs = __esm({
         const jobs = this.load();
         const job = jobs.find((j) => j.id === id);
         if (!job) return null;
+        if (job.status === "cancelled" || job.status === "failed") {
+          return job;
+        }
         Object.assign(job, patch, { updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
         this.save(jobs);
         return job;
+      }
+    };
+  }
+});
+
+// src/sessions.ts
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
+import { dirname as dirname2, join as join3 } from "path";
+import { homedir as homedir2 } from "os";
+var MAX_SESSIONS, SessionStore;
+var init_sessions = __esm({
+  "src/sessions.ts"() {
+    "use strict";
+    MAX_SESSIONS = 100;
+    SessionStore = class {
+      filePath;
+      constructor(filePath) {
+        this.filePath = filePath ?? join3(
+          process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config"),
+          "phone-a-friend",
+          "sessions.json"
+        );
+      }
+      load() {
+        if (!existsSync3(this.filePath)) return [];
+        try {
+          return JSON.parse(readFileSync3(this.filePath, "utf-8"));
+        } catch {
+          return [];
+        }
+      }
+      save(sessions) {
+        mkdirSync2(dirname2(this.filePath), { recursive: true });
+        writeFileSync3(this.filePath, JSON.stringify(sessions, null, 2), "utf-8");
+      }
+      get(id) {
+        return this.load().find((session) => session.id === id) ?? null;
+      }
+      list() {
+        return this.load();
+      }
+      upsert(opts) {
+        const sessions = this.load();
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const existing = sessions.find((session2) => session2.id === opts.id);
+        if (existing) {
+          existing.backend = opts.backend;
+          existing.repoPath = opts.repoPath;
+          if (opts.backendSessionId) {
+            existing.backendSessionId = opts.backendSessionId;
+          }
+          if (opts.historyAppend?.length) {
+            existing.history.push(...opts.historyAppend);
+          }
+          existing.lastUsedAt = now;
+          this.save(sessions);
+          return existing;
+        }
+        const session = {
+          id: opts.id,
+          backend: opts.backend,
+          backendSessionId: opts.backendSessionId,
+          repoPath: opts.repoPath,
+          history: [...opts.historyAppend ?? []],
+          createdAt: now,
+          lastUsedAt: now
+        };
+        sessions.push(session);
+        if (sessions.length > MAX_SESSIONS) {
+          const sorted = [...sessions].sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt));
+          this.save(sorted.slice(sorted.length - MAX_SESSIONS));
+          return session;
+        }
+        this.save(sessions);
+        return session;
       }
     };
   }
@@ -4684,7 +4774,8 @@ __export(relay_exports, {
   reviewRelay: () => reviewRelay
 });
 import { execFileSync as execFileSync2 } from "child_process";
-import { readFileSync as readFileSync3, existsSync as existsSync3, statSync } from "fs";
+import { randomUUID as randomUUID2 } from "crypto";
+import { readFileSync as readFileSync4, existsSync as existsSync4, statSync } from "fs";
 import { resolve } from "path";
 function sizeBytes(text) {
   return Buffer.byteLength(text, "utf-8");
@@ -4698,7 +4789,7 @@ function ensureSizeLimit(label, text, maxBytes) {
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
   const resolved = resolve(contextFile);
-  if (!existsSync3(resolved)) {
+  if (!existsSync4(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
   }
   const stat = statSync(resolved);
@@ -4706,7 +4797,7 @@ function readContextFile(contextFile) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync3(resolved, "utf-8").trim();
+    const contents = readFileSync4(resolved, "utf-8").trim();
     ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
     return contents;
   } catch (err) {
@@ -4821,7 +4912,10 @@ function prepareRelay(opts) {
     includeDiff = false,
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
-    sandbox = DEFAULT_SANDBOX
+    sandbox = DEFAULT_SANDBOX,
+    schema = null,
+    session = null,
+    fast = false
   } = opts;
   if (!prompt.trim()) {
     throw new RelayError("Prompt is required");
@@ -4830,7 +4924,7 @@ function prepareRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync3(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync4(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -4856,19 +4950,85 @@ function prepareRelay(opts) {
   });
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   const env3 = nextRelayEnv();
-  return { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model };
+  return {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env: env3,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore: opts.sessionStore
+  };
 }
 async function relay(opts) {
-  const { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model } = prepareRelay(opts);
+  const {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env: env3,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore
+  } = prepareRelay(opts);
   try {
-    return await selectedBackend.run({
+    const store = session ? sessionStore ?? new SessionStore() : null;
+    const storedSession = session ? store?.get(session) ?? null : null;
+    if (storedSession && storedSession.backend !== selectedBackend.name) {
+      throw new RelayError(
+        `Session ${session} belongs to backend ${storedSession.backend}, not ${selectedBackend.name}`
+      );
+    }
+    if (storedSession && storedSession.repoPath !== resolvedRepo) {
+      throw new RelayError(
+        `Session ${session} belongs to a different repository: ${storedSession.repoPath}`
+      );
+    }
+    let backendSessionId = storedSession?.backendSessionId ?? null;
+    if (session && !storedSession && selectedBackend.name === "claude") {
+      backendSessionId = randomUUID2();
+    }
+    const requiresNativeSession = selectedBackend.name === "claude" || selectedBackend.name === "codex";
+    if (session && storedSession && !backendSessionId && requiresNativeSession) {
+      throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
+    }
+    let createdSessionId = backendSessionId;
+    const result = await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,
       sandbox,
       model,
-      env: env3
+      env: env3,
+      schema,
+      sessionId: backendSessionId,
+      persistSession: Boolean(session),
+      resumeSession: Boolean(session && storedSession),
+      fast,
+      sessionHistory: storedSession?.history ?? [],
+      onSessionCreated: (newSessionId) => {
+        createdSessionId = newSessionId;
+      }
     });
+    if (session && store) {
+      persistRelaySession(
+        store,
+        session,
+        selectedBackend,
+        resolvedRepo,
+        fullPrompt,
+        result,
+        createdSessionId
+      );
+    }
+    return result;
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
@@ -4877,9 +5037,48 @@ async function relay(opts) {
     throw err;
   }
 }
+function persistRelaySession(store, id, backend, repoPath, prompt, output, backendSessionId) {
+  store.upsert({
+    id,
+    backend: backend.name,
+    repoPath,
+    backendSessionId: backendSessionId ?? void 0,
+    historyAppend: [
+      { role: "user", content: prompt },
+      { role: "assistant", content: output }
+    ]
+  });
+}
 async function* relayStream(opts) {
-  const { selectedBackend, fullPrompt, resolvedRepo, env: env3, timeoutSeconds, sandbox, model } = prepareRelay(opts);
-  const runOpts = { prompt: fullPrompt, repoPath: resolvedRepo, timeoutSeconds, sandbox, model, env: env3 };
+  const {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env: env3,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore
+  } = prepareRelay(opts);
+  const store = session ? sessionStore ?? new SessionStore() : null;
+  const storedSession = session ? store?.get(session) ?? null : null;
+  const runOpts = {
+    prompt: fullPrompt,
+    repoPath: resolvedRepo,
+    timeoutSeconds,
+    sandbox,
+    model,
+    env: env3,
+    schema,
+    fast,
+    sessionId: storedSession?.backendSessionId ?? null,
+    persistSession: Boolean(session),
+    resumeSession: Boolean(session && storedSession),
+    sessionHistory: storedSession?.history ?? []
+  };
   try {
     if (typeof selectedBackend.runStream === "function") {
       yield* selectedBackend.runStream(runOpts);
@@ -4901,13 +5100,15 @@ async function reviewRelay(opts) {
     prompt,
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
-    sandbox = DEFAULT_SANDBOX
+    sandbox = DEFAULT_SANDBOX,
+    schema = null,
+    fast = false
   } = opts;
   if (timeoutSeconds <= 0) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync3(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync4(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -4924,7 +5125,7 @@ async function reviewRelay(opts) {
   }
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env3 = nextRelayEnv();
-  if (typeof selectedBackend.review === "function") {
+  if (typeof selectedBackend.review === "function" && !prompt) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -4959,7 +5160,9 @@ async function reviewRelay(opts) {
       timeoutSeconds,
       sandbox,
       model,
-      env: env3
+      env: env3,
+      schema,
+      fast
     });
   } catch (err) {
     if (err instanceof RelayError) throw err;
@@ -4981,8 +5184,10 @@ function relayBackground(opts) {
   manager.update(job.id, { status: "running" });
   const promise = relay(opts).then((result) => {
     manager.update(job.id, { status: "completed", result });
+    return result;
   }).catch((err) => {
     manager.update(job.id, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+    throw err;
   });
   return { job, promise };
 }
@@ -4992,6 +5197,7 @@ var init_relay = __esm({
     "use strict";
     init_backends();
     init_jobs();
+    init_sessions();
     DEFAULT_TIMEOUT_SECONDS = 600;
     DEFAULT_BACKEND = "codex";
     DEFAULT_SANDBOX = "read-only";
@@ -5009,17 +5215,17 @@ var init_relay = __esm({
 });
 
 // src/version.ts
-import { readFileSync as readFileSync4 } from "fs";
-import { resolve as resolve2, dirname as dirname2 } from "path";
+import { readFileSync as readFileSync5 } from "fs";
+import { resolve as resolve2, dirname as dirname3 } from "path";
 import { fileURLToPath } from "url";
 function getPackageRoot() {
-  const thisDir = dirname2(fileURLToPath(import.meta.url));
+  const thisDir = dirname3(fileURLToPath(import.meta.url));
   return resolve2(thisDir, "..");
 }
 function getVersion() {
   const pkgPath = resolve2(getPackageRoot(), "package.json");
   try {
-    const pkg = JSON.parse(readFileSync4(pkgPath, "utf-8"));
+    const pkg = JSON.parse(readFileSync5(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
@@ -5034,20 +5240,20 @@ var init_version = __esm({
 // src/installer.ts
 import { execFileSync as execFileSync3 } from "child_process";
 import {
-  existsSync as existsSync4,
+  existsSync as existsSync5,
   lstatSync,
-  mkdirSync as mkdirSync2,
-  readFileSync as readFileSync5,
+  mkdirSync as mkdirSync3,
+  readFileSync as readFileSync6,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync
 } from "fs";
-import { resolve as resolve3, join as join3, dirname as dirname3 } from "path";
-import { homedir as homedir2 } from "os";
+import { resolve as resolve3, join as join4, dirname as dirname4 } from "path";
+import { homedir as homedir3 } from "os";
 function ensureParent(filePath) {
-  mkdirSync2(dirname3(filePath), { recursive: true });
+  mkdirSync3(dirname4(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -5064,7 +5270,7 @@ function removePath(filePath) {
   }
 }
 function installPath(src, dst, mode, force) {
-  const dstExists = existsSync4(dst) || isSymlink(dst);
+  const dstExists = existsSync5(dst) || isSymlink(dst);
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
@@ -5209,21 +5415,21 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join3(homedir2(), ".claude");
-  return join3(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join4(homedir3(), ".claude");
+  return join4(base, "plugins", PLUGIN_NAME);
 }
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
     const resolved = realpathSync(target);
-    if (existsSync4(resolved)) return true;
+    if (existsSync5(resolved)) return true;
   } catch {
   }
-  if (existsSync4(target)) return true;
-  const home = claudeHome ?? join3(homedir2(), ".claude");
-  const cacheBase = join3(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  if (existsSync5(target)) return true;
+  const home = claudeHome ?? join4(homedir3(), ".claude");
+  const cacheBase = join4(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
-    return existsSync4(cacheBase);
+    return existsSync5(cacheBase);
   } catch {
     return false;
   }
@@ -5234,7 +5440,7 @@ function installClaude(repoRoot, mode, force, claudeHome) {
   return { status, targetPath: target };
 }
 function uninstallPath(filePath) {
-  if (existsSync4(filePath) || isSymlink(filePath)) {
+  if (existsSync5(filePath) || isSymlink(filePath)) {
     removePath(filePath);
     return "removed";
   }
@@ -5245,13 +5451,13 @@ function uninstallClaude(claudeHome) {
   return { status: uninstallPath(target), targetPath: target };
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync4(join3(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync5(join4(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join3(homedir2(), ".claude");
-  const registryPath = join3(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join4(homedir3(), ".claude");
+  const registryPath = join4(home, "plugins", "known_marketplaces.json");
   try {
-    const data = JSON.parse(readFileSync5(registryPath, "utf-8"));
+    const data = JSON.parse(readFileSync6(registryPath, "utf-8"));
     const entry = data[marketplaceName];
     if (!entry?.source?.source) return null;
     const sourceType = entry.source.source;
@@ -16607,10 +16813,10 @@ var init_RemoveFileError = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn2, spawnSync } from "child_process";
-import { readFileSync as readFileSync6, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
+import { readFileSync as readFileSync7, unlinkSync as unlinkSync2, writeFileSync as writeFileSync4 } from "fs";
 import path from "path";
 import os2 from "os";
-import { randomUUID as randomUUID2 } from "crypto";
+import { randomUUID as randomUUID3 } from "crypto";
 function editAsync(text = "", callback, fileOptions) {
   const editor = new ExternalEditor(text, fileOptions);
   editor.runAsync((err, result) => {
@@ -16711,7 +16917,7 @@ var init_dist7 = __esm({
       createTemporaryFile() {
         try {
           const baseDir = this.fileOptions.dir ?? os2.tmpdir();
-          const id = randomUUID2();
+          const id = randomUUID3();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
           const filename = `${prefix}${id}${postfix}`;
@@ -16725,14 +16931,14 @@ var init_dist7 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync2(this.tempFile, this.text, opt);
+          writeFileSync4(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync6(this.tempFile);
+          const tempFileBuffer = readFileSync7(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -18782,14 +18988,14 @@ var init_dist18 = __esm({
 });
 
 // src/config.ts
-import { readFileSync as readFileSync7, writeFileSync as writeFileSync3, existsSync as existsSync5, mkdirSync as mkdirSync3 } from "fs";
-import { homedir as homedir3 } from "os";
-import { join as join4, dirname as dirname4 } from "path";
+import { readFileSync as readFileSync8, writeFileSync as writeFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync4 } from "fs";
+import { homedir as homedir4 } from "os";
+import { join as join5, dirname as dirname5 } from "path";
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join4(homeDir ?? homedir3(), ".config");
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join5(homeDir ?? homedir4(), ".config");
   return {
-    user: join4(configBase, "phone-a-friend", "config.toml"),
-    repo: repoRoot ? join4(repoRoot, ".phone-a-friend.toml") : null
+    user: join5(configBase, "phone-a-friend", "config.toml"),
+    repo: repoRoot ? join5(repoRoot, ".phone-a-friend.toml") : null
   };
 }
 function deepMerge2(target, source) {
@@ -18806,11 +19012,11 @@ function deepMerge2(target, source) {
   return result;
 }
 function loadConfigFromFile(filePath) {
-  if (!existsSync5(filePath)) {
+  if (!existsSync6(filePath)) {
     return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   }
   try {
-    const content = readFileSync7(filePath, "utf-8");
+    const content = readFileSync8(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge2(
       { defaults: { ...DEFAULT_CONFIG.defaults } },
@@ -18825,19 +19031,19 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
   let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   config = loadConfigFromFile(paths.user);
-  if (paths.repo && existsSync5(paths.repo)) {
-    const repoConfig = parse(readFileSync7(paths.repo, "utf-8"));
+  if (paths.repo && existsSync6(paths.repo)) {
+    const repoConfig = parse(readFileSync8(paths.repo, "utf-8"));
     config = deepMerge2(config, repoConfig);
   }
   return config;
 }
 function saveConfig(cfg, filePath) {
-  mkdirSync3(dirname4(filePath), { recursive: true });
+  mkdirSync4(dirname5(filePath), { recursive: true });
   const content = stringify(cfg);
-  writeFileSync3(filePath, content, "utf-8");
+  writeFileSync5(filePath, content, "utf-8");
 }
 function configInit(filePath, force = false) {
-  if (!force && existsSync5(filePath)) {
+  if (!force && existsSync6(filePath)) {
     throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
   }
   saveConfig(DEFAULT_CONFIG, filePath);
@@ -18855,8 +19061,8 @@ function configGet(key, cfg) {
 }
 function configSet(key, rawValue, filePath) {
   let cfg;
-  if (existsSync5(filePath)) {
-    const content = readFileSync7(filePath, "utf-8");
+  if (existsSync6(filePath)) {
+    const content = readFileSync8(filePath, "utf-8");
     cfg = parse(content);
   } else {
     cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
@@ -72759,7 +72965,7 @@ var init_ListSelect = __esm({
 });
 
 // src/tui/BackendsPanel.tsx
-import { existsSync as existsSync7 } from "fs";
+import { existsSync as existsSync8 } from "fs";
 function badgeStatus(b) {
   if (b.planned) return "planned";
   if (b.available) return "available";
@@ -72885,7 +73091,7 @@ function BackendsPanel({ report, onEditingChange }) {
     try {
       const paths = configPaths();
       const userPath = paths.user;
-      if (!existsSync7(userPath)) {
+      if (!existsSync8(userPath)) {
         configInit(userPath, true);
       }
       configSet(`backends.${backendName}.model`, modelName, userPath);
@@ -72977,7 +73183,7 @@ var init_BackendsPanel = __esm({
 });
 
 // src/tui/ConfigPanel.tsx
-import { existsSync as existsSync8 } from "fs";
+import { existsSync as existsSync9 } from "fs";
 function buildRows(config) {
   const rows = [];
   const backendOptions = Object.keys(INSTALL_HINTS).sort();
@@ -73014,7 +73220,7 @@ function ConfigPanel({ onEditingChange } = {}) {
   const save = (0, import_react31.useCallback)((dotKey, value) => {
     try {
       const userPath = paths.user;
-      if (!existsSync8(userPath)) {
+      if (!existsSync9(userPath)) {
         configInit(userPath, true);
       }
       configSet(dotKey, value, userPath);
@@ -73163,8 +73369,8 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn as spawn3 } from "child_process";
-import { mkdirSync as mkdirSync4, existsSync as existsSync9 } from "fs";
-import { dirname as dirname5 } from "path";
+import { mkdirSync as mkdirSync5, existsSync as existsSync10 } from "fs";
+import { dirname as dirname6 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
     {
@@ -73238,8 +73444,8 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        if (!existsSync9(paths.user)) {
-          mkdirSync4(dirname5(paths.user), { recursive: true });
+        if (!existsSync10(paths.user)) {
+          mkdirSync5(dirname6(paths.user), { recursive: true });
           configInit(paths.user, true);
         }
         const editorEnv = process.env.EDITOR ?? "vi";
@@ -73696,9 +73902,9 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join5 } from "path";
-import { mkdirSync as mkdirSync5 } from "fs";
-import { homedir as homedir4 } from "os";
+import { join as join6 } from "path";
+import { mkdirSync as mkdirSync6 } from "fs";
+import { homedir as homedir5 } from "os";
 function getDatabase() {
   if (!_Database) {
     _Database = __require("better-sqlite3");
@@ -73706,10 +73912,10 @@ function getDatabase() {
   return _Database;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config");
-  const dir = join5(configBase, "phone-a-friend");
-  mkdirSync5(dir, { recursive: true });
-  return join5(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config");
+  const dir = join6(configBase, "phone-a-friend");
+  mkdirSync6(dir, { recursive: true });
+  return join6(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -74176,7 +74382,7 @@ var init_queue = __esm({
 
 // src/agentic/session.ts
 import { spawn as spawn4 } from "child_process";
-import { randomUUID as randomUUID3 } from "crypto";
+import { randomUUID as randomUUID4 } from "crypto";
 var NESTED_SESSION_VARS2, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
@@ -74188,7 +74394,7 @@ var init_session = __esm({
        * Spawn a new agent session. Returns the agent's first response.
        */
       async spawn(agent, systemPrompt, initialPrompt, repoPath) {
-        const sessionId = randomUUID3();
+        const sessionId = randomUUID4();
         switch (agent.backend) {
           case "claude": {
             const output = await this.spawnClaude(
@@ -74668,7 +74874,7 @@ var init_names = __esm({
 });
 
 // src/agentic/orchestrator.ts
-import { randomUUID as randomUUID4 } from "crypto";
+import { randomUUID as randomUUID5 } from "crypto";
 var Orchestrator;
 var init_orchestrator = __esm({
   "src/agentic/orchestrator.ts"() {
@@ -74710,7 +74916,7 @@ var init_orchestrator = __esm({
         if (this.runLoopPromise) {
           throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
         }
-        this.sessionId = randomUUID4().slice(0, 7);
+        this.sessionId = randomUUID5().slice(0, 7);
         this.turn = 0;
         this.startTime = Date.now();
         this.stopped = false;
@@ -75425,18 +75631,18 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join6, extname, resolve as resolve4, relative, sep } from "path";
+import { join as join7, extname, resolve as resolve4, relative, sep } from "path";
 import { readFile } from "fs/promises";
-import { existsSync as existsSync10 } from "fs";
+import { existsSync as existsSync11 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function resolvePublicDir() {
   const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
-  const distPath = join6(thisDir, "public");
-  if (existsSync10(distPath)) return distPath;
-  const devPath = join6(thisDir, "..", "..", "src", "web", "public");
-  if (existsSync10(devPath)) return devPath;
-  const cwdPath = join6(process.cwd(), "src", "web", "public");
-  if (existsSync10(cwdPath)) return cwdPath;
+  const distPath = join7(thisDir, "public");
+  if (existsSync11(distPath)) return distPath;
+  const devPath = join7(thisDir, "..", "..", "src", "web", "public");
+  if (existsSync11(devPath)) return devPath;
+  const cwdPath = join7(process.cwd(), "src", "web", "public");
+  if (existsSync11(cwdPath)) return cwdPath;
   return distPath;
 }
 async function startDashboard(opts = {}) {
@@ -75451,7 +75657,7 @@ async function startDashboard(opts = {}) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path2 === "/" ? join6(publicDir, "index.html") : join6(publicDir, path2);
+    const filePath = path2 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path2);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep)) {
@@ -75468,7 +75674,7 @@ async function startDashboard(opts = {}) {
     } catch {
       if (!extname(path2)) {
         try {
-          const index = await readFile(join6(publicDir, "index.html"));
+          const index = await readFile(join7(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(index);
         } catch {
@@ -75536,7 +75742,7 @@ var init_web = __esm({
 
 // src/backends/codex.ts
 init_backends();
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 var CodexBackendError = class extends BackendError {
@@ -75561,21 +75767,22 @@ var CodexBackend = class {
     }
     const tmpDir = mkdtempSync(join(tmpdir(), "phone-a-friend-"));
     const outputPath = join(tmpDir, "codex-last-message.txt");
+    const schemaPath = opts.schema ? join(tmpDir, "codex-output-schema.json") : null;
     try {
-      const args = [
-        "exec",
-        "-C",
-        opts.repoPath,
-        "--skip-git-repo-check",
-        "--sandbox",
-        opts.sandbox,
-        "--output-last-message",
-        outputPath
-      ];
-      if (opts.model) {
-        args.push("-m", opts.model);
+      const args = buildCodexExecArgs({
+        prompt: opts.prompt,
+        repoPath: opts.repoPath,
+        sandbox: opts.sandbox,
+        model: opts.model,
+        outputPath,
+        schemaPath,
+        persistSession: opts.persistSession ?? false,
+        sessionId: opts.sessionId ?? null,
+        resumeSession: opts.resumeSession ?? false
+      });
+      if (schemaPath) {
+        writeSchemaFile(schemaPath, opts.schema ?? "");
       }
-      args.push(opts.prompt);
       let stdout = "";
       try {
         const result = await spawnCli("codex", args, {
@@ -75584,7 +75791,11 @@ var CodexBackend = class {
           label: "codex exec"
         });
         stdout = result.stdout;
+        maybeEmitSessionId(stdout, opts.onSessionCreated);
       } catch (err) {
+        if (err instanceof SpawnCliError) {
+          maybeEmitSessionId(err.stdout, opts.onSessionCreated);
+        }
         const lastMessage2 = readOutputFile(outputPath);
         if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
@@ -75619,19 +75830,16 @@ var CodexBackend = class {
       const args = [
         "exec",
         "review",
-        "-C",
-        opts.repoPath,
         "--base",
         opts.base,
-        "--sandbox",
-        opts.sandbox,
         "--output-last-message",
-        outputPath
+        outputPath,
+        "--skip-git-repo-check"
       ];
       if (opts.model) {
         args.push("-m", opts.model);
       }
-      if (opts.prompt) {
+      if (opts.prompt && !opts.base) {
         args.push(opts.prompt);
       }
       let stdout = "";
@@ -75639,6 +75847,7 @@ var CodexBackend = class {
         const result = await spawnCli("codex", args, {
           timeoutMs: opts.timeoutSeconds * 1e3,
           env: opts.env,
+          cwd: opts.repoPath,
           label: "codex exec review"
         });
         stdout = result.stdout;
@@ -75666,6 +75875,69 @@ var CodexBackend = class {
     }
   }
 };
+function buildCodexExecArgs(opts) {
+  const isResume = opts.resumeSession && opts.sessionId;
+  const args = isResume ? ["exec", "resume", opts.sessionId] : ["exec"];
+  if (isResume) {
+    args.push("-o", opts.outputPath);
+  } else {
+    args.push(
+      "-C",
+      opts.repoPath,
+      "--sandbox",
+      opts.sandbox,
+      "--output-last-message",
+      opts.outputPath
+    );
+  }
+  args.push("--skip-git-repo-check");
+  if (!isResume && !opts.persistSession) {
+    args.push("--ephemeral");
+  }
+  if (opts.schemaPath && !isResume) {
+    args.push("--output-schema", opts.schemaPath, "--json");
+  } else if (opts.persistSession || isResume) {
+    args.push("--json");
+  }
+  if (opts.model) {
+    args.push("-m", opts.model);
+  }
+  args.push(opts.prompt);
+  return args;
+}
+function writeSchemaFile(schemaPath, schema) {
+  try {
+    writeFileSync(schemaPath, schema, "utf-8");
+  } catch (err) {
+    throw new CodexBackendError(`Failed writing Codex schema file: ${err}`);
+  }
+}
+function maybeEmitSessionId(jsonlOutput, onSessionCreated) {
+  const threadId = parseCodexMetadata(jsonlOutput).threadId;
+  if (threadId && onSessionCreated) {
+    onSessionCreated(threadId);
+  }
+}
+function parseCodexMetadata(jsonlOutput) {
+  const meta = {};
+  for (const line of jsonlOutput.trim().split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "thread.started" && typeof event.thread_id === "string") {
+        meta.threadId = event.thread_id;
+      }
+      if (event.type === "turn.completed" && typeof event.usage === "object" && event.usage !== null) {
+        meta.usage = event.usage;
+      }
+      if (event.type === "turn.failed") {
+        meta.failed = true;
+      }
+    } catch {
+    }
+  }
+  return meta;
+}
 function readOutputFile(outputPath) {
   if (!existsSync(outputPath)) {
     return "";
@@ -75704,16 +75976,21 @@ var GeminiBackend = class {
       );
     }
     const args = [];
+    const useJsonOutput = Boolean(opts.schema);
+    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
     if (opts.sandbox !== "danger-full-access") {
       args.push("--sandbox");
     }
     args.push("--yolo");
     args.push("--include-directories", opts.repoPath);
-    args.push("--output-format", "text");
+    args.push("--output-format", useJsonOutput ? "json" : "text");
+    if (opts.resumeSession && opts.sessionId) {
+      args.push("--resume", opts.sessionId);
+    }
     if (opts.model) {
       args.push("-m", opts.model);
     }
-    args.push("--prompt", opts.prompt);
+    args.push("--prompt", prompt);
     try {
       const result = await spawnCli("gemini", args, {
         timeoutMs: opts.timeoutSeconds * 1e3,
@@ -75724,8 +76001,23 @@ var GeminiBackend = class {
       if (!result.stdout) {
         throw new GeminiBackendError("gemini completed without producing output");
       }
+      if (useJsonOutput) {
+        maybeEmitGeminiSessionId(result.stdout, opts.onSessionCreated);
+        return extractGeminiResult(result.stdout);
+      }
       return result.stdout;
     } catch (err) {
+      if (err instanceof SpawnCliError && err.exitCode === 53) {
+        if (err.stdout) {
+          try {
+            maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
+            return useJsonOutput ? extractGeminiResult(err.stdout) : err.stdout;
+          } catch {
+            throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
+          }
+        }
+        throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
+      }
       if (err instanceof GeminiBackendError) throw err;
       if (err instanceof BackendError) {
         throw new GeminiBackendError(err.message);
@@ -75734,6 +76026,48 @@ var GeminiBackend = class {
     }
   }
 };
+function injectSchemaPrompt(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
+function maybeEmitGeminiSessionId(jsonOutput, onSessionCreated) {
+  const sessionId = extractGeminiSessionId(jsonOutput);
+  if (sessionId && onSessionCreated) {
+    onSessionCreated(sessionId);
+  }
+}
+function extractGeminiSessionId(jsonOutput) {
+  try {
+    const result = JSON.parse(jsonOutput);
+    if (typeof result.sessionId === "string") return result.sessionId;
+    if (typeof result.session_id === "string") return result.session_id;
+    const stats = result.stats;
+    if (stats && typeof stats === "object") {
+      const statsRecord = stats;
+      if (typeof statsRecord.sessionId === "string") return statsRecord.sessionId;
+      if (typeof statsRecord.session_id === "string") return statsRecord.session_id;
+    }
+  } catch {
+  }
+  return void 0;
+}
+function extractGeminiResult(jsonOutput) {
+  let result;
+  try {
+    result = JSON.parse(jsonOutput);
+  } catch (err) {
+    throw new GeminiBackendError(`gemini returned invalid JSON output: ${err}`);
+  }
+  if (result.error) {
+    throw new GeminiBackendError(String(result.error));
+  }
+  if (typeof result.response !== "string") {
+    throw new GeminiBackendError("gemini JSON output did not include a response field");
+  }
+  return result.response;
+}
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
@@ -75877,11 +76211,14 @@ var OllamaBackend = class {
   async run(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+    const history = opts.sessionHistory ?? [];
     const body = {
-      messages: [{ role: "user", content: opts.prompt }],
+      messages: [...history, { role: "user", content: prompt }],
       stream: false
     };
     if (model) body.model = model;
+    if (opts.schema) body.format = "json";
     const url = `${host}/api/chat`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
@@ -75934,11 +76271,14 @@ var OllamaBackend = class {
   async *runStream(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+    const history = opts.sessionHistory ?? [];
     const body = {
-      messages: [{ role: "user", content: opts.prompt }],
+      messages: [...history, { role: "user", content: prompt }],
       stream: true
     };
     if (model) body.model = model;
+    if (opts.schema) body.format = "json";
     const url = `${host}/api/chat`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
@@ -76008,6 +76348,12 @@ var OllamaBackend = class {
     throw new OllamaBackendError(`Ollama request failed: ${detail}`);
   }
 };
+function injectSchemaPrompt2(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
 var OLLAMA_BACKEND = new OllamaBackend();
 registerBackend(OLLAMA_BACKEND);
 
@@ -76048,8 +76394,19 @@ var ClaudeBackend = class {
    */
   buildArgs(opts) {
     const args = ["-p", opts.prompt];
-    args.push("--add-dir", opts.repoPath);
-    if (opts.outputFormat) {
+    if (opts.sessionId) {
+      if (opts.resumeSession) {
+        args.push("-r", opts.sessionId);
+      } else {
+        args.push("--session-id", opts.sessionId);
+      }
+    }
+    if (!opts.resumeSession) {
+      args.push("--add-dir", opts.repoPath);
+    }
+    if (opts.schema) {
+      args.push("--output-format", "json", "--json-schema", opts.schema);
+    } else if (opts.outputFormat) {
       args.push("--output-format", opts.outputFormat);
     }
     if (opts.model) {
@@ -76070,7 +76427,12 @@ var ClaudeBackend = class {
     }
     args.push("--disable-slash-commands");
     args.push("--disallowedTools", "Task");
-    args.push("--no-session-persistence");
+    if (opts.fast) {
+      args.push("--bare");
+    }
+    if (!opts.sessionId) {
+      args.push("--no-session-persistence");
+    }
     return args;
   }
   async run(opts) {
@@ -76081,7 +76443,7 @@ var ClaudeBackend = class {
     }
     const args = this.buildArgs({
       ...opts,
-      outputFormat: "text"
+      outputFormat: opts.schema ? void 0 : "text"
     });
     try {
       const result = await spawnCli("claude", args, {
@@ -76178,7 +76540,7 @@ var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
 // src/cli.ts
-import { existsSync as existsSync11 } from "fs";
+import { existsSync as existsSync12 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -79079,7 +79441,7 @@ async function run(argv) {
   let exitCode = 0;
   if (normalized.length === 0) {
     const paths = configPaths();
-    const isFirstRun = !existsSync11(paths.user);
+    const isFirstRun = !existsSync12(paths.user);
     const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
     if (isTTY && isFirstRun) {
       const { select } = await Promise.resolve().then(() => (init_dist17(), dist_exports));
@@ -79177,7 +79539,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
@@ -79211,7 +79573,9 @@ ${banner("AI coding agent relay")}
           prompt: opts.prompt,
           timeoutSeconds: resolved.timeout,
           model: resolved.model ?? null,
-          sandbox: resolved.sandbox
+          sandbox: resolved.sandbox,
+          schema: opts.schema ?? null,
+          fast: Boolean(opts.fast)
         });
         spinner.succeed(`${theme.bold(backendName)} reviewed`);
         process.stdout.write(feedback + "\n");
@@ -79230,8 +79594,12 @@ ${banner("AI coding agent relay")}
       includeDiff: resolved.includeDiff,
       timeoutSeconds: resolved.timeout,
       model: resolved.model ?? null,
-      sandbox: resolved.sandbox
+      sandbox: resolved.sandbox,
+      schema: opts.schema ?? null,
+      session: opts.session ?? null,
+      fast: Boolean(opts.fast)
     };
+    const shouldStream = resolved.stream && !opts.schema && !opts.session;
     if (opts.quiet) {
       const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
       const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
@@ -79240,17 +79608,24 @@ ${banner("AI coding agent relay")}
       console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
       console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
       console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
-      await promise;
+      try {
+        await promise;
+      } catch {
+      }
       const completed = manager.get(job.id);
       if (completed?.status === "completed") {
         console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);
+        if (opts.session) {
+          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+`);
+        }
       } else {
         console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
         exitCode = 1;
       }
       return;
     }
-    if (resolved.stream) {
+    if (shouldStream) {
       const spinner = ora({
         text: `Relaying to ${theme.bold(backendName)}...`,
         spinner: "dots",
@@ -79273,6 +79648,10 @@ ${banner("AI coding agent relay")}
         }
         process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
 `);
+        if (opts.session) {
+          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+`);
+        }
       } catch (err) {
         if (firstChunk) {
           spinner.fail(`${theme.bold(backendName)} failed`);
@@ -79294,6 +79673,10 @@ ${banner("AI coding agent relay")}
         const feedback = await relay(relayOpts);
         spinner.succeed(`${theme.bold(backendName)} responded`);
         process.stdout.write(feedback + "\n");
+        if (opts.session) {
+          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+`);
+        }
       } catch (err) {
         spinner.fail(`${theme.bold(backendName)} failed`);
         throw err;
@@ -79336,7 +79719,7 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync11(paths.user)) {
+    if (!existsSync12(paths.user)) {
       configInit(paths.user, true);
     }
     const parts = editorEnv.split(/\s+/);
@@ -79344,7 +79727,7 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync11(paths.user)) {
+    if (!existsSync12(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);
@@ -79533,6 +79916,9 @@ ${banner("AI coding agent relay")}
       const age = timeSince(job.createdAt);
       console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
       console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? "..." : ""}`);
+      if (job.progress) {
+        console.log(`    ${theme.hint(`Progress: ${job.progress}`)}`);
+      }
     }
     console.log("");
   });
