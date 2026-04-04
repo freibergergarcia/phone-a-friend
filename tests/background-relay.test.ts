@@ -22,13 +22,16 @@ import { JobManager } from '../src/jobs.js';
 
 describe('relayBackground()', () => {
   let tmpDir: string;
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'paf-bg-'));
     mockRun.mockReset();
+    process.env = { ...originalEnv, PHONE_A_FRIEND_DEPTH: '0' };
   });
 
   afterEach(() => {
+    process.env = { ...originalEnv };
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -43,7 +46,7 @@ describe('relayBackground()', () => {
     expect(job.status).toBe('pending');
     expect(job.id).toBeDefined();
 
-    await promise;
+    await expect(promise).resolves.toBe('Codex output');
 
     const updated = manager.get(job.id);
     expect(updated?.status).toBe('completed');
@@ -59,7 +62,7 @@ describe('relayBackground()', () => {
       jobManager: manager,
     });
 
-    await promise;
+    await expect(promise).rejects.toThrow('codex crashed');
 
     const updated = manager.get(job.id);
     expect(updated?.status).toBe('failed');

@@ -25,6 +25,7 @@ export interface Job {
   model?: string;
   sandbox?: string;
   pid?: number;
+  progress?: string;
   result?: string;
   error?: string;
   createdAt: string;
@@ -111,10 +112,15 @@ export class JobManager {
     return this.load();
   }
 
-  update(id: string, patch: Partial<Pick<Job, 'status' | 'result' | 'error' | 'pid'>>): Job | null {
+  update(id: string, patch: Partial<Pick<Job, 'status' | 'result' | 'error' | 'pid' | 'progress'>>): Job | null {
     const jobs = this.load();
     const job = jobs.find(j => j.id === id);
     if (!job) return null;
+
+    if (job.status === 'cancelled' || job.status === 'failed') {
+      return job;
+    }
+
     Object.assign(job, patch, { updatedAt: new Date().toISOString() });
     this.save(jobs);
     return job;

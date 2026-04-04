@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BackendError, type SandboxMode, type Backend } from '../src/backends/index.js';
+import { SessionStore } from '../src/sessions.js';
 
 // Mock child_process for git diff calls
 const { mockExecFileSync } = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ function makeTempDir(): string {
 function makeMockBackend(name: string): Backend {
   return {
     name,
+    localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
     run: vi.fn(async () => 'mock feedback'),
   };
@@ -50,6 +52,7 @@ function makeMockBackend(name: string): Backend {
 function makeMockBackendWithReview(name: string): Backend & { review: ReturnType<typeof vi.fn> } {
   return {
     name,
+    localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
     run: vi.fn(async () => 'mock feedback'),
     review: vi.fn(async () => 'mock review feedback'),
@@ -136,6 +139,71 @@ describe('relay', () => {
     await relay({ prompt: 'Review', repoPath: repo, timeoutSeconds: 120 });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.timeoutSeconds).toBe(120);
+  });
+
+  it('passes schema through to backend', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, schema: '{"type":"object"}' });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.schema).toBe('{"type":"object"}');
+  });
+
+  it('passes fast through to backend', async () => {
+    await relay({ prompt: 'Review', repoPath: repo, fast: true });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.fast).toBe(true);
+  });
+
+  it('persists relay session history and backend session id', async () => {
+    const sessionStore = new SessionStore(path.join(repo, 'sessions.json'));
+    (mockBackend.run as ReturnType<typeof vi.fn>).mockImplementation(async (opts) => {
+      opts.onSessionCreated?.('backend-session-1');
+      return 'first reply';
+    });
+
+    await relay({
+      prompt: 'Review',
+      repoPath: repo,
+      session: 'codex-review',
+      sessionStore,
+    });
+
+    const session = sessionStore.get('codex-review');
+    expect(session?.backend).toBe('codex');
+    expect(session?.backendSessionId).toBe('backend-session-1');
+    expect(session?.history).toEqual([
+      { role: 'user', content: expect.stringContaining('Request:\nReview') },
+      { role: 'assistant', content: 'first reply' },
+    ]);
+  });
+
+  it('resumes an existing session with stored history and native session id', async () => {
+    const sessionStore = new SessionStore(path.join(repo, 'sessions.json'));
+    sessionStore.upsert({
+      id: 'codex-review',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-123',
+      historyAppend: [
+        { role: 'user', content: 'old prompt' },
+        { role: 'assistant', content: 'old reply' },
+      ],
+    });
+
+    await relay({
+      prompt: 'Follow up',
+      repoPath: repo,
+      session: 'codex-review',
+      sessionStore,
+    });
+
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-123');
+    expect(callArgs.persistSession).toBe(true);
+    expect(callArgs.resumeSession).toBe(true);
+    expect(callArgs.sessionHistory).toEqual([
+      { role: 'user', content: 'old prompt' },
+      { role: 'assistant', content: 'old reply' },
+    ]);
   });
 
   // --- Prompt building ---

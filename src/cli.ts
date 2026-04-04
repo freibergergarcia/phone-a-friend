@@ -344,6 +344,9 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
+    .option('--schema <json>', 'Request structured JSON output matching this schema')
+    .option('--session <id>', 'Resume or create a persisted relay session')
+    .option('--fast', 'Use fast mode when supported (maps to --bare for Claude)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
@@ -415,7 +418,12 @@ export async function run(argv: string[]): Promise<number> {
         timeoutSeconds: resolved.timeout,
         model: resolved.model ?? null,
         sandbox: resolved.sandbox as SandboxMode,
+        schema: opts.schema ?? null,
+        session: opts.session ?? null,
+        fast: Boolean(opts.fast),
       };
+
+      const shouldStream = resolved.stream && !opts.schema && !opts.session;
 
       if (opts.quiet) {
         const { relayBackground } = await import('./relay.js');
@@ -429,6 +437,9 @@ export async function run(argv: string[]): Promise<number> {
         const completed = manager.get(job.id);
         if (completed?.status === 'completed') {
           console.log(`  ${theme.success('\u2713')} ${theme.bold('Done')} ${theme.info(job.id)}`);
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
+          }
         } else {
           console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? 'unknown'}: ${completed?.error ?? ''}`);
           exitCode = 1;
@@ -436,7 +447,7 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
-      if (resolved.stream) {
+      if (shouldStream) {
         const spinner = ora({
           text: `Relaying to ${theme.bold(backendName)}...`,
           spinner: 'dots',
@@ -459,6 +470,9 @@ export async function run(argv: string[]): Promise<number> {
             process.stdout.write('\n');
           }
           process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded\n`);
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
+          }
         } catch (err) {
           if (firstChunk) {
             spinner.fail(`${theme.bold(backendName)} failed`);
@@ -479,6 +493,9 @@ export async function run(argv: string[]): Promise<number> {
           const feedback = await relay(relayOpts);
           spinner.succeed(`${theme.bold(backendName)} responded`);
           process.stdout.write(feedback + '\n');
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
+          }
         } catch (err) {
           spinner.fail(`${theme.bold(backendName)} failed`);
           throw err;
@@ -825,6 +842,9 @@ export async function run(argv: string[]): Promise<number> {
         const age = timeSince(job.createdAt);
         console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
         console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? '...' : ''}`);
+        if (job.progress) {
+          console.log(`    ${theme.hint(`Progress: ${job.progress}`)}`);
+        }
       }
       console.log('');
     });

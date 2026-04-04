@@ -5,10 +5,12 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getBackend, BackendError, type Backend, type SandboxMode } from './backends/index.js';
 import { JobManager, type Job } from './jobs.js';
+import { SessionStore } from './sessions.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -205,6 +207,8 @@ export interface ReviewRelayOptions {
   timeoutSeconds?: number;
   model?: string | null;
   sandbox?: SandboxMode;
+  schema?: string | null;
+  fast?: boolean;
 }
 
 export interface RelayOptions {
@@ -217,6 +221,10 @@ export interface RelayOptions {
   timeoutSeconds?: number;
   model?: string | null;
   sandbox?: SandboxMode;
+  schema?: string | null;
+  session?: string | null;
+  fast?: boolean;
+  sessionStore?: SessionStore;
 }
 
 export interface BackgroundRelayOptions extends RelayOptions {
@@ -231,6 +239,10 @@ interface PreparedRelay {
   timeoutSeconds: number;
   sandbox: SandboxMode;
   model: string | null;
+  schema: string | null;
+  session: string | null;
+  fast: boolean;
+  sessionStore?: SessionStore;
 }
 
 function prepareRelay(opts: RelayOptions): PreparedRelay {
@@ -244,6 +256,9 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
     sandbox = DEFAULT_SANDBOX,
+    schema = null,
+    session = null,
+    fast = false,
   } = opts;
 
   if (!prompt.trim()) {
@@ -285,21 +300,93 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
 
   const env = nextRelayEnv();
 
-  return { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model };
+  return {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore: opts.sessionStore,
+  };
 }
 
 export async function relay(opts: RelayOptions): Promise<string> {
-  const { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model } = prepareRelay(opts);
+  const {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore,
+  } = prepareRelay(opts);
 
   try {
-    return await selectedBackend.run({
+    const store = session ? (sessionStore ?? new SessionStore()) : null;
+    const storedSession = session ? store?.get(session) ?? null : null;
+
+    if (storedSession && storedSession.backend !== selectedBackend.name) {
+      throw new RelayError(
+        `Session ${session} belongs to backend ${storedSession.backend}, not ${selectedBackend.name}`,
+      );
+    }
+
+    if (storedSession && storedSession.repoPath !== resolvedRepo) {
+      throw new RelayError(
+        `Session ${session} belongs to a different repository: ${storedSession.repoPath}`,
+      );
+    }
+
+    let backendSessionId = storedSession?.backendSessionId ?? null;
+    if (session && !storedSession && selectedBackend.name === 'claude') {
+      backendSessionId = randomUUID();
+    }
+
+    if (session && storedSession && !backendSessionId && selectedBackend.name !== 'ollama') {
+      throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
+    }
+
+    let createdSessionId = backendSessionId;
+    const result = await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,
       sandbox,
       model,
       env,
+      schema,
+      sessionId: backendSessionId,
+      persistSession: Boolean(session),
+      resumeSession: Boolean(session && storedSession),
+      fast,
+      sessionHistory: storedSession?.history ?? [],
+      onSessionCreated: (newSessionId) => {
+        createdSessionId = newSessionId;
+      },
     });
+
+    if (session && store) {
+      persistRelaySession(
+        store,
+        session,
+        selectedBackend,
+        resolvedRepo,
+        fullPrompt,
+        result,
+        createdSessionId,
+      );
+    }
+
+    return result;
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
@@ -309,10 +396,60 @@ export async function relay(opts: RelayOptions): Promise<string> {
   }
 }
 
-export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
-  const { selectedBackend, fullPrompt, resolvedRepo, env, timeoutSeconds, sandbox, model } = prepareRelay(opts);
+function persistRelaySession(
+  store: SessionStore,
+  id: string,
+  backend: Backend,
+  repoPath: string,
+  prompt: string,
+  output: string,
+  backendSessionId: string | null,
+): void {
+  store.upsert({
+    id,
+    backend: backend.name,
+    repoPath,
+    backendSessionId: backendSessionId ?? undefined,
+    historyAppend: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: output },
+    ],
+  });
+}
 
-  const runOpts = { prompt: fullPrompt, repoPath: resolvedRepo, timeoutSeconds, sandbox, model, env };
+export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
+  const {
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    fast,
+    sessionStore,
+  } = prepareRelay(opts);
+
+  // Session support: look up stored session for resume context
+  const store = session ? (sessionStore ?? new SessionStore()) : null;
+  const storedSession = session ? store?.get(session) ?? null : null;
+
+  const runOpts = {
+    prompt: fullPrompt,
+    repoPath: resolvedRepo,
+    timeoutSeconds,
+    sandbox,
+    model,
+    env,
+    schema,
+    fast,
+    sessionId: storedSession?.backendSessionId ?? null,
+    persistSession: Boolean(session),
+    resumeSession: Boolean(session && storedSession),
+    sessionHistory: storedSession?.history ?? [],
+  };
 
   try {
     if (typeof selectedBackend.runStream === 'function') {
@@ -337,6 +474,8 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
     sandbox = DEFAULT_SANDBOX,
+    schema = null,
+    fast = false,
   } = opts;
 
   if (timeoutSeconds <= 0) {
@@ -408,6 +547,8 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
       sandbox,
       model,
       env,
+      schema,
+      fast,
     });
   } catch (err) {
     if (err instanceof RelayError) throw err;
@@ -422,7 +563,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
 // Background relay
 // ---------------------------------------------------------------------------
 
-export function relayBackground(opts: BackgroundRelayOptions): { job: Job; promise: Promise<void> } {
+export function relayBackground(opts: BackgroundRelayOptions): { job: Job; promise: Promise<string> } {
   const manager = opts.jobManager ?? new JobManager();
   const job = manager.create({
     backend: opts.backend ?? DEFAULT_BACKEND,
@@ -435,9 +576,13 @@ export function relayBackground(opts: BackgroundRelayOptions): { job: Job; promi
   manager.update(job.id, { status: 'running' });
 
   const promise = relay(opts)
-    .then((result) => { manager.update(job.id, { status: 'completed', result }); })
+    .then((result) => {
+      manager.update(job.id, { status: 'completed', result });
+      return result;
+    })
     .catch((err) => {
       manager.update(job.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) });
+      throw err;
     });
 
   return { job, promise };

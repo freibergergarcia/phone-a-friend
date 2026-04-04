@@ -17,6 +17,27 @@ export interface BackendResult {
   exitCode: number;
 }
 
+export interface SessionHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface BackendRunOptions {
+  prompt: string;
+  repoPath: string;
+  timeoutSeconds: number;
+  sandbox: SandboxMode;
+  model: string | null;
+  env: Record<string, string>;
+  schema?: string | null;
+  sessionId?: string | null;
+  persistSession?: boolean;
+  resumeSession?: boolean;
+  fast?: boolean;
+  sessionHistory?: SessionHistoryEntry[];
+  onSessionCreated?: (sessionId: string) => void;
+}
+
 export interface ReviewOptions {
   repoPath: string;
   timeoutSeconds: number;
@@ -31,23 +52,9 @@ export interface Backend {
   name: string;
   localFileAccess: boolean;
   allowedSandboxes: ReadonlySet<SandboxMode>;
-  run(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): Promise<string>;
+  run(opts: BackendRunOptions): Promise<string>;
   review?(opts: ReviewOptions): Promise<string>;
-  runStream?(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): AsyncIterable<string>;
+  runStream?(opts: BackendRunOptions): AsyncIterable<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +65,25 @@ export class BackendError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'BackendError';
+  }
+}
+
+export class SpawnCliError extends BackendError {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+
+  constructor(
+    message: string,
+    stdout: string,
+    stderr: string,
+    exitCode: number | null,
+  ) {
+    super(message);
+    this.name = 'SpawnCliError';
+    this.stdout = stdout;
+    this.stderr = stderr;
+    this.exitCode = exitCode;
   }
 }
 
@@ -199,7 +225,7 @@ export function spawnCli(
 
       if (code !== 0 && code !== null) {
         const detail = stderr || stdout || `${label} exited with code ${code}`;
-        reject(new BackendError(detail));
+        reject(new SpawnCliError(detail, stdout, stderr, code));
         return;
       }
 

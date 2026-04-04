@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import {
+  type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
   isInPath,
@@ -79,14 +80,30 @@ export class ClaudeBackend implements Backend {
     model: string | null;
     env: Record<string, string>;
     outputFormat?: string;
+    schema?: string | null;
+    fast?: boolean;
+    sessionId?: string | null;
+    resumeSession?: boolean;
   }): string[] {
     const args: string[] = ['-p', opts.prompt];
 
+    if (opts.sessionId) {
+      if (opts.resumeSession) {
+        args.push('-r', opts.sessionId);
+      } else {
+        args.push('--session-id', opts.sessionId);
+      }
+    }
+
     // Repo access
-    args.push('--add-dir', opts.repoPath);
+    if (!opts.resumeSession) {
+      args.push('--add-dir', opts.repoPath);
+    }
 
     // Output format
-    if (opts.outputFormat) {
+    if (opts.schema) {
+      args.push('--output-format', 'json', '--json-schema', opts.schema);
+    } else if (opts.outputFormat) {
       args.push('--output-format', opts.outputFormat);
     }
 
@@ -120,20 +137,19 @@ export class ClaudeBackend implements Backend {
     args.push('--disable-slash-commands');
     args.push('--disallowedTools', 'Task');
 
+    if (opts.fast) {
+      args.push('--bare');
+    }
+
     // Ephemeral by default (print mode persists sessions otherwise)
-    args.push('--no-session-persistence');
+    if (!opts.sessionId) {
+      args.push('--no-session-persistence');
+    }
 
     return args;
   }
 
-  async run(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): Promise<string> {
+  async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath('claude')) {
       throw new ClaudeBackendError(
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`,
@@ -142,7 +158,7 @@ export class ClaudeBackend implements Backend {
 
     const args = this.buildArgs({
       ...opts,
-      outputFormat: 'text',
+      outputFormat: opts.schema ? undefined : 'text',
     });
 
     try {
@@ -168,14 +184,7 @@ export class ClaudeBackend implements Backend {
     }
   }
 
-  async *runStream(opts: {
-    prompt: string;
-    repoPath: string;
-    timeoutSeconds: number;
-    sandbox: SandboxMode;
-    model: string | null;
-    env: Record<string, string>;
-  }): AsyncGenerator<string> {
+  async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
     if (!isInPath('claude')) {
       throw new ClaudeBackendError(
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`,
