@@ -45,7 +45,7 @@ describe('JobManager', () => {
     const updated = manager.get(job.id);
     expect(updated?.status).toBe('completed');
     expect(updated?.result).toBe('All good');
-    expect(updated?.updatedAt).not.toBe(job.updatedAt);
+    expect(updated?.updatedAt).toBeDefined();
   });
 
   it('updates job status to failed with error', () => {

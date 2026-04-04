@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/backends/index.ts
-import { execFileSync } from "child_process";
+import { execFileSync, spawn as nodeSpawn } from "child_process";
 function registerBackend(backend) {
   registry.set(backend.name, backend);
 }
@@ -68,6 +68,49 @@ function checkBackends(whichFn = isInPath) {
     result[name] = whichFn(name);
   }
   return result;
+}
+function spawnCli(command, args, opts) {
+  const label = opts.label ?? command;
+  return new Promise((resolve5, reject) => {
+    const child = nodeSpawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: opts.env ?? process.env,
+      cwd: opts.cwd
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutMs);
+    const onSigint = () => {
+      child.kill("SIGTERM");
+    };
+    process.on("SIGINT", onSigint);
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout?.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      const stdout = Buffer.concat(stdoutChunks).toString().trim();
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      if (timedOut) {
+        reject(new BackendError(`${label} timed out after ${opts.timeoutMs / 1e3}s`));
+        return;
+      }
+      if (signal) {
+        reject(new BackendError(`${label} killed by signal ${signal}`));
+        return;
+      }
+      if (code !== 0 && code !== null) {
+        const detail = stderr || stdout || `${label} exited with code ${code}`;
+        reject(new BackendError(detail));
+        return;
+      }
+      resolve5({ stdout, stderr, exitCode: code ?? 0 });
+    });
+  });
 }
 var BackendError, INSTALL_HINTS, registry;
 var init_backends = __esm({
@@ -4539,6 +4582,84 @@ var init_string_width = __esm({
   }
 });
 
+// src/jobs.ts
+var jobs_exports = {};
+__export(jobs_exports, {
+  JobManager: () => JobManager
+});
+import { readFileSync as readFileSync2, writeFileSync, existsSync as existsSync2, mkdirSync } from "fs";
+import { dirname, join as join2 } from "path";
+import { homedir } from "os";
+import { randomUUID } from "crypto";
+var MAX_JOBS, JobManager;
+var init_jobs = __esm({
+  "src/jobs.ts"() {
+    "use strict";
+    MAX_JOBS = 50;
+    JobManager = class {
+      filePath;
+      constructor(filePath) {
+        this.filePath = filePath ?? join2(
+          process.env.XDG_CONFIG_HOME ?? join2(homedir(), ".config"),
+          "phone-a-friend",
+          "jobs.json"
+        );
+      }
+      load() {
+        if (!existsSync2(this.filePath)) return [];
+        try {
+          return JSON.parse(readFileSync2(this.filePath, "utf-8"));
+        } catch {
+          return [];
+        }
+      }
+      save(jobs) {
+        mkdirSync(dirname(this.filePath), { recursive: true });
+        writeFileSync(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
+      }
+      create(opts) {
+        const jobs = this.load();
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const job = {
+          id: randomUUID().slice(0, 8),
+          status: "pending",
+          backend: opts.backend,
+          prompt: opts.prompt,
+          repoPath: opts.repoPath,
+          model: opts.model,
+          sandbox: opts.sandbox,
+          createdAt: now,
+          updatedAt: now
+        };
+        jobs.push(job);
+        if (jobs.length > MAX_JOBS) {
+          const prunable = jobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+          const toRemove = jobs.length - MAX_JOBS;
+          const removeIds = new Set(prunable.slice(0, toRemove).map((j) => j.id));
+          this.save(jobs.filter((j) => !removeIds.has(j.id)));
+          return job;
+        }
+        this.save(jobs);
+        return job;
+      }
+      get(id) {
+        return this.load().find((j) => j.id === id) ?? null;
+      }
+      list() {
+        return this.load();
+      }
+      update(id, patch) {
+        const jobs = this.load();
+        const job = jobs.find((j) => j.id === id);
+        if (!job) return null;
+        Object.assign(job, patch, { updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+        this.save(jobs);
+        return job;
+      }
+    };
+  }
+});
+
 // src/relay.ts
 var relay_exports = {};
 __export(relay_exports, {
@@ -4553,11 +4674,12 @@ __export(relay_exports, {
   detectDefaultBranch: () => detectDefaultBranch,
   gitDiffBase: () => gitDiffBase,
   relay: () => relay,
+  relayBackground: () => relayBackground,
   relayStream: () => relayStream,
   reviewRelay: () => reviewRelay
 });
-import { execFileSync as execFileSync5 } from "child_process";
-import { readFileSync as readFileSync2, existsSync as existsSync2, statSync } from "fs";
+import { execFileSync as execFileSync2 } from "child_process";
+import { readFileSync as readFileSync3, existsSync as existsSync3, statSync } from "fs";
 import { resolve } from "path";
 function sizeBytes(text) {
   return Buffer.byteLength(text, "utf-8");
@@ -4571,7 +4693,7 @@ function ensureSizeLimit(label, text, maxBytes) {
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
   const resolved = resolve(contextFile);
-  if (!existsSync2(resolved)) {
+  if (!existsSync3(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
   }
   const stat = statSync(resolved);
@@ -4579,7 +4701,7 @@ function readContextFile(contextFile) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync2(resolved, "utf-8").trim();
+    const contents = readFileSync3(resolved, "utf-8").trim();
     ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
     return contents;
   } catch (err) {
@@ -4601,7 +4723,7 @@ function resolveContextText(contextFile, contextText) {
 }
 function tryGitDiff(repoPath, args) {
   try {
-    const result = execFileSync5("git", ["-C", repoPath, "diff", ...args], {
+    const result = execFileSync2("git", ["-C", repoPath, "diff", ...args], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4621,7 +4743,7 @@ function gitDiff(repoPath) {
 function detectDefaultBranch(repoPath) {
   for (const branch of ["main", "master"]) {
     try {
-      execFileSync5("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
+      execFileSync2("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"]
       });
@@ -4633,7 +4755,7 @@ function detectDefaultBranch(repoPath) {
 }
 function gitDiffBase(repoPath, base) {
   try {
-    const result = execFileSync5("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
+    const result = execFileSync2("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4703,7 +4825,7 @@ function prepareRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync2(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync3(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -4780,7 +4902,7 @@ async function reviewRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync2(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync3(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -4842,11 +4964,29 @@ async function reviewRelay(opts) {
     throw err;
   }
 }
+function relayBackground(opts) {
+  const manager = opts.jobManager ?? new JobManager();
+  const job = manager.create({
+    backend: opts.backend ?? DEFAULT_BACKEND,
+    prompt: opts.prompt,
+    repoPath: opts.repoPath,
+    model: opts.model ?? void 0,
+    sandbox: opts.sandbox
+  });
+  manager.update(job.id, { status: "running", pid: process.pid });
+  const promise = relay(opts).then((result) => {
+    manager.update(job.id, { status: "completed", result });
+  }).catch((err) => {
+    manager.update(job.id, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+  });
+  return { job, promise };
+}
 var DEFAULT_TIMEOUT_SECONDS, DEFAULT_BACKEND, DEFAULT_SANDBOX, MAX_RELAY_DEPTH, MAX_CONTEXT_FILE_BYTES, MAX_DIFF_BYTES, MAX_PROMPT_BYTES, RelayError;
 var init_relay = __esm({
   "src/relay.ts"() {
     "use strict";
     init_backends();
+    init_jobs();
     DEFAULT_TIMEOUT_SECONDS = 600;
     DEFAULT_BACKEND = "codex";
     DEFAULT_SANDBOX = "read-only";
@@ -4864,17 +5004,17 @@ var init_relay = __esm({
 });
 
 // src/version.ts
-import { readFileSync as readFileSync3 } from "fs";
-import { resolve as resolve2, dirname } from "path";
+import { readFileSync as readFileSync4 } from "fs";
+import { resolve as resolve2, dirname as dirname2 } from "path";
 import { fileURLToPath } from "url";
 function getPackageRoot() {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
+  const thisDir = dirname2(fileURLToPath(import.meta.url));
   return resolve2(thisDir, "..");
 }
 function getVersion() {
   const pkgPath = resolve2(getPackageRoot(), "package.json");
   try {
-    const pkg = JSON.parse(readFileSync3(pkgPath, "utf-8"));
+    const pkg = JSON.parse(readFileSync4(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
@@ -4887,22 +5027,22 @@ var init_version = __esm({
 });
 
 // src/installer.ts
-import { execFileSync as execFileSync6 } from "child_process";
+import { execFileSync as execFileSync3 } from "child_process";
 import {
-  existsSync as existsSync3,
+  existsSync as existsSync4,
   lstatSync,
-  mkdirSync,
-  readFileSync as readFileSync4,
+  mkdirSync as mkdirSync2,
+  readFileSync as readFileSync5,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync
 } from "fs";
-import { resolve as resolve3, join as join2, dirname as dirname2 } from "path";
-import { homedir } from "os";
+import { resolve as resolve3, join as join3, dirname as dirname3 } from "path";
+import { homedir as homedir2 } from "os";
 function ensureParent(filePath) {
-  mkdirSync(dirname2(filePath), { recursive: true });
+  mkdirSync2(dirname3(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -4919,7 +5059,7 @@ function removePath(filePath) {
   }
 }
 function installPath(src, dst, mode, force) {
-  const dstExists = existsSync3(dst) || isSymlink(dst);
+  const dstExists = existsSync4(dst) || isSymlink(dst);
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
@@ -4951,7 +5091,7 @@ function isSymlink(filePath) {
 }
 function runClaudeCommand(args) {
   try {
-    const result = execFileSync6(args[0], args.slice(1), {
+    const result = execFileSync3(args[0], args.slice(1), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -4979,7 +5119,7 @@ function looksLikeOkIfAlready(output) {
 function cleanupLegacyMarketplace() {
   const lines = [];
   try {
-    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     return lines;
   }
@@ -4999,7 +5139,7 @@ function cleanupLegacyMarketplace() {
 function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
   const lines = [];
   try {
-    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -5027,7 +5167,7 @@ function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME
 function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, _claudeHome) {
   const lines = [];
   try {
-    execFileSync6("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -5064,21 +5204,21 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join2(homedir(), ".claude");
-  return join2(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join3(homedir2(), ".claude");
+  return join3(base, "plugins", PLUGIN_NAME);
 }
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
     const resolved = realpathSync(target);
-    if (existsSync3(resolved)) return true;
+    if (existsSync4(resolved)) return true;
   } catch {
   }
-  if (existsSync3(target)) return true;
-  const home = claudeHome ?? join2(homedir(), ".claude");
-  const cacheBase = join2(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  if (existsSync4(target)) return true;
+  const home = claudeHome ?? join3(homedir2(), ".claude");
+  const cacheBase = join3(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
-    return existsSync3(cacheBase);
+    return existsSync4(cacheBase);
   } catch {
     return false;
   }
@@ -5089,7 +5229,7 @@ function installClaude(repoRoot, mode, force, claudeHome) {
   return { status, targetPath: target };
 }
 function uninstallPath(filePath) {
-  if (existsSync3(filePath) || isSymlink(filePath)) {
+  if (existsSync4(filePath) || isSymlink(filePath)) {
     removePath(filePath);
     return "removed";
   }
@@ -5100,13 +5240,13 @@ function uninstallClaude(claudeHome) {
   return { status: uninstallPath(target), targetPath: target };
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync3(join2(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync4(join3(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join2(homedir(), ".claude");
-  const registryPath = join2(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join3(homedir2(), ".claude");
+  const registryPath = join3(home, "plugins", "known_marketplaces.json");
   try {
-    const data = JSON.parse(readFileSync4(registryPath, "utf-8"));
+    const data = JSON.parse(readFileSync5(registryPath, "utf-8"));
     const entry = data[marketplaceName];
     if (!entry?.source?.source) return null;
     const sourceType = entry.source.source;
@@ -16462,10 +16602,10 @@ var init_RemoveFileError = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn2, spawnSync } from "child_process";
-import { readFileSync as readFileSync5, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
+import { readFileSync as readFileSync6, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
 import path from "path";
 import os2 from "os";
-import { randomUUID } from "crypto";
+import { randomUUID as randomUUID2 } from "crypto";
 function editAsync(text = "", callback, fileOptions) {
   const editor = new ExternalEditor(text, fileOptions);
   editor.runAsync((err, result) => {
@@ -16566,7 +16706,7 @@ var init_dist7 = __esm({
       createTemporaryFile() {
         try {
           const baseDir = this.fileOptions.dir ?? os2.tmpdir();
-          const id = randomUUID();
+          const id = randomUUID2();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
           const filename = `${prefix}${id}${postfix}`;
@@ -16587,7 +16727,7 @@ var init_dist7 = __esm({
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync5(this.tempFile);
+          const tempFileBuffer = readFileSync6(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -18637,14 +18777,14 @@ var init_dist18 = __esm({
 });
 
 // src/config.ts
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync3, existsSync as existsSync4, mkdirSync as mkdirSync2 } from "fs";
-import { homedir as homedir2 } from "os";
-import { join as join3, dirname as dirname3 } from "path";
+import { readFileSync as readFileSync7, writeFileSync as writeFileSync3, existsSync as existsSync5, mkdirSync as mkdirSync3 } from "fs";
+import { homedir as homedir3 } from "os";
+import { join as join4, dirname as dirname4 } from "path";
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? homedir2(), ".config");
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join4(homeDir ?? homedir3(), ".config");
   return {
-    user: join3(configBase, "phone-a-friend", "config.toml"),
-    repo: repoRoot ? join3(repoRoot, ".phone-a-friend.toml") : null
+    user: join4(configBase, "phone-a-friend", "config.toml"),
+    repo: repoRoot ? join4(repoRoot, ".phone-a-friend.toml") : null
   };
 }
 function deepMerge2(target, source) {
@@ -18661,11 +18801,11 @@ function deepMerge2(target, source) {
   return result;
 }
 function loadConfigFromFile(filePath) {
-  if (!existsSync4(filePath)) {
+  if (!existsSync5(filePath)) {
     return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   }
   try {
-    const content = readFileSync6(filePath, "utf-8");
+    const content = readFileSync7(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge2(
       { defaults: { ...DEFAULT_CONFIG.defaults } },
@@ -18680,19 +18820,19 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
   let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   config = loadConfigFromFile(paths.user);
-  if (paths.repo && existsSync4(paths.repo)) {
-    const repoConfig = parse(readFileSync6(paths.repo, "utf-8"));
+  if (paths.repo && existsSync5(paths.repo)) {
+    const repoConfig = parse(readFileSync7(paths.repo, "utf-8"));
     config = deepMerge2(config, repoConfig);
   }
   return config;
 }
 function saveConfig(cfg, filePath) {
-  mkdirSync2(dirname3(filePath), { recursive: true });
+  mkdirSync3(dirname4(filePath), { recursive: true });
   const content = stringify(cfg);
   writeFileSync3(filePath, content, "utf-8");
 }
 function configInit(filePath, force = false) {
-  if (!force && existsSync4(filePath)) {
+  if (!force && existsSync5(filePath)) {
     throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
   }
   saveConfig(DEFAULT_CONFIG, filePath);
@@ -18710,8 +18850,8 @@ function configGet(key, cfg) {
 }
 function configSet(key, rawValue, filePath) {
   let cfg;
-  if (existsSync4(filePath)) {
-    const content = readFileSync6(filePath, "utf-8");
+  if (existsSync5(filePath)) {
+    const content = readFileSync7(filePath, "utf-8");
     cfg = parse(content);
   } else {
     cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
@@ -22885,7 +23025,7 @@ var init_wrap_ansi = __esm({
 
 // node_modules/terminal-size/index.js
 import process11 from "process";
-import { execFileSync as execFileSync7 } from "child_process";
+import { execFileSync as execFileSync4 } from "child_process";
 import fs from "fs";
 import tty3 from "tty";
 function terminalSize() {
@@ -22917,7 +23057,7 @@ var init_terminal_size = __esm({
     "use strict";
     defaultColumns = 80;
     defaultRows = 24;
-    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync7(command, arguments_, {
+    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync4(command, arguments_, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 500,
@@ -72614,7 +72754,7 @@ var init_ListSelect = __esm({
 });
 
 // src/tui/BackendsPanel.tsx
-import { existsSync as existsSync6 } from "fs";
+import { existsSync as existsSync7 } from "fs";
 function badgeStatus(b) {
   if (b.planned) return "planned";
   if (b.available) return "available";
@@ -72740,7 +72880,7 @@ function BackendsPanel({ report, onEditingChange }) {
     try {
       const paths = configPaths();
       const userPath = paths.user;
-      if (!existsSync6(userPath)) {
+      if (!existsSync7(userPath)) {
         configInit(userPath, true);
       }
       configSet(`backends.${backendName}.model`, modelName, userPath);
@@ -72832,7 +72972,7 @@ var init_BackendsPanel = __esm({
 });
 
 // src/tui/ConfigPanel.tsx
-import { existsSync as existsSync7 } from "fs";
+import { existsSync as existsSync8 } from "fs";
 function buildRows(config) {
   const rows = [];
   const backendOptions = Object.keys(INSTALL_HINTS).sort();
@@ -72869,7 +73009,7 @@ function ConfigPanel({ onEditingChange } = {}) {
   const save = (0, import_react31.useCallback)((dotKey, value) => {
     try {
       const userPath = paths.user;
-      if (!existsSync7(userPath)) {
+      if (!existsSync8(userPath)) {
         configInit(userPath, true);
       }
       configSet(dotKey, value, userPath);
@@ -73018,8 +73158,8 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn as spawn3 } from "child_process";
-import { mkdirSync as mkdirSync3, existsSync as existsSync8 } from "fs";
-import { dirname as dirname4 } from "path";
+import { mkdirSync as mkdirSync4, existsSync as existsSync9 } from "fs";
+import { dirname as dirname5 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
     {
@@ -73093,8 +73233,8 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        if (!existsSync8(paths.user)) {
-          mkdirSync3(dirname4(paths.user), { recursive: true });
+        if (!existsSync9(paths.user)) {
+          mkdirSync4(dirname5(paths.user), { recursive: true });
           configInit(paths.user, true);
         }
         const editorEnv = process.env.EDITOR ?? "vi";
@@ -73551,9 +73691,9 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join4 } from "path";
-import { mkdirSync as mkdirSync4 } from "fs";
-import { homedir as homedir3 } from "os";
+import { join as join5 } from "path";
+import { mkdirSync as mkdirSync5 } from "fs";
+import { homedir as homedir4 } from "os";
 function getDatabase() {
   if (!_Database) {
     _Database = __require("better-sqlite3");
@@ -73561,10 +73701,10 @@ function getDatabase() {
   return _Database;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config");
-  const dir = join4(configBase, "phone-a-friend");
-  mkdirSync4(dir, { recursive: true });
-  return join4(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config");
+  const dir = join5(configBase, "phone-a-friend");
+  mkdirSync5(dir, { recursive: true });
+  return join5(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -74031,7 +74171,7 @@ var init_queue = __esm({
 
 // src/agentic/session.ts
 import { spawn as spawn4 } from "child_process";
-import { randomUUID as randomUUID2 } from "crypto";
+import { randomUUID as randomUUID3 } from "crypto";
 var NESTED_SESSION_VARS2, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
@@ -74043,7 +74183,7 @@ var init_session = __esm({
        * Spawn a new agent session. Returns the agent's first response.
        */
       async spawn(agent, systemPrompt, initialPrompt, repoPath) {
-        const sessionId = randomUUID2();
+        const sessionId = randomUUID3();
         switch (agent.backend) {
           case "claude": {
             const output = await this.spawnClaude(
@@ -74523,7 +74663,7 @@ var init_names = __esm({
 });
 
 // src/agentic/orchestrator.ts
-import { randomUUID as randomUUID3 } from "crypto";
+import { randomUUID as randomUUID4 } from "crypto";
 var Orchestrator;
 var init_orchestrator = __esm({
   "src/agentic/orchestrator.ts"() {
@@ -74565,7 +74705,7 @@ var init_orchestrator = __esm({
         if (this.runLoopPromise) {
           throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
         }
-        this.sessionId = randomUUID3().slice(0, 7);
+        this.sessionId = randomUUID4().slice(0, 7);
         this.turn = 0;
         this.startTime = Date.now();
         this.stopped = false;
@@ -75280,18 +75420,18 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join5, extname, resolve as resolve4, relative, sep } from "path";
+import { join as join6, extname, resolve as resolve4, relative, sep } from "path";
 import { readFile } from "fs/promises";
-import { existsSync as existsSync9 } from "fs";
+import { existsSync as existsSync10 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function resolvePublicDir() {
   const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
-  const distPath = join5(thisDir, "public");
-  if (existsSync9(distPath)) return distPath;
-  const devPath = join5(thisDir, "..", "..", "src", "web", "public");
-  if (existsSync9(devPath)) return devPath;
-  const cwdPath = join5(process.cwd(), "src", "web", "public");
-  if (existsSync9(cwdPath)) return cwdPath;
+  const distPath = join6(thisDir, "public");
+  if (existsSync10(distPath)) return distPath;
+  const devPath = join6(thisDir, "..", "..", "src", "web", "public");
+  if (existsSync10(devPath)) return devPath;
+  const cwdPath = join6(process.cwd(), "src", "web", "public");
+  if (existsSync10(cwdPath)) return cwdPath;
   return distPath;
 }
 async function startDashboard(opts = {}) {
@@ -75306,7 +75446,7 @@ async function startDashboard(opts = {}) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path2 === "/" ? join5(publicDir, "index.html") : join5(publicDir, path2);
+    const filePath = path2 === "/" ? join6(publicDir, "index.html") : join6(publicDir, path2);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep)) {
@@ -75323,7 +75463,7 @@ async function startDashboard(opts = {}) {
     } catch {
       if (!extname(path2)) {
         try {
-          const index = await readFile(join5(publicDir, "index.html"));
+          const index = await readFile(join6(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(index);
         } catch {
@@ -75391,7 +75531,6 @@ var init_web = __esm({
 
 // src/backends/codex.ts
 init_backends();
-import { execFileSync as execFileSync2 } from "child_process";
 import { mkdtempSync, readFileSync, existsSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -75434,25 +75573,17 @@ var CodexBackend = class {
       args.push(opts.prompt);
       let stdout = "";
       try {
-        const result = execFileSync2("codex", args, {
-          timeout: opts.timeoutSeconds * 1e3,
+        const result = await spawnCli("codex", args, {
+          timeoutMs: opts.timeoutSeconds * 1e3,
           env: opts.env,
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"]
+          label: "codex exec"
         });
-        stdout = result.trim();
+        stdout = result.stdout;
       } catch (err) {
-        const execErr = err;
-        if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
-          throw new CodexBackendError(
-            `codex exec timed out after ${opts.timeoutSeconds}s`
-          );
+        if (err instanceof BackendError) {
+          throw new CodexBackendError(err.message);
         }
-        const lastMessage2 = readOutputFile(outputPath);
-        const stderr = execErr.stderr?.toString().trim() ?? "";
-        const stdoutStr = execErr.stdout?.toString().trim() ?? "";
-        const detail = stderr || stdoutStr || lastMessage2 || `codex exec exited with code ${execErr.status ?? 1}`;
-        throw new CodexBackendError(detail);
+        throw err;
       }
       const lastMessage = readOutputFile(outputPath);
       if (lastMessage) {
@@ -75498,25 +75629,17 @@ var CodexBackend = class {
       }
       let stdout = "";
       try {
-        const result = execFileSync2("codex", args, {
-          timeout: opts.timeoutSeconds * 1e3,
+        const result = await spawnCli("codex", args, {
+          timeoutMs: opts.timeoutSeconds * 1e3,
           env: opts.env,
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"]
+          label: "codex exec review"
         });
-        stdout = result.trim();
+        stdout = result.stdout;
       } catch (err) {
-        const execErr = err;
-        if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
-          throw new CodexBackendError(
-            `codex exec review timed out after ${opts.timeoutSeconds}s`
-          );
+        if (err instanceof BackendError) {
+          throw new CodexBackendError(err.message);
         }
-        const lastMessage2 = readOutputFile(outputPath);
-        const stderr = execErr.stderr?.toString().trim() ?? "";
-        const stdoutStr = execErr.stdout?.toString().trim() ?? "";
-        const detail = stderr || stdoutStr || lastMessage2 || `codex exec review exited with code ${execErr.status ?? 1}`;
-        throw new CodexBackendError(detail);
+        throw err;
       }
       const lastMessage = readOutputFile(outputPath);
       if (lastMessage) {
@@ -75551,7 +75674,6 @@ registerBackend(CODEX_BACKEND);
 
 // src/backends/gemini.ts
 init_backends();
-import { execFileSync as execFileSync3 } from "child_process";
 var GeminiBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -75584,30 +75706,22 @@ var GeminiBackend = class {
     }
     args.push("--prompt", opts.prompt);
     try {
-      const result = execFileSync3("gemini", args, {
-        timeout: opts.timeoutSeconds * 1e3,
+      const result = await spawnCli("gemini", args, {
+        timeoutMs: opts.timeoutSeconds * 1e3,
         env: opts.env,
-        encoding: "utf-8",
         cwd: opts.repoPath,
-        stdio: ["pipe", "pipe", "pipe"]
+        label: "gemini"
       });
-      const output = result.trim();
-      if (output) {
-        return output;
+      if (!result.stdout) {
+        throw new GeminiBackendError("gemini completed without producing output");
       }
-      throw new GeminiBackendError("gemini completed without producing output");
+      return result.stdout;
     } catch (err) {
       if (err instanceof GeminiBackendError) throw err;
-      const execErr = err;
-      if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
-        throw new GeminiBackendError(
-          `gemini timed out after ${opts.timeoutSeconds}s`
-        );
+      if (err instanceof BackendError) {
+        throw new GeminiBackendError(err.message);
       }
-      const stderr = execErr.stderr?.toString().trim() ?? "";
-      const stdout = execErr.stdout?.toString().trim() ?? "";
-      const detail = stderr || stdout || `gemini exited with code ${execErr.status ?? 1}`;
-      throw new GeminiBackendError(detail);
+      throw err;
     }
   }
 };
@@ -75890,7 +76004,7 @@ registerBackend(OLLAMA_BACKEND);
 
 // src/backends/claude.ts
 init_backends();
-import { execFileSync as execFileSync4, spawn } from "child_process";
+import { spawn } from "child_process";
 var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
 var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
 var NESTED_SESSION_VARS = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
@@ -75961,30 +76075,23 @@ var ClaudeBackend = class {
       outputFormat: "text"
     });
     try {
-      const result = execFileSync4("claude", args, {
-        timeout: opts.timeoutSeconds * 1e3,
+      const result = await spawnCli("claude", args, {
+        timeoutMs: opts.timeoutSeconds * 1e3,
         env: this.cleanEnv(opts.env),
-        encoding: "utf-8",
         cwd: opts.repoPath,
-        stdio: ["pipe", "pipe", "pipe"]
+        label: "claude"
       });
-      const output = result.trim();
-      if (output) {
-        return output;
+      if (result.stdout) {
+        return result.stdout;
       }
       throw new ClaudeBackendError("claude completed without producing output");
     } catch (err) {
       if (err instanceof ClaudeBackendError) throw err;
-      const execErr = err;
-      if (execErr.killed || execErr.signal === "SIGTERM" || execErr.code === "ETIMEDOUT") {
-        throw new ClaudeBackendError(
-          `claude timed out after ${opts.timeoutSeconds}s`
-        );
+      if (err instanceof BackendError) {
+        throw new ClaudeBackendError(err.message);
       }
-      const stderr = execErr.stderr?.toString().trim() ?? "";
-      const stdout = execErr.stdout?.toString().trim() ?? "";
-      const detail = stderr || stdout || `claude exited with code ${execErr.status ?? 1}`;
-      throw new ClaudeBackendError(detail);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ClaudeBackendError(msg);
     }
   }
   async *runStream(opts) {
@@ -76062,7 +76169,7 @@ var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
 // src/cli.ts
-import { existsSync as existsSync10 } from "fs";
+import { existsSync as existsSync11 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -78865,7 +78972,7 @@ init_version();
 function repoRootDefault() {
   return getPackageRoot();
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-v", "-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -78880,6 +78987,13 @@ function normalizeArgv(argv) {
     return ["relay", ...argv];
   }
   return argv;
+}
+function timeSince(isoDate) {
+  const seconds = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1e3);
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 function printBackendAvailability() {
   console.log("\nBackend availability:");
@@ -78956,7 +79070,7 @@ async function run(argv) {
   let exitCode = 0;
   if (normalized.length === 0) {
     const paths = configPaths();
-    const isFirstRun = !existsSync10(paths.user);
+    const isFirstRun = !existsSync11(paths.user);
     const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
     if (isTTY && isFirstRun) {
       const { select } = await Promise.resolve().then(() => (init_dist17(), dist_exports));
@@ -79054,7 +79168,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--background", "Run in background, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     const streamExplicit = command.getOptionValueSource("stream") === "cli";
     const resolved = resolveConfig({
@@ -79104,6 +79218,24 @@ ${banner("AI coding agent relay")}
       model: resolved.model ?? null,
       sandbox: resolved.sandbox
     };
+    if (opts.background) {
+      const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
+      const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+      const manager = new JobManager2();
+      const { job, promise } = relayBackground2({ ...relayOpts, jobManager: manager });
+      console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
+      console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
+      console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
+      await promise;
+      const completed = manager.get(job.id);
+      if (completed?.status === "completed") {
+        console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);
+      } else {
+        console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
+        exitCode = 1;
+      }
+      return;
+    }
     if (resolved.stream) {
       const spinner = ora({
         text: `Relaying to ${theme.bold(backendName)}...`,
@@ -79190,7 +79322,7 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync10(paths.user)) {
+    if (!existsSync11(paths.user)) {
       configInit(paths.user, true);
     }
     const parts = editorEnv.split(/\s+/);
@@ -79198,7 +79330,7 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync10(paths.user)) {
+    if (!existsSync11(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);
@@ -79363,6 +79495,72 @@ ${banner("AI coding agent relay")}
       console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
       exitCode = 1;
     }
+  });
+  const jobCmd = program2.command("job").description("Manage background jobs");
+  jobCmd.command("status").description("List background jobs").option("--json", "Output as JSON", false).action(async (opts) => {
+    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+    const manager = new JobManager2();
+    const jobs = manager.list();
+    if (opts.json) {
+      console.log(JSON.stringify(jobs, null, 2));
+      return;
+    }
+    if (jobs.length === 0) {
+      console.log(`
+  ${theme.hint("No background jobs.")}
+`);
+      return;
+    }
+    console.log(`
+  ${theme.heading("Background Jobs")}
+`);
+    for (const job of [...jobs].reverse()) {
+      const icon = job.status === "completed" ? theme.success("done") : job.status === "running" ? theme.info("running") : job.status === "failed" ? theme.error("failed") : job.status === "cancelled" ? theme.warning("cancelled") : theme.hint("pending");
+      const age = timeSince(job.createdAt);
+      console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
+      console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? "..." : ""}`);
+    }
+    console.log("");
+  });
+  jobCmd.command("result <id>").description("Show result of a completed job").action(async (id) => {
+    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+    const manager = new JobManager2();
+    const job = manager.get(id);
+    if (!job) {
+      console.error(`  ${theme.crossmark} Job ${id} not found`);
+      exitCode = 1;
+      return;
+    }
+    if (job.status === "completed" && job.result) {
+      process.stdout.write(job.result + "\n");
+    } else if (job.status === "failed") {
+      console.error(`  ${theme.crossmark} Job failed: ${job.error ?? "unknown error"}`);
+      exitCode = 1;
+    } else {
+      console.log(`  ${theme.hint(`Job ${id} is ${job.status}. No result yet.`)}`);
+    }
+  });
+  jobCmd.command("cancel <id>").description("Cancel a running job").action(async (id) => {
+    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+    const manager = new JobManager2();
+    const job = manager.get(id);
+    if (!job) {
+      console.error(`  ${theme.crossmark} Job ${id} not found`);
+      exitCode = 1;
+      return;
+    }
+    if (job.status !== "running" && job.status !== "pending") {
+      console.log(`  ${theme.hint(`Job ${id} is already ${job.status}.`)}`);
+      return;
+    }
+    if (job.pid) {
+      try {
+        process.kill(job.pid, "SIGTERM");
+      } catch {
+      }
+    }
+    manager.update(id, { status: "cancelled" });
+    console.log(`  ${theme.success("\u2713")} Cancelled job ${theme.bold(id)}`);
   });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")
