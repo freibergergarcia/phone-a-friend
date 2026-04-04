@@ -75830,14 +75830,11 @@ var CodexBackend = class {
       const args = [
         "exec",
         "review",
-        "-C",
-        opts.repoPath,
         "--base",
         opts.base,
-        "--sandbox",
-        opts.sandbox,
         "--output-last-message",
-        outputPath
+        outputPath,
+        "--skip-git-repo-check"
       ];
       if (opts.model) {
         args.push("-m", opts.model);
@@ -75850,6 +75847,7 @@ var CodexBackend = class {
         const result = await spawnCli("codex", args, {
           timeoutMs: opts.timeoutSeconds * 1e3,
           env: opts.env,
+          cwd: opts.repoPath,
           label: "codex exec review"
         });
         stdout = result.stdout;

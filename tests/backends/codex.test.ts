@@ -395,13 +395,16 @@ describe('CodexBackend', () => {
       const args = codexCall![1] as string[];
       expect(args[0]).toBe('exec');
       expect(args[1]).toBe('review');
-      expect(args).toContain('-C');
-      expect(args).toContain('/tmp/repo');
+      // codex exec review does not accept -C or --sandbox; uses cwd instead
+      expect(args).not.toContain('-C');
+      expect(args).not.toContain('--sandbox');
       expect(args).toContain('--base');
       expect(args[args.indexOf('--base') + 1]).toBe('main');
-      expect(args).toContain('--sandbox');
-      expect(args).toContain('read-only');
       expect(args).toContain('--output-last-message');
+      expect(args).toContain('--skip-git-repo-check');
+      // cwd should be set to repoPath
+      const spawnOpts = codexCall![2] as Record<string, unknown>;
+      expect(spawnOpts.cwd).toBe('/tmp/repo');
     });
 
     it('passes custom prompt as positional arg', async () => {

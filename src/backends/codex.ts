@@ -121,17 +121,15 @@ export class CodexBackend implements Backend {
     const outputPath = join(tmpDir, 'codex-last-message.txt');
 
     try {
+      // codex exec review does not accept -C or --sandbox; use cwd instead
       const args = [
         'exec',
         'review',
-        '-C',
-        opts.repoPath,
         '--base',
         opts.base,
-        '--sandbox',
-        opts.sandbox,
         '--output-last-message',
         outputPath,
+        '--skip-git-repo-check',
       ];
 
       if (opts.model) {
@@ -147,6 +145,7 @@ export class CodexBackend implements Backend {
         const result = await spawnCli('codex', args, {
           timeoutMs: opts.timeoutSeconds * 1000,
           env: opts.env,
+          cwd: opts.repoPath,
           label: 'codex exec review',
         });
         stdout = result.stdout;
