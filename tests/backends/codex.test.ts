@@ -407,7 +407,7 @@ describe('CodexBackend', () => {
       expect(spawnOpts.cwd).toBe('/tmp/repo');
     });
 
-    it('passes custom prompt as positional arg', async () => {
+    it('drops custom prompt when --base is present (mutually exclusive in codex exec review)', async () => {
       mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
         return '';
@@ -432,7 +432,9 @@ describe('CodexBackend', () => {
         (c: unknown[]) => c[0] === 'codex',
       );
       const args = codexCall![1] as string[];
-      expect(args[args.length - 1]).toBe('Focus on security issues');
+      // Prompt is dropped because --base and [PROMPT] are mutually exclusive
+      expect(args).not.toContain('Focus on security issues');
+      expect(args).toContain('--base');
     });
 
     it('passes -m when model is set', async () => {

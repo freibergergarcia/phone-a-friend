@@ -75839,7 +75839,7 @@ var CodexBackend = class {
       if (opts.model) {
         args.push("-m", opts.model);
       }
-      if (opts.prompt) {
+      if (opts.prompt && !opts.base) {
         args.push(opts.prompt);
       }
       let stdout = "";

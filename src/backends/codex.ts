@@ -136,7 +136,10 @@ export class CodexBackend implements Backend {
         args.push('-m', opts.model);
       }
 
-      if (opts.prompt) {
+      // codex exec review: --base and positional [PROMPT] are mutually exclusive.
+      // When --base is used, omit the custom prompt (review uses the diff as context).
+      // Custom prompts with --base fall through to the generic run() path in relay.ts.
+      if (opts.prompt && !opts.base) {
         args.push(opts.prompt);
       }
 
