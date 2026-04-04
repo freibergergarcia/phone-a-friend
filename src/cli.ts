@@ -335,7 +335,7 @@ export async function run(argv: string[]): Promise<number> {
   program
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
-    .requiredOption('--prompt <text>', 'Prompt to relay')
+    .option('--prompt <text>', 'Prompt to relay (required unless --review or --base is used)')
     .option('--to <backend>', 'Target backend: codex, gemini, ollama, claude')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
@@ -352,6 +352,12 @@ export async function run(argv: string[]): Promise<number> {
     .action(async (opts, command) => {
       // --base without --review implies review mode
       const isReview = opts.review || opts.base !== undefined;
+
+      if (!opts.prompt && !isReview) {
+        console.error(`  ${theme.crossmark} ${theme.error('--prompt is required (unless using --review or --base)')}`);
+        exitCode = 1;
+        return;
+      }
 
       // Only pass stream to config resolution when user explicitly passed --stream or --no-stream.
       // Commander sets opts.stream to true (default or --stream) or false (--no-stream),
