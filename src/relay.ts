@@ -517,8 +517,11 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env = nextRelayEnv();
 
-  // If backend supports review(), use it directly
-  if (typeof selectedBackend.review === 'function') {
+  // If backend supports review(), use it directly.
+  // Skip native review when a custom prompt is provided — Codex exec review
+  // cannot combine --base with a positional prompt, so the generic run() path
+  // (which includes the prompt alongside the diff) gives better results.
+  if (typeof selectedBackend.review === 'function' && !prompt) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,

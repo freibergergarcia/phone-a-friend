@@ -5125,7 +5125,7 @@ async function reviewRelay(opts) {
   }
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env3 = nextRelayEnv();
-  if (typeof selectedBackend.review === "function") {
+  if (typeof selectedBackend.review === "function" && !prompt) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,

@@ -617,7 +617,7 @@ describe('reviewRelay', () => {
     try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
   });
 
-  it('calls backend.review() when available', async () => {
+  it('calls backend.review() when available and no custom prompt', async () => {
     const backend = makeMockBackendWithReview('codex');
     registerBackend(backend);
 
@@ -625,7 +625,6 @@ describe('reviewRelay', () => {
       repoPath: repo,
       backend: 'codex',
       base: 'main',
-      prompt: 'Check for bugs',
     });
 
     expect(result).toBe('mock review feedback');
@@ -634,8 +633,33 @@ describe('reviewRelay', () => {
 
     const callArgs = backend.review.mock.calls[0][0] as ReviewOptions;
     expect(callArgs.base).toBe('main');
-    expect(callArgs.prompt).toBe('Check for bugs');
     expect(callArgs.repoPath).toBe(repo);
+  });
+
+  it('skips backend.review() and uses run() when custom prompt is provided', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) {
+        return 'diff --git a/file.ts b/file.ts';
+      }
+      return '';
+    });
+
+    const result = await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      prompt: 'Check for bugs',
+    });
+
+    expect(result).toBe('mock feedback');
+    expect(backend.review).not.toHaveBeenCalled();
+    expect(backend.run).toHaveBeenCalledOnce();
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('Check for bugs');
+    expect(callArgs.prompt).toContain('Git Diff:');
   });
 
   it('falls back to run() with diff when review() is not available', async () => {
