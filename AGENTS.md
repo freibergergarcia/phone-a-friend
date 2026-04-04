@@ -24,6 +24,7 @@ src/
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
+  sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   backends/
     index.ts         Backend interface, registry, types, spawnCli() async subprocess utility
     claude.ts        Claude CLI subprocess backend (`claude -p`)
@@ -73,7 +74,8 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
