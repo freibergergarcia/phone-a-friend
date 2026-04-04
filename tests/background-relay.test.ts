@@ -81,24 +81,7 @@ describe('relayBackground()', () => {
     // Job should be running before relay resolves
     const running = manager.get(job.id);
     expect(running?.status).toBe('running');
-    expect(running?.pid).toBe(process.pid);
 
     resolveRelay('done');
-  });
-
-  it('records pid on the running job', async () => {
-    mockRun.mockResolvedValue('ok');
-    const manager = new JobManager(join(tmpDir, 'jobs.json'));
-    const { job, promise } = relayBackground({
-      prompt: 'Review',
-      repoPath: tmpDir,
-      jobManager: manager,
-    });
-
-    // Before completion, pid should be set
-    const running = manager.get(job.id);
-    expect(running?.pid).toBe(process.pid);
-
-    await promise;
   });
 });

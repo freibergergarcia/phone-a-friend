@@ -348,7 +348,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
-    .option('--background', 'Run in background, save result to job store')
+    .option('--quiet', 'Run silently, save result to job store')
     .action(async (opts, command) => {
       // --base without --review implies review mode
       const isReview = opts.review || opts.base !== undefined;
@@ -411,7 +411,7 @@ export async function run(argv: string[]): Promise<number> {
         sandbox: resolved.sandbox as SandboxMode,
       };
 
-      if (opts.background) {
+      if (opts.quiet) {
         const { relayBackground } = await import('./relay.js');
         const { JobManager } = await import('./jobs.js');
         const manager = new JobManager();

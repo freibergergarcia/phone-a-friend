@@ -432,7 +432,7 @@ export function relayBackground(opts: BackgroundRelayOptions): { job: Job; promi
     sandbox: opts.sandbox,
   });
 
-  manager.update(job.id, { status: 'running', pid: process.pid });
+  manager.update(job.id, { status: 'running' });
 
   const promise = relay(opts)
     .then((result) => { manager.update(job.id, { status: 'completed', result }); })

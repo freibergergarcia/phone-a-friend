@@ -174,6 +174,12 @@ export function spawnCli(
     child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      process.removeListener('SIGINT', onSigint);
+      reject(new BackendError(`${label} failed to start: ${err.message}`));
+    });
+
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       process.removeListener('SIGINT', onSigint);

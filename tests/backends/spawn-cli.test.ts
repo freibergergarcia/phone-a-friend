@@ -134,4 +134,19 @@ describe('spawnCli()', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
     }));
   });
+
+  it('rejects with BackendError when spawn emits error (e.g. ENOENT)', async () => {
+    const child = new EventEmitter() as ChildProcess;
+    (child as any).stdout = new PassThrough();
+    (child as any).stderr = new PassThrough();
+    (child as any).killed = false;
+    (child as any).kill = vi.fn();
+    mockSpawn.mockReturnValue(child);
+    process.nextTick(() => child.emit('error', new Error('spawn ENOENT')));
+
+    const err = await spawnCli('missing', [], { timeoutMs: 5000 }).catch((e) => e);
+    expect(err).toBeInstanceOf(BackendError);
+    expect(err.message).toContain('failed to start');
+    expect(err.message).toContain('ENOENT');
+  });
 });

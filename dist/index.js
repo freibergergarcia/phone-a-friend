@@ -90,6 +90,11 @@ function spawnCli(command, args, opts) {
     const stderrChunks = [];
     child.stdout?.on("data", (chunk) => stdoutChunks.push(chunk));
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      reject(new BackendError(`${label} failed to start: ${err.message}`));
+    });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       process.removeListener("SIGINT", onSigint);
@@ -4973,7 +4978,7 @@ function relayBackground(opts) {
     model: opts.model ?? void 0,
     sandbox: opts.sandbox
   });
-  manager.update(job.id, { status: "running", pid: process.pid });
+  manager.update(job.id, { status: "running" });
   const promise = relay(opts).then((result) => {
     manager.update(job.id, { status: "completed", result });
   }).catch((err) => {
@@ -75580,6 +75585,8 @@ var CodexBackend = class {
         });
         stdout = result.stdout;
       } catch (err) {
+        const lastMessage2 = readOutputFile(outputPath);
+        if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -75636,6 +75643,8 @@ var CodexBackend = class {
         });
         stdout = result.stdout;
       } catch (err) {
+        const lastMessage2 = readOutputFile(outputPath);
+        if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -79168,7 +79177,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--background", "Run in background, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").requiredOption("--prompt <text>", "Prompt to relay").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     const streamExplicit = command.getOptionValueSource("stream") === "cli";
     const resolved = resolveConfig({
@@ -79218,7 +79227,7 @@ ${banner("AI coding agent relay")}
       model: resolved.model ?? null,
       sandbox: resolved.sandbox
     };
-    if (opts.background) {
+    if (opts.quiet) {
       const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
       const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
       const manager = new JobManager2();

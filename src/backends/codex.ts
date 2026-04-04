@@ -78,6 +78,10 @@ export class CodexBackend implements Backend {
         });
         stdout = result.stdout;
       } catch (err: unknown) {
+        // On failure, check if codex wrote a useful last-message before dying
+        const lastMessage = readOutputFile(outputPath);
+        if (lastMessage) return lastMessage;
+
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -147,6 +151,10 @@ export class CodexBackend implements Backend {
         });
         stdout = result.stdout;
       } catch (err: unknown) {
+        // On failure, check if codex wrote a useful last-message before dying
+        const lastMessage = readOutputFile(outputPath);
+        if (lastMessage) return lastMessage;
+
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
