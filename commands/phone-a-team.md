@@ -231,10 +231,10 @@ command:
 - `OLLAMA_SELECTED_MODEL` = string (set during Step 2 preflight if Ollama
   is a requested backend; used in all Ollama relay calls)
 - `SESSION_IDS` = map of backend name to session ID (binary mode only).
-  Generated as `paf-team-<backend>-<task-slug>` (e.g.,
-  `paf-team-codex-review-auth`, `paf-team-gemini-review-auth`). One
-  session ID per backend. Used in all relay calls so the backend remembers
-  previous rounds.
+  Generated as `paf-team-<backend>-<task-slug>-<4-char-random>` (e.g.,
+  `paf-team-codex-review-auth-b7e1`). The random suffix prevents
+  collisions across runs and repos. One session ID per backend. Used in
+  all relay calls so the backend remembers previous rounds.
 
 ### Algorithm
 
@@ -511,12 +511,18 @@ codebase. Read at most 2-3 files for preflight context. The backend has
 not to become an expert on the codebase before delegating.
 
 **Per-round relay rules (binary mode with `--session`)**:
-When `--session` is active, the backend remembers previous rounds. Each
-relay call only needs to send:
+When `--session` is active, session-capable backends (Claude, Codex)
+remember previous rounds natively. Each relay call only needs to send:
   - The specific feedback or revision request for this round
   - Any new context (e.g., updated diff after changes)
 Do NOT re-send the full task description, prior outputs, or summaries.
 The backend already has them in its session history.
+
+**Exception: Gemini and Ollama with `--session`**: Gemini may not resume
+natively (best-effort). Ollama replays full history each call (prompt size
+grows per turn). For these backends, always include enough context for the
+backend to answer independently, even in follow-up rounds. Include a brief
+task recap + the latest output alongside the feedback.
 
 **Per-round relay rules (direct mode, no session)**:
 - Each relay call sends ONLY:

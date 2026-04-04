@@ -137,7 +137,9 @@ same conversation (e.g., user asked for a review, saw the feedback, and now
 wants the same backend to apply fixes or dig deeper), reuse the session:
 
 1. On the **first** relay in a conversation, generate a session ID:
-   `paf-<backend>-<short-slug>` (e.g., `paf-codex-auth-review`).
+   `paf-<backend>-<short-slug>-<4-char-random>` (e.g.,
+   `paf-codex-auth-review-a3f2`). The random suffix prevents collisions
+   across repos and conversations.
 2. Add `--session <id>` to the relay command.
 3. On **subsequent** relays to the **same backend** in the same
    conversation, reuse the same session ID. The backend remembers previous
@@ -148,6 +150,15 @@ wants the same backend to apply fixes or dig deeper), reuse the session:
 
 Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
+
+**Backend-specific behavior:**
+- **Claude, Codex**: native session resume. Follow-up prompts can send
+  deltas only.
+- **Ollama**: replays full history each call. Sessions work but prompt size
+  grows with each turn. Keep follow-ups concise.
+- **Gemini**: session resume is best-effort (may start fresh). Always
+  include enough context for Gemini to answer independently, even in
+  follow-up calls.
 
 **Omit `--session`** for one-off relays where no follow-up is expected.
 This is the common case. Only add `--session` when the user explicitly
