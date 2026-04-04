@@ -4995,7 +4995,8 @@ async function relay(opts) {
     if (session && !storedSession && selectedBackend.name === "claude") {
       backendSessionId = randomUUID2();
     }
-    if (session && storedSession && !backendSessionId && selectedBackend.name !== "ollama") {
+    const requiresNativeSession = selectedBackend.name === "claude" || selectedBackend.name === "codex";
+    if (session && storedSession && !backendSessionId && requiresNativeSession) {
       throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
     }
     let createdSessionId = backendSessionId;
@@ -75879,7 +75880,9 @@ var CodexBackend = class {
 function buildCodexExecArgs(opts) {
   const isResume = opts.resumeSession && opts.sessionId;
   const args = isResume ? ["exec", "resume", opts.sessionId] : ["exec"];
-  if (!isResume) {
+  if (isResume) {
+    args.push("-o", opts.outputPath);
+  } else {
     args.push(
       "-C",
       opts.repoPath,
@@ -79572,7 +79575,9 @@ ${banner("AI coding agent relay")}
           prompt: opts.prompt,
           timeoutSeconds: resolved.timeout,
           model: resolved.model ?? null,
-          sandbox: resolved.sandbox
+          sandbox: resolved.sandbox,
+          schema: opts.schema ?? null,
+          fast: Boolean(opts.fast)
         });
         spinner.succeed(`${theme.bold(backendName)} reviewed`);
         process.stdout.write(feedback + "\n");

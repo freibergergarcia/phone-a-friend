@@ -351,7 +351,12 @@ export async function relay(opts: RelayOptions): Promise<string> {
       backendSessionId = randomUUID();
     }
 
-    if (session && storedSession && !backendSessionId && selectedBackend.name !== 'ollama') {
+    // Only require native session ID for backends with verified resume support.
+    // Claude and Codex have confirmed resume commands; Gemini session ID
+    // extraction is best-effort (field names unverified), so we treat it
+    // like Ollama: sessions work via history replay if no native ID is found.
+    const requiresNativeSession = selectedBackend.name === 'claude' || selectedBackend.name === 'codex';
+    if (session && storedSession && !backendSessionId && requiresNativeSession) {
       throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
     }
 
@@ -417,6 +422,14 @@ function persistRelaySession(
   });
 }
 
+/**
+ * Streaming relay. Session options are forwarded to the backend for resume
+ * support, but session lifecycle (validation, UUID generation, history
+ * persistence) is not implemented here. The CLI disables streaming when
+ * --session is active, so this gap only affects programmatic callers.
+ * Full session support in streaming mode would require buffering the
+ * complete response to persist history, which defeats the streaming purpose.
+ */
 export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
   const {
     selectedBackend,

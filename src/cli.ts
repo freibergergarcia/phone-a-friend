@@ -398,6 +398,8 @@ export async function run(argv: string[]): Promise<number> {
             timeoutSeconds: resolved.timeout,
             model: resolved.model ?? null,
             sandbox: resolved.sandbox as SandboxMode,
+            schema: opts.schema ?? null,
+            fast: Boolean(opts.fast),
           });
           spinner.succeed(`${theme.bold(backendName)} reviewed`);
           process.stdout.write(feedback + '\n');

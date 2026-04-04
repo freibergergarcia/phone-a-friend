@@ -211,7 +211,9 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
 
   // codex exec resume only accepts: --skip-git-repo-check, --ephemeral, --json, -o, -m
   // Full exec accepts: -C, --sandbox, --output-last-message, and all the above
-  if (!isResume) {
+  if (isResume) {
+    args.push('-o', opts.outputPath);
+  } else {
     args.push(
       '-C',
       opts.repoPath,
