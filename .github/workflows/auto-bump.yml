@@ -24,28 +24,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha="${{ github.sha }}"
-          pr_json=$(gh pr list --state merged --search "$sha" --json number,labels --limit 1)
-          if [ "$pr_json" = "[]" ]; then
+
+          # Find the PR that produced this merge commit using the commits API.
+          # gh pr list --search does text search which misses merge commits.
+          pr_number=$(gh api "repos/${{ github.repository }}/commits/${sha}/pulls" \
+            --jq '.[0].number // empty' 2>/dev/null || true)
+
+          if [ -z "$pr_number" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "No merged PR found for $sha — skipping."
             exit 0
           fi
 
-          label=$(echo "$pr_json" | node -e "
-            const pr = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'))[0];
-            const found = (pr.labels || []).map(l => l.name).filter(l => ['patch','minor','major'].includes(l));
-            console.log(found[0] || '');
-          ")
+          echo "Found PR #$pr_number for commit $sha"
+
+          label=$(gh pr view "$pr_number" --json labels --jq '
+            [.labels[].name] | map(select(. == "patch" or . == "minor" or . == "major")) | .[0] // empty
+          ')
 
           if [ -z "$label" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No version label found — skipping."
+            echo "No version label found on PR #$pr_number — skipping."
             exit 0
           fi
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "label=$label" >> "$GITHUB_OUTPUT"
-          echo "Found label: $label"
+          echo "Found label: $label (PR #$pr_number)"
 
       - uses: actions/setup-node@v6
         if: steps.pr.outputs.skip != 'true'
