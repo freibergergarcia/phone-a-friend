@@ -230,9 +230,10 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
     args.push('--ephemeral');
   }
 
-  if (opts.schemaPath) {
+  // exec resume does not accept --output-schema; only --json is allowed
+  if (opts.schemaPath && !isResume) {
     args.push('--output-schema', opts.schemaPath, '--json');
-  } else if (opts.persistSession) {
+  } else if (opts.persistSession || isResume) {
     args.push('--json');
   }
 

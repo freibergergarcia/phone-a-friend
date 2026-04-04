@@ -75896,9 +75896,9 @@ function buildCodexExecArgs(opts) {
   if (!isResume && !opts.persistSession) {
     args.push("--ephemeral");
   }
-  if (opts.schemaPath) {
+  if (opts.schemaPath && !isResume) {
     args.push("--output-schema", opts.schemaPath, "--json");
-  } else if (opts.persistSession) {
+  } else if (opts.persistSession || isResume) {
     args.push("--json");
   }
   if (opts.model) {
@@ -79610,7 +79610,10 @@ ${banner("AI coding agent relay")}
       console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
       console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
       console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
-      await promise;
+      try {
+        await promise;
+      } catch {
+      }
       const completed = manager.get(job.id);
       if (completed?.status === "completed") {
         console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);

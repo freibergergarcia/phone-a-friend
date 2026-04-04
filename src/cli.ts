@@ -435,7 +435,11 @@ export async function run(argv: string[]): Promise<number> {
         console.log(`  ${theme.success('\u2713')} ${theme.bold('Job started')} ${theme.info(job.id)}`);
         console.log(`  ${theme.hint('Check status:')} phone-a-friend job status`);
         console.log(`  ${theme.hint('Get result:')}  phone-a-friend job result ${job.id}`);
-        await promise;
+        try {
+          await promise;
+        } catch {
+          // Error already recorded in job store by relayBackground()
+        }
         const completed = manager.get(job.id);
         if (completed?.status === 'completed') {
           console.log(`  ${theme.success('\u2713')} ${theme.bold('Done')} ${theme.info(job.id)}`);
