@@ -1,17 +1,40 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import type { SandboxMode } from '../../src/backends/index.js';
 
 // vi.hoisted runs before vi.mock hoisting
-const { mockExecFileSync } = vi.hoisted(() => ({
+const { mockExecFileSync, mockSpawn } = vi.hoisted(() => ({
   mockExecFileSync: vi.fn(),
+  mockSpawn: vi.fn(),
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, execFileSync: mockExecFileSync };
+  return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
 });
 
 import { GEMINI_BACKEND, GeminiBackendError } from '../../src/backends/gemini.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function fakeChild(exitCode = 0, stdout = '', stderr = '') {
+  const child = new EventEmitter();
+  (child as any).stdout = new PassThrough();
+  (child as any).stderr = new PassThrough();
+  (child as any).killed = false;
+  (child as any).kill = vi.fn();
+  process.nextTick(() => {
+    if (stdout) (child as any).stdout.write(stdout);
+    (child as any).stdout.end();
+    if (stderr) (child as any).stderr.write(stderr);
+    (child as any).stderr.end();
+    child.emit('close', exitCode, null);
+  });
+  return child;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -20,6 +43,7 @@ import { GEMINI_BACKEND, GeminiBackendError } from '../../src/backends/gemini.js
 describe('GeminiBackend', () => {
   beforeEach(() => {
     mockExecFileSync.mockReset();
+    mockSpawn.mockReset();
   });
 
   afterEach(() => {
@@ -34,15 +58,18 @@ describe('GeminiBackend', () => {
   });
 
   it('builds correct gemini CLI args and reads stdout', async () => {
-    let observedOpts: Record<string, unknown> = {};
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/gemini';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
 
-    mockExecFileSync.mockImplementation(
-      (cmd: string, args: string[], opts?: Record<string, unknown>) => {
-        if (cmd === 'which') return '/usr/local/bin/gemini';
-        observedOpts = opts ?? {};
-        return 'Gemini feedback';
-      },
-    );
+    let capturedArgs: string[] = [];
+    let capturedOpts: Record<string, unknown> = {};
+    mockSpawn.mockImplementation((cmd: string, args: string[], opts: Record<string, unknown>) => {
+      capturedArgs = args;
+      capturedOpts = opts;
+      return fakeChild(0, 'Gemini feedback');
+    });
 
     const result = await GEMINI_BACKEND.run({
       prompt: 'Review implementation.',
@@ -54,33 +81,32 @@ describe('GeminiBackend', () => {
     });
 
     expect(result).toBe('Gemini feedback');
-
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    expect(geminiCall).toBeDefined();
-    const args = geminiCall![1] as string[];
-
-    expect(args).toContain('--sandbox');
-    expect(args).toContain('--yolo');
-    expect(args).toContain('--include-directories');
-    expect(args).toContain('/tmp/repo');
-    expect(args).toContain('--output-format');
-    expect(args).toContain('text');
+    expect(capturedArgs).toContain('--sandbox');
+    expect(capturedArgs).toContain('--yolo');
+    expect(capturedArgs).toContain('--include-directories');
+    expect(capturedArgs).toContain('/tmp/repo');
+    expect(capturedArgs).toContain('--output-format');
+    expect(capturedArgs).toContain('text');
     // Prompt passed via --prompt flag
-    const promptIdx = args.indexOf('--prompt');
+    const promptIdx = capturedArgs.indexOf('--prompt');
     expect(promptIdx).toBeGreaterThan(-1);
-    expect(args[promptIdx + 1]).toBe('Review implementation.');
+    expect(capturedArgs[promptIdx + 1]).toBe('Review implementation.');
     // No exec subcommand (unlike codex)
-    expect(args).not.toContain('exec');
+    expect(capturedArgs).not.toContain('exec');
     // cwd should be set to repo path
-    expect(observedOpts.cwd).toBe('/tmp/repo');
+    expect(capturedOpts.cwd).toBe('/tmp/repo');
   });
 
   it('omits --sandbox for danger-full-access', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'ok';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    let capturedArgs: string[] = [];
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return fakeChild(0, 'ok');
     });
 
     await GEMINI_BACKEND.run({
@@ -92,19 +118,21 @@ describe('GeminiBackend', () => {
       env: {},
     });
 
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    const args = geminiCall![1] as string[];
-    expect(args).not.toContain('--sandbox');
+    expect(capturedArgs).not.toContain('--sandbox');
     // --yolo is always passed
-    expect(args).toContain('--yolo');
+    expect(capturedArgs).toContain('--yolo');
   });
 
   it('passes --sandbox for read-only', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'ok';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    let capturedArgs: string[] = [];
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return fakeChild(0, 'ok');
     });
 
     await GEMINI_BACKEND.run({
@@ -116,17 +144,19 @@ describe('GeminiBackend', () => {
       env: {},
     });
 
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    const args = geminiCall![1] as string[];
-    expect(args).toContain('--sandbox');
+    expect(capturedArgs).toContain('--sandbox');
   });
 
   it('passes --sandbox for workspace-write', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'ok';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    let capturedArgs: string[] = [];
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return fakeChild(0, 'ok');
     });
 
     await GEMINI_BACKEND.run({
@@ -138,17 +168,19 @@ describe('GeminiBackend', () => {
       env: {},
     });
 
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    const args = geminiCall![1] as string[];
-    expect(args).toContain('--sandbox');
+    expect(capturedArgs).toContain('--sandbox');
   });
 
   it('passes -m when model is provided', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'model feedback';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    let capturedArgs: string[] = [];
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return fakeChild(0, 'model feedback');
     });
 
     await GEMINI_BACKEND.run({
@@ -160,19 +192,21 @@ describe('GeminiBackend', () => {
       env: {},
     });
 
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    const args = geminiCall![1] as string[];
-    const modelIdx = args.indexOf('-m');
+    const modelIdx = capturedArgs.indexOf('-m');
     expect(modelIdx).toBeGreaterThan(-1);
-    expect(args[modelIdx + 1]).toBe('gemini-2.5-flash');
+    expect(capturedArgs[modelIdx + 1]).toBe('gemini-2.5-flash');
   });
 
   it('does not pass -m when model is null', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'ok';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    let capturedArgs: string[] = [];
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return fakeChild(0, 'ok');
     });
 
     await GEMINI_BACKEND.run({
@@ -184,11 +218,7 @@ describe('GeminiBackend', () => {
       env: {},
     });
 
-    const geminiCall = mockExecFileSync.mock.calls.find(
-      (c: unknown[]) => c[0] === 'gemini',
-    );
-    const args = geminiCall![1] as string[];
-    expect(args).not.toContain('-m');
+    expect(capturedArgs).not.toContain('-m');
   });
 
   it('throws GeminiBackendError when gemini not found in PATH', async () => {
@@ -212,22 +242,29 @@ describe('GeminiBackend', () => {
   it('throws on timeout', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      const err = new Error('TIMEOUT') as Error & {
-        killed: boolean;
-        signal: string;
-        code: string;
-      };
-      err.killed = true;
-      err.signal = 'SIGTERM';
-      err.code = 'ETIMEDOUT';
-      throw err;
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
+    });
+
+    mockSpawn.mockImplementation(() => {
+      const child = new EventEmitter();
+      (child as any).stdout = new PassThrough();
+      (child as any).stderr = new PassThrough();
+      (child as any).killed = false;
+      (child as any).kill = vi.fn(() => {
+        // Simulate SIGTERM kill — close with null code and SIGTERM signal
+        (child as any).stdout.end();
+        (child as any).stderr.end();
+        child.emit('close', null, 'SIGTERM');
+      });
+      // Don't emit close — let the timeout fire
+      return child;
     });
 
     await expect(
       GEMINI_BACKEND.run({
         prompt: 'x',
         repoPath: '/tmp/repo',
-        timeoutSeconds: 10,
+        timeoutSeconds: 0.01,
         sandbox: 'read-only' as SandboxMode,
         model: null,
         env: {},
@@ -238,16 +275,10 @@ describe('GeminiBackend', () => {
   it('throws on non-zero exit code with stderr', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      const err = new Error('command failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      err.status = 1;
-      err.stdout = Buffer.from('');
-      err.stderr = Buffer.from('something went wrong');
-      throw err;
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
+
+    mockSpawn.mockImplementation(() => fakeChild(1, '', 'something went wrong'));
 
     await expect(
       GEMINI_BACKEND.run({
@@ -264,8 +295,10 @@ describe('GeminiBackend', () => {
   it('throws when gemini produces no output', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return '';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
+
+    mockSpawn.mockImplementation(() => fakeChild(0, '', ''));
 
     await expect(
       GEMINI_BACKEND.run({
@@ -282,15 +315,15 @@ describe('GeminiBackend', () => {
   it('always passes --yolo flag', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
-      return 'ok';
+      throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
 
     // Test with both sandbox modes to confirm --yolo is always present
     for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
-      mockExecFileSync.mockClear();
-      mockExecFileSync.mockImplementation((cmd: string) => {
-        if (cmd === 'which') return '/usr/local/bin/gemini';
-        return 'ok';
+      let capturedArgs: string[] = [];
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        capturedArgs = args;
+        return fakeChild(0, 'ok');
       });
 
       await GEMINI_BACKEND.run({
@@ -302,11 +335,7 @@ describe('GeminiBackend', () => {
         env: {},
       });
 
-      const geminiCall = mockExecFileSync.mock.calls.find(
-        (c: unknown[]) => c[0] === 'gemini',
-      );
-      const args = geminiCall![1] as string[];
-      expect(args).toContain('--yolo');
+      expect(capturedArgs).toContain('--yolo');
     }
   });
 });

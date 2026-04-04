@@ -9,13 +9,14 @@
  * Claude has no `-C` flag — use `cwd` in spawn/exec options instead.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import {
   BackendError,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  spawnCli,
   type Backend,
   type SandboxMode,
 } from './index.js';
@@ -145,43 +146,25 @@ export class ClaudeBackend implements Backend {
     });
 
     try {
-      const result = execFileSync('claude', args, {
-        timeout: opts.timeoutSeconds * 1000,
+      const result = await spawnCli('claude', args, {
+        timeoutMs: opts.timeoutSeconds * 1000,
         env: this.cleanEnv(opts.env),
-        encoding: 'utf-8',
         cwd: opts.repoPath,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        label: 'claude',
       });
 
-      const output = result.trim();
-      if (output) {
-        return output;
+      if (result.stdout) {
+        return result.stdout;
       }
 
       throw new ClaudeBackendError('claude completed without producing output');
     } catch (err: unknown) {
       if (err instanceof ClaudeBackendError) throw err;
-
-      const execErr = err as NodeJS.ErrnoException & {
-        status?: number;
-        stdout?: Buffer | string;
-        stderr?: Buffer | string;
-        killed?: boolean;
-        signal?: string;
-      };
-
-      // Timeout detection
-      if (execErr.killed || execErr.signal === 'SIGTERM' || execErr.code === 'ETIMEDOUT') {
-        throw new ClaudeBackendError(
-          `claude timed out after ${opts.timeoutSeconds}s`,
-        );
+      if (err instanceof BackendError) {
+        throw new ClaudeBackendError(err.message);
       }
-
-      // Non-zero exit code
-      const stderr = execErr.stderr?.toString().trim() ?? '';
-      const stdout = execErr.stdout?.toString().trim() ?? '';
-      const detail = stderr || stdout || `claude exited with code ${execErr.status ?? 1}`;
-      throw new ClaudeBackendError(detail);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new ClaudeBackendError(msg);
     }
   }
 

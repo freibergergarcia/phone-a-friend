@@ -1,20 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import type { SandboxMode } from '../../src/backends/index.js';
 
 // vi.hoisted runs before vi.mock hoisting — safe to reference in factory
-const { mockExecFileSync } = vi.hoisted(() => ({
+const { mockExecFileSync, mockSpawn } = vi.hoisted(() => ({
   mockExecFileSync: vi.fn(),
+  mockSpawn: vi.fn(),
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, execFileSync: mockExecFileSync };
+  return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
 });
 
 // Import AFTER mock is set up
 import { CODEX_BACKEND, CodexBackendError } from '../../src/backends/codex.js';
 import type { ReviewOptions, SandboxMode as SandboxModeType } from '../../src/backends/index.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function fakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+    killed: boolean;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.killed = false;
+  child.kill = vi.fn();
+  return child;
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -23,6 +44,7 @@ import type { ReviewOptions, SandboxMode as SandboxModeType } from '../../src/ba
 describe('CodexBackend', () => {
   beforeEach(() => {
     mockExecFileSync.mockReset();
+    mockSpawn.mockReset();
   });
 
   afterEach(() => {
@@ -37,15 +59,19 @@ describe('CodexBackend', () => {
   });
 
   it('builds correct codex exec args', async () => {
-    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
-      // which check
+    mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      // codex exec — write output file
-      const outputIdx = args.indexOf('--output-last-message') + 1;
-      if (outputIdx > 0) {
-        fs.writeFileSync(args[outputIdx], 'Codex feedback');
-      }
       return '';
+    });
+
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = fakeChild();
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      process.nextTick(() => {
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'Codex feedback');
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     const result = await CODEX_BACKEND.run({
@@ -59,8 +85,8 @@ describe('CodexBackend', () => {
 
     expect(result).toBe('Codex feedback');
 
-    // Find the codex exec call (not the which call)
-    const codexCall = mockExecFileSync.mock.calls.find(
+    // Find the codex call in mockSpawn
+    const codexCall = mockSpawn.mock.calls.find(
       (c: unknown[]) => c[0] === 'codex',
     );
     expect(codexCall).toBeDefined();
@@ -77,11 +103,19 @@ describe('CodexBackend', () => {
   });
 
   it('passes -m when model is provided', async () => {
-    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      const outputIdx = args.indexOf('--output-last-message') + 1;
-      if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
       return '';
+    });
+
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = fakeChild();
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      process.nextTick(() => {
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     await CODEX_BACKEND.run({
@@ -93,7 +127,7 @@ describe('CodexBackend', () => {
       env: {},
     });
 
-    const codexCall = mockExecFileSync.mock.calls.find(
+    const codexCall = mockSpawn.mock.calls.find(
       (c: unknown[]) => c[0] === 'codex',
     );
     const args = codexCall![1] as string[];
@@ -103,11 +137,19 @@ describe('CodexBackend', () => {
   });
 
   it('does not pass -m when model is null', async () => {
-    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      const outputIdx = args.indexOf('--output-last-message') + 1;
-      if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
       return '';
+    });
+
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = fakeChild();
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      process.nextTick(() => {
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     await CODEX_BACKEND.run({
@@ -119,7 +161,7 @@ describe('CodexBackend', () => {
       env: {},
     });
 
-    const codexCall = mockExecFileSync.mock.calls.find(
+    const codexCall = mockSpawn.mock.calls.find(
       (c: unknown[]) => c[0] === 'codex',
     );
     const args = codexCall![1] as string[];
@@ -127,11 +169,19 @@ describe('CodexBackend', () => {
   });
 
   it('reads result from temp output file', async () => {
-    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      const outputIdx = args.indexOf('--output-last-message') + 1;
-      if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'File-based output');
       return '';
+    });
+
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = fakeChild();
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      process.nextTick(() => {
+        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'File-based output');
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     const result = await CODEX_BACKEND.run({
@@ -149,8 +199,18 @@ describe('CodexBackend', () => {
   it('falls back to stdout when output file is missing', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      // Don't write output file — return stdout
-      return 'stdout feedback';
+      return '';
+    });
+
+    mockSpawn.mockImplementation(() => {
+      const child = fakeChild();
+      process.nextTick(() => {
+        // Don't write output file — push stdout data instead
+        child.stdout.push(Buffer.from('stdout feedback'));
+        child.stdout.push(null);
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     const result = await CODEX_BACKEND.run({
@@ -186,15 +246,18 @@ describe('CodexBackend', () => {
   it('throws on non-zero exit code with stderr', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      const err = new Error('command failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      err.status = 2;
-      err.stdout = Buffer.from('');
-      err.stderr = Buffer.from('codex failed');
-      throw err;
+      return '';
+    });
+
+    mockSpawn.mockImplementation(() => {
+      const child = fakeChild();
+      process.nextTick(() => {
+        child.stderr.push(Buffer.from('codex failed'));
+        child.stderr.push(null);
+        child.stdout.push(null);
+        child.emit('close', 2, null);
+      });
+      return child;
     });
 
     await expect(
@@ -212,22 +275,23 @@ describe('CodexBackend', () => {
   it('throws on timeout', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      const err = new Error('TIMEOUT') as Error & {
-        killed: boolean;
-        signal: string;
-        code: string;
-      };
-      err.killed = true;
-      err.signal = 'SIGTERM';
-      err.code = 'ETIMEDOUT';
-      throw err;
+      return '';
+    });
+
+    mockSpawn.mockImplementation(() => {
+      const child = fakeChild();
+      // Don't emit close — let spawnCli's timeout fire, then kill triggers close
+      child.kill = vi.fn(() => {
+        child.emit('close', null, 'SIGTERM');
+      });
+      return child;
     });
 
     await expect(
       CODEX_BACKEND.run({
         prompt: 'Review',
         repoPath: '/tmp/repo',
-        timeoutSeconds: 10,
+        timeoutSeconds: 0.01,
         sandbox: 'read-only' as SandboxMode,
         model: null,
         env: {},
@@ -238,8 +302,16 @@ describe('CodexBackend', () => {
   it('throws when codex produces no output', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      // No output file, empty stdout
       return '';
+    });
+
+    mockSpawn.mockImplementation(() => {
+      const child = fakeChild();
+      process.nextTick(() => {
+        // No output file, no stdout
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     await expect(
@@ -255,14 +327,22 @@ describe('CodexBackend', () => {
   });
 
   it('throws on output file read failure (OSError parity)', async () => {
-    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/codex';
-      // Write a directory where the output file should be, causing read failure
-      const outputIdx = args.indexOf('--output-last-message') + 1;
-      if (outputIdx > 0) {
-        fs.mkdirSync(args[outputIdx], { recursive: true });
-      }
       return '';
+    });
+
+    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+      const child = fakeChild();
+      const outputIdx = args.indexOf('--output-last-message') + 1;
+      process.nextTick(() => {
+        // Write a directory where the output file should be, causing read failure
+        if (outputIdx > 0) {
+          fs.mkdirSync(args[outputIdx], { recursive: true });
+        }
+        child.emit('close', 0, null);
+      });
+      return child;
     });
 
     await expect(
@@ -290,17 +370,25 @@ describe('CodexBackend', () => {
     };
 
     it('builds correct codex exec review --base main args', async () => {
-      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
-        const outputIdx = args.indexOf('--output-last-message') + 1;
-        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'Review feedback');
         return '';
+      });
+
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        const child = fakeChild();
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        process.nextTick(() => {
+          if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'Review feedback');
+          child.emit('close', 0, null);
+        });
+        return child;
       });
 
       const result = await CODEX_BACKEND.review!(baseReviewOpts);
       expect(result).toBe('Review feedback');
 
-      const codexCall = mockExecFileSync.mock.calls.find(
+      const codexCall = mockSpawn.mock.calls.find(
         (c: unknown[]) => c[0] === 'codex',
       );
       expect(codexCall).toBeDefined();
@@ -317,11 +405,19 @@ describe('CodexBackend', () => {
     });
 
     it('passes custom prompt as positional arg', async () => {
-      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
-        const outputIdx = args.indexOf('--output-last-message') + 1;
-        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
         return '';
+      });
+
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        const child = fakeChild();
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        process.nextTick(() => {
+          if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+          child.emit('close', 0, null);
+        });
+        return child;
       });
 
       await CODEX_BACKEND.review!({
@@ -329,7 +425,7 @@ describe('CodexBackend', () => {
         prompt: 'Focus on security issues',
       });
 
-      const codexCall = mockExecFileSync.mock.calls.find(
+      const codexCall = mockSpawn.mock.calls.find(
         (c: unknown[]) => c[0] === 'codex',
       );
       const args = codexCall![1] as string[];
@@ -337,16 +433,24 @@ describe('CodexBackend', () => {
     });
 
     it('passes -m when model is set', async () => {
-      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
-        const outputIdx = args.indexOf('--output-last-message') + 1;
-        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
         return '';
+      });
+
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        const child = fakeChild();
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        process.nextTick(() => {
+          if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+          child.emit('close', 0, null);
+        });
+        return child;
       });
 
       await CODEX_BACKEND.review!({ ...baseReviewOpts, model: 'o3' });
 
-      const codexCall = mockExecFileSync.mock.calls.find(
+      const codexCall = mockSpawn.mock.calls.find(
         (c: unknown[]) => c[0] === 'codex',
       );
       const args = codexCall![1] as string[];
@@ -358,19 +462,19 @@ describe('CodexBackend', () => {
     it('throws on timeout', async () => {
       mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
-        const err = new Error('TIMEOUT') as Error & {
-          killed: boolean;
-          signal: string;
-          code: string;
-        };
-        err.killed = true;
-        err.signal = 'SIGTERM';
-        err.code = 'ETIMEDOUT';
-        throw err;
+        return '';
+      });
+
+      mockSpawn.mockImplementation(() => {
+        const child = fakeChild();
+        child.kill = vi.fn(() => {
+          child.emit('close', null, 'SIGTERM');
+        });
+        return child;
       });
 
       await expect(
-        CODEX_BACKEND.review!(baseReviewOpts),
+        CODEX_BACKEND.review!({ ...baseReviewOpts, timeoutSeconds: 0.01 }),
       ).rejects.toThrow(/codex exec review timed out/);
     });
 
@@ -386,16 +490,24 @@ describe('CodexBackend', () => {
     });
 
     it('does not include prompt arg when prompt is undefined', async () => {
-      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';
-        const outputIdx = args.indexOf('--output-last-message') + 1;
-        if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
         return '';
+      });
+
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        const child = fakeChild();
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        process.nextTick(() => {
+          if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+          child.emit('close', 0, null);
+        });
+        return child;
       });
 
       await CODEX_BACKEND.review!(baseReviewOpts);
 
-      const codexCall = mockExecFileSync.mock.calls.find(
+      const codexCall = mockSpawn.mock.calls.find(
         (c: unknown[]) => c[0] === 'codex',
       );
       const args = codexCall![1] as string[];

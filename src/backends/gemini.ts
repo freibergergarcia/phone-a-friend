@@ -12,12 +12,12 @@
  * - Auto-approve: --yolo enables tool use in headless mode
  */
 
-import { execFileSync } from 'node:child_process';
 import {
   BackendError,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  spawnCli,
   type Backend,
   type SandboxMode,
 } from './index.js';
@@ -71,44 +71,24 @@ export class GeminiBackend implements Backend {
     args.push('--prompt', opts.prompt);
 
     try {
-      const result = execFileSync('gemini', args, {
-        timeout: opts.timeoutSeconds * 1000,
+      const result = await spawnCli('gemini', args, {
+        timeoutMs: opts.timeoutSeconds * 1000,
         env: opts.env,
-        encoding: 'utf-8',
         cwd: opts.repoPath,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        label: 'gemini',
       });
 
-      const output = result.trim();
-      if (output) {
-        return output;
+      if (!result.stdout) {
+        throw new GeminiBackendError('gemini completed without producing output');
       }
 
-      throw new GeminiBackendError('gemini completed without producing output');
+      return result.stdout;
     } catch (err: unknown) {
-      // Re-throw our own errors
       if (err instanceof GeminiBackendError) throw err;
-
-      const execErr = err as NodeJS.ErrnoException & {
-        status?: number;
-        stdout?: Buffer | string;
-        stderr?: Buffer | string;
-        killed?: boolean;
-        signal?: string;
-      };
-
-      // Timeout detection
-      if (execErr.killed || execErr.signal === 'SIGTERM' || execErr.code === 'ETIMEDOUT') {
-        throw new GeminiBackendError(
-          `gemini timed out after ${opts.timeoutSeconds}s`,
-        );
+      if (err instanceof BackendError) {
+        throw new GeminiBackendError(err.message);
       }
-
-      // Non-zero exit code
-      const stderr = execErr.stderr?.toString().trim() ?? '';
-      const stdout = execErr.stdout?.toString().trim() ?? '';
-      const detail = stderr || stdout || `gemini exited with code ${execErr.status ?? 1}`;
-      throw new GeminiBackendError(detail);
+      throw err;
     }
   }
 }
