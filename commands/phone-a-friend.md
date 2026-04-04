@@ -85,10 +85,13 @@ I'm working on this task and got the above response. Please review it and return
 
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
-   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>"
+   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" [--fast] [--session <id>]
    # For gemini, always include --model (see "Gemini Model Priority" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model>
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> [--fast] [--session <id>]
    ```
+
+   See "Speed optimization" and "Session continuity" below for when to
+   include `--fast` and `--session`.
 
    **Direct mode** (`RELAY_MODE = direct`):
    ```bash
@@ -102,10 +105,55 @@ I'm working on this task and got the above response. Please review it and return
    "Direct call reference" section, substituting `<relay-prompt>` and
    `<context-payload>` into the template.
 
+   Note: `--fast` and `--session` are only available in binary mode.
+
 5. Return backend feedback in concise review format:
    - Critical issues
    - Important issues
    - Suggested fixes
+
+## Speed optimization
+
+When building binary-mode relay commands, add `--fast` if ALL of these are true:
+
+- The relay prompt is self-contained (all needed context is in `--prompt`
+  and/or `--context-text`)
+- The task does NOT reference project conventions, coding standards, or
+  CLAUDE.md rules that the backend needs to read
+- The task does NOT need MCP tools (GitHub API, Slack, database queries)
+
+`--fast` skips loading project context (CLAUDE.md, MCP servers, skills,
+hooks) for the Claude backend. It is a no-op for Codex, Gemini, and Ollama,
+but safe to include regardless of backend.
+
+Most `/phone-a-friend` relay calls are self-contained reviews where the
+context is already in the prompt. Default to including `--fast` unless the
+task clearly needs project context.
+
+## Session continuity
+
+If this relay is a follow-up to a previous `/phone-a-friend` relay in the
+same conversation (e.g., user asked for a review, saw the feedback, and now
+wants the same backend to apply fixes or dig deeper), reuse the session:
+
+1. On the **first** relay in a conversation, generate a session ID:
+   `paf-<backend>-<short-slug>` (e.g., `paf-codex-auth-review`).
+2. Add `--session <id>` to the relay command.
+3. On **subsequent** relays to the **same backend** in the same
+   conversation, reuse the same session ID. The backend remembers previous
+   turns.
+4. If switching backends (e.g., first call to codex, second to gemini),
+   generate a new session ID for the new backend. Sessions are
+   backend-specific.
+
+Benefits: the backend keeps full conversation history, so follow-up prompts
+can be shorter (no need to re-send context from previous turns).
+
+**Omit `--session`** for one-off relays where no follow-up is expected.
+This is the common case. Only add `--session` when the user explicitly
+asks for a follow-up or continuation of a previous relay.
+
+Session continuity is only available in binary mode (`RELAY_MODE = binary`).
 
 ## Gemini Model Priority
 
