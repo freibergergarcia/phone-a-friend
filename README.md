@@ -116,7 +116,31 @@ phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
+phone-a-friend --to claude --prompt "Explain this" --fast          # Skip project context (faster)
 ```
+
+### Structured output
+
+Request JSON responses matching a schema:
+
+```bash
+phone-a-friend --to codex --prompt "List files that need refactoring" \
+  --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
+```
+
+Claude and Codex enforce the schema natively. Gemini and Ollama use prompt injection (best-effort).
+
+### Sessions
+
+Resume previous relay conversations for multi-turn workflows:
+
+```bash
+phone-a-friend --to codex --prompt "Review the auth module" --session auth-review
+# Later, continue the conversation:
+phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
+```
+
+Sessions work reliably with Claude and Codex. Ollama replays history (may hit token limits on long conversations). Gemini session resume is best-effort.
 
 ### Job tracking
 
