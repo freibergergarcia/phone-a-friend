@@ -52,7 +52,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);
@@ -76,6 +76,14 @@ function normalizeArgv(argv: string[]): string[] {
 // ---------------------------------------------------------------------------
 // Output helpers
 // ---------------------------------------------------------------------------
+
+function timeSince(isoDate: string): string {
+  const seconds = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
 
 function printBackendAvailability(): void {
   console.log('\nBackend availability:');
@@ -340,6 +348,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
+    .option('--background', 'Run in background, save result to job store')
     .action(async (opts, command) => {
       // --base without --review implies review mode
       const isReview = opts.review || opts.base !== undefined;
@@ -401,6 +410,25 @@ export async function run(argv: string[]): Promise<number> {
         model: resolved.model ?? null,
         sandbox: resolved.sandbox as SandboxMode,
       };
+
+      if (opts.background) {
+        const { relayBackground } = await import('./relay.js');
+        const { JobManager } = await import('./jobs.js');
+        const manager = new JobManager();
+        const { job, promise } = relayBackground({ ...relayOpts, jobManager: manager });
+        console.log(`  ${theme.success('\u2713')} ${theme.bold('Job started')} ${theme.info(job.id)}`);
+        console.log(`  ${theme.hint('Check status:')} phone-a-friend job status`);
+        console.log(`  ${theme.hint('Get result:')}  phone-a-friend job result ${job.id}`);
+        await promise;
+        const completed = manager.get(job.id);
+        if (completed?.status === 'completed') {
+          console.log(`  ${theme.success('\u2713')} ${theme.bold('Done')} ${theme.info(job.id)}`);
+        } else {
+          console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? 'unknown'}: ${completed?.error ?? ''}`);
+          exitCode = 1;
+        }
+        return;
+      }
 
       if (resolved.stream) {
         const spinner = ora({
@@ -755,6 +783,99 @@ export async function run(argv: string[]): Promise<number> {
         console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
         exitCode = 1;
       }
+    });
+
+  // --- job subcommand group ---
+  const jobCmd = program
+    .command('job')
+    .description('Manage background jobs');
+
+  jobCmd
+    .command('status')
+    .description('List background jobs')
+    .option('--json', 'Output as JSON', false)
+    .action(async (opts) => {
+      const { JobManager } = await import('./jobs.js');
+      const manager = new JobManager();
+      const jobs = manager.list();
+
+      if (opts.json) {
+        console.log(JSON.stringify(jobs, null, 2));
+        return;
+      }
+
+      if (jobs.length === 0) {
+        console.log(`\n  ${theme.hint('No background jobs.')}\n`);
+        return;
+      }
+
+      console.log(`\n  ${theme.heading('Background Jobs')}\n`);
+      for (const job of [...jobs].reverse()) {
+        const icon = job.status === 'completed' ? theme.success('done')
+          : job.status === 'running' ? theme.info('running')
+          : job.status === 'failed' ? theme.error('failed')
+          : job.status === 'cancelled' ? theme.warning('cancelled')
+          : theme.hint('pending');
+        const age = timeSince(job.createdAt);
+        console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
+        console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? '...' : ''}`);
+      }
+      console.log('');
+    });
+
+  jobCmd
+    .command('result <id>')
+    .description('Show result of a completed job')
+    .action(async (id: string) => {
+      const { JobManager } = await import('./jobs.js');
+      const manager = new JobManager();
+      const job = manager.get(id);
+
+      if (!job) {
+        console.error(`  ${theme.crossmark} Job ${id} not found`);
+        exitCode = 1;
+        return;
+      }
+
+      if (job.status === 'completed' && job.result) {
+        process.stdout.write(job.result + '\n');
+      } else if (job.status === 'failed') {
+        console.error(`  ${theme.crossmark} Job failed: ${job.error ?? 'unknown error'}`);
+        exitCode = 1;
+      } else {
+        console.log(`  ${theme.hint(`Job ${id} is ${job.status}. No result yet.`)}`);
+      }
+    });
+
+  jobCmd
+    .command('cancel <id>')
+    .description('Cancel a running job')
+    .action(async (id: string) => {
+      const { JobManager } = await import('./jobs.js');
+      const manager = new JobManager();
+      const job = manager.get(id);
+
+      if (!job) {
+        console.error(`  ${theme.crossmark} Job ${id} not found`);
+        exitCode = 1;
+        return;
+      }
+
+      if (job.status !== 'running' && job.status !== 'pending') {
+        console.log(`  ${theme.hint(`Job ${id} is already ${job.status}.`)}`);
+        return;
+      }
+
+      if (job.pid) {
+        try {
+          process.kill(job.pid, 'SIGTERM');
+        } catch {
+          // Process may already be gone
+        }
+      }
+
+      manager.update(id, { status: 'cancelled' });
+      console.log(`  ${theme.success('\u2713')} Cancelled job ${theme.bold(id)}`);
     });
 
   // --- Backward compat aliases ---
