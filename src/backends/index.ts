@@ -4,7 +4,7 @@
  * Ported from phone_a_friend/backends/__init__.py
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,4 +119,85 @@ export function checkBackends(
     result[name] = whichFn(name);
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Async subprocess runner
+// ---------------------------------------------------------------------------
+
+export interface SpawnCliOptions {
+  timeoutMs: number;
+  /** Full process environment. Defaults to process.env if not provided.
+   *  When provided, this replaces the entire env (Node.js spawn behavior).
+   *  Callers must pass a complete env (e.g. from nextRelayEnv()), not partial overrides. */
+  env?: Record<string, string>;
+  cwd?: string;
+  /** Label used in error messages (e.g. "codex exec", "gemini"). Defaults to the command name. */
+  label?: string;
+}
+
+export interface SpawnCliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+/**
+ * Async subprocess runner shared by all CLI backends.
+ * Replaces execFileSync: non-blocking, timeout handling, signal forwarding, stderr draining.
+ */
+export function spawnCli(
+  command: string,
+  args: string[],
+  opts: SpawnCliOptions,
+): Promise<SpawnCliResult> {
+  const label = opts.label ?? command;
+
+  return new Promise((resolve, reject) => {
+    const child = nodeSpawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: opts.env ?? process.env as Record<string, string>,
+      cwd: opts.cwd,
+    });
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, opts.timeoutMs);
+
+    const onSigint = () => { child.kill('SIGTERM'); };
+    process.on('SIGINT', onSigint);
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      process.removeListener('SIGINT', onSigint);
+
+      const stdout = Buffer.concat(stdoutChunks).toString().trim();
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+
+      if (timedOut) {
+        reject(new BackendError(`${label} timed out after ${opts.timeoutMs / 1000}s`));
+        return;
+      }
+
+      if (signal) {
+        reject(new BackendError(`${label} killed by signal ${signal}`));
+        return;
+      }
+
+      if (code !== 0 && code !== null) {
+        const detail = stderr || stdout || `${label} exited with code ${code}`;
+        reject(new BackendError(detail));
+        return;
+      }
+
+      resolve({ stdout, stderr, exitCode: code ?? 0 });
+    });
+  });
 }
