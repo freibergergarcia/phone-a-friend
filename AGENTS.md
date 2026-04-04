@@ -23,8 +23,9 @@ src/
   installer.ts       Claude plugin installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
+  jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
   backends/
-    index.ts         Backend interface, registry, types
+    index.ts         Backend interface, registry, types, spawnCli() async subprocess utility
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
@@ -64,19 +65,20 @@ src/
       Badge.tsx              Status badges (✓ ✗ ! ·)
       KeyHint.tsx            Footer keyboard hints
       ListSelect.tsx         Scrollable selectable list
-tests/               Vitest tests (mirrors src/ structure)
+tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
 dist/                Built bundle (committed, self-contained)
 ```
 
 ## Core Behavior
 
-- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review
+- Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
-- Claude backend in `src/backends/claude.ts` (subprocess via `claude -p`, streams via `--output-format stream-json`)
-- Codex backend in `src/backends/codex.ts`
-- Gemini backend in `src/backends/gemini.ts`
-- Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434)
+- Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
+- Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
+- Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
+- Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
@@ -184,10 +186,12 @@ phone-a-friend --prompt "..."               # Uses default backend from config
 phone-a-friend --to claude --prompt "..." --stream     # Stream tokens as they arrive
 phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
 phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scoped)
+phone-a-friend --to codex --review                     # Review mode (--prompt optional, defaults to generic review)
 phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
+phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -207,6 +211,12 @@ phone-a-friend plugin install --claude      # Install as Claude plugin
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
+
+# Job management
+phone-a-friend job status                  # List all tracked jobs
+phone-a-friend job status --json           # List as JSON
+phone-a-friend job result <id>             # Show output of a completed job
+phone-a-friend job cancel <id>             # Mark a running/pending job as cancelled
 ```
 
 ```bash
@@ -313,6 +323,16 @@ Marketplace install provides Claude Code integration only (slash commands and sk
 For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
 
+## Job tracking
+
+The `--quiet` flag runs a relay without interactive output and persists the result to a job store.
+
+- `JobManager` in `src/jobs.ts` reads/writes `~/.config/phone-a-friend/jobs.json`
+- `relayBackground()` in `src/relay.ts` wraps `relay()` with job lifecycle (pending, running, completed/failed)
+- Jobs are capped at 50, oldest completed/failed/cancelled are pruned on create
+- `--quiet` keeps the process alive until the job finishes (not truly detached). For detached execution, users can combine with `nohup` or `&`.
+- `job cancel` marks the job as cancelled in the store but cannot kill the subprocess (PID tracking is not yet implemented)
+
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, and web dashboard for session visibility. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, and background job tracking. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
