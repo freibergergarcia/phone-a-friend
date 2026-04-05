@@ -16,9 +16,10 @@ describe('detection', () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectCliBackends(whichFn);
 
-      expect(results).toHaveLength(2);
+      expect(results).toHaveLength(3);
       const codex = results.find(b => b.name === 'codex');
       const gemini = results.find(b => b.name === 'gemini');
+      const opencode = results.find(b => b.name === 'opencode');
 
       expect(codex).toBeDefined();
       expect(codex!.available).toBe(true);
@@ -26,6 +27,10 @@ describe('detection', () => {
 
       expect(gemini).toBeDefined();
       expect(gemini!.available).toBe(true);
+
+      expect(opencode).toBeDefined();
+      expect(opencode!.available).toBe(true);
+      expect(opencode!.category).toBe('cli');
       expect(gemini!.category).toBe('cli');
     });
 

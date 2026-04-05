@@ -10,6 +10,7 @@ const { mockDetectAll, mockLoadConfig, mockConfigPaths } = vi.hoisted(() => ({
 
 vi.mock('../src/detection.js', () => ({
   detectAll: mockDetectAll,
+  decorateOpenCodeModels: vi.fn(),
 }));
 
 vi.mock('../src/config.js', () => ({

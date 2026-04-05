@@ -143,9 +143,1048 @@ var init_backends = __esm({
       codex: "npm install -g @openai/codex",
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
-      claude: "npm install -g @anthropic-ai/claude-code"
+      claude: "npm install -g @anthropic-ai/claude-code",
+      opencode: "curl -fsSL https://opencode.ai/install | bash"
     };
     registry = /* @__PURE__ */ new Map();
+  }
+});
+
+// node_modules/smol-toml/dist/error.js
+function getLineColFromPtr(string, ptr) {
+  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
+  return [lines.length, lines.pop().length + 1];
+}
+function makeCodeBlock(string, line, column) {
+  let lines = string.split(/\r\n|\n|\r/g);
+  let codeblock = "";
+  let numberLen = (Math.log10(line + 1) | 0) + 1;
+  for (let i = line - 1; i <= line + 1; i++) {
+    let l = lines[i - 1];
+    if (!l)
+      continue;
+    codeblock += i.toString().padEnd(numberLen, " ");
+    codeblock += ":  ";
+    codeblock += l;
+    codeblock += "\n";
+    if (i === line) {
+      codeblock += " ".repeat(numberLen + column + 2);
+      codeblock += "^\n";
+    }
+  }
+  return codeblock;
+}
+var TomlError;
+var init_error = __esm({
+  "node_modules/smol-toml/dist/error.js"() {
+    "use strict";
+    TomlError = class extends Error {
+      line;
+      column;
+      codeblock;
+      constructor(message, options) {
+        const [line, column] = getLineColFromPtr(options.toml, options.ptr);
+        const codeblock = makeCodeBlock(options.toml, line, column);
+        super(`Invalid TOML document: ${message}
+
+${codeblock}`, options);
+        this.line = line;
+        this.column = column;
+        this.codeblock = codeblock;
+      }
+    };
+  }
+});
+
+// node_modules/smol-toml/dist/util.js
+function isEscaped(str, ptr) {
+  let i = 0;
+  while (str[ptr - ++i] === "\\")
+    ;
+  return --i && i % 2;
+}
+function indexOfNewline(str, start = 0, end = str.length) {
+  let idx = str.indexOf("\n", start);
+  if (str[idx - 1] === "\r")
+    idx--;
+  return idx <= end ? idx : -1;
+}
+function skipComment(str, ptr) {
+  for (let i = ptr; i < str.length; i++) {
+    let c = str[i];
+    if (c === "\n")
+      return i;
+    if (c === "\r" && str[i + 1] === "\n")
+      return i + 1;
+    if (c < " " && c !== "	" || c === "\x7F") {
+      throw new TomlError("control characters are not allowed in comments", {
+        toml: str,
+        ptr
+      });
+    }
+  }
+  return str.length;
+}
+function skipVoid(str, ptr, banNewLines, banComments) {
+  let c;
+  while (1) {
+    while ((c = str[ptr]) === " " || c === "	" || !banNewLines && (c === "\n" || c === "\r" && str[ptr + 1] === "\n"))
+      ptr++;
+    if (banComments || c !== "#")
+      break;
+    ptr = skipComment(str, ptr);
+  }
+  return ptr;
+}
+function skipUntil(str, ptr, sep2, end, banNewLines = false) {
+  if (!end) {
+    ptr = indexOfNewline(str, ptr);
+    return ptr < 0 ? str.length : ptr;
+  }
+  for (let i = ptr; i < str.length; i++) {
+    let c = str[i];
+    if (c === "#") {
+      i = indexOfNewline(str, i);
+    } else if (c === sep2) {
+      return i + 1;
+    } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
+      return i;
+    }
+  }
+  throw new TomlError("cannot find end of structure", {
+    toml: str,
+    ptr
+  });
+}
+function getStringEnd(str, seek) {
+  let first = str[seek];
+  let target = first === str[seek + 1] && str[seek + 1] === str[seek + 2] ? str.slice(seek, seek + 3) : first;
+  seek += target.length - 1;
+  do
+    seek = str.indexOf(target, ++seek);
+  while (seek > -1 && first !== "'" && isEscaped(str, seek));
+  if (seek > -1) {
+    seek += target.length;
+    if (target.length > 1) {
+      if (str[seek] === first)
+        seek++;
+      if (str[seek] === first)
+        seek++;
+    }
+  }
+  return seek;
+}
+var init_util = __esm({
+  "node_modules/smol-toml/dist/util.js"() {
+    "use strict";
+    init_error();
+  }
+});
+
+// node_modules/smol-toml/dist/date.js
+var DATE_TIME_RE, TomlDate;
+var init_date = __esm({
+  "node_modules/smol-toml/dist/date.js"() {
+    "use strict";
+    DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
+    TomlDate = class _TomlDate extends Date {
+      #hasDate = false;
+      #hasTime = false;
+      #offset = null;
+      constructor(date) {
+        let hasDate = true;
+        let hasTime = true;
+        let offset = "Z";
+        if (typeof date === "string") {
+          let match = date.match(DATE_TIME_RE);
+          if (match) {
+            if (!match[1]) {
+              hasDate = false;
+              date = `0000-01-01T${date}`;
+            }
+            hasTime = !!match[2];
+            hasTime && date[10] === " " && (date = date.replace(" ", "T"));
+            if (match[2] && +match[2] > 23) {
+              date = "";
+            } else {
+              offset = match[3] || null;
+              date = date.toUpperCase();
+              if (!offset && hasTime)
+                date += "Z";
+            }
+          } else {
+            date = "";
+          }
+        }
+        super(date);
+        if (!isNaN(this.getTime())) {
+          this.#hasDate = hasDate;
+          this.#hasTime = hasTime;
+          this.#offset = offset;
+        }
+      }
+      isDateTime() {
+        return this.#hasDate && this.#hasTime;
+      }
+      isLocal() {
+        return !this.#hasDate || !this.#hasTime || !this.#offset;
+      }
+      isDate() {
+        return this.#hasDate && !this.#hasTime;
+      }
+      isTime() {
+        return this.#hasTime && !this.#hasDate;
+      }
+      isValid() {
+        return this.#hasDate || this.#hasTime;
+      }
+      toISOString() {
+        let iso = super.toISOString();
+        if (this.isDate())
+          return iso.slice(0, 10);
+        if (this.isTime())
+          return iso.slice(11, 23);
+        if (this.#offset === null)
+          return iso.slice(0, -1);
+        if (this.#offset === "Z")
+          return iso;
+        let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
+        offset = this.#offset[0] === "-" ? offset : -offset;
+        let offsetDate = new Date(this.getTime() - offset * 6e4);
+        return offsetDate.toISOString().slice(0, -1) + this.#offset;
+      }
+      static wrapAsOffsetDateTime(jsDate, offset = "Z") {
+        let date = new _TomlDate(jsDate);
+        date.#offset = offset;
+        return date;
+      }
+      static wrapAsLocalDateTime(jsDate) {
+        let date = new _TomlDate(jsDate);
+        date.#offset = null;
+        return date;
+      }
+      static wrapAsLocalDate(jsDate) {
+        let date = new _TomlDate(jsDate);
+        date.#hasTime = false;
+        date.#offset = null;
+        return date;
+      }
+      static wrapAsLocalTime(jsDate) {
+        let date = new _TomlDate(jsDate);
+        date.#hasDate = false;
+        date.#offset = null;
+        return date;
+      }
+    };
+  }
+});
+
+// node_modules/smol-toml/dist/primitive.js
+function parseString(str, ptr = 0, endPtr = str.length) {
+  let isLiteral = str[ptr] === "'";
+  let isMultiline = str[ptr++] === str[ptr] && str[ptr] === str[ptr + 1];
+  if (isMultiline) {
+    endPtr -= 2;
+    if (str[ptr += 2] === "\r")
+      ptr++;
+    if (str[ptr] === "\n")
+      ptr++;
+  }
+  let tmp = 0;
+  let isEscape;
+  let parsed = "";
+  let sliceStart = ptr;
+  while (ptr < endPtr - 1) {
+    let c = str[ptr++];
+    if (c === "\n" || c === "\r" && str[ptr] === "\n") {
+      if (!isMultiline) {
+        throw new TomlError("newlines are not allowed in strings", {
+          toml: str,
+          ptr: ptr - 1
+        });
+      }
+    } else if (c < " " && c !== "	" || c === "\x7F") {
+      throw new TomlError("control characters are not allowed in strings", {
+        toml: str,
+        ptr: ptr - 1
+      });
+    }
+    if (isEscape) {
+      isEscape = false;
+      if (c === "x" || c === "u" || c === "U") {
+        let code = str.slice(ptr, ptr += c === "x" ? 2 : c === "u" ? 4 : 8);
+        if (!ESCAPE_REGEX.test(code)) {
+          throw new TomlError("invalid unicode escape", {
+            toml: str,
+            ptr: tmp
+          });
+        }
+        try {
+          parsed += String.fromCodePoint(parseInt(code, 16));
+        } catch {
+          throw new TomlError("invalid unicode escape", {
+            toml: str,
+            ptr: tmp
+          });
+        }
+      } else if (isMultiline && (c === "\n" || c === " " || c === "	" || c === "\r")) {
+        ptr = skipVoid(str, ptr - 1, true);
+        if (str[ptr] !== "\n" && str[ptr] !== "\r") {
+          throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
+            toml: str,
+            ptr: tmp
+          });
+        }
+        ptr = skipVoid(str, ptr);
+      } else if (c in ESC_MAP) {
+        parsed += ESC_MAP[c];
+      } else {
+        throw new TomlError("unrecognized escape sequence", {
+          toml: str,
+          ptr: tmp
+        });
+      }
+      sliceStart = ptr;
+    } else if (!isLiteral && c === "\\") {
+      tmp = ptr - 1;
+      isEscape = true;
+      parsed += str.slice(sliceStart, tmp);
+    }
+  }
+  return parsed + str.slice(sliceStart, endPtr - 1);
+}
+function parseValue(value, toml, ptr, integersAsBigInt) {
+  if (value === "true")
+    return true;
+  if (value === "false")
+    return false;
+  if (value === "-inf")
+    return -Infinity;
+  if (value === "inf" || value === "+inf")
+    return Infinity;
+  if (value === "nan" || value === "+nan" || value === "-nan")
+    return NaN;
+  if (value === "-0")
+    return integersAsBigInt ? 0n : 0;
+  let isInt = INT_REGEX.test(value);
+  if (isInt || FLOAT_REGEX.test(value)) {
+    if (LEADING_ZERO.test(value)) {
+      throw new TomlError("leading zeroes are not allowed", {
+        toml,
+        ptr
+      });
+    }
+    value = value.replace(/_/g, "");
+    let numeric = +value;
+    if (isNaN(numeric)) {
+      throw new TomlError("invalid number", {
+        toml,
+        ptr
+      });
+    }
+    if (isInt) {
+      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
+        throw new TomlError("integer value cannot be represented losslessly", {
+          toml,
+          ptr
+        });
+      }
+      if (isInt || integersAsBigInt === true)
+        numeric = BigInt(value);
+    }
+    return numeric;
+  }
+  const date = new TomlDate(value);
+  if (!date.isValid()) {
+    throw new TomlError("invalid value", {
+      toml,
+      ptr
+    });
+  }
+  return date;
+}
+var INT_REGEX, FLOAT_REGEX, LEADING_ZERO, ESCAPE_REGEX, ESC_MAP;
+var init_primitive = __esm({
+  "node_modules/smol-toml/dist/primitive.js"() {
+    "use strict";
+    init_util();
+    init_date();
+    init_error();
+    INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
+    FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
+    LEADING_ZERO = /^[+-]?0[0-9_]/;
+    ESCAPE_REGEX = /^[0-9a-f]{2,8}$/i;
+    ESC_MAP = {
+      b: "\b",
+      t: "	",
+      n: "\n",
+      f: "\f",
+      r: "\r",
+      e: "\x1B",
+      '"': '"',
+      "\\": "\\"
+    };
+  }
+});
+
+// node_modules/smol-toml/dist/extract.js
+function sliceAndTrimEndOf(str, startPtr, endPtr) {
+  let value = str.slice(startPtr, endPtr);
+  let commentIdx = value.indexOf("#");
+  if (commentIdx > -1) {
+    skipComment(str, commentIdx);
+    value = value.slice(0, commentIdx);
+  }
+  return [value.trimEnd(), commentIdx];
+}
+function extractValue(str, ptr, end, depth, integersAsBigInt) {
+  if (depth === 0) {
+    throw new TomlError("document contains excessively nested structures. aborting.", {
+      toml: str,
+      ptr
+    });
+  }
+  let c = str[ptr];
+  if (c === "[" || c === "{") {
+    let [value, endPtr2] = c === "[" ? parseArray(str, ptr, depth, integersAsBigInt) : parseInlineTable(str, ptr, depth, integersAsBigInt);
+    if (end) {
+      endPtr2 = skipVoid(str, endPtr2);
+      if (str[endPtr2] === ",")
+        endPtr2++;
+      else if (str[endPtr2] !== end) {
+        throw new TomlError("expected comma or end of structure", {
+          toml: str,
+          ptr: endPtr2
+        });
+      }
+    }
+    return [value, endPtr2];
+  }
+  let endPtr;
+  if (c === '"' || c === "'") {
+    endPtr = getStringEnd(str, ptr);
+    let parsed = parseString(str, ptr, endPtr);
+    if (end) {
+      endPtr = skipVoid(str, endPtr);
+      if (str[endPtr] && str[endPtr] !== "," && str[endPtr] !== end && str[endPtr] !== "\n" && str[endPtr] !== "\r") {
+        throw new TomlError("unexpected character encountered", {
+          toml: str,
+          ptr: endPtr
+        });
+      }
+      endPtr += +(str[endPtr] === ",");
+    }
+    return [parsed, endPtr];
+  }
+  endPtr = skipUntil(str, ptr, ",", end);
+  let slice = sliceAndTrimEndOf(str, ptr, endPtr - +(str[endPtr - 1] === ","));
+  if (!slice[0]) {
+    throw new TomlError("incomplete key-value declaration: no value specified", {
+      toml: str,
+      ptr
+    });
+  }
+  if (end && slice[1] > -1) {
+    endPtr = skipVoid(str, ptr + slice[1]);
+    endPtr += +(str[endPtr] === ",");
+  }
+  return [
+    parseValue(slice[0], str, ptr, integersAsBigInt),
+    endPtr
+  ];
+}
+var init_extract = __esm({
+  "node_modules/smol-toml/dist/extract.js"() {
+    "use strict";
+    init_primitive();
+    init_struct();
+    init_util();
+    init_error();
+  }
+});
+
+// node_modules/smol-toml/dist/struct.js
+function parseKey(str, ptr, end = "=") {
+  let dot = ptr - 1;
+  let parsed = [];
+  let endPtr = str.indexOf(end, ptr);
+  if (endPtr < 0) {
+    throw new TomlError("incomplete key-value: cannot find end of key", {
+      toml: str,
+      ptr
+    });
+  }
+  do {
+    let c = str[ptr = ++dot];
+    if (c !== " " && c !== "	") {
+      if (c === '"' || c === "'") {
+        if (c === str[ptr + 1] && c === str[ptr + 2]) {
+          throw new TomlError("multiline strings are not allowed in keys", {
+            toml: str,
+            ptr
+          });
+        }
+        let eos = getStringEnd(str, ptr);
+        if (eos < 0) {
+          throw new TomlError("unfinished string encountered", {
+            toml: str,
+            ptr
+          });
+        }
+        dot = str.indexOf(".", eos);
+        let strEnd = str.slice(eos, dot < 0 || dot > endPtr ? endPtr : dot);
+        let newLine = indexOfNewline(strEnd);
+        if (newLine > -1) {
+          throw new TomlError("newlines are not allowed in keys", {
+            toml: str,
+            ptr: ptr + dot + newLine
+          });
+        }
+        if (strEnd.trimStart()) {
+          throw new TomlError("found extra tokens after the string part", {
+            toml: str,
+            ptr: eos
+          });
+        }
+        if (endPtr < eos) {
+          endPtr = str.indexOf(end, eos);
+          if (endPtr < 0) {
+            throw new TomlError("incomplete key-value: cannot find end of key", {
+              toml: str,
+              ptr
+            });
+          }
+        }
+        parsed.push(parseString(str, ptr, eos));
+      } else {
+        dot = str.indexOf(".", ptr);
+        let part = str.slice(ptr, dot < 0 || dot > endPtr ? endPtr : dot);
+        if (!KEY_PART_RE.test(part)) {
+          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
+            toml: str,
+            ptr
+          });
+        }
+        parsed.push(part.trimEnd());
+      }
+    }
+  } while (dot + 1 && dot < endPtr);
+  return [parsed, skipVoid(str, endPtr + 1, true, true)];
+}
+function parseInlineTable(str, ptr, depth, integersAsBigInt) {
+  let res = {};
+  let seen = /* @__PURE__ */ new Set();
+  let c;
+  ptr++;
+  while ((c = str[ptr++]) !== "}" && c) {
+    if (c === ",") {
+      throw new TomlError("expected value, found comma", {
+        toml: str,
+        ptr: ptr - 1
+      });
+    } else if (c === "#")
+      ptr = skipComment(str, ptr);
+    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
+      let k;
+      let t = res;
+      let hasOwn = false;
+      let [key, keyEndPtr] = parseKey(str, ptr - 1);
+      for (let i = 0; i < key.length; i++) {
+        if (i)
+          t = hasOwn ? t[k] : t[k] = {};
+        k = key[i];
+        if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
+          throw new TomlError("trying to redefine an already defined value", {
+            toml: str,
+            ptr
+          });
+        }
+        if (!hasOwn && k === "__proto__") {
+          Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+        }
+      }
+      if (hasOwn) {
+        throw new TomlError("trying to redefine an already defined value", {
+          toml: str,
+          ptr
+        });
+      }
+      let [value, valueEndPtr] = extractValue(str, keyEndPtr, "}", depth - 1, integersAsBigInt);
+      seen.add(value);
+      t[k] = value;
+      ptr = valueEndPtr;
+    }
+  }
+  if (!c) {
+    throw new TomlError("unfinished table encountered", {
+      toml: str,
+      ptr
+    });
+  }
+  return [res, ptr];
+}
+function parseArray(str, ptr, depth, integersAsBigInt) {
+  let res = [];
+  let c;
+  ptr++;
+  while ((c = str[ptr++]) !== "]" && c) {
+    if (c === ",") {
+      throw new TomlError("expected value, found comma", {
+        toml: str,
+        ptr: ptr - 1
+      });
+    } else if (c === "#")
+      ptr = skipComment(str, ptr);
+    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
+      let e = extractValue(str, ptr - 1, "]", depth - 1, integersAsBigInt);
+      res.push(e[0]);
+      ptr = e[1];
+    }
+  }
+  if (!c) {
+    throw new TomlError("unfinished array encountered", {
+      toml: str,
+      ptr
+    });
+  }
+  return [res, ptr];
+}
+var KEY_PART_RE;
+var init_struct = __esm({
+  "node_modules/smol-toml/dist/struct.js"() {
+    "use strict";
+    init_primitive();
+    init_extract();
+    init_util();
+    init_error();
+    KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
+  }
+});
+
+// node_modules/smol-toml/dist/parse.js
+function peekTable(key, table, meta, type) {
+  let t = table;
+  let m = meta;
+  let k;
+  let hasOwn = false;
+  let state;
+  for (let i = 0; i < key.length; i++) {
+    if (i) {
+      t = hasOwn ? t[k] : t[k] = {};
+      m = (state = m[k]).c;
+      if (type === 0 && (state.t === 1 || state.t === 2)) {
+        return null;
+      }
+      if (state.t === 2) {
+        let l = t.length - 1;
+        t = t[l];
+        m = m[l].c;
+      }
+    }
+    k = key[i];
+    if ((hasOwn = Object.hasOwn(t, k)) && m[k]?.t === 0 && m[k]?.d) {
+      return null;
+    }
+    if (!hasOwn) {
+      if (k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+        Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
+      }
+      m[k] = {
+        t: i < key.length - 1 && type === 2 ? 3 : type,
+        d: false,
+        i: 0,
+        c: {}
+      };
+    }
+  }
+  state = m[k];
+  if (state.t !== type && !(type === 1 && state.t === 3)) {
+    return null;
+  }
+  if (type === 2) {
+    if (!state.d) {
+      state.d = true;
+      t[k] = [];
+    }
+    t[k].push(t = {});
+    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
+  }
+  if (state.d) {
+    return null;
+  }
+  state.d = true;
+  if (type === 1) {
+    t = hasOwn ? t[k] : t[k] = {};
+  } else if (type === 0 && hasOwn) {
+    return null;
+  }
+  return [k, t, state.c];
+}
+function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
+  let res = {};
+  let meta = {};
+  let tbl = res;
+  let m = meta;
+  for (let ptr = skipVoid(toml, 0); ptr < toml.length; ) {
+    if (toml[ptr] === "[") {
+      let isTableArray = toml[++ptr] === "[";
+      let k = parseKey(toml, ptr += +isTableArray, "]");
+      if (isTableArray) {
+        if (toml[k[1] - 1] !== "]") {
+          throw new TomlError("expected end of table declaration", {
+            toml,
+            ptr: k[1] - 1
+          });
+        }
+        k[1]++;
+      }
+      let p = peekTable(
+        k[0],
+        res,
+        meta,
+        isTableArray ? 2 : 1
+        /* Type.EXPLICIT */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr
+        });
+      }
+      m = p[2];
+      tbl = p[1];
+      ptr = k[1];
+    } else {
+      let k = parseKey(toml, ptr);
+      let p = peekTable(
+        k[0],
+        tbl,
+        m,
+        0
+        /* Type.DOTTED */
+      );
+      if (!p) {
+        throw new TomlError("trying to redefine an already defined table or value", {
+          toml,
+          ptr
+        });
+      }
+      let v = extractValue(toml, k[1], void 0, maxDepth, integersAsBigInt);
+      p[1][p[0]] = v[0];
+      ptr = v[1];
+    }
+    ptr = skipVoid(toml, ptr, true);
+    if (toml[ptr] && toml[ptr] !== "\n" && toml[ptr] !== "\r") {
+      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
+        toml,
+        ptr
+      });
+    }
+    ptr = skipVoid(toml, ptr);
+  }
+  return res;
+}
+var init_parse = __esm({
+  "node_modules/smol-toml/dist/parse.js"() {
+    "use strict";
+    init_struct();
+    init_extract();
+    init_util();
+    init_error();
+  }
+});
+
+// node_modules/smol-toml/dist/stringify.js
+function extendedTypeOf(obj) {
+  let type = typeof obj;
+  if (type === "object") {
+    if (Array.isArray(obj))
+      return "array";
+    if (obj instanceof Date)
+      return "date";
+  }
+  return type;
+}
+function isArrayOfTables(obj) {
+  for (let i = 0; i < obj.length; i++) {
+    if (extendedTypeOf(obj[i]) !== "object")
+      return false;
+  }
+  return obj.length != 0;
+}
+function formatString(s) {
+  return JSON.stringify(s).replace(/\x7f/g, "\\u007f");
+}
+function stringifyValue(val, type, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  if (type === "number") {
+    if (isNaN(val))
+      return "nan";
+    if (val === Infinity)
+      return "inf";
+    if (val === -Infinity)
+      return "-inf";
+    if (numberAsFloat && Number.isInteger(val))
+      return val.toFixed(1);
+    return val.toString();
+  }
+  if (type === "bigint" || type === "boolean") {
+    return val.toString();
+  }
+  if (type === "string") {
+    return formatString(val);
+  }
+  if (type === "date") {
+    if (isNaN(val.getTime())) {
+      throw new TypeError("cannot serialize invalid date");
+    }
+    return val.toISOString();
+  }
+  if (type === "object") {
+    return stringifyInlineTable(val, depth, numberAsFloat);
+  }
+  if (type === "array") {
+    return stringifyArray(val, depth, numberAsFloat);
+  }
+}
+function stringifyInlineTable(obj, depth, numberAsFloat) {
+  let keys = Object.keys(obj);
+  if (keys.length === 0)
+    return "{}";
+  let res = "{ ";
+  for (let i = 0; i < keys.length; i++) {
+    let k = keys[i];
+    if (i)
+      res += ", ";
+    res += BARE_KEY.test(k) ? k : formatString(k);
+    res += " = ";
+    res += stringifyValue(obj[k], extendedTypeOf(obj[k]), depth - 1, numberAsFloat);
+  }
+  return res + " }";
+}
+function stringifyArray(array, depth, numberAsFloat) {
+  if (array.length === 0)
+    return "[]";
+  let res = "[ ";
+  for (let i = 0; i < array.length; i++) {
+    if (i)
+      res += ", ";
+    if (array[i] === null || array[i] === void 0) {
+      throw new TypeError("arrays cannot contain null or undefined values");
+    }
+    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat);
+  }
+  return res + " ]";
+}
+function stringifyArrayTable(array, key, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  let res = "";
+  for (let i = 0; i < array.length; i++) {
+    res += `${res && "\n"}[[${key}]]
+`;
+    res += stringifyTable(0, array[i], key, depth, numberAsFloat);
+  }
+  return res;
+}
+function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat) {
+  if (depth === 0) {
+    throw new Error("Could not stringify the object: maximum object depth exceeded");
+  }
+  let preamble = "";
+  let tables = "";
+  let keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    let k = keys[i];
+    if (obj[k] !== null && obj[k] !== void 0) {
+      let type = extendedTypeOf(obj[k]);
+      if (type === "symbol" || type === "function") {
+        throw new TypeError(`cannot serialize values of type '${type}'`);
+      }
+      let key = BARE_KEY.test(k) ? k : formatString(k);
+      if (type === "array" && isArrayOfTables(obj[k])) {
+        tables += (tables && "\n") + stringifyArrayTable(obj[k], prefix ? `${prefix}.${key}` : key, depth - 1, numberAsFloat);
+      } else if (type === "object") {
+        let tblKey = prefix ? `${prefix}.${key}` : key;
+        tables += (tables && "\n") + stringifyTable(tblKey, obj[k], tblKey, depth - 1, numberAsFloat);
+      } else {
+        preamble += key;
+        preamble += " = ";
+        preamble += stringifyValue(obj[k], type, depth, numberAsFloat);
+        preamble += "\n";
+      }
+    }
+  }
+  if (tableKey && (preamble || !tables))
+    preamble = preamble ? `[${tableKey}]
+${preamble}` : `[${tableKey}]`;
+  return preamble && tables ? `${preamble}
+${tables}` : preamble || tables;
+}
+function stringify(obj, { maxDepth = 1e3, numbersAsFloat = false } = {}) {
+  if (extendedTypeOf(obj) !== "object") {
+    throw new TypeError("stringify can only be called with an object");
+  }
+  let str = stringifyTable(0, obj, "", maxDepth, numbersAsFloat);
+  if (str[str.length - 1] !== "\n")
+    return str + "\n";
+  return str;
+}
+var BARE_KEY;
+var init_stringify = __esm({
+  "node_modules/smol-toml/dist/stringify.js"() {
+    "use strict";
+    BARE_KEY = /^[a-z0-9-_]+$/i;
+  }
+});
+
+// node_modules/smol-toml/dist/index.js
+var init_dist = __esm({
+  "node_modules/smol-toml/dist/index.js"() {
+    "use strict";
+    init_parse();
+    init_stringify();
+    init_date();
+    init_error();
+  }
+});
+
+// src/config.ts
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync } from "fs";
+import { homedir } from "os";
+import { join as join2, dirname } from "path";
+function configPaths(repoRoot, xdgConfigHome, homeDir) {
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join2(homeDir ?? homedir(), ".config");
+  return {
+    user: join2(configBase, "phone-a-friend", "config.toml"),
+    repo: repoRoot ? join2(repoRoot, ".phone-a-friend.toml") : null
+  };
+}
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = result[key];
+    if (srcVal !== null && typeof srcVal === "object" && !Array.isArray(srcVal) && tgtVal !== null && typeof tgtVal === "object" && !Array.isArray(tgtVal)) {
+      result[key] = deepMerge(tgtVal, srcVal);
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
+}
+function loadConfigFromFile(filePath) {
+  if (!existsSync2(filePath)) {
+    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+  }
+  try {
+    const content = readFileSync2(filePath, "utf-8");
+    const parsed = parse(content);
+    const merged = deepMerge(
+      { defaults: { ...DEFAULT_CONFIG.defaults } },
+      parsed
+    );
+    return merged;
+  } catch {
+    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+  }
+}
+function loadConfig(repoRoot, xdgConfigHome, homeDir) {
+  const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
+  let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+  config = loadConfigFromFile(paths.user);
+  if (paths.repo && existsSync2(paths.repo)) {
+    const repoConfig = parse(readFileSync2(paths.repo, "utf-8"));
+    config = deepMerge(config, repoConfig);
+  }
+  return config;
+}
+function saveConfig(cfg, filePath) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const content = stringify(cfg);
+  writeFileSync2(filePath, content, "utf-8");
+}
+function configInit(filePath, force = false) {
+  if (!force && existsSync2(filePath)) {
+    throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
+  }
+  saveConfig(DEFAULT_CONFIG, filePath);
+}
+function configGet(key, cfg) {
+  const parts = key.split(".");
+  let current = cfg;
+  for (const part of parts) {
+    if (current === null || current === void 0 || typeof current !== "object") {
+      return void 0;
+    }
+    current = current[part];
+  }
+  return current;
+}
+function configSet(key, rawValue, filePath) {
+  let cfg;
+  if (existsSync2(filePath)) {
+    const content = readFileSync2(filePath, "utf-8");
+    cfg = parse(content);
+  } else {
+    cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
+  }
+  let value;
+  if (rawValue.toLowerCase() === "true") {
+    value = true;
+  } else if (rawValue.toLowerCase() === "false") {
+    value = false;
+  } else if (/^\d+$/.test(rawValue)) {
+    value = Number(rawValue);
+  } else {
+    value = rawValue;
+  }
+  const parts = key.split(".");
+  let current = cfg;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!(part in current) || typeof current[part] !== "object" || current[part] === null) {
+      current[part] = {};
+    }
+    current = current[part];
+  }
+  current[parts[parts.length - 1]] = value;
+  saveConfig(cfg, filePath);
+}
+function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
+  const cfg = loadConfig(repoRoot, xdgConfigHome);
+  const backend = cliOpts.to ?? env3.PHONE_A_FRIEND_BACKEND ?? cfg.defaults.backend;
+  const sandbox = cliOpts.sandbox ?? env3.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
+  const timeoutRaw = cliOpts.timeout ?? env3.PHONE_A_FRIEND_TIMEOUT ?? String(cfg.defaults.timeout);
+  const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
+  const includeDiffRaw = cliOpts.includeDiff ?? env3.PHONE_A_FRIEND_INCLUDE_DIFF;
+  const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
+  const streamRaw = cliOpts.stream;
+  const stream = streamRaw !== void 0 ? streamRaw === "true" || streamRaw === "1" : cfg.defaults.stream ?? true;
+  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? cfg[backend]?.model ?? void 0;
+  const reviewBase = cliOpts.base ?? env3.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
+  const opencodeProvider = cfg.backends?.opencode?.provider ?? "ollama";
+  const opencodePure = cfg.backends?.opencode?.pure ?? false;
+  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase, opencodeProvider, opencodePure };
+}
+var DEFAULT_CONFIG;
+var init_config = __esm({
+  "src/config.ts"() {
+    "use strict";
+    init_dist();
+    DEFAULT_CONFIG = {
+      defaults: {
+        backend: "codex",
+        sandbox: "read-only",
+        timeout: 600,
+        include_diff: false,
+        stream: true
+      }
+    };
   }
 });
 
@@ -4604,9 +5643,9 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync } from "fs";
-import { dirname, join as join2 } from "path";
-import { homedir } from "os";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
+import { dirname as dirname2, join as join3 } from "path";
+import { homedir as homedir2 } from "os";
 import { randomUUID } from "crypto";
 var MAX_JOBS, JobManager;
 var init_jobs = __esm({
@@ -4616,23 +5655,23 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join2(
-          process.env.XDG_CONFIG_HOME ?? join2(homedir(), ".config"),
+        this.filePath = filePath ?? join3(
+          process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
       }
       load() {
-        if (!existsSync2(this.filePath)) return [];
+        if (!existsSync3(this.filePath)) return [];
         try {
-          return JSON.parse(readFileSync2(this.filePath, "utf-8"));
+          return JSON.parse(readFileSync3(this.filePath, "utf-8"));
         } catch {
           return [];
         }
       }
       save(jobs) {
-        mkdirSync(dirname(this.filePath), { recursive: true });
-        writeFileSync2(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
+        mkdirSync2(dirname2(this.filePath), { recursive: true });
+        writeFileSync3(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
         const jobs = this.load();
@@ -4681,9 +5720,9 @@ var init_jobs = __esm({
 });
 
 // src/sessions.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
-import { dirname as dirname2, join as join3 } from "path";
-import { homedir as homedir2 } from "os";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "fs";
+import { dirname as dirname3, join as join4 } from "path";
+import { homedir as homedir3 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
   "src/sessions.ts"() {
@@ -4692,23 +5731,23 @@ var init_sessions = __esm({
     SessionStore = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join3(
-          process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config"),
+        this.filePath = filePath ?? join4(
+          process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
       }
       load() {
-        if (!existsSync3(this.filePath)) return [];
+        if (!existsSync4(this.filePath)) return [];
         try {
-          return JSON.parse(readFileSync3(this.filePath, "utf-8"));
+          return JSON.parse(readFileSync4(this.filePath, "utf-8"));
         } catch {
           return [];
         }
       }
       save(sessions) {
-        mkdirSync2(dirname2(this.filePath), { recursive: true });
-        writeFileSync3(this.filePath, JSON.stringify(sessions, null, 2), "utf-8");
+        mkdirSync3(dirname3(this.filePath), { recursive: true });
+        writeFileSync4(this.filePath, JSON.stringify(sessions, null, 2), "utf-8");
       }
       get(id) {
         return this.load().find((session) => session.id === id) ?? null;
@@ -4775,7 +5814,7 @@ __export(relay_exports, {
 });
 import { execFileSync as execFileSync2 } from "child_process";
 import { randomUUID as randomUUID2 } from "crypto";
-import { readFileSync as readFileSync4, existsSync as existsSync4, statSync } from "fs";
+import { readFileSync as readFileSync5, existsSync as existsSync5, statSync } from "fs";
 import { resolve } from "path";
 function sizeBytes(text) {
   return Buffer.byteLength(text, "utf-8");
@@ -4789,7 +5828,7 @@ function ensureSizeLimit(label, text, maxBytes) {
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
   const resolved = resolve(contextFile);
-  if (!existsSync4(resolved)) {
+  if (!existsSync5(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
   }
   const stat = statSync(resolved);
@@ -4797,7 +5836,7 @@ function readContextFile(contextFile) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync4(resolved, "utf-8").trim();
+    const contents = readFileSync5(resolved, "utf-8").trim();
     ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
     return contents;
   } catch (err) {
@@ -4924,7 +5963,7 @@ function prepareRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync4(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync5(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -4995,7 +6034,7 @@ async function relay(opts) {
     if (session && !storedSession && selectedBackend.name === "claude") {
       backendSessionId = randomUUID2();
     }
-    const requiresNativeSession = selectedBackend.name === "claude" || selectedBackend.name === "codex";
+    const requiresNativeSession = selectedBackend.name === "claude" || selectedBackend.name === "codex" || selectedBackend.name === "opencode";
     if (session && storedSession && !backendSessionId && requiresNativeSession) {
       throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
     }
@@ -5108,7 +6147,7 @@ async function reviewRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync4(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync5(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -5215,17 +6254,17 @@ var init_relay = __esm({
 });
 
 // src/version.ts
-import { readFileSync as readFileSync5 } from "fs";
-import { resolve as resolve2, dirname as dirname3 } from "path";
+import { readFileSync as readFileSync6 } from "fs";
+import { resolve as resolve2, dirname as dirname4 } from "path";
 import { fileURLToPath } from "url";
 function getPackageRoot() {
-  const thisDir = dirname3(fileURLToPath(import.meta.url));
+  const thisDir = dirname4(fileURLToPath(import.meta.url));
   return resolve2(thisDir, "..");
 }
 function getVersion() {
   const pkgPath = resolve2(getPackageRoot(), "package.json");
   try {
-    const pkg = JSON.parse(readFileSync5(pkgPath, "utf-8"));
+    const pkg = JSON.parse(readFileSync6(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
@@ -5240,20 +6279,20 @@ var init_version = __esm({
 // src/installer.ts
 import { execFileSync as execFileSync3 } from "child_process";
 import {
-  existsSync as existsSync5,
+  existsSync as existsSync6,
   lstatSync,
-  mkdirSync as mkdirSync3,
-  readFileSync as readFileSync6,
+  mkdirSync as mkdirSync4,
+  readFileSync as readFileSync7,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync
 } from "fs";
-import { resolve as resolve3, join as join4, dirname as dirname4 } from "path";
-import { homedir as homedir3 } from "os";
+import { resolve as resolve3, join as join5, dirname as dirname5 } from "path";
+import { homedir as homedir4 } from "os";
 function ensureParent(filePath) {
-  mkdirSync3(dirname4(filePath), { recursive: true });
+  mkdirSync4(dirname5(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -5270,7 +6309,7 @@ function removePath(filePath) {
   }
 }
 function installPath(src, dst, mode, force) {
-  const dstExists = existsSync5(dst) || isSymlink(dst);
+  const dstExists = existsSync6(dst) || isSymlink(dst);
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
@@ -5415,21 +6454,21 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join4(homedir3(), ".claude");
-  return join4(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join5(homedir4(), ".claude");
+  return join5(base, "plugins", PLUGIN_NAME);
 }
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
     const resolved = realpathSync(target);
-    if (existsSync5(resolved)) return true;
+    if (existsSync6(resolved)) return true;
   } catch {
   }
-  if (existsSync5(target)) return true;
-  const home = claudeHome ?? join4(homedir3(), ".claude");
-  const cacheBase = join4(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  if (existsSync6(target)) return true;
+  const home = claudeHome ?? join5(homedir4(), ".claude");
+  const cacheBase = join5(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
-    return existsSync5(cacheBase);
+    return existsSync6(cacheBase);
   } catch {
     return false;
   }
@@ -5440,7 +6479,7 @@ function installClaude(repoRoot, mode, force, claudeHome) {
   return { status, targetPath: target };
 }
 function uninstallPath(filePath) {
-  if (existsSync5(filePath) || isSymlink(filePath)) {
+  if (existsSync6(filePath) || isSymlink(filePath)) {
     removePath(filePath);
     return "removed";
   }
@@ -5451,13 +6490,13 @@ function uninstallClaude(claudeHome) {
   return { status: uninstallPath(target), targetPath: target };
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync5(join4(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync6(join5(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join4(homedir3(), ".claude");
-  const registryPath = join4(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join5(homedir4(), ".claude");
+  const registryPath = join5(home, "plugins", "known_marketplaces.json");
   try {
-    const data = JSON.parse(readFileSync6(registryPath, "utf-8"));
+    const data = JSON.parse(readFileSync7(registryPath, "utf-8"));
     const entry = data[marketplaceName];
     if (!entry?.source?.source) return null;
     const sourceType = entry.source.source;
@@ -5785,7 +6824,7 @@ function isUnicodeSupported2() {
   process9.env["TERM_PROGRAM"] === "Terminus-Sublime" || process9.env["TERM_PROGRAM"] === "vscode" || process9.env["TERM"] === "xterm-256color" || process9.env["TERM"] === "alacritty" || process9.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
 }
 var common, specialMainSymbols, specialFallbackSymbols, mainSymbols, fallbackSymbols, shouldUseMain, figures, dist_default, replacements;
-var init_dist = __esm({
+var init_dist2 = __esm({
   "node_modules/@inquirer/figures/dist/index.js"() {
     "use strict";
     common = {
@@ -6077,7 +7116,7 @@ var defaultTheme;
 var init_theme = __esm({
   "node_modules/@inquirer/core/dist/lib/theme.js"() {
     "use strict";
-    init_dist();
+    init_dist2();
     defaultTheme = {
       prefix: {
         idle: styleText("blue", "?"),
@@ -6110,12 +7149,12 @@ function isPlainObject(value) {
   }
   return Object.getPrototypeOf(value) === proto2;
 }
-function deepMerge(...objects) {
+function deepMerge2(...objects) {
   const output = {};
   for (const obj of objects) {
     for (const [key, value] of Object.entries(obj)) {
       const prevValue = output[key];
-      output[key] = isPlainObject(prevValue) && isPlainObject(value) ? deepMerge(prevValue, value) : value;
+      output[key] = isPlainObject(prevValue) && isPlainObject(value) ? deepMerge2(prevValue, value) : value;
     }
   }
   return output;
@@ -6125,7 +7164,7 @@ function makeTheme(...themes) {
     defaultTheme,
     ...themes.filter((theme2) => theme2 != null)
   ];
-  return deepMerge(...themesToMerge);
+  return deepMerge2(...themesToMerge);
 }
 var init_make_theme = __esm({
   "node_modules/@inquirer/core/dist/lib/make-theme.js"() {
@@ -6300,7 +7339,7 @@ var init_utils = __esm({
 
 // node_modules/fast-string-truncated-width/dist/index.js
 var ANSI_RE, CONTROL_RE, CJKT_WIDE_RE, TAB_RE, EMOJI_RE, LATIN_RE, MODIFIER_RE, NO_TRUNCATION, getStringTruncatedWidth, dist_default2;
-var init_dist2 = __esm({
+var init_dist3 = __esm({
   "node_modules/fast-string-truncated-width/dist/index.js"() {
     "use strict";
     init_utils();
@@ -6405,10 +7444,10 @@ var init_dist2 = __esm({
 
 // node_modules/fast-string-width/dist/index.js
 var NO_TRUNCATION2, fastStringWidth, dist_default3;
-var init_dist3 = __esm({
+var init_dist4 = __esm({
   "node_modules/fast-string-width/dist/index.js"() {
     "use strict";
-    init_dist2();
+    init_dist3();
     NO_TRUNCATION2 = {
       limit: Infinity,
       ellipsis: "",
@@ -6429,7 +7468,7 @@ var ESC, CSI, END_CODE, ANSI_ESCAPE_BELL, ANSI_CSI, ANSI_OSC, ANSI_SGR_TERMINATO
 var init_main = __esm({
   "node_modules/fast-wrap-ansi/lib/main.js"() {
     "use strict";
-    init_dist3();
+    init_dist4();
     ESC = "\x1B";
     CSI = "\x9B";
     END_CODE = 39;
@@ -6874,7 +7913,7 @@ var require_lib = __commonJS({
 
 // node_modules/@inquirer/ansi/dist/index.js
 var ESC2, cursorLeft, cursorHide, cursorShow, cursorUp, cursorDown, cursorTo, eraseLine, eraseLines;
-var init_dist4 = __esm({
+var init_dist5 = __esm({
   "node_modules/@inquirer/ansi/dist/index.js"() {
     "use strict";
     ESC2 = "\x1B[";
@@ -6901,7 +7940,7 @@ var init_screen_manager = __esm({
   "node_modules/@inquirer/core/dist/lib/screen-manager.js"() {
     "use strict";
     init_utils2();
-    init_dist4();
+    init_dist5();
     height = (content) => content.split("\n").length;
     lastLine = (content) => content.split("\n").pop() ?? "";
     ScreenManager = class {
@@ -7100,7 +8139,7 @@ var Separator;
 var init_Separator = __esm({
   "node_modules/@inquirer/core/dist/lib/Separator.js"() {
     "use strict";
-    init_dist();
+    init_dist2();
     Separator = class {
       separator = styleText2("dim", Array.from({ length: 15 }).join(dist_default.line));
       type = "separator";
@@ -7117,7 +8156,7 @@ var init_Separator = __esm({
 });
 
 // node_modules/@inquirer/core/dist/index.js
-var init_dist5 = __esm({
+var init_dist6 = __esm({
   "node_modules/@inquirer/core/dist/index.js"() {
     "use strict";
     init_key();
@@ -7184,13 +8223,13 @@ function normalizeChoices(choices) {
   });
 }
 var checkboxTheme, dist_default4;
-var init_dist6 = __esm({
+var init_dist7 = __esm({
   "node_modules/@inquirer/checkbox/dist/index.js"() {
     "use strict";
+    init_dist6();
     init_dist5();
-    init_dist4();
-    init_dist();
-    init_dist5();
+    init_dist2();
+    init_dist6();
     checkboxTheme = {
       icon: {
         checked: styleText3("green", dist_default.circleFilled),
@@ -16812,8 +17851,8 @@ var init_RemoveFileError = __esm({
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
-import { spawn as spawn2, spawnSync } from "child_process";
-import { readFileSync as readFileSync7, unlinkSync as unlinkSync2, writeFileSync as writeFileSync4 } from "fs";
+import { spawn as spawn3, spawnSync } from "child_process";
+import { readFileSync as readFileSync8, unlinkSync as unlinkSync2, writeFileSync as writeFileSync5 } from "fs";
 import path from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
@@ -16855,7 +17894,7 @@ function splitStringBySpace(str) {
   return pieces;
 }
 var import_chardet, import_iconv_lite, ExternalEditor;
-var init_dist7 = __esm({
+var init_dist8 = __esm({
   "node_modules/@inquirer/external-editor/dist/index.js"() {
     "use strict";
     import_chardet = __toESM(require_lib2(), 1);
@@ -16931,14 +17970,14 @@ var init_dist7 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync4(this.tempFile, this.text, opt);
+          writeFileSync5(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync7(this.tempFile);
+          const tempFileBuffer = readFileSync8(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -16969,7 +18008,7 @@ var init_dist7 = __esm({
       }
       launchEditorAsync(callback) {
         try {
-          const editorProcess = spawn2(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
+          const editorProcess = spawn3(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
           editorProcess.on("exit", (code) => {
             this.lastExitStatus = code;
             setImmediate(callback);
@@ -16984,11 +18023,11 @@ var init_dist7 = __esm({
 
 // node_modules/@inquirer/editor/dist/index.js
 var editorTheme, dist_default5;
-var init_dist8 = __esm({
+var init_dist9 = __esm({
   "node_modules/@inquirer/editor/dist/index.js"() {
     "use strict";
-    init_dist7();
-    init_dist5();
+    init_dist8();
+    init_dist6();
     editorTheme = {
       validationFailureMode: "keep",
       style: {
@@ -17073,10 +18112,10 @@ function boolToString(value) {
   return value ? "Yes" : "No";
 }
 var dist_default6;
-var init_dist9 = __esm({
+var init_dist10 = __esm({
   "node_modules/@inquirer/confirm/dist/index.js"() {
     "use strict";
-    init_dist5();
+    init_dist6();
     dist_default6 = createPrompt((config, done) => {
       const { transformer = boolToString } = config;
       const [status, setStatus] = useState("idle");
@@ -17115,10 +18154,10 @@ var init_dist9 = __esm({
 
 // node_modules/@inquirer/input/dist/index.js
 var inputTheme, dist_default7;
-var init_dist10 = __esm({
+var init_dist11 = __esm({
   "node_modules/@inquirer/input/dist/index.js"() {
     "use strict";
-    init_dist5();
+    init_dist6();
     inputTheme = {
       validationFailureMode: "keep"
     };
@@ -17223,10 +18262,10 @@ function validateNumber(value, { min, max, step }) {
   return true;
 }
 var dist_default8;
-var init_dist11 = __esm({
+var init_dist12 = __esm({
   "node_modules/@inquirer/number/dist/index.js"() {
     "use strict";
-    init_dist5();
+    init_dist6();
     dist_default8 = createPrompt((config, done) => {
       const { validate: validate2 = () => true, min = -Infinity, max = Infinity, step = 1, required = false } = config;
       const theme2 = makeTheme(config.theme);
@@ -17310,10 +18349,10 @@ function normalizeChoices2(choices) {
   });
 }
 var helpChoice, dist_default9;
-var init_dist12 = __esm({
+var init_dist13 = __esm({
   "node_modules/@inquirer/expand/dist/index.js"() {
     "use strict";
-    init_dist5();
+    init_dist6();
     helpChoice = {
       key: "h",
       name: "Help, list all options",
@@ -17437,10 +18476,10 @@ function getSelectedChoice(input, choices) {
   return selectedChoice ? [selectedChoice, choices.indexOf(selectedChoice)] : [void 0, void 0];
 }
 var numberRegex, rawlistTheme, dist_default10;
-var init_dist13 = __esm({
+var init_dist14 = __esm({
   "node_modules/@inquirer/rawlist/dist/index.js"() {
     "use strict";
-    init_dist5();
+    init_dist6();
     numberRegex = /\d+/;
     rawlistTheme = {
       style: {
@@ -17530,11 +18569,11 @@ var init_dist13 = __esm({
 
 // node_modules/@inquirer/password/dist/index.js
 var passwordTheme, dist_default11;
-var init_dist14 = __esm({
+var init_dist15 = __esm({
   "node_modules/@inquirer/password/dist/index.js"() {
     "use strict";
+    init_dist6();
     init_dist5();
-    init_dist4();
     passwordTheme = {
       style: {
         maskedText: "[input is masked]"
@@ -17621,11 +18660,11 @@ function normalizeChoices4(choices) {
   });
 }
 var searchTheme, dist_default12;
-var init_dist15 = __esm({
+var init_dist16 = __esm({
   "node_modules/@inquirer/search/dist/index.js"() {
     "use strict";
-    init_dist5();
-    init_dist();
+    init_dist6();
+    init_dist2();
     searchTheme = {
       icon: { cursor: dist_default.pointer },
       style: {
@@ -17803,12 +18842,12 @@ function normalizeChoices5(choices) {
   });
 }
 var selectTheme, dist_default13;
-var init_dist16 = __esm({
+var init_dist17 = __esm({
   "node_modules/@inquirer/select/dist/index.js"() {
     "use strict";
+    init_dist6();
     init_dist5();
-    init_dist4();
-    init_dist();
+    init_dist2();
     selectTheme = {
       icon: { cursor: dist_default.pointer },
       style: {
@@ -17962,11 +19001,10 @@ __export(dist_exports, {
   search: () => dist_default12,
   select: () => dist_default13
 });
-var init_dist17 = __esm({
+var init_dist18 = __esm({
   "node_modules/@inquirer/prompts/dist/index.js"() {
     "use strict";
-    init_dist6();
-    init_dist8();
+    init_dist7();
     init_dist9();
     init_dist10();
     init_dist11();
@@ -17975,10 +19013,12 @@ var init_dist17 = __esm({
     init_dist14();
     init_dist15();
     init_dist16();
+    init_dist17();
   }
 });
 
 // src/detection.ts
+import { execFileSync as execFileSync4 } from "child_process";
 async function detectCliBackends(whichFn = isInPath) {
   return CLI_BACKENDS.map(({ name, installHint, label }) => {
     const found = whichFn(name);
@@ -18026,13 +19066,43 @@ async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetc
     detail = "not installed";
     installHint = OLLAMA_INSTALL_HINT;
   }
+  let modelCapabilities;
+  if (serverResponding && models.length > 0) {
+    modelCapabilities = {};
+    const caps = await Promise.all(
+      models.map(async (name) => {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3e3);
+        try {
+          const resp = await fetchFn(`${host}/api/show`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+            signal: ctrl.signal
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            return [name, data.capabilities ?? []];
+          }
+        } catch {
+        } finally {
+          clearTimeout(t);
+        }
+        return [name, []];
+      })
+    );
+    for (const [name, c] of caps) {
+      modelCapabilities[name] = c;
+    }
+  }
   return [{
     name: "ollama",
     category: "local",
     available,
     detail,
     installHint,
-    models: serverResponding ? models : void 0
+    models: serverResponding ? models : void 0,
+    modelCapabilities
   }];
 }
 async function detectHostIntegrations(whichFn = isInPath) {
@@ -18058,6 +19128,42 @@ function detectEnvironment(whichFn = isInPath) {
     }
   };
 }
+function discoverOpenCodeModels(whichFn = isInPath) {
+  if (!whichFn("opencode")) return [];
+  try {
+    const output = execFileSync4("opencode", ["models"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5e3
+    }).toString().trim();
+    if (!output) return [];
+    return output.split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function decorateOpenCodeModels(report, whichFn = isInPath) {
+  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
+  if (!opencode) return;
+  const models = discoverOpenCodeModels(whichFn);
+  if (models.length === 0) return;
+  opencode.models = models;
+  const ollama = report.local.find((b) => b.name === "ollama");
+  if (ollama?.modelCapabilities) {
+    const caps = {};
+    for (const model of models) {
+      if (model.startsWith("ollama/")) {
+        const ollamaName = model.slice("ollama/".length);
+        const ollamaCaps = ollama.modelCapabilities[ollamaName] ?? ollama.modelCapabilities[`${ollamaName}:latest`];
+        if (ollamaCaps) {
+          caps[model] = ollamaCaps;
+        }
+      }
+    }
+    if (Object.keys(caps).length > 0) {
+      opencode.modelCapabilities = caps;
+    }
+  }
+}
 async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
   const [cli, local, host] = await Promise.all([
     detectCliBackends(whichFn),
@@ -18074,1049 +19180,14 @@ var init_detection = __esm({
     init_backends();
     CLI_BACKENDS = [
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
-      { name: "gemini", installHint: "npm install -g @google/gemini-cli", label: "Google Gemini CLI" }
+      { name: "gemini", installHint: "npm install -g @google/gemini-cli", label: "Google Gemini CLI" },
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" }
     ];
-  }
-});
-
-// node_modules/smol-toml/dist/error.js
-function getLineColFromPtr(string, ptr) {
-  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
-  return [lines.length, lines.pop().length + 1];
-}
-function makeCodeBlock(string, line, column) {
-  let lines = string.split(/\r\n|\n|\r/g);
-  let codeblock = "";
-  let numberLen = (Math.log10(line + 1) | 0) + 1;
-  for (let i = line - 1; i <= line + 1; i++) {
-    let l = lines[i - 1];
-    if (!l)
-      continue;
-    codeblock += i.toString().padEnd(numberLen, " ");
-    codeblock += ":  ";
-    codeblock += l;
-    codeblock += "\n";
-    if (i === line) {
-      codeblock += " ".repeat(numberLen + column + 2);
-      codeblock += "^\n";
-    }
-  }
-  return codeblock;
-}
-var TomlError;
-var init_error = __esm({
-  "node_modules/smol-toml/dist/error.js"() {
-    "use strict";
-    TomlError = class extends Error {
-      line;
-      column;
-      codeblock;
-      constructor(message, options) {
-        const [line, column] = getLineColFromPtr(options.toml, options.ptr);
-        const codeblock = makeCodeBlock(options.toml, line, column);
-        super(`Invalid TOML document: ${message}
-
-${codeblock}`, options);
-        this.line = line;
-        this.column = column;
-        this.codeblock = codeblock;
-      }
-    };
-  }
-});
-
-// node_modules/smol-toml/dist/util.js
-function isEscaped(str, ptr) {
-  let i = 0;
-  while (str[ptr - ++i] === "\\")
-    ;
-  return --i && i % 2;
-}
-function indexOfNewline(str, start = 0, end = str.length) {
-  let idx = str.indexOf("\n", start);
-  if (str[idx - 1] === "\r")
-    idx--;
-  return idx <= end ? idx : -1;
-}
-function skipComment(str, ptr) {
-  for (let i = ptr; i < str.length; i++) {
-    let c = str[i];
-    if (c === "\n")
-      return i;
-    if (c === "\r" && str[i + 1] === "\n")
-      return i + 1;
-    if (c < " " && c !== "	" || c === "\x7F") {
-      throw new TomlError("control characters are not allowed in comments", {
-        toml: str,
-        ptr
-      });
-    }
-  }
-  return str.length;
-}
-function skipVoid(str, ptr, banNewLines, banComments) {
-  let c;
-  while (1) {
-    while ((c = str[ptr]) === " " || c === "	" || !banNewLines && (c === "\n" || c === "\r" && str[ptr + 1] === "\n"))
-      ptr++;
-    if (banComments || c !== "#")
-      break;
-    ptr = skipComment(str, ptr);
-  }
-  return ptr;
-}
-function skipUntil(str, ptr, sep2, end, banNewLines = false) {
-  if (!end) {
-    ptr = indexOfNewline(str, ptr);
-    return ptr < 0 ? str.length : ptr;
-  }
-  for (let i = ptr; i < str.length; i++) {
-    let c = str[i];
-    if (c === "#") {
-      i = indexOfNewline(str, i);
-    } else if (c === sep2) {
-      return i + 1;
-    } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
-      return i;
-    }
-  }
-  throw new TomlError("cannot find end of structure", {
-    toml: str,
-    ptr
-  });
-}
-function getStringEnd(str, seek) {
-  let first = str[seek];
-  let target = first === str[seek + 1] && str[seek + 1] === str[seek + 2] ? str.slice(seek, seek + 3) : first;
-  seek += target.length - 1;
-  do
-    seek = str.indexOf(target, ++seek);
-  while (seek > -1 && first !== "'" && isEscaped(str, seek));
-  if (seek > -1) {
-    seek += target.length;
-    if (target.length > 1) {
-      if (str[seek] === first)
-        seek++;
-      if (str[seek] === first)
-        seek++;
-    }
-  }
-  return seek;
-}
-var init_util = __esm({
-  "node_modules/smol-toml/dist/util.js"() {
-    "use strict";
-    init_error();
-  }
-});
-
-// node_modules/smol-toml/dist/date.js
-var DATE_TIME_RE, TomlDate;
-var init_date = __esm({
-  "node_modules/smol-toml/dist/date.js"() {
-    "use strict";
-    DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
-    TomlDate = class _TomlDate extends Date {
-      #hasDate = false;
-      #hasTime = false;
-      #offset = null;
-      constructor(date) {
-        let hasDate = true;
-        let hasTime = true;
-        let offset = "Z";
-        if (typeof date === "string") {
-          let match = date.match(DATE_TIME_RE);
-          if (match) {
-            if (!match[1]) {
-              hasDate = false;
-              date = `0000-01-01T${date}`;
-            }
-            hasTime = !!match[2];
-            hasTime && date[10] === " " && (date = date.replace(" ", "T"));
-            if (match[2] && +match[2] > 23) {
-              date = "";
-            } else {
-              offset = match[3] || null;
-              date = date.toUpperCase();
-              if (!offset && hasTime)
-                date += "Z";
-            }
-          } else {
-            date = "";
-          }
-        }
-        super(date);
-        if (!isNaN(this.getTime())) {
-          this.#hasDate = hasDate;
-          this.#hasTime = hasTime;
-          this.#offset = offset;
-        }
-      }
-      isDateTime() {
-        return this.#hasDate && this.#hasTime;
-      }
-      isLocal() {
-        return !this.#hasDate || !this.#hasTime || !this.#offset;
-      }
-      isDate() {
-        return this.#hasDate && !this.#hasTime;
-      }
-      isTime() {
-        return this.#hasTime && !this.#hasDate;
-      }
-      isValid() {
-        return this.#hasDate || this.#hasTime;
-      }
-      toISOString() {
-        let iso = super.toISOString();
-        if (this.isDate())
-          return iso.slice(0, 10);
-        if (this.isTime())
-          return iso.slice(11, 23);
-        if (this.#offset === null)
-          return iso.slice(0, -1);
-        if (this.#offset === "Z")
-          return iso;
-        let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
-        offset = this.#offset[0] === "-" ? offset : -offset;
-        let offsetDate = new Date(this.getTime() - offset * 6e4);
-        return offsetDate.toISOString().slice(0, -1) + this.#offset;
-      }
-      static wrapAsOffsetDateTime(jsDate, offset = "Z") {
-        let date = new _TomlDate(jsDate);
-        date.#offset = offset;
-        return date;
-      }
-      static wrapAsLocalDateTime(jsDate) {
-        let date = new _TomlDate(jsDate);
-        date.#offset = null;
-        return date;
-      }
-      static wrapAsLocalDate(jsDate) {
-        let date = new _TomlDate(jsDate);
-        date.#hasTime = false;
-        date.#offset = null;
-        return date;
-      }
-      static wrapAsLocalTime(jsDate) {
-        let date = new _TomlDate(jsDate);
-        date.#hasDate = false;
-        date.#offset = null;
-        return date;
-      }
-    };
-  }
-});
-
-// node_modules/smol-toml/dist/primitive.js
-function parseString(str, ptr = 0, endPtr = str.length) {
-  let isLiteral = str[ptr] === "'";
-  let isMultiline = str[ptr++] === str[ptr] && str[ptr] === str[ptr + 1];
-  if (isMultiline) {
-    endPtr -= 2;
-    if (str[ptr += 2] === "\r")
-      ptr++;
-    if (str[ptr] === "\n")
-      ptr++;
-  }
-  let tmp = 0;
-  let isEscape;
-  let parsed = "";
-  let sliceStart = ptr;
-  while (ptr < endPtr - 1) {
-    let c = str[ptr++];
-    if (c === "\n" || c === "\r" && str[ptr] === "\n") {
-      if (!isMultiline) {
-        throw new TomlError("newlines are not allowed in strings", {
-          toml: str,
-          ptr: ptr - 1
-        });
-      }
-    } else if (c < " " && c !== "	" || c === "\x7F") {
-      throw new TomlError("control characters are not allowed in strings", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    }
-    if (isEscape) {
-      isEscape = false;
-      if (c === "x" || c === "u" || c === "U") {
-        let code = str.slice(ptr, ptr += c === "x" ? 2 : c === "u" ? 4 : 8);
-        if (!ESCAPE_REGEX.test(code)) {
-          throw new TomlError("invalid unicode escape", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-        try {
-          parsed += String.fromCodePoint(parseInt(code, 16));
-        } catch {
-          throw new TomlError("invalid unicode escape", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-      } else if (isMultiline && (c === "\n" || c === " " || c === "	" || c === "\r")) {
-        ptr = skipVoid(str, ptr - 1, true);
-        if (str[ptr] !== "\n" && str[ptr] !== "\r") {
-          throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
-            toml: str,
-            ptr: tmp
-          });
-        }
-        ptr = skipVoid(str, ptr);
-      } else if (c in ESC_MAP) {
-        parsed += ESC_MAP[c];
-      } else {
-        throw new TomlError("unrecognized escape sequence", {
-          toml: str,
-          ptr: tmp
-        });
-      }
-      sliceStart = ptr;
-    } else if (!isLiteral && c === "\\") {
-      tmp = ptr - 1;
-      isEscape = true;
-      parsed += str.slice(sliceStart, tmp);
-    }
-  }
-  return parsed + str.slice(sliceStart, endPtr - 1);
-}
-function parseValue(value, toml, ptr, integersAsBigInt) {
-  if (value === "true")
-    return true;
-  if (value === "false")
-    return false;
-  if (value === "-inf")
-    return -Infinity;
-  if (value === "inf" || value === "+inf")
-    return Infinity;
-  if (value === "nan" || value === "+nan" || value === "-nan")
-    return NaN;
-  if (value === "-0")
-    return integersAsBigInt ? 0n : 0;
-  let isInt = INT_REGEX.test(value);
-  if (isInt || FLOAT_REGEX.test(value)) {
-    if (LEADING_ZERO.test(value)) {
-      throw new TomlError("leading zeroes are not allowed", {
-        toml,
-        ptr
-      });
-    }
-    value = value.replace(/_/g, "");
-    let numeric = +value;
-    if (isNaN(numeric)) {
-      throw new TomlError("invalid number", {
-        toml,
-        ptr
-      });
-    }
-    if (isInt) {
-      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
-        throw new TomlError("integer value cannot be represented losslessly", {
-          toml,
-          ptr
-        });
-      }
-      if (isInt || integersAsBigInt === true)
-        numeric = BigInt(value);
-    }
-    return numeric;
-  }
-  const date = new TomlDate(value);
-  if (!date.isValid()) {
-    throw new TomlError("invalid value", {
-      toml,
-      ptr
-    });
-  }
-  return date;
-}
-var INT_REGEX, FLOAT_REGEX, LEADING_ZERO, ESCAPE_REGEX, ESC_MAP;
-var init_primitive = __esm({
-  "node_modules/smol-toml/dist/primitive.js"() {
-    "use strict";
-    init_util();
-    init_date();
-    init_error();
-    INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
-    FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
-    LEADING_ZERO = /^[+-]?0[0-9_]/;
-    ESCAPE_REGEX = /^[0-9a-f]{2,8}$/i;
-    ESC_MAP = {
-      b: "\b",
-      t: "	",
-      n: "\n",
-      f: "\f",
-      r: "\r",
-      e: "\x1B",
-      '"': '"',
-      "\\": "\\"
-    };
-  }
-});
-
-// node_modules/smol-toml/dist/extract.js
-function sliceAndTrimEndOf(str, startPtr, endPtr) {
-  let value = str.slice(startPtr, endPtr);
-  let commentIdx = value.indexOf("#");
-  if (commentIdx > -1) {
-    skipComment(str, commentIdx);
-    value = value.slice(0, commentIdx);
-  }
-  return [value.trimEnd(), commentIdx];
-}
-function extractValue(str, ptr, end, depth, integersAsBigInt) {
-  if (depth === 0) {
-    throw new TomlError("document contains excessively nested structures. aborting.", {
-      toml: str,
-      ptr
-    });
-  }
-  let c = str[ptr];
-  if (c === "[" || c === "{") {
-    let [value, endPtr2] = c === "[" ? parseArray(str, ptr, depth, integersAsBigInt) : parseInlineTable(str, ptr, depth, integersAsBigInt);
-    if (end) {
-      endPtr2 = skipVoid(str, endPtr2);
-      if (str[endPtr2] === ",")
-        endPtr2++;
-      else if (str[endPtr2] !== end) {
-        throw new TomlError("expected comma or end of structure", {
-          toml: str,
-          ptr: endPtr2
-        });
-      }
-    }
-    return [value, endPtr2];
-  }
-  let endPtr;
-  if (c === '"' || c === "'") {
-    endPtr = getStringEnd(str, ptr);
-    let parsed = parseString(str, ptr, endPtr);
-    if (end) {
-      endPtr = skipVoid(str, endPtr);
-      if (str[endPtr] && str[endPtr] !== "," && str[endPtr] !== end && str[endPtr] !== "\n" && str[endPtr] !== "\r") {
-        throw new TomlError("unexpected character encountered", {
-          toml: str,
-          ptr: endPtr
-        });
-      }
-      endPtr += +(str[endPtr] === ",");
-    }
-    return [parsed, endPtr];
-  }
-  endPtr = skipUntil(str, ptr, ",", end);
-  let slice = sliceAndTrimEndOf(str, ptr, endPtr - +(str[endPtr - 1] === ","));
-  if (!slice[0]) {
-    throw new TomlError("incomplete key-value declaration: no value specified", {
-      toml: str,
-      ptr
-    });
-  }
-  if (end && slice[1] > -1) {
-    endPtr = skipVoid(str, ptr + slice[1]);
-    endPtr += +(str[endPtr] === ",");
-  }
-  return [
-    parseValue(slice[0], str, ptr, integersAsBigInt),
-    endPtr
-  ];
-}
-var init_extract = __esm({
-  "node_modules/smol-toml/dist/extract.js"() {
-    "use strict";
-    init_primitive();
-    init_struct();
-    init_util();
-    init_error();
-  }
-});
-
-// node_modules/smol-toml/dist/struct.js
-function parseKey(str, ptr, end = "=") {
-  let dot = ptr - 1;
-  let parsed = [];
-  let endPtr = str.indexOf(end, ptr);
-  if (endPtr < 0) {
-    throw new TomlError("incomplete key-value: cannot find end of key", {
-      toml: str,
-      ptr
-    });
-  }
-  do {
-    let c = str[ptr = ++dot];
-    if (c !== " " && c !== "	") {
-      if (c === '"' || c === "'") {
-        if (c === str[ptr + 1] && c === str[ptr + 2]) {
-          throw new TomlError("multiline strings are not allowed in keys", {
-            toml: str,
-            ptr
-          });
-        }
-        let eos = getStringEnd(str, ptr);
-        if (eos < 0) {
-          throw new TomlError("unfinished string encountered", {
-            toml: str,
-            ptr
-          });
-        }
-        dot = str.indexOf(".", eos);
-        let strEnd = str.slice(eos, dot < 0 || dot > endPtr ? endPtr : dot);
-        let newLine = indexOfNewline(strEnd);
-        if (newLine > -1) {
-          throw new TomlError("newlines are not allowed in keys", {
-            toml: str,
-            ptr: ptr + dot + newLine
-          });
-        }
-        if (strEnd.trimStart()) {
-          throw new TomlError("found extra tokens after the string part", {
-            toml: str,
-            ptr: eos
-          });
-        }
-        if (endPtr < eos) {
-          endPtr = str.indexOf(end, eos);
-          if (endPtr < 0) {
-            throw new TomlError("incomplete key-value: cannot find end of key", {
-              toml: str,
-              ptr
-            });
-          }
-        }
-        parsed.push(parseString(str, ptr, eos));
-      } else {
-        dot = str.indexOf(".", ptr);
-        let part = str.slice(ptr, dot < 0 || dot > endPtr ? endPtr : dot);
-        if (!KEY_PART_RE.test(part)) {
-          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
-            toml: str,
-            ptr
-          });
-        }
-        parsed.push(part.trimEnd());
-      }
-    }
-  } while (dot + 1 && dot < endPtr);
-  return [parsed, skipVoid(str, endPtr + 1, true, true)];
-}
-function parseInlineTable(str, ptr, depth, integersAsBigInt) {
-  let res = {};
-  let seen = /* @__PURE__ */ new Set();
-  let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "}" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let k;
-      let t = res;
-      let hasOwn = false;
-      let [key, keyEndPtr] = parseKey(str, ptr - 1);
-      for (let i = 0; i < key.length; i++) {
-        if (i)
-          t = hasOwn ? t[k] : t[k] = {};
-        k = key[i];
-        if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
-          throw new TomlError("trying to redefine an already defined value", {
-            toml: str,
-            ptr
-          });
-        }
-        if (!hasOwn && k === "__proto__") {
-          Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
-        }
-      }
-      if (hasOwn) {
-        throw new TomlError("trying to redefine an already defined value", {
-          toml: str,
-          ptr
-        });
-      }
-      let [value, valueEndPtr] = extractValue(str, keyEndPtr, "}", depth - 1, integersAsBigInt);
-      seen.add(value);
-      t[k] = value;
-      ptr = valueEndPtr;
-    }
-  }
-  if (!c) {
-    throw new TomlError("unfinished table encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
-}
-function parseArray(str, ptr, depth, integersAsBigInt) {
-  let res = [];
-  let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "]" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let e = extractValue(str, ptr - 1, "]", depth - 1, integersAsBigInt);
-      res.push(e[0]);
-      ptr = e[1];
-    }
-  }
-  if (!c) {
-    throw new TomlError("unfinished array encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
-}
-var KEY_PART_RE;
-var init_struct = __esm({
-  "node_modules/smol-toml/dist/struct.js"() {
-    "use strict";
-    init_primitive();
-    init_extract();
-    init_util();
-    init_error();
-    KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
-  }
-});
-
-// node_modules/smol-toml/dist/parse.js
-function peekTable(key, table, meta, type) {
-  let t = table;
-  let m = meta;
-  let k;
-  let hasOwn = false;
-  let state;
-  for (let i = 0; i < key.length; i++) {
-    if (i) {
-      t = hasOwn ? t[k] : t[k] = {};
-      m = (state = m[k]).c;
-      if (type === 0 && (state.t === 1 || state.t === 2)) {
-        return null;
-      }
-      if (state.t === 2) {
-        let l = t.length - 1;
-        t = t[l];
-        m = m[l].c;
-      }
-    }
-    k = key[i];
-    if ((hasOwn = Object.hasOwn(t, k)) && m[k]?.t === 0 && m[k]?.d) {
-      return null;
-    }
-    if (!hasOwn) {
-      if (k === "__proto__") {
-        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
-        Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
-      }
-      m[k] = {
-        t: i < key.length - 1 && type === 2 ? 3 : type,
-        d: false,
-        i: 0,
-        c: {}
-      };
-    }
-  }
-  state = m[k];
-  if (state.t !== type && !(type === 1 && state.t === 3)) {
-    return null;
-  }
-  if (type === 2) {
-    if (!state.d) {
-      state.d = true;
-      t[k] = [];
-    }
-    t[k].push(t = {});
-    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
-  }
-  if (state.d) {
-    return null;
-  }
-  state.d = true;
-  if (type === 1) {
-    t = hasOwn ? t[k] : t[k] = {};
-  } else if (type === 0 && hasOwn) {
-    return null;
-  }
-  return [k, t, state.c];
-}
-function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
-  let res = {};
-  let meta = {};
-  let tbl = res;
-  let m = meta;
-  for (let ptr = skipVoid(toml, 0); ptr < toml.length; ) {
-    if (toml[ptr] === "[") {
-      let isTableArray = toml[++ptr] === "[";
-      let k = parseKey(toml, ptr += +isTableArray, "]");
-      if (isTableArray) {
-        if (toml[k[1] - 1] !== "]") {
-          throw new TomlError("expected end of table declaration", {
-            toml,
-            ptr: k[1] - 1
-          });
-        }
-        k[1]++;
-      }
-      let p = peekTable(
-        k[0],
-        res,
-        meta,
-        isTableArray ? 2 : 1
-        /* Type.EXPLICIT */
-      );
-      if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr
-        });
-      }
-      m = p[2];
-      tbl = p[1];
-      ptr = k[1];
-    } else {
-      let k = parseKey(toml, ptr);
-      let p = peekTable(
-        k[0],
-        tbl,
-        m,
-        0
-        /* Type.DOTTED */
-      );
-      if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr
-        });
-      }
-      let v = extractValue(toml, k[1], void 0, maxDepth, integersAsBigInt);
-      p[1][p[0]] = v[0];
-      ptr = v[1];
-    }
-    ptr = skipVoid(toml, ptr, true);
-    if (toml[ptr] && toml[ptr] !== "\n" && toml[ptr] !== "\r") {
-      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
-        toml,
-        ptr
-      });
-    }
-    ptr = skipVoid(toml, ptr);
-  }
-  return res;
-}
-var init_parse = __esm({
-  "node_modules/smol-toml/dist/parse.js"() {
-    "use strict";
-    init_struct();
-    init_extract();
-    init_util();
-    init_error();
-  }
-});
-
-// node_modules/smol-toml/dist/stringify.js
-function extendedTypeOf(obj) {
-  let type = typeof obj;
-  if (type === "object") {
-    if (Array.isArray(obj))
-      return "array";
-    if (obj instanceof Date)
-      return "date";
-  }
-  return type;
-}
-function isArrayOfTables(obj) {
-  for (let i = 0; i < obj.length; i++) {
-    if (extendedTypeOf(obj[i]) !== "object")
-      return false;
-  }
-  return obj.length != 0;
-}
-function formatString(s) {
-  return JSON.stringify(s).replace(/\x7f/g, "\\u007f");
-}
-function stringifyValue(val, type, depth, numberAsFloat) {
-  if (depth === 0) {
-    throw new Error("Could not stringify the object: maximum object depth exceeded");
-  }
-  if (type === "number") {
-    if (isNaN(val))
-      return "nan";
-    if (val === Infinity)
-      return "inf";
-    if (val === -Infinity)
-      return "-inf";
-    if (numberAsFloat && Number.isInteger(val))
-      return val.toFixed(1);
-    return val.toString();
-  }
-  if (type === "bigint" || type === "boolean") {
-    return val.toString();
-  }
-  if (type === "string") {
-    return formatString(val);
-  }
-  if (type === "date") {
-    if (isNaN(val.getTime())) {
-      throw new TypeError("cannot serialize invalid date");
-    }
-    return val.toISOString();
-  }
-  if (type === "object") {
-    return stringifyInlineTable(val, depth, numberAsFloat);
-  }
-  if (type === "array") {
-    return stringifyArray(val, depth, numberAsFloat);
-  }
-}
-function stringifyInlineTable(obj, depth, numberAsFloat) {
-  let keys = Object.keys(obj);
-  if (keys.length === 0)
-    return "{}";
-  let res = "{ ";
-  for (let i = 0; i < keys.length; i++) {
-    let k = keys[i];
-    if (i)
-      res += ", ";
-    res += BARE_KEY.test(k) ? k : formatString(k);
-    res += " = ";
-    res += stringifyValue(obj[k], extendedTypeOf(obj[k]), depth - 1, numberAsFloat);
-  }
-  return res + " }";
-}
-function stringifyArray(array, depth, numberAsFloat) {
-  if (array.length === 0)
-    return "[]";
-  let res = "[ ";
-  for (let i = 0; i < array.length; i++) {
-    if (i)
-      res += ", ";
-    if (array[i] === null || array[i] === void 0) {
-      throw new TypeError("arrays cannot contain null or undefined values");
-    }
-    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat);
-  }
-  return res + " ]";
-}
-function stringifyArrayTable(array, key, depth, numberAsFloat) {
-  if (depth === 0) {
-    throw new Error("Could not stringify the object: maximum object depth exceeded");
-  }
-  let res = "";
-  for (let i = 0; i < array.length; i++) {
-    res += `${res && "\n"}[[${key}]]
-`;
-    res += stringifyTable(0, array[i], key, depth, numberAsFloat);
-  }
-  return res;
-}
-function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat) {
-  if (depth === 0) {
-    throw new Error("Could not stringify the object: maximum object depth exceeded");
-  }
-  let preamble = "";
-  let tables = "";
-  let keys = Object.keys(obj);
-  for (let i = 0; i < keys.length; i++) {
-    let k = keys[i];
-    if (obj[k] !== null && obj[k] !== void 0) {
-      let type = extendedTypeOf(obj[k]);
-      if (type === "symbol" || type === "function") {
-        throw new TypeError(`cannot serialize values of type '${type}'`);
-      }
-      let key = BARE_KEY.test(k) ? k : formatString(k);
-      if (type === "array" && isArrayOfTables(obj[k])) {
-        tables += (tables && "\n") + stringifyArrayTable(obj[k], prefix ? `${prefix}.${key}` : key, depth - 1, numberAsFloat);
-      } else if (type === "object") {
-        let tblKey = prefix ? `${prefix}.${key}` : key;
-        tables += (tables && "\n") + stringifyTable(tblKey, obj[k], tblKey, depth - 1, numberAsFloat);
-      } else {
-        preamble += key;
-        preamble += " = ";
-        preamble += stringifyValue(obj[k], type, depth, numberAsFloat);
-        preamble += "\n";
-      }
-    }
-  }
-  if (tableKey && (preamble || !tables))
-    preamble = preamble ? `[${tableKey}]
-${preamble}` : `[${tableKey}]`;
-  return preamble && tables ? `${preamble}
-${tables}` : preamble || tables;
-}
-function stringify(obj, { maxDepth = 1e3, numbersAsFloat = false } = {}) {
-  if (extendedTypeOf(obj) !== "object") {
-    throw new TypeError("stringify can only be called with an object");
-  }
-  let str = stringifyTable(0, obj, "", maxDepth, numbersAsFloat);
-  if (str[str.length - 1] !== "\n")
-    return str + "\n";
-  return str;
-}
-var BARE_KEY;
-var init_stringify = __esm({
-  "node_modules/smol-toml/dist/stringify.js"() {
-    "use strict";
-    BARE_KEY = /^[a-z0-9-_]+$/i;
-  }
-});
-
-// node_modules/smol-toml/dist/index.js
-var init_dist18 = __esm({
-  "node_modules/smol-toml/dist/index.js"() {
-    "use strict";
-    init_parse();
-    init_stringify();
-    init_date();
-    init_error();
-  }
-});
-
-// src/config.ts
-import { readFileSync as readFileSync8, writeFileSync as writeFileSync5, existsSync as existsSync6, mkdirSync as mkdirSync4 } from "fs";
-import { homedir as homedir4 } from "os";
-import { join as join5, dirname as dirname5 } from "path";
-function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join5(homeDir ?? homedir4(), ".config");
-  return {
-    user: join5(configBase, "phone-a-friend", "config.toml"),
-    repo: repoRoot ? join5(repoRoot, ".phone-a-friend.toml") : null
-  };
-}
-function deepMerge2(target, source) {
-  const result = { ...target };
-  for (const key of Object.keys(source)) {
-    const srcVal = source[key];
-    const tgtVal = result[key];
-    if (srcVal !== null && typeof srcVal === "object" && !Array.isArray(srcVal) && tgtVal !== null && typeof tgtVal === "object" && !Array.isArray(tgtVal)) {
-      result[key] = deepMerge2(tgtVal, srcVal);
-    } else {
-      result[key] = srcVal;
-    }
-  }
-  return result;
-}
-function loadConfigFromFile(filePath) {
-  if (!existsSync6(filePath)) {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
-  }
-  try {
-    const content = readFileSync8(filePath, "utf-8");
-    const parsed = parse(content);
-    const merged = deepMerge2(
-      { defaults: { ...DEFAULT_CONFIG.defaults } },
-      parsed
-    );
-    return merged;
-  } catch {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
-  }
-}
-function loadConfig(repoRoot, xdgConfigHome, homeDir) {
-  const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
-  let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
-  config = loadConfigFromFile(paths.user);
-  if (paths.repo && existsSync6(paths.repo)) {
-    const repoConfig = parse(readFileSync8(paths.repo, "utf-8"));
-    config = deepMerge2(config, repoConfig);
-  }
-  return config;
-}
-function saveConfig(cfg, filePath) {
-  mkdirSync4(dirname5(filePath), { recursive: true });
-  const content = stringify(cfg);
-  writeFileSync5(filePath, content, "utf-8");
-}
-function configInit(filePath, force = false) {
-  if (!force && existsSync6(filePath)) {
-    throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
-  }
-  saveConfig(DEFAULT_CONFIG, filePath);
-}
-function configGet(key, cfg) {
-  const parts = key.split(".");
-  let current = cfg;
-  for (const part of parts) {
-    if (current === null || current === void 0 || typeof current !== "object") {
-      return void 0;
-    }
-    current = current[part];
-  }
-  return current;
-}
-function configSet(key, rawValue, filePath) {
-  let cfg;
-  if (existsSync6(filePath)) {
-    const content = readFileSync8(filePath, "utf-8");
-    cfg = parse(content);
-  } else {
-    cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
-  }
-  let value;
-  if (rawValue.toLowerCase() === "true") {
-    value = true;
-  } else if (rawValue.toLowerCase() === "false") {
-    value = false;
-  } else if (/^\d+$/.test(rawValue)) {
-    value = Number(rawValue);
-  } else {
-    value = rawValue;
-  }
-  const parts = key.split(".");
-  let current = cfg;
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i];
-    if (!(part in current) || typeof current[part] !== "object" || current[part] === null) {
-      current[part] = {};
-    }
-    current = current[part];
-  }
-  current[parts[parts.length - 1]] = value;
-  saveConfig(cfg, filePath);
-}
-function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
-  const cfg = loadConfig(repoRoot, xdgConfigHome);
-  const backend = cliOpts.to ?? env3.PHONE_A_FRIEND_BACKEND ?? cfg.defaults.backend;
-  const sandbox = cliOpts.sandbox ?? env3.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
-  const timeoutRaw = cliOpts.timeout ?? env3.PHONE_A_FRIEND_TIMEOUT ?? String(cfg.defaults.timeout);
-  const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
-  const includeDiffRaw = cliOpts.includeDiff ?? env3.PHONE_A_FRIEND_INCLUDE_DIFF;
-  const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
-  const streamRaw = cliOpts.stream;
-  const stream = streamRaw !== void 0 ? streamRaw === "true" || streamRaw === "1" : cfg.defaults.stream ?? true;
-  const model = cliOpts.model ?? cfg.backends?.[backend]?.model ?? cfg[backend]?.model ?? void 0;
-  const reviewBase = cliOpts.base ?? env3.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
-  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase };
-}
-var DEFAULT_CONFIG;
-var init_config = __esm({
-  "src/config.ts"() {
-    "use strict";
-    init_dist18();
-    DEFAULT_CONFIG = {
-      defaults: {
-        backend: "codex",
-        sandbox: "read-only",
-        timeout: 600,
-        include_diff: false,
-        stream: true
-      }
-    };
   }
 });
 
@@ -23236,7 +23307,7 @@ var init_wrap_ansi = __esm({
 
 // node_modules/terminal-size/index.js
 import process11 from "process";
-import { execFileSync as execFileSync4 } from "child_process";
+import { execFileSync as execFileSync5 } from "child_process";
 import fs from "fs";
 import tty3 from "tty";
 function terminalSize() {
@@ -23268,7 +23339,7 @@ var init_terminal_size = __esm({
     "use strict";
     defaultColumns = 80;
     defaultRows = 24;
-    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync4(command, arguments_, {
+    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync5(command, arguments_, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 500,
@@ -72982,8 +73053,10 @@ function BackendDetail({
   const backendConfig = config.backends?.[backend.name];
   const configuredModel = config.backends?.[backend.name]?.model;
   const isOllama = backend.name === "ollama";
+  const isOpenCode = backend.name === "opencode";
   const models = backend.models ?? [];
   const hasModels = models.length > 0;
+  const caps = backend.modelCapabilities ?? {};
   const modelMismatch = hasModels && configuredModel && !models.includes(configuredModel);
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", paddingLeft: 2, borderStyle: "single", borderColor: "gray", paddingRight: 2, children: [
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
@@ -72998,11 +73071,17 @@ function BackendDetail({
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: "Models:" }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "Enter to pick default" })
       ] }),
-      models.map((m) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
-        "  ",
-        m,
-        configuredModel === m ? "  \u2605 (default)" : ""
-      ] }, m)),
+      models.map((m) => {
+        const modelCaps = caps[m] ?? [];
+        const hasTools = modelCaps.includes("tools");
+        const hasCapsData = m in caps;
+        return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { children: [
+          "  ",
+          m,
+          configuredModel === m ? "  \u2605 (default)" : "",
+          isOpenCode && hasCapsData && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: hasTools ? "green" : "red", children: hasTools ? " \u2713 tools" : " \u2717 no tools" })
+        ] }, m);
+      }),
       modelMismatch && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { color: "yellow", children: [
         "\u26A0",
         ' Configured model "',
@@ -73020,11 +73099,17 @@ function BackendDetail({
           selectedIndex: modelSelectedIndex,
           onChange: onModelSelectedIndexChange,
           getKey: (m) => m,
-          renderItem: (m, _i, isSelected) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: m }),
-            configuredModel === m && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "green", children: " \u2605" })
-          ] })
+          renderItem: (m, _i, isSelected) => {
+            const modelCaps = caps[m] ?? [];
+            const hasTools = modelCaps.includes("tools");
+            const hasCapsData = m in caps;
+            return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: m }),
+              configuredModel === m && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: "green", children: " \u2605" }),
+              isOpenCode && hasCapsData && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { color: hasTools ? "green" : "red", children: hasTools ? " \u2713 tools" : " \u2717 no tools" })
+            ] });
+          }
         }
       ),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Box_default, { marginTop: 1, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "Enter select  Esc cancel" }) })
@@ -73368,7 +73453,7 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn3 } from "child_process";
+import { spawn as spawn4 } from "child_process";
 import { mkdirSync as mkdirSync5, existsSync as existsSync10 } from "fs";
 import { dirname as dirname6 } from "path";
 function buildActions(report, onRefresh, processRef) {
@@ -73386,7 +73471,7 @@ function buildActions(report, onRefresh, processRef) {
       description: "Reinstall Claude Code plugin",
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn3(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
+          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -73416,7 +73501,7 @@ function buildActions(report, onRefresh, processRef) {
       exitAfter: true,
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn3(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
+          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -73453,7 +73538,7 @@ function buildActions(report, onRefresh, processRef) {
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
         return new Promise((resolve5, reject) => {
-          const proc = spawn3(editor, editorArgs, { stdio: "inherit" });
+          const proc = spawn4(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
@@ -73834,6 +73919,7 @@ function useDetection() {
     setError(null);
     try {
       const result = await detectAll();
+      decorateOpenCodeModels(result);
       if (mountedRef.current) {
         setReport(result);
         lastRunRef.current = Date.now();
@@ -74381,7 +74467,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn4 } from "child_process";
+import { spawn as spawn5 } from "child_process";
 import { randomUUID as randomUUID4 } from "crypto";
 var NESTED_SESSION_VARS2, SessionManager;
 var init_session = __esm({
@@ -74510,7 +74596,7 @@ ${prompt}`,
       execClaude(args, repoPath) {
         return new Promise((resolve5, reject) => {
           const env3 = this.cleanEnv();
-          const child = spawn4("claude", args, {
+          const child = spawn5("claude", args, {
             env: env3,
             cwd: repoPath,
             stdio: ["pipe", "pipe", "pipe"]
@@ -76128,6 +76214,41 @@ async function* parseNDJSONStream(body, signal) {
     throw new Error("Stream ended unexpectedly");
   }
 }
+async function* parseOpenCodeStreamJSON(stdout, opts) {
+  let buffer = "";
+  let sessionReported = false;
+  function* processLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (!sessionReported && typeof parsed.sessionID === "string" && opts?.onSessionCreated) {
+        opts.onSessionCreated(parsed.sessionID);
+        sessionReported = true;
+      }
+      if (parsed.type === "text") {
+        const part = parsed.part;
+        if (part?.text && typeof part.text === "string") {
+          yield part.text;
+        }
+      }
+    }
+  }
+  for await (const chunk of stdout) {
+    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    yield* processLines(lines);
+  }
+  if (buffer.trim()) {
+    yield* processLines([buffer]);
+  }
+}
 async function* parseClaudeStreamJSON(stdout) {
   let buffer = "";
   let emittedLength = 0;
@@ -76539,12 +76660,238 @@ var ClaudeBackend = class {
 var CLAUDE_BACKEND = new ClaudeBackend();
 registerBackend(CLAUDE_BACKEND);
 
+// src/backends/opencode.ts
+init_backends();
+import { spawn as spawn2 } from "child_process";
+init_config();
+var OpenCodeBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "OpenCodeBackendError";
+  }
+};
+function normalizeOpenCodeModel(model, provider = "ollama") {
+  if (!model) return null;
+  return model.includes("/") ? model : `${provider}/${model}`;
+}
+function buildOpenCodeArgs(opts) {
+  const args = ["run", "--format", "json", "--dir", opts.repoPath];
+  const model = normalizeOpenCodeModel(opts.model, opts.provider);
+  if (model) args.push("--model", model);
+  if (opts.fast) args.push("--pure");
+  if (opts.resumeSession && opts.sessionId) {
+    args.push("--session", opts.sessionId);
+  } else if (opts.title) {
+    args.push("--title", opts.title);
+  }
+  args.push(opts.prompt);
+  return args;
+}
+function parseOpenCodeTranscript(jsonl) {
+  let sessionId;
+  const textParts = [];
+  for (const line of jsonl.split("\n")) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!sessionId && typeof event.sessionID === "string") {
+      sessionId = event.sessionID;
+    }
+    if (event.type === "text") {
+      const part = event.part;
+      if (part?.text && typeof part.text === "string") {
+        textParts.push(part.text);
+      }
+    }
+  }
+  return { text: textParts.join("\n").trim(), sessionId };
+}
+var OpenCodeBackend = class {
+  name = "opencode";
+  localFileAccess = true;
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  getConfig() {
+    const cfg = loadConfig();
+    return {
+      provider: cfg.backends?.opencode?.provider ?? "ollama",
+      pure: cfg.backends?.opencode?.pure ?? false
+    };
+  }
+  async run(opts) {
+    if (!isInPath("opencode")) {
+      throw new OpenCodeBackendError(
+        `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
+      );
+    }
+    const { provider, pure } = this.getConfig();
+    const args = buildOpenCodeArgs({
+      prompt: opts.prompt,
+      repoPath: opts.repoPath,
+      model: opts.model,
+      provider,
+      fast: opts.fast || pure,
+      sessionId: opts.sessionId ?? null,
+      resumeSession: opts.resumeSession ?? false
+    });
+    try {
+      const result = await spawnCli("opencode", args, {
+        timeoutMs: opts.timeoutSeconds * 1e3,
+        env: opts.env,
+        cwd: opts.repoPath,
+        label: "opencode"
+      });
+      const parsed = parseOpenCodeTranscript(result.stdout);
+      if (parsed.sessionId && opts.onSessionCreated) {
+        opts.onSessionCreated(parsed.sessionId);
+      }
+      if (parsed.error) {
+        throw new OpenCodeBackendError(parsed.error);
+      }
+      if (!parsed.text) {
+        throw new OpenCodeBackendError("opencode completed without producing output");
+      }
+      return parsed.text;
+    } catch (err) {
+      if (err instanceof OpenCodeBackendError) throw err;
+      if (err instanceof BackendError) {
+        throw new OpenCodeBackendError(err.message);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new OpenCodeBackendError(msg);
+    }
+  }
+  async *runStream(opts) {
+    if (!isInPath("opencode")) {
+      throw new OpenCodeBackendError(
+        `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
+      );
+    }
+    const { provider, pure } = this.getConfig();
+    const args = buildOpenCodeArgs({
+      prompt: opts.prompt,
+      repoPath: opts.repoPath,
+      model: opts.model,
+      provider,
+      fast: opts.fast || pure,
+      sessionId: opts.sessionId ?? null,
+      resumeSession: opts.resumeSession ?? false
+    });
+    const child = spawn2("opencode", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: opts.repoPath,
+      env: opts.env
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutSeconds * 1e3);
+    const onSigint = () => {
+      child.kill("SIGTERM");
+    };
+    process.on("SIGINT", onSigint);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    const closePromise = new Promise((resolve5, reject) => {
+      child.on("close", (code, signal) => {
+        if (timedOut) {
+          reject(new OpenCodeBackendError(
+            `opencode timed out after ${opts.timeoutSeconds}s`
+          ));
+        } else if (signal) {
+          reject(new OpenCodeBackendError(
+            `opencode killed by signal ${signal}`
+          ));
+        } else if (code !== 0 && code !== null) {
+          const stderr = Buffer.concat(stderrChunks).toString().trim();
+          reject(new OpenCodeBackendError(
+            stderr || `opencode exited with code ${code}`
+          ));
+        } else {
+          resolve5();
+        }
+      });
+    });
+    try {
+      yield* parseOpenCodeStreamJSON(
+        child.stdout,
+        { onSessionCreated: opts.onSessionCreated }
+      );
+      await closePromise;
+    } catch (err) {
+      closePromise.catch(() => {
+      });
+      if (err instanceof OpenCodeBackendError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (timedOut) {
+        throw new OpenCodeBackendError(
+          `opencode timed out after ${opts.timeoutSeconds}s`
+        );
+      }
+      throw new OpenCodeBackendError(`opencode stream error: ${msg}`);
+    } finally {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      if (!child.killed) {
+        child.kill("SIGTERM");
+      }
+    }
+  }
+  async review(opts) {
+    if (!isInPath("opencode")) {
+      throw new OpenCodeBackendError(
+        `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
+      );
+    }
+    const { provider } = this.getConfig();
+    const prompt = opts.prompt ?? `Review the changes on this branch against ${opts.base}. Run git diff ${opts.base}...HEAD to see what changed.`;
+    const args = buildOpenCodeArgs({
+      prompt,
+      repoPath: opts.repoPath,
+      model: opts.model,
+      provider,
+      fast: false,
+      sessionId: null,
+      resumeSession: false
+    });
+    try {
+      const result = await spawnCli("opencode", args, {
+        timeoutMs: opts.timeoutSeconds * 1e3,
+        env: opts.env,
+        cwd: opts.repoPath,
+        label: "opencode"
+      });
+      const parsed = parseOpenCodeTranscript(result.stdout);
+      if (parsed.error) throw new OpenCodeBackendError(parsed.error);
+      if (!parsed.text) throw new OpenCodeBackendError("opencode review completed without producing output");
+      return parsed.text;
+    } catch (err) {
+      if (err instanceof OpenCodeBackendError) throw err;
+      if (err instanceof BackendError) {
+        throw new OpenCodeBackendError(err.message);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new OpenCodeBackendError(msg);
+    }
+  }
+};
+var OPENCODE_BACKEND = new OpenCodeBackend();
+registerBackend(OPENCODE_BACKEND);
+
 // src/cli.ts
 import { existsSync as existsSync12 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
-var import_index5 = __toESM(require_commander(), 1);
+var import_index6 = __toESM(require_commander(), 1);
 var {
   program,
   createCommand,
@@ -76558,7 +76905,7 @@ var {
   Argument,
   Option,
   Help
-} = import_index5.default;
+} = import_index6.default;
 
 // node_modules/ora/index.js
 init_source();
@@ -79063,7 +79410,7 @@ function banner(title) {
 init_installer();
 
 // src/setup.ts
-init_dist17();
+init_dist18();
 init_detection();
 init_config();
 init_installer();
@@ -79209,7 +79556,7 @@ async function setup(opts) {
           prompt: "Say hello in one sentence.",
           repoPath: process.cwd(),
           backend: selectedBackend,
-          timeoutSeconds: 30
+          timeoutSeconds: selectedBackend === "opencode" ? 120 : 30
         });
         testSpinner.succeed(`${selectedBackend} responded`);
       } catch (err) {
@@ -79243,7 +79590,7 @@ async function setup(opts) {
 init_detection();
 init_config();
 init_version();
-function formatHumanReadable(report, config, paths) {
+function formatHumanReadable(report, config, paths, advisories = []) {
   const lines = [];
   lines.push("");
   lines.push(banner("Health Check"));
@@ -79282,6 +79629,13 @@ function formatHumanReadable(report, config, paths) {
   const summaryColor = available === total ? theme.success : available > 0 ? theme.warning : theme.error;
   lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push("");
+  if (advisories.length > 0) {
+    lines.push(`  ${theme.label("Advisories:")}`);
+    for (const advisory of advisories) {
+      lines.push(`    ${theme.warning(advisory)}`);
+    }
+    lines.push("");
+  }
   return lines.join("\n");
 }
 function normalizeForJson(backends) {
@@ -79293,7 +79647,7 @@ function normalizeForJson(backends) {
     return b;
   });
 }
-function formatJson(report, config, exitCode) {
+function formatJson(report, config, exitCode, advisories = []) {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
   const total = allRelay.length;
@@ -79309,6 +79663,7 @@ function formatJson(report, config, exitCode) {
     host: normalizeForJson(report.host),
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
+    advisories,
     exitCode
   }, null, 2);
 }
@@ -79320,20 +79675,59 @@ function computeExitCode(report) {
   if (available < total) return 1;
   return 0;
 }
+var OLLAMA_DEFAULT_HOST2 = "http://localhost:11434";
+async function probeOllamaVersion() {
+  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST2;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3e3);
+  try {
+    const resp = await fetch(`${host}/api/version`, { signal: controller.signal });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data.version ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function semverLt(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return false;
+  }
+  return false;
+}
+async function collectAdvisories(report) {
+  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
+  if (!opencode) return [];
+  const version = await probeOllamaVersion();
+  if (!version) {
+    return ["OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17."];
+  }
+  if (semverLt(version, "0.17.0")) {
+    return [`OpenCode detected but Ollama ${version} is below 0.17. Tool calling will not work with newer models.`];
+  }
+  return [];
+}
 async function doctor(opts) {
   const report = await detectAll();
+  decorateOpenCodeModels(report);
   const paths = configPaths(opts?.repoRoot);
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
+  const advisories = await collectAdvisories(report);
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode)
+      output: formatJson(report, config, exitCode, advisories)
     };
   }
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths)
+    output: formatHumanReadable(report, config, paths, advisories)
   };
 }
 
@@ -79444,7 +79838,7 @@ async function run(argv) {
     const isFirstRun = !existsSync12(paths.user);
     const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
     if (isTTY && isFirstRun) {
-      const { select } = await Promise.resolve().then(() => (init_dist17(), dist_exports));
+      const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
       console.log("");
       console.log(banner("AI coding agent relay"));
       console.log("");
@@ -79488,7 +79882,7 @@ async function run(argv) {
     }
     if (isTTY) {
       if (!isPluginInstalled()) {
-        const { select } = await Promise.resolve().then(() => (init_dist17(), dist_exports));
+        const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
         console.log("");
         console.log(banner("AI coding agent relay"));
         console.log("");
@@ -79539,7 +79933,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);

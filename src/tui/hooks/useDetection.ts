@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { detectAll } from '../../detection.js';
+import { detectAll, decorateOpenCodeModels } from '../../detection.js';
 import type { DetectionReport } from '../../detection.js';
 
 const THROTTLE_MS = 5000;
@@ -48,6 +48,8 @@ export function useDetection(): UseDetectionResult {
 
     try {
       const result = await detectAll();
+      // Populate OpenCode models from `opencode models` + Ollama capabilities
+      decorateOpenCodeModels(result);
       if (mountedRef.current) {
         setReport(result);
         lastRunRef.current = Date.now();

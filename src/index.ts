@@ -5,6 +5,7 @@ import './backends/codex.js';
 import './backends/gemini.js';
 import './backends/ollama.js';
 import './backends/claude.js';
+import './backends/opencode.js';
 
 import { run } from './cli.js';
 
