@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>phone-a-friend — Multi-Agent Collaboration for Claude Code</title>
-  <meta name="description" content="A CLI relay that lets Claude delegate tasks to Codex, Gemini, Ollama, and Claude Code. Code reviews, refactoring, debugging — with a second opinion built in.">
+  <meta name="description" content="A CLI relay that lets Claude delegate tasks to Codex, Gemini, Ollama, OpenCode, and Claude Code. Code reviews, refactoring, debugging — with a second opinion built in.">
   <meta name="theme-color" content="#060c1f">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📞</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1442,7 +1442,7 @@
           When your AI needs a <span class="highlight">second opinion</span>.
         </h1>
         <p class="hero-description">
-          Just talk. Claude automatically delegates to Codex, Gemini, Ollama, or Claude Code
+          Just talk. Claude automatically delegates to Codex, Gemini, Ollama, OpenCode, or Claude Code
           and brings the results back — no flags, no syntax, plain English. Or go agentic:
           multiple Claude agents collaborating via @mentions with a live web dashboard.
         </p>
@@ -1506,11 +1506,12 @@
                 <span class="tui-dim">Node.js v22.19.0</span><br>
                 <span class="tui-check">&#10003;</span> <span style="color:var(--accent-green)">Claude Plugin</span>
               </div>
-              <div class="tui-section-title">Relay Backends (3 of 3 ready)</div>
+              <div class="tui-section-title">Relay Backends (4 of 4 ready)</div>
               <div style="padding-left:8px;">
                 <span class="tui-dim">CLI</span><br>
                 <span style="padding-left:12px"><span class="tui-check">&#10003;</span> <span class="tui-label">codex</span> <span class="tui-dim">OpenAI Codex CLI (found in PATH)</span></span><br>
                 <span style="padding-left:12px"><span class="tui-check">&#10003;</span> <span class="tui-label">gemini</span> <span class="tui-dim">Google Gemini CLI (found in PATH)</span></span><br>
+                <span style="padding-left:12px"><span class="tui-check">&#10003;</span> <span class="tui-label">opencode</span> <span class="tui-dim">OpenCode CLI (found in PATH)</span></span><br>
                 <span class="tui-dim">Local</span><br>
                 <span style="padding-left:12px"><span class="tui-check">&#10003;</span> <span class="tui-label">ollama</span> <span class="tui-dim">http://localhost:11434 (2 models)</span></span>
               </div>
@@ -1528,6 +1529,7 @@
                 <div class="tui-backends-list">
                   <div><span class="tui-pointer">&#9656;</span> <span class="tui-check">&#10003;</span> <span class="tui-label" style="font-weight:500">codex</span></div>
                   <div>&nbsp; <span class="tui-check">&#10003;</span> gemini</div>
+                  <div>&nbsp; <span class="tui-check">&#10003;</span> opencode</div>
                   <div>&nbsp; <span class="tui-check">&#10003;</span> ollama</div>
                   <div>&nbsp; <span class="tui-check">&#10003;</span> claude</div>
                 </div>
@@ -1626,7 +1628,7 @@
               </div>
             </div>
             <h3>Claude phones a friend</h3>
-            <p>Your prompt, repo context, and optional diffs are relayed to Codex, Gemini, Ollama, or Claude Code in a sandboxed environment.</p>
+            <p>Your prompt, repo context, and optional diffs are relayed to Codex, Gemini, Ollama, OpenCode, or Claude Code in a sandboxed environment.</p>
           </div>
 
           <div class="flow-step reveal reveal-delay-3">
@@ -1756,7 +1758,7 @@
           <div class="feature-card reveal reveal-delay-1">
             <span class="feature-icon">🔌</span>
             <h3>Backend-agnostic</h3>
-            <p>Codex, Gemini, Ollama, and Claude Code. Add new backends via the RelayBackend protocol.</p>
+            <p>Codex, Gemini, Ollama, OpenCode, and Claude Code. Add new backends via the RelayBackend protocol.</p>
           </div>
 
           <div class="feature-card reveal reveal-delay-2">
