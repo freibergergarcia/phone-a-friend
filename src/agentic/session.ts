@@ -8,6 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { getBackend } from '../backends/index.js';
 import type { AgentConfig } from './types.js';
 
 // Env vars that trigger Claude's nested-session guard
@@ -46,35 +47,32 @@ export class SessionManager {
     repoPath: string,
   ): Promise<SpawnResult> {
     const sessionId = randomUUID();
+    const { resumeStrategy } = getBackend(agent.backend).capabilities;
 
-    switch (agent.backend) {
-      case 'claude': {
-        const output = await this.spawnClaude(
-          sessionId, systemPrompt, initialPrompt, repoPath, agent.model,
-        );
-        this.sessions.set(agent.name, {
-          agentName: agent.name,
-          backend: 'claude',
-          sessionId,
-          history: [initialPrompt, output],
-        });
-        return { output, sessionId };
-      }
-
-      default: {
-        // Fallback: stateless run with transcript replay
-        const output = await this.statelessRun(
-          agent.backend, systemPrompt, initialPrompt, repoPath, agent.model,
-        );
-        this.sessions.set(agent.name, {
-          agentName: agent.name,
-          backend: agent.backend,
-          sessionId,
-          history: [initialPrompt, output],
-        });
-        return { output, sessionId };
-      }
+    if (resumeStrategy === 'native-session') {
+      const output = await this.spawnClaude(
+        sessionId, systemPrompt, initialPrompt, repoPath, agent.model,
+      );
+      this.sessions.set(agent.name, {
+        agentName: agent.name,
+        backend: agent.backend,
+        sessionId,
+        history: [initialPrompt, output],
+      });
+      return { output, sessionId };
     }
+
+    // Fallback: stateless run with transcript replay
+    const output = await this.statelessRun(
+      agent.backend, systemPrompt, initialPrompt, repoPath, agent.model,
+    );
+    this.sessions.set(agent.name, {
+      agentName: agent.name,
+      backend: agent.backend,
+      sessionId,
+      history: [initialPrompt, output],
+    });
+    return { output, sessionId };
   }
 
   /**
@@ -85,19 +83,17 @@ export class SessionManager {
     if (!session) throw new Error(`No session for agent: ${agentName}`);
 
     // Don't mutate history until backend succeeds — avoids phantom messages on failure
-    switch (session.backend) {
-      case 'claude': {
-        const output = await this.resumeClaude(session.sessionId, message, repoPath);
-        session.history.push(message, output);
-        return output;
-      }
+    const { resumeStrategy } = getBackend(session.backend).capabilities;
 
-      default: {
-        const output = await this.statelessResume(session, message, repoPath);
-        session.history.push(message, output);
-        return output;
-      }
+    if (resumeStrategy === 'native-session') {
+      const output = await this.resumeClaude(session.sessionId, message, repoPath);
+      session.history.push(message, output);
+      return output;
     }
+
+    const output = await this.statelessResume(session, message, repoPath);
+    session.history.push(message, output);
+    return output;
   }
 
   /**

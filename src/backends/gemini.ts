@@ -13,6 +13,7 @@
  */
 
 import {
+  type BackendCapabilities,
   type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
@@ -39,6 +40,10 @@ export class GeminiBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'transcript-replay',
+    requiresClientSessionId: false,
+  };
 
   async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath('gemini')) {

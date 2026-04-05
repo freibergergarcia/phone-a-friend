@@ -12,6 +12,15 @@ import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
+export type ResumeStrategy = 'native-session' | 'transcript-replay' | 'unsupported';
+
+export interface BackendCapabilities {
+  /** How this backend handles session resumption. */
+  resumeStrategy: ResumeStrategy;
+  /** Whether the caller must generate a session ID before the first call (e.g. Claude's --session-id). */
+  requiresClientSessionId: boolean;
+}
+
 export interface BackendResult {
   output: string;
   exitCode: number;
@@ -52,6 +61,7 @@ export interface Backend {
   name: string;
   localFileAccess: boolean;
   allowedSandboxes: ReadonlySet<SandboxMode>;
+  capabilities: BackendCapabilities;
   run(opts: BackendRunOptions): Promise<string>;
   review?(opts: ReviewOptions): Promise<string>;
   runStream?(opts: BackendRunOptions): AsyncIterable<string>;

@@ -7,6 +7,7 @@ import {
   INSTALL_HINTS,
   BackendError,
   type Backend,
+  type BackendCapabilities,
   type BackendResult,
   type SandboxMode,
 } from '../../src/backends/index.js';
@@ -17,11 +18,17 @@ import {
 
 const ALL_SANDBOXES: SandboxMode[] = ['read-only', 'workspace-write', 'danger-full-access'];
 
+const DEFAULT_CAPABILITIES: BackendCapabilities = {
+  resumeStrategy: 'transcript-replay',
+  requiresClientSessionId: false,
+};
+
 function makeMockBackend(name: string): Backend {
   return {
     name,
     localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(ALL_SANDBOXES),
+    capabilities: DEFAULT_CAPABILITIES,
     run: vi.fn(() => 'mock output'),
   };
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { BackendError, type SandboxMode, type Backend } from '../src/backends/index.js';
+import { BackendError, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
 import { SessionStore } from '../src/sessions.js';
 
 // Mock child_process for git diff calls
@@ -40,11 +40,17 @@ function makeTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'phone-a-friend-test-'));
 }
 
+const DEFAULT_CAPABILITIES: BackendCapabilities = {
+  resumeStrategy: 'transcript-replay',
+  requiresClientSessionId: false,
+};
+
 function makeMockBackend(name: string): Backend {
   return {
     name,
     localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: DEFAULT_CAPABILITIES,
     run: vi.fn(async () => 'mock feedback'),
   };
 }
@@ -54,6 +60,7 @@ function makeMockBackendWithReview(name: string): Backend & { review: ReturnType
     name,
     localFileAccess: true,
     allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: DEFAULT_CAPABILITIES,
     run: vi.fn(async () => 'mock feedback'),
     review: vi.fn(async () => 'mock review feedback'),
   };
