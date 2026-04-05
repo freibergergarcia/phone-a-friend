@@ -17,7 +17,30 @@ vi.mock('node:crypto', () => ({
 }));
 
 import { SessionManager } from '../../src/agentic/session.js';
+import { registerBackend, _resetRegistry, type Backend, type SandboxMode } from '../../src/backends/index.js';
 import type { AgentConfig } from '../../src/agentic/types.js';
+
+// Register mock backends so getBackend() works inside SessionManager
+const ALL_SANDBOXES = new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']);
+
+function registerMockBackends(): void {
+  const noop = async () => '';
+  registerBackend({
+    name: 'claude', localFileAccess: true, allowedSandboxes: ALL_SANDBOXES,
+    capabilities: { resumeStrategy: 'native-session', requiresClientSessionId: true },
+    run: noop,
+  });
+  registerBackend({
+    name: 'gemini', localFileAccess: true, allowedSandboxes: ALL_SANDBOXES,
+    capabilities: { resumeStrategy: 'transcript-replay', requiresClientSessionId: false },
+    run: noop,
+  });
+  registerBackend({
+    name: 'ollama', localFileAccess: false, allowedSandboxes: ALL_SANDBOXES,
+    capabilities: { resumeStrategy: 'transcript-replay', requiresClientSessionId: false },
+    run: noop,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,6 +90,8 @@ describe('SessionManager', () => {
   let sm: SessionManager;
 
   beforeEach(() => {
+    _resetRegistry();
+    registerMockBackends();
     sm = new SessionManager();
     spawnMock.mockReset();
   });

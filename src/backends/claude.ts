@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import {
+  type BackendCapabilities,
   type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
@@ -56,6 +57,10 @@ export class ClaudeBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'native-session',
+    requiresClientSessionId: true,
+  };
 
   /**
    * Strip env vars that trigger Claude's nested-session guard.

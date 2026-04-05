@@ -6031,10 +6031,10 @@ async function relay(opts) {
       );
     }
     let backendSessionId = storedSession?.backendSessionId ?? null;
-    if (session && !storedSession && selectedBackend.name === "claude") {
+    if (session && !storedSession && selectedBackend.capabilities.requiresClientSessionId) {
       backendSessionId = randomUUID2();
     }
-    const requiresNativeSession = selectedBackend.name === "claude" || selectedBackend.name === "codex" || selectedBackend.name === "opencode";
+    const requiresNativeSession = selectedBackend.capabilities.resumeStrategy === "native-session";
     if (session && storedSession && !backendSessionId && requiresNativeSession) {
       throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
     }
@@ -74473,6 +74473,7 @@ var NESTED_SESSION_VARS2, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
     "use strict";
+    init_backends();
     NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
     SessionManager = class {
       sessions = /* @__PURE__ */ new Map();
@@ -74481,40 +74482,37 @@ var init_session = __esm({
        */
       async spawn(agent, systemPrompt, initialPrompt, repoPath) {
         const sessionId = randomUUID4();
-        switch (agent.backend) {
-          case "claude": {
-            const output = await this.spawnClaude(
-              sessionId,
-              systemPrompt,
-              initialPrompt,
-              repoPath,
-              agent.model
-            );
-            this.sessions.set(agent.name, {
-              agentName: agent.name,
-              backend: "claude",
-              sessionId,
-              history: [initialPrompt, output]
-            });
-            return { output, sessionId };
-          }
-          default: {
-            const output = await this.statelessRun(
-              agent.backend,
-              systemPrompt,
-              initialPrompt,
-              repoPath,
-              agent.model
-            );
-            this.sessions.set(agent.name, {
-              agentName: agent.name,
-              backend: agent.backend,
-              sessionId,
-              history: [initialPrompt, output]
-            });
-            return { output, sessionId };
-          }
+        const { resumeStrategy } = getBackend(agent.backend).capabilities;
+        if (resumeStrategy === "native-session") {
+          const output2 = await this.spawnClaude(
+            sessionId,
+            systemPrompt,
+            initialPrompt,
+            repoPath,
+            agent.model
+          );
+          this.sessions.set(agent.name, {
+            agentName: agent.name,
+            backend: agent.backend,
+            sessionId,
+            history: [initialPrompt, output2]
+          });
+          return { output: output2, sessionId };
         }
+        const output = await this.statelessRun(
+          agent.backend,
+          systemPrompt,
+          initialPrompt,
+          repoPath,
+          agent.model
+        );
+        this.sessions.set(agent.name, {
+          agentName: agent.name,
+          backend: agent.backend,
+          sessionId,
+          history: [initialPrompt, output]
+        });
+        return { output, sessionId };
       }
       /**
        * Resume an agent session with a new message. Returns the agent's response.
@@ -74522,18 +74520,15 @@ var init_session = __esm({
       async resume(agentName, message, repoPath) {
         const session = this.sessions.get(agentName);
         if (!session) throw new Error(`No session for agent: ${agentName}`);
-        switch (session.backend) {
-          case "claude": {
-            const output = await this.resumeClaude(session.sessionId, message, repoPath);
-            session.history.push(message, output);
-            return output;
-          }
-          default: {
-            const output = await this.statelessResume(session, message, repoPath);
-            session.history.push(message, output);
-            return output;
-          }
+        const { resumeStrategy } = getBackend(session.backend).capabilities;
+        if (resumeStrategy === "native-session") {
+          const output2 = await this.resumeClaude(session.sessionId, message, repoPath);
+          session.history.push(message, output2);
+          return output2;
         }
+        const output = await this.statelessResume(session, message, repoPath);
+        session.history.push(message, output);
+        return output;
       }
       /**
        * Check if an agent has an active session.
@@ -75845,6 +75840,10 @@ var CodexBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
+  capabilities = {
+    resumeStrategy: "native-session",
+    requiresClientSessionId: false
+  };
   async run(opts) {
     if (!isInPath("codex")) {
       throw new CodexBackendError(
@@ -76055,6 +76054,10 @@ var GeminiBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
+  capabilities = {
+    resumeStrategy: "transcript-replay",
+    requiresClientSessionId: false
+  };
   async run(opts) {
     if (!isInPath("gemini")) {
       throw new GeminiBackendError(
@@ -76324,6 +76327,10 @@ var OllamaBackendError = class extends BackendError {
 var OllamaBackend = class {
   name = "ollama";
   localFileAccess = false;
+  capabilities = {
+    resumeStrategy: "transcript-replay",
+    requiresClientSessionId: false
+  };
   allowedSandboxes = /* @__PURE__ */ new Set([
     "read-only",
     "workspace-write",
@@ -76498,6 +76505,10 @@ var ClaudeBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
+  capabilities = {
+    resumeStrategy: "native-session",
+    requiresClientSessionId: true
+  };
   /**
    * Strip env vars that trigger Claude's nested-session guard.
    * Without this, spawning claude from inside a Claude Code session fails with:
@@ -76718,6 +76729,10 @@ var OpenCodeBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
+  capabilities = {
+    resumeStrategy: "native-session",
+    requiresClientSessionId: false
+  };
   getConfig() {
     const cfg = loadConfig();
     return {

@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  type BackendCapabilities,
   type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
@@ -35,6 +36,10 @@ export class CodexBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'native-session',
+    requiresClientSessionId: false,
+  };
 
   async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath('codex')) {

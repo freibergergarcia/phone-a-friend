@@ -8,6 +8,7 @@
  */
 
 import {
+  type BackendCapabilities,
   type BackendRunOptions,
   BackendError,
   registerBackend,
@@ -28,6 +29,10 @@ export class OllamaBackendError extends BackendError {
 export class OllamaBackend implements Backend {
   readonly name = 'ollama';
   readonly localFileAccess = false;
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'transcript-replay',
+    requiresClientSessionId: false,
+  };
   readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
     'read-only',
     'workspace-write',

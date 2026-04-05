@@ -12,6 +12,7 @@ vi.mock('../src/backends/index.js', async (importOriginal) => {
       name: 'codex',
       localFileAccess: true,
       allowedSandboxes: new Set(['read-only', 'workspace-write', 'danger-full-access']),
+      capabilities: { resumeStrategy: 'native-session', requiresClientSessionId: false },
       run: mockRun,
     }),
   };

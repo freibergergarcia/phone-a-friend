@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import {
+  type BackendCapabilities,
   type BackendRunOptions,
   type ReviewOptions,
   BackendError,
@@ -131,6 +132,10 @@ export class OpenCodeBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'native-session',
+    requiresClientSessionId: false,
+  };
 
   private getConfig(): { provider: string; pure: boolean } {
     const cfg = loadConfig();
