@@ -114,6 +114,7 @@ phone-a-friend --to codex --prompt "Review this code"
 phone-a-friend --to gemini --prompt "Analyze the architecture" --model gemini-2.5-flash
 phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
+phone-a-friend --to opencode --prompt "Audit this repo" --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
 phone-a-friend --to claude --prompt "Explain this" --fast          # Skip project context (faster)
@@ -128,7 +129,7 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
   --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
 ```
 
-Claude and Codex enforce the schema natively. Gemini and Ollama use prompt injection (best-effort).
+Claude and Codex enforce the schema natively. Gemini, Ollama, and OpenCode use prompt injection (best-effort).
 
 ### Sessions
 
@@ -140,7 +141,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work reliably with Claude and Codex. Ollama replays history (may hit token limits on long conversations). Gemini session resume is best-effort.
+Sessions work reliably with Claude, Codex, and OpenCode. Ollama replays history (may hit token limits on long conversations). Gemini session resume is best-effort.
 
 ### Job tracking
 
@@ -160,6 +161,7 @@ Context-aware code reviews — automatically pulls the current `git diff` so you
 ```bash
 phone-a-friend --to claude --review               # Review current diff
 phone-a-friend --to codex --review --base develop  # Review against a specific branch
+phone-a-friend --to opencode --review              # Review with local model (reads repo via tools)
 ```
 
 ### Agentic
@@ -195,6 +197,14 @@ phone-a-friend config edit     # Open in $EDITOR
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
+
+OpenCode configuration via TOML:
+```toml
+[backends.opencode]
+provider = "ollama"     # model prefix (default: "ollama")
+model = "qwen3-coder"   # default model
+pure = false             # skip OpenCode plugins (maps to --fast)
+```
 
 ## Streaming
 
