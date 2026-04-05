@@ -26,7 +26,7 @@ src/
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
   sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   backends/
-    index.ts         Backend interface, registry, types, spawnCli() async subprocess utility
+    index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
@@ -74,7 +74,7 @@ dist/                Built bundle (committed, self-contained)
 ## Core Behavior
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
-- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
+- Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
 - Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
@@ -142,7 +142,7 @@ run(config)
 
 - **Orchestrator-driven**: `Orchestrator` in `src/agentic/orchestrator.ts` runs the main loop — spawns agents, routes messages, enforces guardrails, and emits events
 - **Claude-only backend** currently — spawn via `claude -p --session-id <uuid>`, resume via `claude -p -r <uuid>`
-- **SessionManager** (`src/agentic/session.ts`) wraps Claude CLI subprocesses with UUID-based session IDs for conversation continuity; non-Claude backends are not yet supported; stateless transcript replay infrastructure exists but is not wired up
+- **SessionManager** (`src/agentic/session.ts`) wraps CLI subprocesses with UUID-based session IDs for conversation continuity; routes via `BackendCapabilities.resumeStrategy` (`native-session` for Claude, `transcript-replay` fallback for others)
 - **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
 - **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and web dashboard consumers
