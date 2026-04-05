@@ -197,6 +197,74 @@ export async function* parseNDJSONStream(
 
 import type { Readable } from 'node:stream';
 
+// ---------------------------------------------------------------------------
+// OpenCode stream-json parser — Node Readable
+//
+// OpenCode's `--format json` emits NDJSON to stdout. Event types (verified):
+// - step_start: session begins a turn (sessionID on every event)
+// - text: assistant text content (part.text)
+// - tool_use: tool call with result (part.tool, part.state)
+// - step_finish: turn complete (part.reason: "stop" | "tool-calls")
+//
+// Session ID is present on every event as `sessionID` — no separate
+// session.created event exists.
+// ---------------------------------------------------------------------------
+
+export async function* parseOpenCodeStreamJSON(
+  stdout: Readable,
+  opts?: { onSessionCreated?: (sessionId: string) => void },
+): AsyncGenerator<string> {
+  let buffer = '';
+  let sessionReported = false;
+
+  function* processLines(lines: string[]): Generator<string> {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '') continue;
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      // Extract session ID from first event
+      if (
+        !sessionReported &&
+        typeof parsed.sessionID === 'string' &&
+        opts?.onSessionCreated
+      ) {
+        opts.onSessionCreated(parsed.sessionID as string);
+        sessionReported = true;
+      }
+
+      // Only yield text from 'text' events
+      if (parsed.type === 'text') {
+        const part = parsed.part as Record<string, unknown> | undefined;
+        if (part?.text && typeof part.text === 'string') {
+          yield part.text as string;
+        }
+      }
+
+      // step_start, tool_use, step_finish: skip (don't yield)
+    }
+  }
+
+  for await (const chunk of stdout) {
+    buffer += typeof chunk === 'string' ? chunk : (chunk as Buffer).toString('utf-8');
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    yield* processLines(lines);
+  }
+
+  if (buffer.trim()) {
+    yield* processLines([buffer]);
+  }
+}
+
 export async function* parseClaudeStreamJSON(
   stdout: Readable,
 ): AsyncGenerator<string> {

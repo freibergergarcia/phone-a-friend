@@ -355,7 +355,7 @@ export async function relay(opts: RelayOptions): Promise<string> {
     // Claude and Codex have confirmed resume commands; Gemini session ID
     // extraction is best-effort (field names unverified), so we treat it
     // like Ollama: sessions work via history replay if no native ID is found.
-    const requiresNativeSession = selectedBackend.name === 'claude' || selectedBackend.name === 'codex';
+    const requiresNativeSession = selectedBackend.name === 'claude' || selectedBackend.name === 'codex' || selectedBackend.name === 'opencode';
     if (session && storedSession && !backendSessionId && requiresNativeSession) {
       throw new RelayError(`Session ${session} is missing native ${selectedBackend.name} session metadata`);
     }

@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Codex, Gemini, Ollama). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Codex, Gemini, Ollama, OpenCode). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
 
 ## Project Structure
 
@@ -31,6 +31,7 @@ src/
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
     ollama.ts        Ollama HTTP API backend (native fetch)
+    opencode.ts      OpenCode CLI subprocess backend (`opencode run`, agentic with tool calling)
   agentic/
     index.ts         Public API — Orchestrator, TranscriptBus exports
     types.ts         AgentConfig, AgenticSessionConfig, AgentState, Message, AGENTIC_DEFAULTS
@@ -74,14 +75,15 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
-- Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots
+- OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access via `--dir`, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`)
+- Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
 - Depth guard env var: `PHONE_A_FRIEND_DEPTH`
@@ -184,11 +186,13 @@ phone-a-friend --to codex --repo <path> --prompt "..."
 phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
+phone-a-friend --to opencode --repo <path> --prompt "..." --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --prompt "..."               # Uses default backend from config
 phone-a-friend --to claude --prompt "..." --stream     # Stream tokens as they arrive
 phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
 phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scoped)
 phone-a-friend --to codex --review                     # Review mode (--prompt optional, defaults to generic review)
+phone-a-friend --to opencode --review                  # Review with local model (reads repo via tools)
 phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
@@ -196,7 +200,7 @@ phone-a-friend --prompt "..." --include-diff           # Append git diff to prom
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a session
-phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude)
+phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude, --pure for OpenCode)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -368,7 +372,7 @@ The `--session <id>` flag enables relay session persistence and resumption acros
 
 ## Fast spawn
 
-The `--fast` flag maps to `--bare` for the Claude backend, skipping project context loading (CLAUDE.md, MCP servers, skills, hooks). No-op for other backends. Useful for self-contained tasks where project conventions and tools are not needed.
+The `--fast` flag maps to `--bare` for the Claude backend, skipping project context loading (CLAUDE.md, MCP servers, skills, hooks), and to `--pure` for the OpenCode backend, skipping external plugins. No-op for other backends. Useful for self-contained tasks where project conventions and tools are not needed.
 
 ## Scope
 

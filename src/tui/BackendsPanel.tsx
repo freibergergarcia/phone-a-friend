@@ -37,8 +37,10 @@ function BackendDetail({
   const backendConfig = config.backends?.[backend.name];
   const configuredModel = config.backends?.[backend.name]?.model as string | undefined;
   const isOllama = backend.name === 'ollama';
+  const isOpenCode = backend.name === 'opencode';
   const models = backend.models ?? [];
   const hasModels = models.length > 0;
+  const caps = backend.modelCapabilities ?? {};
 
   // Check for mismatch: configured model not in detected list
   const modelMismatch = hasModels && configuredModel && !models.includes(configuredModel);
@@ -62,11 +64,17 @@ function BackendDetail({
             <Text bold>Models:</Text>
             <Text dimColor>Enter to pick default</Text>
           </Box>
-          {models.map((m) => (
-            <Text key={m}>
-              {'  '}{m}{configuredModel === m ? '  \u2605 (default)' : ''}
-            </Text>
-          ))}
+          {models.map((m) => {
+            const modelCaps = caps[m] ?? [];
+            const hasTools = modelCaps.includes('tools');
+            const hasCapsData = m in caps;
+            return (
+              <Text key={m}>
+                {'  '}{m}{configuredModel === m ? '  \u2605 (default)' : ''}
+                {isOpenCode && hasCapsData && <Text color={hasTools ? 'green' : 'red'}>{hasTools ? ' \u2713 tools' : ' \u2717 no tools'}</Text>}
+              </Text>
+            );
+          })}
           {modelMismatch && (
             <Text color="yellow">{'\u26A0'} Configured model &quot;{configuredModel}&quot; not detected</Text>
           )}
@@ -83,13 +91,19 @@ function BackendDetail({
             selectedIndex={modelSelectedIndex}
             onChange={onModelSelectedIndexChange}
             getKey={(m) => m}
-            renderItem={(m, _i, isSelected) => (
-              <Box gap={1}>
-                <Text>{isSelected ? '\u25b8' : ' '}</Text>
-                <Text bold={isSelected}>{m}</Text>
-                {configuredModel === m && <Text color="green">{' \u2605'}</Text>}
-              </Box>
-            )}
+            renderItem={(m, _i, isSelected) => {
+              const modelCaps = caps[m] ?? [];
+              const hasTools = modelCaps.includes('tools');
+              const hasCapsData = m in caps;
+              return (
+                <Box gap={1}>
+                  <Text>{isSelected ? '\u25b8' : ' '}</Text>
+                  <Text bold={isSelected}>{m}</Text>
+                  {configuredModel === m && <Text color="green">{' \u2605'}</Text>}
+                  {isOpenCode && hasCapsData && <Text color={hasTools ? 'green' : 'red'}>{hasTools ? ' \u2713 tools' : ' \u2717 no tools'}</Text>}
+                </Box>
+              );
+            }}
           />
           <Box marginTop={1}>
             <Text dimColor>Enter select  Esc cancel</Text>

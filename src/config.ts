@@ -45,6 +45,8 @@ export interface ResolvedConfig {
   stream: boolean;
   model?: string;
   reviewBase?: string;
+  opencodeProvider: string;
+  opencodePure: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,5 +272,10 @@ export function resolveConfig(
     cfg.defaults.review_base ??
     undefined;
 
-  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase };
+  const opencodeProvider =
+    (cfg.backends?.opencode?.provider as string | undefined) ?? 'ollama';
+  const opencodePure =
+    (cfg.backends?.opencode?.pure as boolean | undefined) ?? false;
+
+  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase, opencodeProvider, opencodePure };
 }

@@ -179,7 +179,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
           prompt: 'Say hello in one sentence.',
           repoPath: process.cwd(),
           backend: selectedBackend,
-          timeoutSeconds: 30,
+          timeoutSeconds: selectedBackend === 'opencode' ? 120 : 30,
         });
         testSpinner.succeed(`${selectedBackend} responded`);
       } catch (err) {

@@ -7,7 +7,7 @@
  *   2 = no relay backends available
  */
 
-import { detectAll, type DetectionReport } from './detection.js';
+import { detectAll, decorateOpenCodeModels, type DetectionReport } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
@@ -31,6 +31,7 @@ function formatHumanReadable(
   report: DetectionReport,
   config: PafConfig,
   paths: { user: string; repo: string | null },
+  advisories: string[] = [],
 ): string {
   const lines: string[] = [];
 
@@ -88,6 +89,14 @@ function formatHumanReadable(
   lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push('');
 
+  if (advisories.length > 0) {
+    lines.push(`  ${theme.label('Advisories:')}`);
+    for (const advisory of advisories) {
+      lines.push(`    ${theme.warning(advisory)}`);
+    }
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -111,6 +120,7 @@ function formatJson(
   report: DetectionReport,
   config: PafConfig,
   exitCode: number,
+  advisories: string[] = [],
 ): string {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter(b => b.available).length;
@@ -128,6 +138,7 @@ function formatJson(
     host: normalizeForJson(report.host),
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
+    advisories,
     exitCode,
   }, null, 2);
 }
@@ -150,24 +161,71 @@ function computeExitCode(report: DetectionReport): number {
 }
 
 // ---------------------------------------------------------------------------
+// Advisories
+// ---------------------------------------------------------------------------
+
+const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
+
+async function probeOllamaVersion(): Promise<string | null> {
+  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const resp = await fetch(`${host}/api/version`, { signal: controller.signal });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { version?: string };
+    return data.version ?? null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function semverLt(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return false;
+  }
+  return false;
+}
+
+async function collectAdvisories(report: DetectionReport): Promise<string[]> {
+  const opencode = report.cli.find(b => b.name === 'opencode' && b.available);
+  if (!opencode) return [];
+  const version = await probeOllamaVersion();
+  if (!version) {
+    return ['OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17.'];
+  }
+  if (semverLt(version, '0.17.0')) {
+    return [`OpenCode detected but Ollama ${version} is below 0.17. Tool calling will not work with newer models.`];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const report = await detectAll();
+  decorateOpenCodeModels(report);
   const paths = configPaths(opts?.repoRoot);
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
+  const advisories = await collectAdvisories(report);
 
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode),
+      output: formatJson(report, config, exitCode, advisories),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths),
+    output: formatHumanReadable(report, config, paths, advisories),
   };
 }
