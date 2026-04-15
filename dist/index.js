@@ -2357,7 +2357,7 @@ var require_command = __commonJS({
     "use strict";
     var EventEmitter3 = __require("events").EventEmitter;
     var childProcess = __require("child_process");
-    var path2 = __require("path");
+    var path3 = __require("path");
     var fs3 = __require("fs");
     var process21 = __require("process");
     var { Argument: Argument2, humanReadableArgName } = require_argument();
@@ -3370,9 +3370,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
         let launchWithNode = false;
         const sourceExt = [".js", ".ts", ".tsx", ".mjs", ".cjs"];
         function findFile(baseDir, baseName) {
-          const localBin = path2.resolve(baseDir, baseName);
+          const localBin = path3.resolve(baseDir, baseName);
           if (fs3.existsSync(localBin)) return localBin;
-          if (sourceExt.includes(path2.extname(baseName))) return void 0;
+          if (sourceExt.includes(path3.extname(baseName))) return void 0;
           const foundExt = sourceExt.find(
             (ext) => fs3.existsSync(`${localBin}${ext}`)
           );
@@ -3390,17 +3390,17 @@ Expecting one of '${allowedValues.join("', '")}'`);
           } catch {
             resolvedScriptPath = this._scriptPath;
           }
-          executableDir = path2.resolve(
-            path2.dirname(resolvedScriptPath),
+          executableDir = path3.resolve(
+            path3.dirname(resolvedScriptPath),
             executableDir
           );
         }
         if (executableDir) {
           let localFile = findFile(executableDir, executableFile);
           if (!localFile && !subcommand._executableFile && this._scriptPath) {
-            const legacyName = path2.basename(
+            const legacyName = path3.basename(
               this._scriptPath,
-              path2.extname(this._scriptPath)
+              path3.extname(this._scriptPath)
             );
             if (legacyName !== this._name) {
               localFile = findFile(
@@ -3411,7 +3411,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           }
           executableFile = localFile || executableFile;
         }
-        launchWithNode = sourceExt.includes(path2.extname(executableFile));
+        launchWithNode = sourceExt.includes(path3.extname(executableFile));
         let proc;
         if (process21.platform !== "win32") {
           if (launchWithNode) {
@@ -4326,7 +4326,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
        * @return {Command}
        */
       nameFromFilename(filename) {
-        this._name = path2.basename(filename, path2.extname(filename));
+        this._name = path3.basename(filename, path3.extname(filename));
         return this;
       }
       /**
@@ -4340,9 +4340,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
        * @param {string} [path]
        * @return {(string|null|Command)}
        */
-      executableDir(path3) {
-        if (path3 === void 0) return this._executableDir;
-        this._executableDir = path3;
+      executableDir(path4) {
+        if (path4 === void 0) return this._executableDir;
+        this._executableDir = path4;
         return this;
       }
       /**
@@ -6771,6 +6771,9 @@ var init_hook_engine = __esm({
 
 // node_modules/@inquirer/core/dist/lib/use-state.js
 import { AsyncResource as AsyncResource2 } from "async_hooks";
+function isFactory(value) {
+  return typeof value === "function";
+}
 function useState(defaultValue) {
   return withPointer((pointer) => {
     const setState = AsyncResource2.bind(function setState2(newValue) {
@@ -6782,7 +6785,7 @@ function useState(defaultValue) {
     if (pointer.initialized) {
       return [pointer.get(), setState];
     }
-    const value = typeof defaultValue === "function" ? defaultValue() : defaultValue;
+    const value = isFactory(defaultValue) ? defaultValue() : defaultValue;
     pointer.set(value);
     return [value, setState];
   });
@@ -6815,10 +6818,11 @@ var init_use_effect = __esm({
 // node_modules/@inquirer/figures/dist/index.js
 import process9 from "process";
 function isUnicodeSupported2() {
-  if (process9.platform !== "win32") {
+  if (!process9.platform.startsWith("win")) {
     return process9.env["TERM"] !== "linux";
   }
-  return Boolean(process9.env["WT_SESSION"]) || // Windows Terminal
+  return Boolean(process9.env["CI"]) || // CI environments generally support unicode
+  Boolean(process9.env["WT_SESSION"]) || // Windows Terminal
   Boolean(process9.env["TERMINUS_SUBLIME"]) || // Terminus (<0.2.27)
   process9.env["ConEmuTask"] === "{cmd::Cmder}" || // ConEmu and cmder
   process9.env["TERM_PROGRAM"] === "Terminus-Sublime" || process9.env["TERM_PROGRAM"] === "vscode" || process9.env["TERM"] === "xterm-256color" || process9.env["TERM"] === "alacritty" || process9.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
@@ -8026,6 +8030,7 @@ var init_promise_polyfill = __esm({
 // node_modules/@inquirer/core/dist/lib/create-prompt.js
 import * as readline2 from "readline";
 import { AsyncResource as AsyncResource3 } from "async_hooks";
+import path from "path";
 function getCallSites() {
   const _prepareStackTrace = Error.prepareStackTrace;
   let result = [];
@@ -8081,13 +8086,22 @@ function createPrompt(view) {
         const checkCursorPos = () => screen.checkCursorPos();
         rl.input.on("keypress", checkCursorPos);
         cleanups.add(() => rl.input.removeListener("keypress", checkCursorPos));
+        let pendingDone = null;
         cycle(() => {
+          let effectsSettled = false;
           try {
             const nextView = view(config, (value) => {
-              setImmediate(() => resolve5(value));
+              if (effectsSettled) {
+                resolve5(value);
+              } else {
+                pendingDone = { value };
+              }
             });
             if (nextView === void 0) {
-              const callerFilename = callSites[1]?.getFileName();
+              let callerFilename = callSites[1]?.getFileName();
+              if (callerFilename && !callerFilename.startsWith("file://")) {
+                callerFilename = path.resolve(callerFilename);
+              }
               throw new Error(`Prompt functions must return a string.
     at ${callerFilename}`);
             }
@@ -8096,6 +8110,12 @@ function createPrompt(view) {
             effectScheduler.run();
           } catch (error3) {
             reject(error3);
+          }
+          effectsSettled = true;
+          if (pendingDone !== null) {
+            const { value } = pendingDone;
+            pendingDone = null;
+            resolve5(value);
           }
         });
       };
@@ -8197,12 +8217,13 @@ function normalizeChoices(choices) {
   return choices.map((choice) => {
     if (Separator.isSeparator(choice))
       return choice;
-    if (typeof choice === "string") {
+    if (typeof choice !== "object" || choice === null || !("value" in choice)) {
+      const name2 = String(choice);
       return {
         value: choice,
-        name: choice,
-        short: choice,
-        checkedName: choice,
+        name: name2,
+        short: name2,
+        checkedName: name2,
         disabled: false,
         checked: false
       };
@@ -17790,178 +17811,169 @@ var require_lib3 = __commonJS({
   }
 });
 
-// node_modules/@inquirer/external-editor/dist/errors/CreateFileError.js
-var CreateFileError;
-var init_CreateFileError = __esm({
-  "node_modules/@inquirer/external-editor/dist/errors/CreateFileError.js"() {
+// node_modules/@inquirer/external-editor/dist/errors.js
+var CreateFileError, LaunchEditorError, ReadFileError, RemoveFileError;
+var init_errors2 = __esm({
+  "node_modules/@inquirer/external-editor/dist/errors.js"() {
     "use strict";
     CreateFileError = class extends Error {
+      name = "CreateFileError";
       originalError;
       constructor(originalError) {
-        super(`Failed to create temporary file. ${originalError.message}`);
+        super(`Failed to create temporary file.${originalError instanceof Error ? ` ${originalError.message}` : ""}`, { cause: originalError });
         this.originalError = originalError;
       }
     };
-  }
-});
-
-// node_modules/@inquirer/external-editor/dist/errors/LaunchEditorError.js
-var LaunchEditorError;
-var init_LaunchEditorError = __esm({
-  "node_modules/@inquirer/external-editor/dist/errors/LaunchEditorError.js"() {
-    "use strict";
     LaunchEditorError = class extends Error {
+      name = "LaunchEditorError";
       originalError;
       constructor(originalError) {
-        super(`Failed to launch editor. ${originalError.message}`);
+        super(`Failed to launch editor.${originalError instanceof Error ? ` ${originalError.message}` : ""}`, { cause: originalError });
         this.originalError = originalError;
       }
     };
-  }
-});
-
-// node_modules/@inquirer/external-editor/dist/errors/ReadFileError.js
-var ReadFileError;
-var init_ReadFileError = __esm({
-  "node_modules/@inquirer/external-editor/dist/errors/ReadFileError.js"() {
-    "use strict";
     ReadFileError = class extends Error {
+      name = "ReadFileError";
       originalError;
       constructor(originalError) {
-        super(`Failed to read temporary file. ${originalError.message}`);
+        super(`Failed to read temporary file.${originalError instanceof Error ? ` ${originalError.message}` : ""}`, { cause: originalError });
+        this.originalError = originalError;
+      }
+    };
+    RemoveFileError = class extends Error {
+      name = "RemoveFileError";
+      originalError;
+      constructor(originalError) {
+        super(`Failed to remove temporary file.${originalError instanceof Error ? ` ${originalError.message}` : ""}`, { cause: originalError });
         this.originalError = originalError;
       }
     };
   }
 });
 
-// node_modules/@inquirer/external-editor/dist/errors/RemoveFileError.js
-var RemoveFileError;
-var init_RemoveFileError = __esm({
-  "node_modules/@inquirer/external-editor/dist/errors/RemoveFileError.js"() {
+// node_modules/@inquirer/external-editor/dist/parse-editor-command.js
+function parseEditorCommand(editor) {
+  let bin;
+  let rest;
+  if (editor.startsWith('"')) {
+    const closeQuote = editor.indexOf('"', 1);
+    if (closeQuote === -1) {
+      bin = editor.slice(1);
+      rest = "";
+    } else {
+      bin = editor.substring(1, closeQuote);
+      rest = editor.substring(closeQuote + 1).trim();
+    }
+  } else {
+    const firstSpace = editor.indexOf(" ");
+    if (firstSpace === -1) {
+      bin = editor;
+      rest = "";
+    } else {
+      bin = editor.substring(0, firstSpace);
+      rest = editor.substring(firstSpace + 1).trim();
+    }
+  }
+  return { bin, args: rest ? rest.split(/\s+/) : [] };
+}
+var init_parse_editor_command = __esm({
+  "node_modules/@inquirer/external-editor/dist/parse-editor-command.js"() {
     "use strict";
-    RemoveFileError = class extends Error {
-      originalError;
-      constructor(originalError) {
-        super(`Failed to remove temporary file. ${originalError.message}`);
-        this.originalError = originalError;
-      }
-    };
   }
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
 import { readFileSync as readFileSync8, unlinkSync as unlinkSync2, writeFileSync as writeFileSync5 } from "fs";
-import path from "path";
+import path2 from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
-function editAsync(text = "", callback, fileOptions) {
-  const editor = new ExternalEditor(text, fileOptions);
-  editor.runAsync((err, result) => {
-    if (err) {
-      setImmediate(callback, err, void 0);
-    } else {
-      try {
-        editor.cleanup();
-        setImmediate(callback, void 0, result);
-      } catch (cleanupError) {
-        setImmediate(callback, cleanupError, void 0);
-      }
-    }
-  });
-}
 function sanitizeAffix(affix) {
   if (!affix)
     return "";
   return affix.replace(/[^a-zA-Z0-9_.-]/g, "_");
 }
-function splitStringBySpace(str) {
-  const pieces = [];
-  let currentString = "";
-  for (let strIndex = 0; strIndex < str.length; strIndex++) {
-    const currentLetter = str.charAt(strIndex);
-    if (strIndex > 0 && currentLetter === " " && str[strIndex - 1] !== "\\" && currentString.length > 0) {
-      pieces.push(currentString);
-      currentString = "";
-    } else {
-      currentString = `${currentString}${currentLetter}`;
-    }
-  }
-  if (currentString.length > 0) {
-    pieces.push(currentString);
-  }
-  return pieces;
-}
-var import_chardet, import_iconv_lite, ExternalEditor;
+var import_chardet, import_iconv_lite, editAsync, ExternalEditor;
 var init_dist8 = __esm({
   "node_modules/@inquirer/external-editor/dist/index.js"() {
     "use strict";
     import_chardet = __toESM(require_lib2(), 1);
     import_iconv_lite = __toESM(require_lib3(), 1);
-    init_CreateFileError();
-    init_LaunchEditorError();
-    init_ReadFileError();
-    init_RemoveFileError();
+    init_errors2();
+    init_parse_editor_command();
+    editAsync = (text, callbackOrOptions, fileOptions) => {
+      const callback = typeof callbackOrOptions === "function" ? callbackOrOptions : void 0;
+      const options = typeof callbackOrOptions === "function" ? fileOptions : callbackOrOptions;
+      return new ExternalEditor(text, options).runAsync(callback);
+    };
     ExternalEditor = class {
-      text = "";
-      tempFile;
       editor;
       lastExitStatus = 0;
+      text = "";
+      tempFile = "";
       fileOptions = {};
-      get temp_file() {
-        console.log("DEPRECATED: temp_file. Use tempFile moving forward.");
-        return this.tempFile;
-      }
-      get last_exit_status() {
-        console.log("DEPRECATED: last_exit_status. Use lastExitStatus moving forward.");
-        return this.lastExitStatus;
-      }
-      constructor(text = "", fileOptions) {
+      constructor(text = "", fileOptions = {}) {
         this.text = text;
-        if (fileOptions) {
-          this.fileOptions = fileOptions;
-        }
-        this.determineEditor();
-        this.createTemporaryFile();
+        this.fileOptions = fileOptions;
+        this.editor = parseEditorCommand(process.env["VISUAL"] ?? process.env["EDITOR"] ?? (process.platform.startsWith("win") ? "notepad" : "vim"));
       }
       run() {
-        this.launchEditor();
-        this.readTemporaryFile();
-        return this.text;
-      }
-      runAsync(callback) {
+        this.createTempFile();
         try {
-          this.launchEditorAsync(() => {
-            try {
-              this.readTemporaryFile();
-              setImmediate(callback, void 0, this.text);
-            } catch (readError) {
-              setImmediate(callback, readError, void 0);
-            }
-          });
-        } catch (launchError) {
-          setImmediate(callback, launchError, void 0);
+          try {
+            const editorProcess = spawnSync(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
+            this.lastExitStatus = editorProcess.status ?? 0;
+          } catch (launchError) {
+            throw new LaunchEditorError(launchError);
+          }
+          this.readTemporaryFile();
+          return this.text;
+        } finally {
+          this.cleanup();
         }
       }
+      runAsync(callback) {
+        this.createTempFile();
+        const promise = new Promise((resolve5, reject) => {
+          try {
+            const editorProcess = spawn3(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
+            editorProcess.on("exit", (code) => {
+              this.lastExitStatus = code;
+              resolve5();
+            });
+          } catch (launchError) {
+            reject(new LaunchEditorError(launchError));
+          }
+        }).then(() => {
+          this.readTemporaryFile();
+          return this.text;
+        }).finally(() => {
+          this.cleanup();
+        });
+        if (callback) {
+          promise.then((text) => callback(void 0, text), (err) => callback(err instanceof Error ? err : new Error(String(err)), void 0));
+        }
+        return promise;
+      }
       cleanup() {
-        this.removeTemporaryFile();
+        if (!this.tempFile)
+          return;
+        try {
+          unlinkSync2(this.tempFile);
+          this.tempFile = "";
+        } catch (removeFileError) {
+          throw new RemoveFileError(removeFileError);
+        }
       }
-      determineEditor() {
-        const editor = process.env["VISUAL"] ? process.env["VISUAL"] : process.env["EDITOR"] ? process.env["EDITOR"] : process.platform.startsWith("win") ? "notepad" : "vim";
-        const editorOpts = splitStringBySpace(editor).map((piece) => piece.replace("\\ ", " "));
-        const bin = editorOpts.shift();
-        this.editor = { args: editorOpts, bin };
-      }
-      createTemporaryFile() {
+      createTempFile() {
         try {
           const baseDir = this.fileOptions.dir ?? os2.tmpdir();
           const id = randomUUID3();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
           const filename = `${prefix}${id}${postfix}`;
-          const candidate = path.resolve(baseDir, filename);
-          const baseResolved = path.resolve(baseDir) + path.sep;
+          const candidate = path2.resolve(baseDir, filename);
+          const baseResolved = path2.resolve(baseDir) + path2.sep;
           if (!candidate.startsWith(baseResolved)) {
             throw new Error("Resolved temporary file escaped the base directory");
           }
@@ -17991,32 +18003,6 @@ var init_dist8 = __esm({
           throw new ReadFileError(readFileError);
         }
       }
-      removeTemporaryFile() {
-        try {
-          unlinkSync2(this.tempFile);
-        } catch (removeFileError) {
-          throw new RemoveFileError(removeFileError);
-        }
-      }
-      launchEditor() {
-        try {
-          const editorProcess = spawnSync(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
-          this.lastExitStatus = editorProcess.status ?? 0;
-        } catch (launchError) {
-          throw new LaunchEditorError(launchError);
-        }
-      }
-      launchEditorAsync(callback) {
-        try {
-          const editorProcess = spawn3(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
-          editorProcess.on("exit", (code) => {
-            this.lastExitStatus = code;
-            setImmediate(callback);
-          });
-        } catch (launchError) {
-          throw new LaunchEditorError(launchError);
-        }
-      }
     };
   }
 });
@@ -18031,6 +18017,7 @@ var init_dist9 = __esm({
     editorTheme = {
       validationFailureMode: "keep",
       style: {
+        loadingMessage: () => "Validating...",
         waitingMessage: (enterKey) => `Press ${enterKey} to launch your preferred editor.`
       }
     };
@@ -18041,39 +18028,34 @@ var init_dist9 = __esm({
       const [value = "", setValue] = useState(config.default);
       const [errorMsg, setError] = useState();
       const prefix = usePrefix({ status, theme: theme2 });
-      function startEditor(rl) {
+      async function startEditor(rl) {
         rl.pause();
-        const editCallback = async (error4, answer) => {
+        try {
+          const answer = await editAsync(value, { postfix, ...fileProps });
           rl.resume();
-          if (error4) {
-            setError(error4.toString());
+          setStatus("loading");
+          const isValid = await validate2(answer);
+          if (isValid === true) {
+            setError(void 0);
+            setStatus("done");
+            done(answer);
           } else {
-            setStatus("loading");
-            const finalAnswer = answer ?? "";
-            const isValid = await validate2(finalAnswer);
-            if (isValid === true) {
-              setError(void 0);
-              setStatus("done");
-              done(finalAnswer);
+            if (theme2.validationFailureMode === "clear") {
+              setValue(config.default);
             } else {
-              if (theme2.validationFailureMode === "clear") {
-                setValue(config.default);
-              } else {
-                setValue(finalAnswer);
-              }
-              setError(isValid || "You must provide a valid value");
-              setStatus("idle");
+              setValue(answer);
             }
+            setError(isValid || "You must provide a valid value");
+            setStatus("idle");
           }
-        };
-        editAsync(value, (error4, answer) => void editCallback(error4, answer), {
-          postfix,
-          ...fileProps
-        });
+        } catch (error4) {
+          rl.resume();
+          setError(String(error4));
+        }
       }
       useEffect((rl) => {
         if (!waitForUserInput) {
-          startEditor(rl);
+          void startEditor(rl);
         }
       }, []);
       useKeypress((key, rl) => {
@@ -18081,12 +18063,14 @@ var init_dist9 = __esm({
           return;
         }
         if (isEnterKey(key)) {
-          startEditor(rl);
+          void startEditor(rl);
         }
       });
       const message = theme2.style.message(config.message, status);
       let helpTip = "";
-      if (status === "idle") {
+      if (status === "loading") {
+        helpTip = theme2.style.help(theme2.style.loadingMessage());
+      } else if (status === "idle") {
         const enterKey = theme2.style.key("enter");
         helpTip = theme2.style.help(theme2.style.waitingMessage(enterKey));
       }
@@ -18287,7 +18271,7 @@ var init_dist12 = __esm({
           if (required || answer != null) {
             isValid = validateNumber(answer, { min, max, step });
           }
-          if (isValid === true) {
+          if (isValid === true && answer != null) {
             isValid = await validate2(answer);
           }
           if (isValid === true) {
@@ -18342,13 +18326,14 @@ function normalizeChoices2(choices) {
     const name = "name" in choice ? choice.name : String(choice.value);
     const value = "value" in choice ? choice.value : name;
     return {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       value,
       name,
-      key: choice.key.toLowerCase()
+      key: choice.key
     };
   });
 }
-var helpChoice, dist_default9;
+var helpChoice, expand, dist_default9;
 var init_dist13 = __esm({
   "node_modules/@inquirer/expand/dist/index.js"() {
     "use strict";
@@ -18358,7 +18343,7 @@ var init_dist13 = __esm({
       name: "Help, list all options",
       value: void 0
     };
-    dist_default9 = createPrompt((config, done) => {
+    expand = createPrompt((config, done) => {
       const { default: defaultKey = "h" } = config;
       const choices = useMemo(() => normalizeChoices2(config.choices), [config.choices]);
       const [status, setStatus] = useState("idle");
@@ -18432,6 +18417,7 @@ var init_dist13 = __esm({
         [longChoices, helpTip, error3].filter(Boolean).join("\n")
       ];
     });
+    dist_default9 = expand;
   }
 });
 
@@ -18526,10 +18512,12 @@ var init_dist14 = __esm({
           } else if (loop || isUpKey(key) && active !== bounds.first || isDownKey(key) && active !== bounds.last) {
             const offset = isUpKey(key) ? -1 : 1;
             let next = active;
+            let nextChoice;
             do {
               next = (next + offset + choices.length) % choices.length;
-            } while (!isSelectableChoice(choices[next]));
-            setValue(choices[next].key);
+              nextChoice = choices[next];
+            } while (!isSelectableChoice(nextChoice));
+            setValue(nextChoice.key);
           }
         } else {
           setValue(rl.line);
@@ -18638,11 +18626,12 @@ function normalizeChoices4(choices) {
   return choices.map((choice) => {
     if (Separator.isSeparator(choice))
       return choice;
-    if (typeof choice === "string") {
+    if (typeof choice !== "object" || choice === null || !("value" in choice)) {
+      const name2 = String(choice);
       return {
         value: choice,
-        name: choice,
-        short: choice,
+        name: name2,
+        short: name2,
         disabled: false
       };
     }
@@ -18883,6 +18872,9 @@ var init_dist17 = __esm({
       }, [config.default, items]);
       const [active, setActive] = useState(defaultItemIndex === -1 ? bounds.first : defaultItemIndex);
       const selectedChoice = items[active];
+      if (selectedChoice == null || Separator.isSeparator(selectedChoice)) {
+        throw new Error("Active index does not point to a choice");
+      }
       const [errorMsg, setError] = useState();
       useKeypress((key, rl) => {
         clearTimeout(searchTimeoutRef.current);
@@ -19628,7 +19620,7 @@ var require_react_production = __commonJS({
     exports.useTransition = function() {
       return ReactSharedInternals.H.useTransition();
     };
-    exports.version = "19.2.4";
+    exports.version = "19.2.5";
   }
 });
 
@@ -20598,7 +20590,7 @@ var require_react_development = __commonJS({
       exports.useTransition = function() {
         return resolveDispatcher().useTransition();
       };
-      exports.version = "19.2.4";
+      exports.version = "19.2.5";
       "undefined" !== typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ && "function" === typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStop && __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStop(Error());
     })();
   }
@@ -32160,10 +32152,10 @@ var require_react_reconciler_development = __commonJS({
           fiber = fiber.next, id--;
         return fiber;
       }
-      function copyWithSetImpl(obj, path2, index, value) {
-        if (index >= path2.length) return value;
-        var key = path2[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
-        updated[key] = copyWithSetImpl(obj[key], path2, index + 1, value);
+      function copyWithSetImpl(obj, path3, index, value) {
+        if (index >= path3.length) return value;
+        var key = path3[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
+        updated[key] = copyWithSetImpl(obj[key], path3, index + 1, value);
         return updated;
       }
       function copyWithRename(obj, oldPath, newPath) {
@@ -32190,11 +32182,11 @@ var require_react_reconciler_development = __commonJS({
         );
         return updated;
       }
-      function copyWithDeleteImpl(obj, path2, index) {
-        var key = path2[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
-        if (index + 1 === path2.length)
+      function copyWithDeleteImpl(obj, path3, index) {
+        var key = path3[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
+        if (index + 1 === path3.length)
           return isArrayImpl(updated) ? updated.splice(key, 1) : delete updated[key], updated;
-        updated[key] = copyWithDeleteImpl(obj[key], path2, index + 1);
+        updated[key] = copyWithDeleteImpl(obj[key], path3, index + 1);
         return updated;
       }
       function shouldSuspendImpl() {
@@ -45471,29 +45463,29 @@ var require_react_reconciler_development = __commonJS({
       var didWarnAboutNestedUpdates = false;
       var didWarnAboutFindNodeInStrictMode = {};
       var overrideHookState = null, overrideHookStateDeletePath = null, overrideHookStateRenamePath = null, overrideProps = null, overridePropsDeletePath = null, overridePropsRenamePath = null, scheduleUpdate = null, scheduleRetry = null, setErrorHandler = null, setSuspenseHandler = null;
-      overrideHookState = function(fiber, id, path2, value) {
+      overrideHookState = function(fiber, id, path3, value) {
         id = findHook(fiber, id);
-        null !== id && (path2 = copyWithSetImpl(id.memoizedState, path2, 0, value), id.memoizedState = path2, id.baseState = path2, fiber.memoizedProps = assign({}, fiber.memoizedProps), path2 = enqueueConcurrentRenderForLane(fiber, 2), null !== path2 && scheduleUpdateOnFiber(path2, fiber, 2));
+        null !== id && (path3 = copyWithSetImpl(id.memoizedState, path3, 0, value), id.memoizedState = path3, id.baseState = path3, fiber.memoizedProps = assign({}, fiber.memoizedProps), path3 = enqueueConcurrentRenderForLane(fiber, 2), null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2));
       };
-      overrideHookStateDeletePath = function(fiber, id, path2) {
+      overrideHookStateDeletePath = function(fiber, id, path3) {
         id = findHook(fiber, id);
-        null !== id && (path2 = copyWithDeleteImpl(id.memoizedState, path2, 0), id.memoizedState = path2, id.baseState = path2, fiber.memoizedProps = assign({}, fiber.memoizedProps), path2 = enqueueConcurrentRenderForLane(fiber, 2), null !== path2 && scheduleUpdateOnFiber(path2, fiber, 2));
+        null !== id && (path3 = copyWithDeleteImpl(id.memoizedState, path3, 0), id.memoizedState = path3, id.baseState = path3, fiber.memoizedProps = assign({}, fiber.memoizedProps), path3 = enqueueConcurrentRenderForLane(fiber, 2), null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2));
       };
       overrideHookStateRenamePath = function(fiber, id, oldPath, newPath) {
         id = findHook(fiber, id);
         null !== id && (oldPath = copyWithRename(id.memoizedState, oldPath, newPath), id.memoizedState = oldPath, id.baseState = oldPath, fiber.memoizedProps = assign({}, fiber.memoizedProps), oldPath = enqueueConcurrentRenderForLane(fiber, 2), null !== oldPath && scheduleUpdateOnFiber(oldPath, fiber, 2));
       };
-      overrideProps = function(fiber, path2, value) {
-        fiber.pendingProps = copyWithSetImpl(fiber.memoizedProps, path2, 0, value);
+      overrideProps = function(fiber, path3, value) {
+        fiber.pendingProps = copyWithSetImpl(fiber.memoizedProps, path3, 0, value);
         fiber.alternate && (fiber.alternate.pendingProps = fiber.pendingProps);
-        path2 = enqueueConcurrentRenderForLane(fiber, 2);
-        null !== path2 && scheduleUpdateOnFiber(path2, fiber, 2);
+        path3 = enqueueConcurrentRenderForLane(fiber, 2);
+        null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2);
       };
-      overridePropsDeletePath = function(fiber, path2) {
-        fiber.pendingProps = copyWithDeleteImpl(fiber.memoizedProps, path2, 0);
+      overridePropsDeletePath = function(fiber, path3) {
+        fiber.pendingProps = copyWithDeleteImpl(fiber.memoizedProps, path3, 0);
         fiber.alternate && (fiber.alternate.pendingProps = fiber.pendingProps);
-        path2 = enqueueConcurrentRenderForLane(fiber, 2);
-        null !== path2 && scheduleUpdateOnFiber(path2, fiber, 2);
+        path3 = enqueueConcurrentRenderForLane(fiber, 2);
+        null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2);
       };
       overridePropsRenamePath = function(fiber, oldPath, newPath) {
         fiber.pendingProps = copyWithRename(
@@ -54347,8 +54339,8 @@ var require_backend = __commonJS({
               }
               return false;
             }
-            function utils_getInObject(object, path2) {
-              return path2.reduce(function(reduced, attr) {
+            function utils_getInObject(object, path3) {
+              return path3.reduce(function(reduced, attr) {
                 if (reduced) {
                   if (utils_hasOwnProperty.call(reduced, attr)) {
                     return reduced[attr];
@@ -54360,11 +54352,11 @@ var require_backend = __commonJS({
                 return null;
               }, object);
             }
-            function deletePathInObject(object, path2) {
-              var length = path2.length;
-              var last = path2[length - 1];
+            function deletePathInObject(object, path3) {
+              var length = path3.length;
+              var last = path3[length - 1];
               if (object != null) {
-                var parent = utils_getInObject(object, path2.slice(0, length - 1));
+                var parent = utils_getInObject(object, path3.slice(0, length - 1));
                 if (parent) {
                   if (src_isArray(parent)) {
                     parent.splice(last, 1);
@@ -54390,11 +54382,11 @@ var require_backend = __commonJS({
                 }
               }
             }
-            function utils_setInObject(object, path2, value) {
-              var length = path2.length;
-              var last = path2[length - 1];
+            function utils_setInObject(object, path3, value) {
+              var length = path3.length;
+              var last = path3[length - 1];
               if (object != null) {
-                var parent = utils_getInObject(object, path2.slice(0, length - 1));
+                var parent = utils_getInObject(object, path3.slice(0, length - 1));
                 if (parent) {
                   parent[last] = value;
                 }
@@ -54927,8 +54919,8 @@ var require_backend = __commonJS({
               unserializable: /* @__PURE__ */ Symbol("unserializable")
             };
             var LEVEL_THRESHOLD = 2;
-            function createDehydrated(type, inspectable, data, cleaned, path2) {
-              cleaned.push(path2);
+            function createDehydrated(type, inspectable, data, cleaned, path3) {
+              cleaned.push(path3);
               var dehydrated = {
                 inspectable,
                 type,
@@ -54946,13 +54938,13 @@ var require_backend = __commonJS({
               }
               return dehydrated;
             }
-            function dehydrate(data, cleaned, unserializable, path2, isPathAllowed) {
+            function dehydrate(data, cleaned, unserializable, path3, isPathAllowed) {
               var level = arguments.length > 5 && arguments[5] !== void 0 ? arguments[5] : 0;
               var type = getDataType(data);
               var isPathAllowedCheck;
               switch (type) {
                 case "html_element":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -54961,7 +54953,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "function":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -54970,14 +54962,14 @@ var require_backend = __commonJS({
                     type
                   };
                 case "string":
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (isPathAllowedCheck) {
                     return data;
                   } else {
                     return data.length <= 500 ? data : data.slice(0, 500) + "...";
                   }
                 case "bigint":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -54986,7 +54978,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "symbol":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -54995,9 +54987,9 @@ var require_backend = __commonJS({
                     type
                   };
                 case "react_element": {
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path2);
+                    cleaned.push(path3);
                     return {
                       inspectable: true,
                       preview_short: formatDataForPreview(data, false),
@@ -55014,19 +55006,19 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: getDisplayNameForReactElement(data) || "Unknown"
                   };
-                  unserializableValue.key = dehydrate(data.key, cleaned, unserializable, path2.concat(["key"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializableValue.key = dehydrate(data.key, cleaned, unserializable, path3.concat(["key"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   if (data.$$typeof === REACT_LEGACY_ELEMENT_TYPE) {
-                    unserializableValue.ref = dehydrate(data.ref, cleaned, unserializable, path2.concat(["ref"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    unserializableValue.ref = dehydrate(data.ref, cleaned, unserializable, path3.concat(["ref"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
-                  unserializableValue.props = dehydrate(data.props, cleaned, unserializable, path2.concat(["props"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  unserializable.push(path2);
+                  unserializableValue.props = dehydrate(data.props, cleaned, unserializable, path3.concat(["props"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializable.push(path3);
                   return unserializableValue;
                 }
                 case "react_lazy": {
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   var payload = data._payload;
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path2);
+                    cleaned.push(path3);
                     var inspectable = payload !== null && hydration_typeof(payload) === "object" && (payload._status === 1 || payload._status === 2 || payload.status === "fulfilled" || payload.status === "rejected");
                     return {
                       inspectable,
@@ -55043,13 +55035,13 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: "lazy()"
                   };
-                  _unserializableValue._payload = dehydrate(payload, cleaned, unserializable, path2.concat(["_payload"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  unserializable.push(path2);
+                  _unserializableValue._payload = dehydrate(payload, cleaned, unserializable, path3.concat(["_payload"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializable.push(path3);
                   return _unserializableValue;
                 }
                 case "array_buffer":
                 case "data_view":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -55059,21 +55051,21 @@ var require_backend = __commonJS({
                     type
                   };
                 case "array":
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path2);
+                    return createDehydrated(type, true, data, cleaned, path3);
                   }
                   var arr = [];
                   for (var i = 0; i < data.length; i++) {
-                    arr[i] = dehydrateKey(data, i, cleaned, unserializable, path2.concat([i]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    arr[i] = dehydrateKey(data, i, cleaned, unserializable, path3.concat([i]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
                   return arr;
                 case "html_all_collection":
                 case "typed_array":
                 case "iterator":
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path2);
+                    return createDehydrated(type, true, data, cleaned, path3);
                   } else {
                     var _unserializableValue2 = {
                       unserializable: true,
@@ -55085,13 +55077,13 @@ var require_backend = __commonJS({
                       name: typeof data.constructor !== "function" || typeof data.constructor.name !== "string" || data.constructor.name === "Object" ? "" : data.constructor.name
                     };
                     Array.from(data).forEach(function(item, i2) {
-                      return _unserializableValue2[i2] = dehydrate(item, cleaned, unserializable, path2.concat([i2]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      return _unserializableValue2[i2] = dehydrate(item, cleaned, unserializable, path3.concat([i2]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                     });
-                    unserializable.push(path2);
+                    unserializable.push(path3);
                     return _unserializableValue2;
                   }
                 case "opaque_iterator":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -55100,7 +55092,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "date":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -55109,7 +55101,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "regexp":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -55118,9 +55110,9 @@ var require_backend = __commonJS({
                     type
                   };
                 case "thenable":
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path2);
+                    cleaned.push(path3);
                     return {
                       inspectable: data.status === "fulfilled" || data.status === "rejected",
                       preview_short: formatDataForPreview(data, false),
@@ -55141,8 +55133,8 @@ var require_backend = __commonJS({
                         preview_long: formatDataForPreview(data, true),
                         name: "fulfilled Thenable"
                       };
-                      _unserializableValue3.value = dehydrate(data.value, cleaned, unserializable, path2.concat(["value"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                      unserializable.push(path2);
+                      _unserializableValue3.value = dehydrate(data.value, cleaned, unserializable, path3.concat(["value"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      unserializable.push(path3);
                       return _unserializableValue3;
                     }
                     case "rejected": {
@@ -55153,12 +55145,12 @@ var require_backend = __commonJS({
                         preview_long: formatDataForPreview(data, true),
                         name: "rejected Thenable"
                       };
-                      _unserializableValue4.reason = dehydrate(data.reason, cleaned, unserializable, path2.concat(["reason"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                      unserializable.push(path2);
+                      _unserializableValue4.reason = dehydrate(data.reason, cleaned, unserializable, path3.concat(["reason"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      unserializable.push(path3);
                       return _unserializableValue4;
                     }
                     default:
-                      cleaned.push(path2);
+                      cleaned.push(path3);
                       return {
                         inspectable: false,
                         preview_short: formatDataForPreview(data, false),
@@ -55168,21 +55160,21 @@ var require_backend = __commonJS({
                       };
                   }
                 case "object":
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path2);
+                    return createDehydrated(type, true, data, cleaned, path3);
                   } else {
                     var object = {};
                     getAllEnumerableKeys(data).forEach(function(key) {
                       var name = key.toString();
-                      object[name] = dehydrateKey(data, key, cleaned, unserializable, path2.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      object[name] = dehydrateKey(data, key, cleaned, unserializable, path3.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                     });
                     return object;
                   }
                 case "class_instance": {
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path2);
+                    return createDehydrated(type, true, data, cleaned, path3);
                   }
                   var value = {
                     unserializable: true,
@@ -55194,15 +55186,15 @@ var require_backend = __commonJS({
                   };
                   getAllEnumerableKeys(data).forEach(function(key) {
                     var keyAsString = key.toString();
-                    value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path2.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path3.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   });
-                  unserializable.push(path2);
+                  unserializable.push(path3);
                   return value;
                 }
                 case "error": {
-                  isPathAllowedCheck = isPathAllowed(path2);
+                  isPathAllowedCheck = isPathAllowed(path3);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path2);
+                    return createDehydrated(type, true, data, cleaned, path3);
                   }
                   var _value = {
                     unserializable: true,
@@ -55212,22 +55204,22 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: data.name
                   };
-                  _value.message = dehydrate(data.message, cleaned, unserializable, path2.concat(["message"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  _value.stack = dehydrate(data.stack, cleaned, unserializable, path2.concat(["stack"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  _value.message = dehydrate(data.message, cleaned, unserializable, path3.concat(["message"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  _value.stack = dehydrate(data.stack, cleaned, unserializable, path3.concat(["stack"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   if ("cause" in data) {
-                    _value.cause = dehydrate(data.cause, cleaned, unserializable, path2.concat(["cause"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    _value.cause = dehydrate(data.cause, cleaned, unserializable, path3.concat(["cause"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
                   getAllEnumerableKeys(data).forEach(function(key) {
                     var keyAsString = key.toString();
-                    _value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path2.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    _value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path3.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   });
-                  unserializable.push(path2);
+                  unserializable.push(path3);
                   return _value;
                 }
                 case "infinity":
                 case "nan":
                 case "undefined":
-                  cleaned.push(path2);
+                  cleaned.push(path3);
                   return {
                     type
                   };
@@ -55235,10 +55227,10 @@ var require_backend = __commonJS({
                   return data;
               }
             }
-            function dehydrateKey(parent, key, cleaned, unserializable, path2, isPathAllowed) {
+            function dehydrateKey(parent, key, cleaned, unserializable, path3, isPathAllowed) {
               var level = arguments.length > 6 && arguments[6] !== void 0 ? arguments[6] : 0;
               try {
-                return dehydrate(parent[key], cleaned, unserializable, path2, isPathAllowed, level);
+                return dehydrate(parent[key], cleaned, unserializable, path3, isPathAllowed, level);
               } catch (error3) {
                 var preview = "";
                 if (hydration_typeof(error3) === "object" && error3 !== null && typeof error3.stack === "string") {
@@ -55246,7 +55238,7 @@ var require_backend = __commonJS({
                 } else if (typeof error3 === "string") {
                   preview = error3;
                 }
-                cleaned.push(path2);
+                cleaned.push(path3);
                 return {
                   inspectable: false,
                   preview_short: "[Exception]",
@@ -55256,8 +55248,8 @@ var require_backend = __commonJS({
                 };
               }
             }
-            function fillInPath(object, data, path2, value) {
-              var target = getInObject(object, path2);
+            function fillInPath(object, data, path3, value) {
+              var target = getInObject(object, path3);
               if (target != null) {
                 if (!target[meta.unserializable]) {
                   delete target[meta.inspectable];
@@ -55272,9 +55264,9 @@ var require_backend = __commonJS({
               }
               if (value !== null && data.unserializable.length > 0) {
                 var unserializablePath = data.unserializable[0];
-                var isMatch = unserializablePath.length === path2.length;
-                for (var i = 0; i < path2.length; i++) {
-                  if (path2[i] !== unserializablePath[i]) {
+                var isMatch = unserializablePath.length === path3.length;
+                for (var i = 0; i < path3.length; i++) {
+                  if (path3[i] !== unserializablePath[i]) {
                     isMatch = false;
                     break;
                   }
@@ -55283,13 +55275,13 @@ var require_backend = __commonJS({
                   upgradeUnserializable(value, value);
                 }
               }
-              setInObject(object, path2, value);
+              setInObject(object, path3, value);
             }
             function hydrate(object, cleaned, unserializable) {
-              cleaned.forEach(function(path2) {
-                var length = path2.length;
-                var last = path2[length - 1];
-                var parent = getInObject(object, path2.slice(0, length - 1));
+              cleaned.forEach(function(path3) {
+                var length = path3.length;
+                var last = path3[length - 1];
+                var parent = getInObject(object, path3.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -55315,10 +55307,10 @@ var require_backend = __commonJS({
                   parent[last] = replaced;
                 }
               });
-              unserializable.forEach(function(path2) {
-                var length = path2.length;
-                var last = path2[length - 1];
-                var parent = getInObject(object, path2.slice(0, length - 1));
+              unserializable.forEach(function(path3) {
+                var length = path3.length;
+                var last = path3[length - 1];
+                var parent = getInObject(object, path3.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -55439,11 +55431,11 @@ var require_backend = __commonJS({
               return gte(version, FIRST_DEVTOOLS_BACKEND_LOCKSTEP_VER);
             }
             function cleanForBridge(data, isPathAllowed) {
-              var path2 = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : [];
+              var path3 = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : [];
               if (data !== null) {
                 var cleanedPaths = [];
                 var unserializablePaths = [];
-                var cleanedData = dehydrate(data, cleanedPaths, unserializablePaths, path2, isPathAllowed);
+                var cleanedData = dehydrate(data, cleanedPaths, unserializablePaths, path3, isPathAllowed);
                 return {
                   data: cleanedData,
                   cleaned: cleanedPaths,
@@ -55453,18 +55445,18 @@ var require_backend = __commonJS({
                 return null;
               }
             }
-            function copyWithDelete(obj, path2) {
+            function copyWithDelete(obj, path3) {
               var index = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : 0;
-              var key = path2[index];
+              var key = path3[index];
               var updated = shared_isArray(obj) ? obj.slice() : utils_objectSpread({}, obj);
-              if (index + 1 === path2.length) {
+              if (index + 1 === path3.length) {
                 if (shared_isArray(updated)) {
                   updated.splice(key, 1);
                 } else {
                   delete updated[key];
                 }
               } else {
-                updated[key] = copyWithDelete(obj[key], path2, index + 1);
+                updated[key] = copyWithDelete(obj[key], path3, index + 1);
               }
               return updated;
             }
@@ -55485,14 +55477,14 @@ var require_backend = __commonJS({
               }
               return updated;
             }
-            function copyWithSet(obj, path2, value) {
+            function copyWithSet(obj, path3, value) {
               var index = arguments.length > 3 && arguments[3] !== void 0 ? arguments[3] : 0;
-              if (index >= path2.length) {
+              if (index >= path3.length) {
                 return value;
               }
-              var key = path2[index];
+              var key = path3[index];
               var updated = shared_isArray(obj) ? obj.slice() : utils_objectSpread({}, obj);
-              updated[key] = copyWithSet(obj[key], path2, value, index + 1);
+              updated[key] = copyWithSet(obj[key], path3, value, index + 1);
               return updated;
             }
             function getEffectDurations(root) {
@@ -56768,12 +56760,12 @@ var require_backend = __commonJS({
                   }
                 });
                 bridge_defineProperty(_this, "overrideValueAtPath", function(_ref) {
-                  var id = _ref.id, path2 = _ref.path, rendererID = _ref.rendererID, type = _ref.type, value = _ref.value;
+                  var id = _ref.id, path3 = _ref.path, rendererID = _ref.rendererID, type = _ref.type, value = _ref.value;
                   switch (type) {
                     case "context":
                       _this.send("overrideContext", {
                         id,
-                        path: path2,
+                        path: path3,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -56782,7 +56774,7 @@ var require_backend = __commonJS({
                     case "hooks":
                       _this.send("overrideHookState", {
                         id,
-                        path: path2,
+                        path: path3,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -56791,7 +56783,7 @@ var require_backend = __commonJS({
                     case "props":
                       _this.send("overrideProps", {
                         id,
-                        path: path2,
+                        path: path3,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -56800,7 +56792,7 @@ var require_backend = __commonJS({
                     case "state":
                       _this.send("overrideState", {
                         id,
-                        path: path2,
+                        path: path3,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -57138,12 +57130,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "copyElementPath", function(_ref5) {
-                  var id = _ref5.id, path2 = _ref5.path, rendererID = _ref5.rendererID;
+                  var id = _ref5.id, path3 = _ref5.path, rendererID = _ref5.rendererID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    var value = renderer2.getSerializedElementValueByPath(id, path2);
+                    var value = renderer2.getSerializedElementValueByPath(id, path3);
                     if (value != null) {
                       _this._bridge.send("saveToClipboard", value);
                     } else {
@@ -57152,12 +57144,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "deletePath", function(_ref6) {
-                  var hookID = _ref6.hookID, id = _ref6.id, path2 = _ref6.path, rendererID = _ref6.rendererID, type = _ref6.type;
+                  var hookID = _ref6.hookID, id = _ref6.id, path3 = _ref6.path, rendererID = _ref6.rendererID, type = _ref6.type;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.deletePath(type, id, hookID, path2);
+                    renderer2.deletePath(type, id, hookID, path3);
                   }
                 });
                 agent_defineProperty(_this, "getBackendVersion", function() {
@@ -57194,12 +57186,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "inspectElement", function(_ref9) {
-                  var forceFullData = _ref9.forceFullData, id = _ref9.id, path2 = _ref9.path, rendererID = _ref9.rendererID, requestID = _ref9.requestID;
+                  var forceFullData = _ref9.forceFullData, id = _ref9.id, path3 = _ref9.path, rendererID = _ref9.rendererID, requestID = _ref9.requestID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    _this._bridge.send("inspectedElement", renderer2.inspectElement(requestID, id, path2, forceFullData));
+                    _this._bridge.send("inspectedElement", renderer2.inspectElement(requestID, id, path3, forceFullData));
                     if (_this._persistedSelectionMatch === null || _this._persistedSelectionMatch.id !== id) {
                       _this._persistedSelection = null;
                       _this._persistedSelectionMatch = null;
@@ -57233,15 +57225,15 @@ var require_backend = __commonJS({
                   }
                   for (var rendererID in _this._rendererInterfaces) {
                     var renderer2 = _this._rendererInterfaces[rendererID];
-                    var path2 = null;
+                    var path3 = null;
                     if (suspendedByPathIndex !== null && rendererPath !== null) {
                       var suspendedByPathRendererIndex = suspendedByPathIndex - suspendedByOffset;
                       var rendererHasRequestedSuspendedByPath = renderer2.getElementAttributeByPath(id, ["suspendedBy", suspendedByPathRendererIndex]) !== void 0;
                       if (rendererHasRequestedSuspendedByPath) {
-                        path2 = ["suspendedBy", suspendedByPathRendererIndex].concat(rendererPath);
+                        path3 = ["suspendedBy", suspendedByPathRendererIndex].concat(rendererPath);
                       }
                     }
-                    var inspectedRootsPayload = renderer2.inspectElement(requestID, id, path2, forceFullData);
+                    var inspectedRootsPayload = renderer2.inspectElement(requestID, id, path3, forceFullData);
                     switch (inspectedRootsPayload.type) {
                       case "hydrated-path":
                         inspectedRootsPayload.path[1] += suspendedByOffset;
@@ -57335,20 +57327,20 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideValueAtPath", function(_ref15) {
-                  var hookID = _ref15.hookID, id = _ref15.id, path2 = _ref15.path, rendererID = _ref15.rendererID, type = _ref15.type, value = _ref15.value;
+                  var hookID = _ref15.hookID, id = _ref15.id, path3 = _ref15.path, rendererID = _ref15.rendererID, type = _ref15.type, value = _ref15.value;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.overrideValueAtPath(type, id, hookID, path2, value);
+                    renderer2.overrideValueAtPath(type, id, hookID, path3, value);
                   }
                 });
                 agent_defineProperty(_this, "overrideContext", function(_ref16) {
-                  var id = _ref16.id, path2 = _ref16.path, rendererID = _ref16.rendererID, wasForwarded = _ref16.wasForwarded, value = _ref16.value;
+                  var id = _ref16.id, path3 = _ref16.path, rendererID = _ref16.rendererID, wasForwarded = _ref16.wasForwarded, value = _ref16.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path2,
+                      path: path3,
                       rendererID,
                       type: "context",
                       value
@@ -57356,11 +57348,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideHookState", function(_ref17) {
-                  var id = _ref17.id, hookID = _ref17.hookID, path2 = _ref17.path, rendererID = _ref17.rendererID, wasForwarded = _ref17.wasForwarded, value = _ref17.value;
+                  var id = _ref17.id, hookID = _ref17.hookID, path3 = _ref17.path, rendererID = _ref17.rendererID, wasForwarded = _ref17.wasForwarded, value = _ref17.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path2,
+                      path: path3,
                       rendererID,
                       type: "hooks",
                       value
@@ -57368,11 +57360,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideProps", function(_ref18) {
-                  var id = _ref18.id, path2 = _ref18.path, rendererID = _ref18.rendererID, wasForwarded = _ref18.wasForwarded, value = _ref18.value;
+                  var id = _ref18.id, path3 = _ref18.path, rendererID = _ref18.rendererID, wasForwarded = _ref18.wasForwarded, value = _ref18.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path2,
+                      path: path3,
                       rendererID,
                       type: "props",
                       value
@@ -57380,11 +57372,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideState", function(_ref19) {
-                  var id = _ref19.id, path2 = _ref19.path, rendererID = _ref19.rendererID, wasForwarded = _ref19.wasForwarded, value = _ref19.value;
+                  var id = _ref19.id, path3 = _ref19.path, rendererID = _ref19.rendererID, wasForwarded = _ref19.wasForwarded, value = _ref19.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path2,
+                      path: path3,
                       rendererID,
                       type: "state",
                       value
@@ -57451,12 +57443,12 @@ var require_backend = __commonJS({
                   _this._bridge.send("stopInspectingHost", selected);
                 });
                 agent_defineProperty(_this, "storeAsGlobal", function(_ref23) {
-                  var count = _ref23.count, id = _ref23.id, path2 = _ref23.path, rendererID = _ref23.rendererID;
+                  var count = _ref23.count, id = _ref23.id, path3 = _ref23.path, rendererID = _ref23.rendererID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.storeAsGlobal(id, path2, count);
+                    renderer2.storeAsGlobal(id, path3, count);
                   }
                 });
                 agent_defineProperty(_this, "updateHookSettings", function(settings) {
@@ -57473,12 +57465,12 @@ var require_backend = __commonJS({
                     var rendererID = +rendererIDString;
                     var renderer2 = _this._rendererInterfaces[rendererID];
                     if (_this._lastSelectedRendererID === rendererID) {
-                      var path2 = renderer2.getPathForElement(_this._lastSelectedElementID);
-                      if (path2 !== null) {
-                        renderer2.setTrackedPath(path2);
+                      var path3 = renderer2.getPathForElement(_this._lastSelectedElementID);
+                      if (path3 !== null) {
+                        renderer2.setTrackedPath(path3);
                         _this._persistedSelection = {
                           rendererID,
-                          path: path2
+                          path: path3
                         };
                       }
                     }
@@ -57553,11 +57545,11 @@ var require_backend = __commonJS({
                   var rendererID = _this._lastSelectedRendererID;
                   var id = _this._lastSelectedElementID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
-                  var path2 = renderer2 != null ? renderer2.getPathForElement(id) : null;
-                  if (path2 !== null) {
+                  var path3 = renderer2 != null ? renderer2.getPathForElement(id) : null;
+                  if (path3 !== null) {
                     storage_sessionStorageSetItem(SESSION_STORAGE_LAST_SELECTION_KEY, JSON.stringify({
                       rendererID,
-                      path: path2
+                      path: path3
                     }));
                   } else {
                     storage_sessionStorageRemoveItem(SESSION_STORAGE_LAST_SELECTION_KEY);
@@ -58266,7 +58258,7 @@ var require_backend = __commonJS({
                 hasElementWithId: function hasElementWithId() {
                   return false;
                 },
-                inspectElement: function inspectElement(requestID, id, path2) {
+                inspectElement: function inspectElement(requestID, id, path3) {
                   return {
                     id,
                     responseID: requestID,
@@ -63517,9 +63509,9 @@ var require_backend = __commonJS({
                 }
                 return null;
               }
-              function getElementAttributeByPath(id, path2) {
+              function getElementAttributeByPath(id, path3) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  return utils_getInObject(mostRecentlyInspectedElement, path2);
+                  return utils_getInObject(mostRecentlyInspectedElement, path3);
                 }
                 return void 0;
               }
@@ -64226,9 +64218,9 @@ var require_backend = __commonJS({
               function isMostRecentlyInspectedElementCurrent(id) {
                 return isMostRecentlyInspectedElement(id) && !hasElementUpdatedSinceLastInspected;
               }
-              function mergeInspectedPaths(path2) {
+              function mergeInspectedPaths(path3) {
                 var current = currentlyInspectedPaths;
-                path2.forEach(function(key) {
+                path3.forEach(function(key) {
                   if (!current[key]) {
                     current[key] = {};
                   }
@@ -64236,21 +64228,21 @@ var require_backend = __commonJS({
                 });
               }
               function createIsPathAllowed(key, secondaryCategory) {
-                return function isPathAllowed(path2) {
+                return function isPathAllowed(path3) {
                   switch (secondaryCategory) {
                     case "hooks":
-                      if (path2.length === 1) {
+                      if (path3.length === 1) {
                         return true;
                       }
-                      if (path2[path2.length - 2] === "hookSource" && path2[path2.length - 1] === "fileName") {
+                      if (path3[path3.length - 2] === "hookSource" && path3[path3.length - 1] === "fileName") {
                         return true;
                       }
-                      if (path2[path2.length - 1] === "subHooks" || path2[path2.length - 2] === "subHooks") {
+                      if (path3[path3.length - 1] === "subHooks" || path3[path3.length - 2] === "subHooks") {
                         return true;
                       }
                       break;
                     case "suspendedBy":
-                      if (path2.length < 5) {
+                      if (path3.length < 5) {
                         return true;
                       }
                       break;
@@ -64261,8 +64253,8 @@ var require_backend = __commonJS({
                   if (!current) {
                     return false;
                   }
-                  for (var i = 0; i < path2.length; i++) {
-                    current = current[path2[i]];
+                  for (var i = 0; i < path3.length; i++) {
+                    current = current[path3[i]];
                     if (!current) {
                       return false;
                     }
@@ -64316,38 +64308,38 @@ var require_backend = __commonJS({
                     break;
                 }
               }
-              function storeAsGlobal(id, path2, count) {
+              function storeAsGlobal(id, path3, count) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  var value = utils_getInObject(mostRecentlyInspectedElement, path2);
+                  var value = utils_getInObject(mostRecentlyInspectedElement, path3);
                   var key = "$reactTemp".concat(count);
                   window[key] = value;
                   console.log(key);
                   console.log(value);
                 }
               }
-              function getSerializedElementValueByPath(id, path2) {
+              function getSerializedElementValueByPath(id, path3) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  var valueToCopy = utils_getInObject(mostRecentlyInspectedElement, path2);
+                  var valueToCopy = utils_getInObject(mostRecentlyInspectedElement, path3);
                   return serializeToString(valueToCopy);
                 }
               }
-              function inspectElement(requestID, id, path2, forceFullData) {
-                if (path2 !== null) {
-                  mergeInspectedPaths(path2);
+              function inspectElement(requestID, id, path3, forceFullData) {
+                if (path3 !== null) {
+                  mergeInspectedPaths(path3);
                 }
                 if (isMostRecentlyInspectedElement(id) && !forceFullData) {
                   if (!hasElementUpdatedSinceLastInspected) {
-                    if (path2 !== null) {
+                    if (path3 !== null) {
                       var secondaryCategory = null;
-                      if (path2[0] === "hooks" || path2[0] === "suspendedBy") {
-                        secondaryCategory = path2[0];
+                      if (path3[0] === "hooks" || path3[0] === "suspendedBy") {
+                        secondaryCategory = path3[0];
                       }
                       return {
                         id,
                         responseID: requestID,
                         type: "hydrated-path",
-                        path: path2,
-                        value: cleanForBridge(utils_getInObject(mostRecentlyInspectedElement, path2), createIsPathAllowed(null, secondaryCategory), path2)
+                        path: path3,
+                        value: cleanForBridge(utils_getInObject(mostRecentlyInspectedElement, path3), createIsPathAllowed(null, secondaryCategory), path3)
                       };
                     } else {
                       return {
@@ -64536,7 +64528,7 @@ var require_backend = __commonJS({
                   console.groupEnd();
                 }
               }
-              function deletePath(type, id, hookID, path2) {
+              function deletePath(type, id, hookID, path3) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(id);
                 if (devtoolsInstance === void 0) {
                   console.warn('Could not find DevToolsInstance with id "'.concat(id, '"'));
@@ -64550,12 +64542,12 @@ var require_backend = __commonJS({
                   var instance = fiber.stateNode;
                   switch (type) {
                     case "context":
-                      path2 = path2.slice(1);
+                      path3 = path3.slice(1);
                       switch (fiber.tag) {
                         case ClassComponent:
-                          if (path2.length === 0) {
+                          if (path3.length === 0) {
                           } else {
-                            deletePathInObject(instance.context, path2);
+                            deletePathInObject(instance.context, path3);
                           }
                           instance.forceUpdate();
                           break;
@@ -64565,21 +64557,21 @@ var require_backend = __commonJS({
                       break;
                     case "hooks":
                       if (typeof overrideHookStateDeletePath === "function") {
-                        overrideHookStateDeletePath(fiber, hookID, path2);
+                        overrideHookStateDeletePath(fiber, hookID, path3);
                       }
                       break;
                     case "props":
                       if (instance === null) {
                         if (typeof overridePropsDeletePath === "function") {
-                          overridePropsDeletePath(fiber, path2);
+                          overridePropsDeletePath(fiber, path3);
                         }
                       } else {
-                        fiber.pendingProps = copyWithDelete(instance.props, path2);
+                        fiber.pendingProps = copyWithDelete(instance.props, path3);
                         instance.forceUpdate();
                       }
                       break;
                     case "state":
-                      deletePathInObject(instance.state, path2);
+                      deletePathInObject(instance.state, path3);
                       instance.forceUpdate();
                       break;
                   }
@@ -64635,7 +64627,7 @@ var require_backend = __commonJS({
                   }
                 }
               }
-              function overrideValueAtPath(type, id, hookID, path2, value) {
+              function overrideValueAtPath(type, id, hookID, path3, value) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(id);
                 if (devtoolsInstance === void 0) {
                   console.warn('Could not find DevToolsInstance with id "'.concat(id, '"'));
@@ -64649,13 +64641,13 @@ var require_backend = __commonJS({
                   var instance = fiber.stateNode;
                   switch (type) {
                     case "context":
-                      path2 = path2.slice(1);
+                      path3 = path3.slice(1);
                       switch (fiber.tag) {
                         case ClassComponent:
-                          if (path2.length === 0) {
+                          if (path3.length === 0) {
                             instance.context = value;
                           } else {
-                            utils_setInObject(instance.context, path2, value);
+                            utils_setInObject(instance.context, path3, value);
                           }
                           instance.forceUpdate();
                           break;
@@ -64665,18 +64657,18 @@ var require_backend = __commonJS({
                       break;
                     case "hooks":
                       if (typeof overrideHookState === "function") {
-                        overrideHookState(fiber, hookID, path2, value);
+                        overrideHookState(fiber, hookID, path3, value);
                       }
                       break;
                     case "props":
                       switch (fiber.tag) {
                         case ClassComponent:
-                          fiber.pendingProps = copyWithSet(instance.props, path2, value);
+                          fiber.pendingProps = copyWithSet(instance.props, path3, value);
                           instance.forceUpdate();
                           break;
                         default:
                           if (typeof overrideProps === "function") {
-                            overrideProps(fiber, path2, value);
+                            overrideProps(fiber, path3, value);
                           }
                           break;
                       }
@@ -64684,7 +64676,7 @@ var require_backend = __commonJS({
                     case "state":
                       switch (fiber.tag) {
                         case ClassComponent:
-                          utils_setInObject(instance.state, path2, value);
+                          utils_setInObject(instance.state, path3, value);
                           instance.forceUpdate();
                           break;
                       }
@@ -64970,14 +64962,14 @@ var require_backend = __commonJS({
               var trackedPathMatchInstance = null;
               var trackedPathMatchDepth = -1;
               var mightBeOnTrackedPath = false;
-              function setTrackedPath(path2) {
-                if (path2 === null) {
+              function setTrackedPath(path3) {
+                if (path3 === null) {
                   trackedPathMatchFiber = null;
                   trackedPathMatchInstance = null;
                   trackedPathMatchDepth = -1;
                   mightBeOnTrackedPath = false;
                 }
-                trackedPath = path2;
+                trackedPath = path3;
               }
               function updateTrackedPathStateBeforeMount(fiber, fiberInstance) {
                 if (trackedPath === null || !mightBeOnTrackedPath) {
@@ -65745,9 +65737,9 @@ var require_backend = __commonJS({
               }
               var currentlyInspectedElementID = null;
               var currentlyInspectedPaths = {};
-              function mergeInspectedPaths(path2) {
+              function mergeInspectedPaths(path3) {
                 var current = currentlyInspectedPaths;
-                path2.forEach(function(key) {
+                path3.forEach(function(key) {
                   if (!current[key]) {
                     current[key] = {};
                   }
@@ -65755,13 +65747,13 @@ var require_backend = __commonJS({
                 });
               }
               function createIsPathAllowed(key) {
-                return function isPathAllowed(path2) {
+                return function isPathAllowed(path3) {
                   var current = currentlyInspectedPaths[key];
                   if (!current) {
                     return false;
                   }
-                  for (var i = 0; i < path2.length; i++) {
-                    current = current[path2[i]];
+                  for (var i = 0; i < path3.length; i++) {
+                    current = current[path3[i]];
                     if (!current) {
                       return false;
                     }
@@ -65811,24 +65803,24 @@ var require_backend = __commonJS({
                     break;
                 }
               }
-              function storeAsGlobal(id, path2, count) {
+              function storeAsGlobal(id, path3, count) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  var value = utils_getInObject(inspectedElement, path2);
+                  var value = utils_getInObject(inspectedElement, path3);
                   var key = "$reactTemp".concat(count);
                   window[key] = value;
                   console.log(key);
                   console.log(value);
                 }
               }
-              function getSerializedElementValueByPath(id, path2) {
+              function getSerializedElementValueByPath(id, path3) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  var valueToCopy = utils_getInObject(inspectedElement, path2);
+                  var valueToCopy = utils_getInObject(inspectedElement, path3);
                   return serializeToString(valueToCopy);
                 }
               }
-              function inspectElement(requestID, id, path2, forceFullData) {
+              function inspectElement(requestID, id, path3, forceFullData) {
                 if (forceFullData || currentlyInspectedElementID !== id) {
                   currentlyInspectedElementID = id;
                   currentlyInspectedPaths = {};
@@ -65841,8 +65833,8 @@ var require_backend = __commonJS({
                     type: "not-found"
                   };
                 }
-                if (path2 !== null) {
-                  mergeInspectedPaths(path2);
+                if (path3 !== null) {
+                  mergeInspectedPaths(path3);
                 }
                 updateSelectedElement(id);
                 inspectedElement.context = cleanForBridge(inspectedElement.context, createIsPathAllowed("context"));
@@ -66045,10 +66037,10 @@ var require_backend = __commonJS({
                   console.groupEnd();
                 }
               }
-              function getElementAttributeByPath(id, path2) {
+              function getElementAttributeByPath(id, path3) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  return utils_getInObject(inspectedElement, path2);
+                  return utils_getInObject(inspectedElement, path3);
                 }
                 return void 0;
               }
@@ -66065,14 +66057,14 @@ var require_backend = __commonJS({
                 }
                 return element.type;
               }
-              function deletePath(type, id, hookID, path2) {
+              function deletePath(type, id, hookID, path3) {
                 var internalInstance = idToInternalInstanceMap.get(id);
                 if (internalInstance != null) {
                   var publicInstance = internalInstance._instance;
                   if (publicInstance != null) {
                     switch (type) {
                       case "context":
-                        deletePathInObject(publicInstance.context, path2);
+                        deletePathInObject(publicInstance.context, path3);
                         forceUpdate(publicInstance);
                         break;
                       case "hooks":
@@ -66080,12 +66072,12 @@ var require_backend = __commonJS({
                       case "props":
                         var element = internalInstance._currentElement;
                         internalInstance._currentElement = legacy_renderer_objectSpread(legacy_renderer_objectSpread({}, element), {}, {
-                          props: copyWithDelete(element.props, path2)
+                          props: copyWithDelete(element.props, path3)
                         });
                         forceUpdate(publicInstance);
                         break;
                       case "state":
-                        deletePathInObject(publicInstance.state, path2);
+                        deletePathInObject(publicInstance.state, path3);
                         forceUpdate(publicInstance);
                         break;
                     }
@@ -66119,14 +66111,14 @@ var require_backend = __commonJS({
                   }
                 }
               }
-              function overrideValueAtPath(type, id, hookID, path2, value) {
+              function overrideValueAtPath(type, id, hookID, path3, value) {
                 var internalInstance = idToInternalInstanceMap.get(id);
                 if (internalInstance != null) {
                   var publicInstance = internalInstance._instance;
                   if (publicInstance != null) {
                     switch (type) {
                       case "context":
-                        utils_setInObject(publicInstance.context, path2, value);
+                        utils_setInObject(publicInstance.context, path3, value);
                         forceUpdate(publicInstance);
                         break;
                       case "hooks":
@@ -66134,12 +66126,12 @@ var require_backend = __commonJS({
                       case "props":
                         var element = internalInstance._currentElement;
                         internalInstance._currentElement = legacy_renderer_objectSpread(legacy_renderer_objectSpread({}, element), {}, {
-                          props: copyWithSet(element.props, path2, value)
+                          props: copyWithSet(element.props, path3, value)
                         });
                         forceUpdate(publicInstance);
                         break;
                       case "state":
-                        utils_setInObject(publicInstance.state, path2, value);
+                        utils_setInObject(publicInstance.state, path3, value);
                         forceUpdate(publicInstance);
                         break;
                     }
@@ -66184,7 +66176,7 @@ var require_backend = __commonJS({
               }
               function setTraceUpdatesEnabled(enabled) {
               }
-              function setTrackedPath(path2) {
+              function setTrackedPath(path3) {
               }
               function getOwnersList(id) {
                 return null;
@@ -70722,8 +70714,8 @@ var init_ErrorOverview = __esm({
     init_dist21();
     init_Box();
     init_Text();
-    cleanupPath = (path2) => {
-      return path2?.replace(`file://${cwd()}/`, "");
+    cleanupPath = (path3) => {
+      return path3?.replace(`file://${cwd()}/`, "");
     };
     stackUtils = new import_stack_utils.default({
       cwd: cwd(),
@@ -75592,7 +75584,7 @@ function error2(res, msg, status = 500) {
 }
 function handleApiRoute(req, res, bus, sse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const path2 = url.pathname;
+  const path3 = url.pathname;
   const method = req.method ?? "GET";
   if (method === "OPTIONS") {
     res.writeHead(204, {
@@ -75603,7 +75595,7 @@ function handleApiRoute(req, res, bus, sse) {
     res.end();
     return true;
   }
-  if (path2 === "/api/ingest" && method === "POST") {
+  if (path3 === "/api/ingest" && method === "POST") {
     const MAX_BODY = 1024 * 1024;
     let body = "";
     let size = 0;
@@ -75638,7 +75630,7 @@ function handleApiRoute(req, res, bus, sse) {
     });
     return true;
   }
-  if (path2 === "/api/sessions" && method === "GET") {
+  if (path3 === "/api/sessions" && method === "GET") {
     try {
       const sessions = bus.listSessions();
       json(res, sessions);
@@ -75647,7 +75639,7 @@ function handleApiRoute(req, res, bus, sse) {
     }
     return true;
   }
-  const sessionMatch = path2.match(/^\/api\/sessions\/([^/]+)$/);
+  const sessionMatch = path3.match(/^\/api\/sessions\/([^/]+)$/);
   if (sessionMatch && method === "GET") {
     try {
       const id = sessionMatch[1];
@@ -75673,13 +75665,13 @@ function handleApiRoute(req, res, bus, sse) {
     }
     return true;
   }
-  if (path2 === "/api/events" && method === "GET") {
+  if (path3 === "/api/events" && method === "GET") {
     const sessionId = url.searchParams.get("session");
     const cleanup = sse.addClient(res, sessionId);
     req.on("close", cleanup);
     return true;
   }
-  if (path2 === "/api/stats" && method === "GET") {
+  if (path3 === "/api/stats" && method === "GET") {
     try {
       const sessions = bus.listSessions();
       const active = sessions.filter((s) => s.status === "active").length;
@@ -75733,12 +75725,12 @@ async function startDashboard(opts = {}) {
   const publicDir = resolvePublicDir();
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const path2 = url.pathname;
-    if (path2.startsWith("/api/")) {
+    const path3 = url.pathname;
+    if (path3.startsWith("/api/")) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path2 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path2);
+    const filePath = path3 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path3);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep)) {
@@ -75753,7 +75745,7 @@ async function startDashboard(opts = {}) {
       res.writeHead(200, { "Content-Type": mime });
       res.end(content);
     } catch {
-      if (!extname(path2)) {
+      if (!extname(path3)) {
         try {
           const index = await readFile(join7(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
