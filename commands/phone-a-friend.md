@@ -34,7 +34,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
-| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>"` |
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
 
 In direct mode, combine prompt + context into a single string using this
@@ -96,7 +96,7 @@ I'm working on this task and got the above response. Please review it and return
    **Direct mode** (`RELAY_MODE = direct`):
    ```bash
    # Codex:
-   codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>"
+   codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>" < /dev/null
    # Gemini (always include -m, see "Gemini Model Priority" below):
    gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
    ```
