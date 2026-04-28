@@ -39,7 +39,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22.13"
   },
   "license": "Apache-2.0",
   "author": "Bruno Freiberger",
@@ -51,7 +51,7 @@
     "better-sqlite3": "^12.9.0",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
-    "ink": "^6.8.0",
+    "ink": "^7.0.1",
     "ora": "^9.3.0",
     "react": "^19.2.5",
     "react-devtools-core": "^7.0.1",

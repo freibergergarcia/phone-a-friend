@@ -4,13 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if ! command -v node >/dev/null 2>&1; then
-  echo "Error: Node.js >= 18 is required. Install: https://nodejs.org/" >&2
+  echo "Error: Node.js >= 22.13 is required. Install: https://nodejs.org/" >&2
   exit 1
 fi
 
 NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])")
-if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-  echo "Error: Node.js >= 18 required (found v$(node -v)). Update: https://nodejs.org/" >&2
+NODE_MINOR=$(node -e "console.log(process.versions.node.split('.')[1])")
+if [ "$NODE_MAJOR" -lt 22 ] 2>/dev/null || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 13 ] 2>/dev/null; }; then
+  echo "Error: Node.js >= 22.13 required (found v$(node -v)). Update: https://nodejs.org/" >&2
   exit 1
 fi
 
