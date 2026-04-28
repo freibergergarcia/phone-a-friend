@@ -10,7 +10,7 @@
   [![npm](https://img.shields.io/npm/v/%40freibergergarcia%2Fphone-a-friend)](https://www.npmjs.com/package/@freibergergarcia/phone-a-friend)
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
   [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-  ![Node.js 20+](https://img.shields.io/badge/node-%E2%89%A520.12-green)
+  ![Node.js 22+](https://img.shields.io/badge/node-%E2%89%A522-green)
   [![Website](https://img.shields.io/badge/website-phone--a--friend-blue)](https://freibergergarcia.github.io/phone-a-friend/)
 
 </div>
@@ -38,7 +38,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 ## Quick Start
 
-**Prerequisites:** Node.js 20+ and at least one backend:
+**Prerequisites:** Node.js 22+ and at least one backend:
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
 - [Codex CLI](https://developers.openai.com/codex/quickstart/)
