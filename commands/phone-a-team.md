@@ -37,7 +37,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
-| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>"` |
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
 | **Ollama** | `curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d '{"model":"<model>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \| jq -r '.message.content'` |
 
@@ -400,7 +400,7 @@ Delegate the task to the backend via the relay. The lead's job is to
   **Direct mode** (`RELAY_MODE = direct`):
   ```bash
   # Codex:
-  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>"
+  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>" < /dev/null
   # Gemini (omit --sandbox for workspace-write):
   gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
   # Ollama:
