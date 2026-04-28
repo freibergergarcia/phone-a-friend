@@ -78867,11 +78867,7 @@ var StdinDiscarder = class {
     }
     const code = typeof chunk === "string" ? chunk.codePointAt(0) : chunk[0];
     if (code === ASCII_ETX_CODE) {
-      if (process7.listenerCount("SIGINT") > 0) {
-        process7.emit("SIGINT");
-      } else {
-        process7.kill(process7.pid, "SIGINT");
-      }
+      process7.kill(process7.pid, "SIGINT");
     }
   };
   start() {
@@ -78928,6 +78924,7 @@ var RENDER_DEFERRAL_TIMEOUT = 200;
 var SYNCHRONIZED_OUTPUT_ENABLE = "\x1B[?2026h";
 var SYNCHRONIZED_OUTPUT_DISABLE = "\x1B[?2026l";
 var activeHooksPerStream = /* @__PURE__ */ new Map();
+var validColors = /* @__PURE__ */ new Set(["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "gray"]);
 var Ora = class {
   #linesToClear = 0;
   #frameIndex = -1;
@@ -78941,7 +78938,7 @@ var Ora = class {
   #drainHandler;
   #deferRenderTimer;
   #isDiscardingStdin = false;
-  color;
+  #color;
   // Helper to execute writes while preventing hook recursion
   #internalWrite(fn) {
     this.#isInternalWrite = true;
@@ -79025,6 +79022,9 @@ var Ora = class {
     }
     if (typeof this.#options.isSilent !== "boolean") {
       this.#options.isSilent = false;
+    }
+    if (this.#options.interval !== void 0 && !(Number.isInteger(this.#options.interval) && this.#options.interval > 0)) {
+      throw new Error("The `interval` option must be a positive integer");
     }
     const userInterval = this.#options.interval;
     this.spinner = this.#options.spinner;
@@ -79140,6 +79140,15 @@ var Ora = class {
     }
     return count;
   }
+  get color() {
+    return this.#color;
+  }
+  set color(value) {
+    if (value !== void 0 && value !== false && !validColors.has(value)) {
+      throw new Error("The `color` option must be a valid color or `false` to disable");
+    }
+    this.#color = value;
+  }
   get isEnabled() {
     return this.#options.isEnabled && !this.#options.isSilent;
   }
@@ -79166,8 +79175,8 @@ var Ora = class {
     }
     const { frames } = this.#spinner;
     let frame = frames[this.#frameIndex];
-    if (this.color) {
-      frame = source_default[this.color](frame);
+    if (this.#color) {
+      frame = source_default[this.#color](frame);
     }
     const fullPrefixText = this.#getFullPrefixText(this.#options.prefixText, " ");
     const fullText = typeof this.text === "string" ? " " + this.text : "";
