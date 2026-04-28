@@ -16,7 +16,7 @@ import {
   cpSync,
   unlinkSync,
 } from 'node:fs';
-import { resolve, join, dirname } from 'node:path';
+import { resolve, join, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 
@@ -283,6 +283,35 @@ export function opencodeCommandTarget(name: string, opencodeHome?: string): stri
   return join(opencodeConfigRoot(opencodeHome), 'commands', `${name}.md`);
 }
 
+/**
+ * Resolve the OpenCode command source path for a skill.
+ *
+ * Per-skill overlay at `skills/<name>/COMMAND.opencode.md` wins when present,
+ * otherwise falls back to the shared `commands/<name>.md`. The overlay lets a
+ * skill ship a different command shim for OpenCode than the one Claude loads.
+ */
+export function opencodeCommandSource(repoRoot: string, name: string): string {
+  const overlay = join(repoRoot, 'skills', name, 'COMMAND.opencode.md');
+  if (existsSync(overlay)) return overlay;
+  return join(repoRoot, 'commands', `${name}.md`);
+}
+
+/**
+ * True when `target` is a symlink pointing somewhere inside this PaF repo.
+ * Used to auto-replace stale PaF-owned symlinks when source paths change
+ * (e.g. moving the OpenCode command shim from commands/ to skills/<name>/).
+ */
+function isStalePafSymlink(target: string, repoRoot: string): boolean {
+  if (!isSymlink(target)) return false;
+  try {
+    const realTarget = realpathSync(target);
+    const realRepo = realpathSync(repoRoot);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    return false;
+  }
+}
+
 export function isPluginInstalled(claudeHome?: string): boolean {
   const target = claudeTarget(claudeHome);
   // Check local symlink/copy install
@@ -336,7 +365,7 @@ function installOpenCode(
 
   for (const name of OPENCODE_SKILLS) {
     const skillSource = join(repoRoot, 'skills', name);
-    const commandSource = join(repoRoot, 'commands', `${name}.md`);
+    const commandSource = opencodeCommandSource(repoRoot, name);
 
     if (!existsSync(join(skillSource, 'SKILL.md'))) {
       throw new InstallerError(`Missing OpenCode skill source: ${join(skillSource, 'SKILL.md')}`);
@@ -346,11 +375,13 @@ function installOpenCode(
     }
 
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
-    const skillStatus = installPath(skillSource, skillTarget, mode, force);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- opencode_skill:${name}: ${skillStatus} -> ${skillTarget}`);
 
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
-    const commandStatus = installPath(commandSource, commandTarget, mode, force);
+    const commandForce = force || isStalePafSymlink(commandTarget, repoRoot);
+    const commandStatus = installPath(commandSource, commandTarget, mode, commandForce);
     lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
   }
 

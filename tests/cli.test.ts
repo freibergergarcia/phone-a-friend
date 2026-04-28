@@ -299,6 +299,42 @@ describe('CLI', () => {
     expect(opts.model).toBe('o3');
     expect(opts.sandbox).toBe('workspace-write');
     expect(opts.includeDiff).toBe(true);
+
+    // Bug fix verification: resolveConfig must receive the repo path so that
+    // .phone-a-friend.toml in the repo is honored. Before the fix, only the
+    // first arg (cliOpts) was passed, leaving repo-local config invisible.
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBe('true');
+    expect(resolveCall[2]).toBe(tmpDir);
+  });
+
+  it('--no-include-diff passes explicit false to resolveConfig (overrides config default)', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+      '--no-include-diff',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBe('false');
+  });
+
+  it('omitting --include-diff/--no-include-diff leaves cliOpts.includeDiff undefined so config/env can win', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBeUndefined();
   });
 
   it('passes schema, session, and fast flags through to relay', async () => {

@@ -274,5 +274,72 @@ describe('config', () => {
       expect(result.timeout).toBe(600);
       expect(result.includeDiff).toBe(false);
     });
+
+    it('include_diff: explicit cli false overrides config true', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), [
+        '[defaults]',
+        'include_diff = true',
+      ].join('\n'));
+
+      const result = config.resolveConfig(
+        { includeDiff: 'false' },
+        {},
+        undefined,
+        tempDir,
+      );
+      expect(result.includeDiff).toBe(false);
+    });
+
+    it('include_diff: env var false overrides config true when CLI is silent', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), [
+        '[defaults]',
+        'include_diff = true',
+      ].join('\n'));
+
+      const result = config.resolveConfig(
+        {},
+        { PHONE_A_FRIEND_INCLUDE_DIFF: 'false' },
+        undefined,
+        tempDir,
+      );
+      expect(result.includeDiff).toBe(false);
+    });
+
+    it('include_diff: config true wins when neither CLI nor env is set', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), [
+        '[defaults]',
+        'include_diff = true',
+      ].join('\n'));
+
+      const result = config.resolveConfig({}, {}, undefined, tempDir);
+      expect(result.includeDiff).toBe(true);
+    });
+
+    it('include_diff: repo-local .phone-a-friend.toml overrides user config', () => {
+      // user config: include_diff = false
+      const userConfigDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(userConfigDir, { recursive: true });
+      writeFileSync(join(userConfigDir, 'config.toml'), [
+        '[defaults]',
+        'include_diff = false',
+      ].join('\n'));
+
+      // repo config: include_diff = true
+      const repoDir = join(tempDir, 'repo');
+      mkdirSync(repoDir, { recursive: true });
+      writeFileSync(join(repoDir, '.phone-a-friend.toml'), [
+        '[defaults]',
+        'include_diff = true',
+      ].join('\n'));
+
+      const result = config.resolveConfig({}, {}, repoDir, tempDir);
+      expect(result.includeDiff).toBe(true);
+    });
   });
 });

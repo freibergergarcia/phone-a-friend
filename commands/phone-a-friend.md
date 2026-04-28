@@ -12,8 +12,10 @@ Execution constraints when running from OpenCode:
   explicitly asks to review the current diff or changes.
 - Preserve the user's request in `--prompt`.
 - Do not select `opencode` as the friend backend from inside OpenCode.
-- For a short sanity review, prefer a simple prompt-mode command:
+- For a short sanity review, prefer a simple prompt-mode command. Pass
+  `--no-include-diff` by default; only pass `--include-diff` when the user
+  explicitly asked for a diff/branch/staged review.
 
 ```bash
-phone-a-friend --to codex --repo "$PWD" --prompt "$ARGUMENTS" --timeout 300 --no-stream --fast
+phone-a-friend --to codex --repo "$PWD" --prompt "$ARGUMENTS" --timeout 300 --no-stream --fast --no-include-diff
 ```

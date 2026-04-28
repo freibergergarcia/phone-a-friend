@@ -236,7 +236,7 @@ function skipVoid(str, ptr, banNewLines, banComments) {
   }
   return ptr;
 }
-function skipUntil(str, ptr, sep2, end, banNewLines = false) {
+function skipUntil(str, ptr, sep3, end, banNewLines = false) {
   if (!end) {
     ptr = indexOfNewline(str, ptr);
     return ptr < 0 ? str.length : ptr;
@@ -245,7 +245,7 @@ function skipUntil(str, ptr, sep2, end, banNewLines = false) {
     let c = str[i];
     if (c === "#") {
       i = indexOfNewline(str, i);
-    } else if (c === sep2) {
+    } else if (c === sep3) {
       return i + 1;
     } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
       return i;
@@ -6465,7 +6465,7 @@ import {
   cpSync,
   unlinkSync as unlinkSync2
 } from "fs";
-import { resolve as resolve3, join as join5, dirname as dirname5 } from "path";
+import { resolve as resolve3, join as join5, dirname as dirname5, sep } from "path";
 import { homedir as homedir4 } from "os";
 function ensureParent(filePath) {
   mkdirSync4(dirname5(filePath), { recursive: true });
@@ -6644,6 +6644,21 @@ function opencodeSkillTarget(name, opencodeHome) {
 function opencodeCommandTarget(name, opencodeHome) {
   return join5(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
+function opencodeCommandSource(repoRoot, name) {
+  const overlay = join5(repoRoot, "skills", name, "COMMAND.opencode.md");
+  if (existsSync6(overlay)) return overlay;
+  return join5(repoRoot, "commands", `${name}.md`);
+}
+function isStalePafSymlink(target, repoRoot) {
+  if (!isSymlink(target)) return false;
+  try {
+    const realTarget = realpathSync(target);
+    const realRepo = realpathSync(repoRoot);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    return false;
+  }
+}
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
@@ -6672,7 +6687,7 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
   const lines = [];
   for (const name of OPENCODE_SKILLS) {
     const skillSource = join5(repoRoot, "skills", name);
-    const commandSource = join5(repoRoot, "commands", `${name}.md`);
+    const commandSource = opencodeCommandSource(repoRoot, name);
     if (!existsSync6(join5(skillSource, "SKILL.md"))) {
       throw new InstallerError(`Missing OpenCode skill source: ${join5(skillSource, "SKILL.md")}`);
     }
@@ -6680,10 +6695,12 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
     }
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
-    const skillStatus = installPath(skillSource, skillTarget, mode, force);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- opencode_skill:${name}: ${skillStatus} -> ${skillTarget}`);
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
-    const commandStatus = installPath(commandSource, commandTarget, mode, force);
+    const commandForce = force || isStalePafSymlink(commandTarget, repoRoot);
+    const commandStatus = installPath(commandSource, commandTarget, mode, commandForce);
     lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
   }
   return lines;
@@ -76652,7 +76669,7 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join7, extname, resolve as resolve4, relative, sep } from "path";
+import { join as join7, extname, resolve as resolve4, relative, sep as sep2 } from "path";
 import { readFile } from "fs/promises";
 import { existsSync as existsSync11 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
@@ -76681,7 +76698,7 @@ async function startDashboard(opts = {}) {
     const filePath = path3 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path3);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
-    if (rel.startsWith("..") || rel.startsWith(sep)) {
+    if (rel.startsWith("..") || rel.startsWith(sep2)) {
       res.writeHead(403);
       res.end("Forbidden");
       return;
@@ -80953,7 +80970,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
@@ -80961,15 +80978,20 @@ ${banner("AI coding agent relay")}
       return;
     }
     const streamExplicit = command.getOptionValueSource("stream") === "cli";
-    const resolved = resolveConfig({
-      to: opts.to,
-      sandbox: opts.sandbox,
-      timeout: opts.timeout,
-      includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
-      stream: streamExplicit ? String(opts.stream) : void 0,
-      model: opts.model,
-      base: opts.base
-    });
+    const includeDiffExplicit = command.getOptionValueSource("includeDiff") === "cli";
+    const resolved = resolveConfig(
+      {
+        to: opts.to,
+        sandbox: opts.sandbox,
+        timeout: opts.timeout,
+        includeDiff: includeDiffExplicit ? String(opts.includeDiff) : void 0,
+        stream: streamExplicit ? String(opts.stream) : void 0,
+        model: opts.model,
+        base: opts.base
+      },
+      process.env,
+      opts.repo
+    );
     const backendName = resolved.backend;
     if (isReview) {
       const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";

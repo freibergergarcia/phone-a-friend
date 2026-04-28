@@ -10,6 +10,17 @@ A structured ping-pong Q&A game between Claude and a backend model.
 Both sides MUST produce an ANSWER: and a QUESTION: every round.
 The game is seeded with a topic and runs for N rounds (default 3, max 6).
 
+## Execution rules
+
+- One backend per relay call. Never pass comma-separated values to `--to`
+  (e.g. `phone-a-friend --to codex,gemini`).
+- `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
+  subcommand. Never run `phone-a-friend curiosity-engine`.
+- `--backend` is an argument to this skill, not a PaF CLI flag. Do not pass
+  `--backend` to `phone-a-friend`.
+- Inside OpenCode, prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=opencode` so PaF detects the host deterministically.
+
 ## Inputs
 
 - Arguments: `$ARGUMENTS`

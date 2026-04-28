@@ -183,6 +183,91 @@ describe('installer constants', () => {
       expect(lines.some(l => l.includes('claude:'))).toBe(false);
     });
 
+    it('uses skills/<name>/COMMAND.opencode.md as the OpenCode command source when present', () => {
+      // Add per-skill overlay for phone-a-team
+      const overlayPath = path.join(repo, 'skills', 'phone-a-team', 'COMMAND.opencode.md');
+      fs.writeFileSync(overlayPath, '---\ndescription: opencode overlay\n---\nuse the skill\n');
+
+      installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+
+      const phoneATeamCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
+      const phoneAFriendCmd = opencodeCommandTarget('phone-a-friend', opencodeHome);
+
+      // phone-a-team uses the overlay
+      expect(fs.realpathSync(phoneATeamCmd)).toBe(fs.realpathSync(overlayPath));
+      // phone-a-friend (no overlay) still uses commands/<name>.md
+      expect(fs.realpathSync(phoneAFriendCmd)).toBe(
+        fs.realpathSync(path.join(repo, 'commands', 'phone-a-friend.md')),
+      );
+    });
+
+    it('migrates a stale OpenCode command symlink that points into the same repo', () => {
+      // Simulate prior install: command symlink → commands/phone-a-team.md
+      installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+      const cmdTarget = opencodeCommandTarget('phone-a-team', opencodeHome);
+      expect(fs.realpathSync(cmdTarget)).toBe(
+        fs.realpathSync(path.join(repo, 'commands', 'phone-a-team.md')),
+      );
+
+      // Now add the overlay and reinstall WITHOUT --force; the existing symlink
+      // points inside the repo (PaF-owned) so it should be auto-replaced.
+      const overlayPath = path.join(repo, 'skills', 'phone-a-team', 'COMMAND.opencode.md');
+      fs.writeFileSync(overlayPath, '---\ndescription: opencode overlay\n---\nuse the skill\n');
+
+      installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+
+      expect(fs.realpathSync(cmdTarget)).toBe(fs.realpathSync(overlayPath));
+    });
+
+    it('does not auto-replace a symlink that points outside the repo', () => {
+      // Pre-create an unrelated file outside the repo and symlink the
+      // OpenCode command target at it. The installer should refuse to
+      // overwrite without force, since this was not PaF-managed.
+      const foreign = makeTempDir('paf-foreign-');
+      const foreignFile = path.join(foreign, 'phone-a-team.md');
+      fs.writeFileSync(foreignFile, 'not ours\n');
+
+      const cmdTarget = opencodeCommandTarget('phone-a-team', opencodeHome);
+      fs.mkdirSync(path.dirname(cmdTarget), { recursive: true });
+      fs.symlinkSync(foreignFile, cmdTarget);
+
+      try {
+        expect(() =>
+          installHosts({
+            repoRoot: repo,
+            target: 'opencode',
+            mode: 'symlink',
+            force: false,
+            opencodeHome,
+            syncClaudeCli: false,
+          }),
+        ).toThrow(/already exists/);
+      } finally {
+        try { fs.rmSync(foreign, { recursive: true, force: true }); } catch {}
+      }
+    });
+
   it('raises when destination exists and force is false', () => {
     // Install once
     installHosts({

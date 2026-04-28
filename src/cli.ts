@@ -374,6 +374,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')
     .option('--include-diff', 'Append git diff to prompt')
+    .option('--no-include-diff', 'Do not append git diff (overrides config defaults.include_diff)')
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
@@ -396,21 +397,27 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
-      // Only pass stream to config resolution when user explicitly passed --stream or --no-stream.
-      // Commander sets opts.stream to true (default or --stream) or false (--no-stream),
-      // so opts.stream is never undefined — we must check the option value source.
+      // Commander defaults paired flags to true when neither is passed (e.g. with both
+      // --include-diff and --no-include-diff registered, opts.includeDiff is never
+      // undefined). Use getOptionValueSource to distinguish "user explicitly passed
+      // a flag" from "default value", so absent CLI flags fall through to env/config.
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
+      const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
 
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
-      const resolved = resolveConfig({
-        to: opts.to,
-        sandbox: opts.sandbox,
-        timeout: opts.timeout,
-        includeDiff: opts.includeDiff !== undefined ? String(opts.includeDiff) : undefined,
-        stream: streamExplicit ? String(opts.stream) : undefined,
-        model: opts.model,
-        base: opts.base,
-      });
+      const resolved = resolveConfig(
+        {
+          to: opts.to,
+          sandbox: opts.sandbox,
+          timeout: opts.timeout,
+          includeDiff: includeDiffExplicit ? String(opts.includeDiff) : undefined,
+          stream: streamExplicit ? String(opts.stream) : undefined,
+          model: opts.model,
+          base: opts.base,
+        },
+        process.env,
+        opts.repo,
+      );
 
       const backendName = resolved.backend;
 

@@ -22,11 +22,24 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 - If the user says not to edit files, keep that instruction in `--prompt`.
 - From OpenCode, do not select `opencode` as the friend backend. Choose `codex`,
   `gemini`, `claude`, or `ollama`.
+- Pass `--no-include-diff` by default; only pass `--include-diff` when the
+  user explicitly asked for a diff/branch/staged review.
+- One backend per call. Never pass comma-separated values to `--to` (e.g.
+  `phone-a-friend --to codex,gemini`). To consult multiple models, run
+  separate `phone-a-friend` calls or use the `/phone-a-team` skill.
+- `phone-a-team` and `curiosity-engine` are host slash commands / Agent
+  Skills, not PaF CLI subcommands. Never run `phone-a-friend phone-a-team`
+  or `phone-a-friend curiosity-engine`.
+- `--backend` is an argument to `/phone-a-team`, not a PaF CLI flag. Do not
+  pass `--backend` to `phone-a-friend`.
+- When running inside OpenCode, prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=opencode` so PaF can deterministically detect the
+  host (recursion guard).
 
 For example, from OpenCode:
 
 ```bash
-phone-a-friend --to codex --repo "$PWD" --prompt "Give a short sanity review of this repo. Do not edit files." --timeout 300 --no-stream --fast
+PHONE_A_FRIEND_HOST=opencode phone-a-friend --to codex --repo "$PWD" --prompt "Give a short sanity review of this repo. Do not edit files." --timeout 300 --no-stream --fast --no-include-diff
 ```
 
 ## Inputs
@@ -111,11 +124,18 @@ I'm working on this task and got the above response. Please review it and return
 
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
-   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" [--fast] [--session <id>]
+   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --no-include-diff [--fast] [--session <id>]
    # For gemini, always include --model (see "Gemini Model Priority" below).
    # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> [--fast]
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> --no-include-diff [--fast]
    ```
+
+   Pass `--no-include-diff` by default. PaF reads `defaults.include_diff`
+   from user config; without `--no-include-diff` a user with that set to
+   `true` would silently leak the working tree diff into every relay. Only
+   pass `--include-diff` instead when the user explicitly asked to review
+   the diff, branch changes, or staged changes (and prefer
+   `phone-a-friend ... --review` for branch-level reviews).
 
    See "Speed optimization" and "Session continuity" below for when to
    include `--fast` and `--session`.

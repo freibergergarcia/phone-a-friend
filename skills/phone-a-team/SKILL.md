@@ -1,7 +1,8 @@
 ---
 name: phone-a-team
 description: Use when the user asks for a Phone-a-Friend team, multiple model reviewers, Codex and Gemini together, parallel second opinions, or iterative multi-backend refinement through phone-a-friend.
-argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N] [--model <name>]
+argument-hint: <task description> [--backend codex|gemini|ollama|both|all] [--max-rounds N] [--model <name>]
+disable-model-invocation: true
 ---
 
 # /phone-a-team
@@ -21,9 +22,11 @@ Agent Teams primitives such as `TeamCreate`, `Task`, `SendMessage`, or
 
 Parse:
 
-- `--backend codex|gemini|ollama|both`
+- `--backend codex|gemini|ollama|both|all`
   - Default: `codex`
   - `both` means `codex` and `gemini`
+  - `all` runs every available friend backend in parallel (see "Backend
+    selection" below for the resolution logic)
 - `--max-rounds N`
   - Default: `3`
   - Clamp to `1..5`
@@ -32,7 +35,9 @@ Parse:
 - `--sandbox <mode>`
   - Default: `read-only`
 - `--include-diff`
-  - Pass through to `phone-a-friend`
+  - Pass through to `phone-a-friend`. Only set this when the user explicitly
+    asked to review the working-tree diff, branch changes, or staged changes.
+    Otherwise pass `--no-include-diff` (default).
 - Remaining text is the task description.
 
 If the task description is empty, ask the user for it before starting.
@@ -42,6 +47,11 @@ If the task description is empty, ask the user for it before starting.
 - Use the `phone-a-friend` CLI as a black box.
 - `phone-a-team` is this host command / Agent Skill, not a
   `phone-a-friend` CLI subcommand. Never run `phone-a-friend phone-a-team`.
+- Never pass comma-separated backends to `--to` (e.g.
+  `phone-a-friend --to codex,gemini`). PaF is one backend per call. Run
+  multiple separate `phone-a-friend` calls instead.
+- Never pass `--backend` to the `phone-a-friend` CLI. `--backend` is an
+  argument to this skill, not a PaF flag.
 - Do not invoke `/phone-a-team` from inside `/phone-a-team`.
 - Preserve the user's task in every relay prompt.
 - Do not edit files yourself unless the user explicitly asks for implementation.
@@ -51,6 +61,14 @@ If the task description is empty, ask the user for it before starting.
   command substitution only when necessary.
 - Preserve stdout, stderr, and exit code per backend.
 - Clean up temp files with `trap`.
+- Pass `--no-include-diff` on every PaF relay command unless the user
+  explicitly asked for a diff/branch/staged review. PaF reads
+  `defaults.include_diff` from user config; without `--no-include-diff` a
+  user with `defaults.include_diff = true` would silently leak the working
+  tree diff into every backend.
+- Prefix every `phone-a-friend` invocation with `PHONE_A_FRIEND_HOST=opencode`
+  when this skill is running inside OpenCode, so PaF can deterministically
+  detect the host (recursion guard + `--backend all` exclusion).
 
 ## Preflight
 
@@ -66,16 +84,47 @@ If missing, stop and tell the user to install it:
 npm install -g @freibergergarcia/phone-a-friend
 ```
 
-Check requested backends only:
+### Backend selection
 
-```bash
-command -v codex
-command -v gemini
-curl -sf http://localhost:11434/api/tags
+Resolve `--backend <value>` into a concrete `BACKENDS` list:
+
+| `--backend` | Backends evaluated |
+|-------------|--------------------|
+| `codex` (default) | `codex` |
+| `gemini` | `gemini` |
+| `ollama` | `ollama` |
+| `both` | `codex`, `gemini` |
+| `all` | `codex`, `gemini`, `claude`, `ollama`, plus `opencode` only if the host is NOT OpenCode |
+
+Then run availability checks per backend. `command -v` proves the binary
+exists, but does NOT prove the backend is usable; preflight must also probe
+auth/runtime state where it is cheap to do so.
+
+| Backend | Probe |
+|---------|-------|
+| `codex` | `command -v codex` AND `codex --version` succeeds |
+| `gemini` | `command -v gemini` (auth checked when the relay runs; transient errors are handled by Gemini Model Priority retry rules below) |
+| `claude` | `command -v claude` AND `claude --version` succeeds. Auth: a real probe requires an actual call. Defer auth verification to the relay attempt and treat auth failures as a skip-with-reason at runtime |
+| `ollama` | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND the parsed `models[]` array has at least one entry |
+| `opencode` | `command -v opencode` AND host is NOT OpenCode (env: `PHONE_A_FRIEND_HOST=opencode` means we are inside OpenCode; never relay to opencode in that case) |
+
+For `--backend all`, build `BACKENDS` from the matrix above, run probes, and
+emit a one-line summary:
+
+```text
+Used: codex, gemini, ollama
+Skipped: claude (auth failed), opencode (host is opencode)
 ```
+
+Skip silently is forbidden: every excluded backend must be listed with the
+reason. If zero backends pass probes, abort and tell the user; do not start
+the round loop.
 
 For `both`, require `codex` and `gemini`. If one is missing, continue with the
 available backend only after clearly telling the user.
+
+For single-backend modes (`codex`, `gemini`, `ollama`), abort if the chosen
+backend fails its probe.
 
 ## Round Loop
 
@@ -146,7 +195,7 @@ phone-a-friend \
   --no-stream \
   --fast \
   [--model <model>] \
-  [--include-diff] \
+  --no-include-diff \      # or --include-diff if user asked for diff/branch/staged review
   > "$OUT_FILE" 2>&1
 
 STATUS=$?
@@ -177,7 +226,7 @@ phone-a-friend \
   --timeout 600 \
   --no-stream \
   --fast \
-  [--include-diff] \
+  --no-include-diff \      # or --include-diff if user asked for diff/branch/staged review
   > "$CODEX_OUT" 2>&1 &
 PID_CODEX=$!
 
@@ -190,7 +239,7 @@ phone-a-friend \
   --no-stream \
   --fast \
   [--model <model>] \
-  [--include-diff] \
+  --no-include-diff \      # or --include-diff if user asked for diff/branch/staged review
   > "$GEMINI_OUT" 2>&1 &
 PID_GEMINI=$!
 
