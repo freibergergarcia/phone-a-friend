@@ -1,6 +1,6 @@
 {
   "name": "@freibergergarcia/phone-a-friend",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "CLI relay that lets AI coding agents collaborate",
   "keywords": [
     "ai-agent",
