@@ -174,13 +174,14 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
   CLAUDE.md rules that the backend needs to read
 - The task does NOT need MCP tools (GitHub API, Slack, database queries)
 
-`--fast` skips loading project context (CLAUDE.md, MCP servers, skills,
-hooks) for the Claude backend. It is a no-op for Codex, Gemini, and Ollama,
-but safe to include regardless of backend.
+`--fast` maps to `--pure` for OpenCode, skipping external plugins. It is a
+no-op for Claude, Codex, Gemini, and Ollama. Claude intentionally does not
+use `--bare` because bare mode skips OAuth/keychain reads and can break
+subscription auth.
 
 Most `/phone-a-friend` relay calls are self-contained reviews where the
-context is already in the prompt. Default to including `--fast` unless the
-task clearly needs project context.
+context is already in the prompt. Default to including `--fast` when the
+backend may be OpenCode; it is harmless elsewhere.
 
 ## Session continuity
 

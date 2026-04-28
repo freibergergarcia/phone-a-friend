@@ -337,6 +337,8 @@ command:
      [--context-text "<context>"] [--no-include-diff | --include-diff] \
      [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
 
+   Note: for `--to claude`, `--fast` has no effect.
+
    Default to `--no-include-diff` per the "Diff inclusion policy" section
    above. Use `--include-diff` only when the user explicitly asked for a
    diff/branch/staged review.
@@ -470,11 +472,11 @@ Delegate the task to the backend via the relay. The lead's job is to
   policy" section. Use `--include-diff` only when the user explicitly asked
   for a diff/branch/staged review.
 
-  Always include `--fast` (relay prompts are self-contained). Include
-  `--session` ONLY when `<backend>` is `codex` or `ollama` — pass the
-  backend-specific ID from `SESSION_IDS`. For `gemini`, omit `--session`
-  entirely; PaF rejects `--session` against Gemini (resume strategy
-  declared `unsupported`).
+  Always include `--fast` (relay prompts are self-contained). For
+  `--to claude`, `--fast` has no effect. Include `--session` ONLY when
+  `<backend>` is `codex` or `ollama` — pass the backend-specific ID from
+  `SESSION_IDS`. For `gemini`, omit `--session` entirely; PaF rejects
+  `--session` against Gemini (resume strategy declared `unsupported`).
 
   When `--session` is used, the session lets the backend remember
   previous rounds, so follow-up prompts can focus on feedback deltas

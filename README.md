@@ -132,7 +132,7 @@ phone-a-friend --to ollama --prompt "Explain this function"
 phone-a-friend --to opencode --prompt "Audit this repo" --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
-phone-a-friend --to claude --prompt "Explain this" --fast          # Skip project context (faster)
+phone-a-friend --to opencode --prompt "Explain this" --fast        # Skip OpenCode plugins (faster)
 ```
 
 ### Structured output

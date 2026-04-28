@@ -204,7 +204,7 @@ phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Struct
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
 phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
 phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
-phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude, --pure for OpenCode)
+phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -415,7 +415,7 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--bare` for the Claude backend, skipping project context loading (CLAUDE.md, MCP servers, skills, hooks), and to `--pure` for the OpenCode backend, skipping external plugins. No-op for other backends. Useful for self-contained tasks where project conventions and tools are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 

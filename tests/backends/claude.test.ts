@@ -227,14 +227,14 @@ describe('ClaudeBackend', () => {
     expect(args[args.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
   });
 
-  it('passes --bare when fast mode is enabled', async () => {
+  it('does not pass --bare when fast mode is enabled', async () => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
     mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({ fast: true }));
 
     const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(args).toContain('--bare');
+    expect(args).not.toContain('--bare');
   });
 
   it('starts a persisted session with --session-id and without --no-session-persistence', async () => {
