@@ -233,8 +233,13 @@ command:
 - `SESSION_IDS` = map of backend name to session ID (binary mode only).
   Generated as `paf-team-<backend>-<task-slug>-<4-char-random>` (e.g.,
   `paf-team-codex-review-auth-b7e1`). The random suffix prevents
-  collisions across runs and repos. One session ID per backend. Used in
-  all relay calls so the backend remembers previous rounds.
+  collisions across runs and repos. One session ID per session-capable
+  backend. Used in relay calls so the backend remembers previous rounds.
+
+  **Generate session IDs only for `codex` and `ollama`.** Do NOT generate
+  one for `gemini` — the Gemini backend declares `resumeStrategy:
+  unsupported`, and PaF will reject `--session` for Gemini with a
+  RelayError. For `--backend both`, generate a session ID for codex only.
 
 ### Algorithm
 
@@ -274,7 +279,16 @@ command:
 
    phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
      [--context-text "<context>"] [--include-diff] [--sandbox <mode>] \
-     [--model <model>] --fast --session <SESSION_ID>
+     [--model <model>] --fast [--session <SESSION_ID>]
+
+   Include `--session <SESSION_ID>` ONLY when <backend> is `codex` or
+   `ollama`. For `gemini`, omit `--session` entirely (PaF rejects it for
+   Gemini with a RelayError).
+
+   On the FIRST relay under a new session label, PaF prints an
+   informational stderr line: `[phone-a-friend] Session label "..." not
+   found in store. Starting a fresh session under this label.` This is
+   expected and not a failure.
 
    After the relay completes, send the FULL unedited output to the team
    lead via SendMessage. Include:
@@ -389,13 +403,19 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>] --fast --session <SESSION_ID>
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
-  Always include `--fast` (relay prompts are self-contained) and
-  `--session` using the backend-specific ID from `SESSION_IDS`. The session
-  lets the backend remember previous rounds, so follow-up prompts can focus
-  on feedback deltas rather than re-sending full context.
+  Always include `--fast` (relay prompts are self-contained). Include
+  `--session` ONLY when `<backend>` is `codex` or `ollama` — pass the
+  backend-specific ID from `SESSION_IDS`. For `gemini`, omit `--session`
+  entirely; PaF rejects `--session` against Gemini (resume strategy
+  declared `unsupported`).
+
+  When `--session` is used, the session lets the backend remember
+  previous rounds, so follow-up prompts can focus on feedback deltas
+  rather than re-sending full context. For Gemini (no session), each
+  round is stateless — see "Per-round relay rules" below.
 
   **Direct mode** (`RELAY_MODE = direct`):
   ```bash
@@ -511,18 +531,21 @@ codebase. Read at most 2-3 files for preflight context. The backend has
 not to become an expert on the codebase before delegating.
 
 **Per-round relay rules (binary mode with `--session`)**:
-When `--session` is active, session-capable backends (Claude, Codex)
-remember previous rounds natively. Each relay call only needs to send:
+When `--session` is active, session-capable backends (Codex) remember
+previous rounds natively. Each relay call only needs to send:
   - The specific feedback or revision request for this round
   - Any new context (e.g., updated diff after changes)
 Do NOT re-send the full task description, prior outputs, or summaries.
 The backend already has them in its session history.
 
-**Exception: Gemini and Ollama with `--session`**: Gemini may not resume
-natively (best-effort). Ollama replays full history each call (prompt size
-grows per turn). For these backends, always include enough context for the
-backend to answer independently, even in follow-up rounds. Include a brief
-task recap + the latest output alongside the feedback.
+**Exception: Ollama with `--session`**: Ollama replays full history each
+call (prompt size grows per turn). Sessions work but follow-up prompts
+must stay concise to avoid hitting size limits.
+
+**Exception: Gemini (no `--session`)**: Gemini runs stateless every round.
+Each Gemini relay call must include enough context for the backend to
+answer independently — include a brief task recap and the latest output
+alongside the feedback in every round.
 
 **Per-round relay rules (direct mode, no session)**:
 - Each relay call sends ONLY:
