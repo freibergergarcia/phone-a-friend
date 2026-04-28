@@ -57,6 +57,15 @@ describe('GeminiBackend', () => {
     expect(GEMINI_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
   });
 
+  it('declares resumeStrategy as "unsupported"', () => {
+    // Gemini's session surface (session ID extraction, --resume semantics) is
+    // unverified against live CLI output and run() does not use sessionHistory.
+    // The relay layer relies on this flag to reject --session for Gemini
+    // instead of silently fresh-spawning. If this assertion fails, double-check
+    // src/backends/gemini.ts and the unsupported-session guard in src/relay.ts.
+    expect(GEMINI_BACKEND.capabilities.resumeStrategy).toBe('unsupported');
+  });
+
   it('builds correct gemini CLI args and reads stdout', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';

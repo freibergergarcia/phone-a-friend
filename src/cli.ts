@@ -52,7 +52,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);

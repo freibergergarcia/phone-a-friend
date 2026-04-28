@@ -5732,7 +5732,8 @@ import {
   openSync,
   closeSync,
   fsyncSync,
-  renameSync
+  renameSync,
+  unlinkSync
 } from "fs";
 import { dirname as dirname3, join as join4 } from "path";
 import { homedir as homedir3 } from "os";
@@ -5788,12 +5789,20 @@ var init_sessions = __esm({
         const payload = JSON.stringify(sessions, null, 2);
         const tmpFd = openSync(tmpPath, "w");
         try {
-          writeFileSync4(tmpFd, payload, "utf-8");
-          fsyncSync(tmpFd);
-        } finally {
-          closeSync(tmpFd);
+          try {
+            writeFileSync4(tmpFd, payload, "utf-8");
+            fsyncSync(tmpFd);
+          } finally {
+            closeSync(tmpFd);
+          }
+          renameSync(tmpPath, this.filePath);
+        } catch (err) {
+          try {
+            unlinkSync(tmpPath);
+          } catch {
+          }
+          throw err;
         }
-        renameSync(tmpPath, this.filePath);
         try {
           const dirFd = openSync(dir, "r");
           try {
@@ -6454,7 +6463,7 @@ import {
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
-  unlinkSync
+  unlinkSync as unlinkSync2
 } from "fs";
 import { resolve as resolve3, join as join5, dirname as dirname5 } from "path";
 import { homedir as homedir4 } from "os";
@@ -6470,7 +6479,7 @@ function removePath(filePath) {
     throw err;
   }
   if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync(filePath);
+    unlinkSync2(filePath);
   } else if (stat.isDirectory()) {
     rmSync2(filePath, { recursive: true, force: true });
   }
@@ -18051,7 +18060,7 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { readFileSync as readFileSync8, unlinkSync as unlinkSync2, writeFileSync as writeFileSync5 } from "fs";
+import { readFileSync as readFileSync8, unlinkSync as unlinkSync3, writeFileSync as writeFileSync5 } from "fs";
 import path2 from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
@@ -18126,7 +18135,7 @@ var init_dist8 = __esm({
         if (!this.tempFile)
           return;
         try {
-          unlinkSync2(this.tempFile);
+          unlinkSync3(this.tempFile);
           this.tempFile = "";
         } catch (removeFileError) {
           throw new RemoveFileError(removeFileError);
@@ -80522,7 +80531,7 @@ init_version();
 function repoRootDefault() {
   return getPackageRoot();
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-v", "-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;

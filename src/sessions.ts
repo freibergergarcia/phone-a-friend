@@ -17,6 +17,7 @@ import {
   closeSync,
   fsyncSync,
   renameSync,
+  unlinkSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -92,13 +93,24 @@ export class SessionStore {
 
     const tmpFd = openSync(tmpPath, 'w');
     try {
-      writeFileSync(tmpFd, payload, 'utf-8');
-      fsyncSync(tmpFd);
-    } finally {
-      closeSync(tmpFd);
+      try {
+        writeFileSync(tmpFd, payload, 'utf-8');
+        fsyncSync(tmpFd);
+      } finally {
+        closeSync(tmpFd);
+      }
+      renameSync(tmpPath, this.filePath);
+    } catch (err) {
+      // If anything before/at the rename fails, clean up the temp file so we
+      // don't leave .tmp.<pid>.<ts> litter in the config dir. The real store
+      // is untouched (rename never happened).
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        // Best-effort: temp file may already be gone.
+      }
+      throw err;
     }
-
-    renameSync(tmpPath, this.filePath);
 
     // Fsync the parent directory so the rename is durable across crashes.
     // Not supported on Windows; ignore EPERM/EISDIR there.
