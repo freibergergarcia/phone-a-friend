@@ -8054,12 +8054,12 @@ function createPrompt(view) {
     const cleanups = /* @__PURE__ */ new Set();
     const output = new import_mute_stream.default();
     output.pipe(context.output ?? process.stdout);
-    output.mute();
     const rl = readline2.createInterface({
       terminal: true,
       input,
       output
     });
+    output.mute();
     const screen = new ScreenManager(rl);
     const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
     const cancel = () => reject(new CancelPromptError());
