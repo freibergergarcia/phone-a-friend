@@ -199,7 +199,9 @@ phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
-phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a session
+phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
+phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
+phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
 phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude, --pure for OpenCode)
 
 # Setup & diagnostics
@@ -354,19 +356,49 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 
 ## Session continuity
 
-The `--session <id>` flag enables relay session persistence and resumption across calls.
+Two flags handle session resume, with separate concerns:
+
+- `--session <label>` is a PaF-managed label. PaF stores the label and the underlying backend session ID together in `~/.config/phone-a-friend/sessions.json` and uses the label for lookup on subsequent calls.
+- `--backend-session <id>` is a raw passthrough. PaF skips the label store and resumes the backend session directly. Combine with `--session <label>` to also start tracking that backend session under a label (adoption). Adoption is idempotent: re-running the same `--session label --backend-session id` pair is fine; conflicts (same label pointing at a different backend, session id, or repo) error explicitly.
+
+Implementation notes:
 
 - `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
 - Ollama: stateless replay (full history prepended to each request)
-- Streaming is disabled when `--session` is active
+- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, OpenCode)
+- `--session` errors out for backends with `resumeStrategy: 'unsupported'` (currently Gemini) instead of silently fresh-spawning each call
+- An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
+- Streaming is disabled when `--session` or `--backend-session` is active
+
+### History persistence rule
+
+PaF only persists conversation `history` for backends whose resume mechanism actually replays it (`resumeStrategy === 'transcript-replay'` — currently only Ollama). For everything else (`native-session`, `unsupported`), the row stores metadata + `backendSessionId` and `history: []`. Existing rows that were created before this rule have their fat history trimmed on the next write to that label.
+
+Why: Codex/Claude/OpenCode resume from their own server-side state. Storing the full expanded prompts + replies on PaF's side is dead weight that bloats `sessions.json` without affecting resume behavior. For Ollama, history *is* the resume mechanism (replay), so it's kept intact.
+
+### Atomicity, corruption, concurrency
+
+- **Atomic writes:** `sessions.json` is written via temp file + `fsync` + rename + parent-dir `fsync`. A crash mid-write cannot produce torn JSON.
+- **Loud corruption recovery:** if the file fails to parse on load, PaF rotates it to `sessions.json.corrupt-<timestamp>`, logs the path to stderr, and starts with an empty store for the current process. The previous behavior silently dropped every session, which made partial writes catastrophic.
+- **Not parallel-write safe:** two PaF processes writing concurrently can lose updates (last-writer-wins on rename). Single-process use only. SQLite migration is the proper fix when concurrency materializes.
+
+### Session management commands
+
+```bash
+phone-a-friend session list                    # show all persisted sessions
+phone-a-friend session list --json             # machine-readable
+phone-a-friend session delete <label>          # remove a single label
+phone-a-friend session prune --older-than 30   # drop sessions older than N days (default 30)
+phone-a-friend session prune --all             # drop everything
+```
 
 ### Known limitations
 
 - **Codex resume + schema**: `codex exec resume` does not accept `--output-schema`. Schema is enforced on turn 1 only; subsequent turns rely on model conversation context to maintain the format, with no server-side validation.
-- **Gemini sessions**: session ID extraction from Gemini JSON output is best-effort (field names unverified against live CLI). Without a confirmed session ID, `--resume` is not used and each call starts a fresh conversation. Gemini cannot replay history like Ollama (CLI subprocess, not HTTP).
+- **Gemini sessions**: declared `unsupported`. The Gemini CLI session surface (session ID extraction, `--resume` semantics) was never verified against live output, and `run()` doesn't use `sessionHistory`. `--session` against Gemini errors loudly until the surface is confirmed.
 - **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the diff inlined.
 - **Streaming + sessions**: `relayStream()` forwards session options to backends but does not implement session lifecycle (validation, history persistence). The CLI gates this combination off; only programmatic callers are affected.
 

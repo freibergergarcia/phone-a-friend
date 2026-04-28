@@ -86,8 +86,9 @@ I'm working on this task and got the above response. Please review it and return
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
    phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" [--fast] [--session <id>]
-   # For gemini, always include --model (see "Gemini Model Priority" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> [--fast] [--session <id>]
+   # For gemini, always include --model (see "Gemini Model Priority" below).
+   # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> [--fast]
    ```
 
    See "Speed optimization" and "Session continuity" below for when to
@@ -144,7 +145,7 @@ wants the same backend to apply fixes or dig deeper), reuse the session:
 3. On **subsequent** relays to the **same backend** in the same
    conversation, reuse the same session ID. The backend remembers previous
    turns.
-4. If switching backends (e.g., first call to codex, second to gemini),
+4. If switching backends (e.g., first call to codex, second to ollama),
    generate a new session ID for the new backend. Sessions are
    backend-specific.
 
@@ -152,19 +153,45 @@ Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
 
 **Backend-specific behavior:**
-- **Claude, Codex**: native session resume. Follow-up prompts can send
-  deltas only.
-- **Ollama**: replays full history each call. Sessions work but prompt size
-  grows with each turn. Keep follow-ups concise.
-- **Gemini**: session resume is best-effort (may start fresh). Always
-  include enough context for Gemini to answer independently, even in
-  follow-up calls.
+- **Codex, Claude, OpenCode**: native session resume. Follow-up prompts
+  can send deltas only.
+- **Ollama**: replays full history each call. Sessions work but prompt
+  size grows with each turn. Keep follow-ups concise.
+- **Gemini**: `--session` is **not supported**. PaF rejects it with a
+  RelayError (`--session is not supported by the gemini backend ...`).
+  Each Gemini relay call must be self-contained. Do not pass `--session`
+  with `--to gemini`.
+
+On the FIRST relay under a new session label, PaF prints an informational
+stderr line: `[phone-a-friend] Session label "..." not found in store.
+Starting a fresh session under this label.` This is expected. The hint
+about `--backend-session` in that line is for advanced use (see below)
+and not relevant to the typical `/phone-a-friend` flow.
 
 **Omit `--session`** for one-off relays where no follow-up is expected.
 This is the common case. Only add `--session` when the user explicitly
 asks for a follow-up or continuation of a previous relay.
 
 Session continuity is only available in binary mode (`RELAY_MODE = binary`).
+
+### Advanced: `--backend-session` (raw thread ID adoption)
+
+If the user explicitly provides a Codex/Claude/OpenCode backend thread ID
+that PaF did not create (e.g., from another tool or a previous CLI run),
+attach to it with `--backend-session <id>` instead of `--session <id>`.
+Combine with `--session <label>` to also start tracking under a label.
+
+```bash
+# Resume a raw backend thread once (no PaF persistence):
+phone-a-friend --to codex --repo "$PWD" --backend-session <thread-id> --prompt "<...>"
+
+# Adopt: resume AND start tracking under a PaF label going forward:
+phone-a-friend --to codex --repo "$PWD" --session <label> --backend-session <thread-id> --prompt "<...>"
+```
+
+This is rarely the right move from inside a Claude Code conversation — the
+common case is `--session <label>` with a fresh label. Only use
+`--backend-session` when the user supplied a specific backend thread ID.
 
 ## Gemini Model Priority
 

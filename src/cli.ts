@@ -52,7 +52,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);
@@ -345,7 +345,8 @@ export async function run(argv: string[]): Promise<number> {
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
     .option('--schema <json>', 'Request structured JSON output matching this schema')
-    .option('--session <id>', 'Resume or create a persisted relay session')
+    .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
+    .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
     .option('--fast', 'Use fast mode when supported (maps to --bare for Claude)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
@@ -422,10 +423,11 @@ export async function run(argv: string[]): Promise<number> {
         sandbox: resolved.sandbox as SandboxMode,
         schema: opts.schema ?? null,
         session: opts.session ?? null,
+        backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
       };
 
-      const shouldStream = resolved.stream && !opts.schema && !opts.session;
+      const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
 
       if (opts.quiet) {
         const { relayBackground } = await import('./relay.js');
@@ -908,6 +910,92 @@ export async function run(argv: string[]): Promise<number> {
 
       manager.update(id, { status: 'cancelled' });
       console.log(`  ${theme.success('\u2713')} Cancelled job ${theme.bold(id)}`);
+    });
+
+  // --- session subcommand group ---
+  const sessionCmd = program
+    .command('session')
+    .description('Manage persisted relay sessions');
+
+  sessionCmd
+    .command('list')
+    .description('List persisted relay sessions')
+    .option('--json', 'Output as JSON', false)
+    .action(async (opts) => {
+      const { SessionStore } = await import('./sessions.js');
+      const store = new SessionStore();
+      const sessions = store.list();
+
+      if (opts.json) {
+        console.log(JSON.stringify(sessions, null, 2));
+        return;
+      }
+
+      if (sessions.length === 0) {
+        console.log(`\n  ${theme.hint('No persisted sessions.')}\n`);
+        return;
+      }
+
+      console.log(`\n  ${theme.heading('Persisted Sessions')} ${theme.hint(`(${sessions.length})`)}\n`);
+      const sorted = [...sessions].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+      for (const session of sorted) {
+        const age = timeSince(session.lastUsedAt);
+        const backendSid = session.backendSessionId ?? theme.hint('(none)');
+        console.log(`  ${theme.bold(session.id)}  ${theme.info(session.backend)}  ${theme.hint(age)}`);
+        console.log(`    ${theme.hint('backend session:')} ${backendSid}`);
+        console.log(`    ${theme.hint('repo:')} ${session.repoPath}`);
+        console.log(`    ${theme.hint('history:')} ${session.history.length} entries`);
+      }
+      console.log('');
+    });
+
+  sessionCmd
+    .command('delete <label>')
+    .description('Remove a persisted session by label')
+    .action(async (label: string) => {
+      const { SessionStore } = await import('./sessions.js');
+      const store = new SessionStore();
+      const removed = store.delete(label);
+      if (!removed) {
+        console.error(`  ${theme.crossmark} Session ${theme.bold(label)} not found`);
+        exitCode = 1;
+        return;
+      }
+      console.log(`  ${theme.success('\u2713')} Deleted session ${theme.bold(label)}`);
+    });
+
+  sessionCmd
+    .command('prune')
+    .description('Remove old sessions (default: older than 30 days)')
+    .option('--older-than <days>', 'Drop sessions whose lastUsedAt is older than N days', '30')
+    .option('--all', 'Drop every session', false)
+    .action(async (opts) => {
+      const { SessionStore } = await import('./sessions.js');
+      const store = new SessionStore();
+
+      if (opts.all) {
+        const count = store.clear();
+        console.log(`  ${theme.success('\u2713')} Removed ${theme.bold(String(count))} session${count === 1 ? '' : 's'}`);
+        return;
+      }
+
+      const days = Number(opts.olderThan);
+      if (!Number.isFinite(days) || days <= 0) {
+        console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
+        exitCode = 1;
+        return;
+      }
+
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const removed = store.pruneOlderThan(cutoff);
+      if (removed.length === 0) {
+        console.log(`  ${theme.hint(`No sessions older than ${days} day${days === 1 ? '' : 's'}.`)}`);
+        return;
+      }
+      console.log(`  ${theme.success('\u2713')} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? '' : 's'} older than ${days} day${days === 1 ? '' : 's'}`);
+      for (const id of removed) {
+        console.log(`    ${theme.hint('-')} ${id}`);
+      }
     });
 
   // --- Backward compat aliases ---

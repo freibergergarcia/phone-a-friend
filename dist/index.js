@@ -5720,7 +5720,21 @@ var init_jobs = __esm({
 });
 
 // src/sessions.ts
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "fs";
+var sessions_exports = {};
+__export(sessions_exports, {
+  SessionStore: () => SessionStore
+});
+import {
+  readFileSync as readFileSync4,
+  writeFileSync as writeFileSync4,
+  existsSync as existsSync4,
+  mkdirSync as mkdirSync3,
+  openSync,
+  closeSync,
+  fsyncSync,
+  renameSync,
+  unlinkSync
+} from "fs";
 import { dirname as dirname3, join as join4 } from "path";
 import { homedir as homedir3 } from "os";
 var MAX_SESSIONS, SessionStore;
@@ -5739,15 +5753,65 @@ var init_sessions = __esm({
       }
       load() {
         if (!existsSync4(this.filePath)) return [];
+        let raw;
         try {
-          return JSON.parse(readFileSync4(this.filePath, "utf-8"));
-        } catch {
+          raw = readFileSync4(this.filePath, "utf-8");
+        } catch (err) {
+          console.error(`[phone-a-friend] Failed to read session store ${this.filePath}: ${err.message}`);
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            throw new Error("session store is not a JSON array");
+          }
+          return parsed;
+        } catch (err) {
+          const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+          const rotated = `${this.filePath}.corrupt-${ts}`;
+          try {
+            renameSync(this.filePath, rotated);
+            console.error(
+              `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${err.message}). Rotated to ${rotated}. Starting with an empty store.`
+            );
+          } catch (rotateErr) {
+            console.error(
+              `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${err.message}) and could not be rotated (${rotateErr.message}). Starting with an empty store; the file will be overwritten on next write.`
+            );
+          }
           return [];
         }
       }
       save(sessions) {
-        mkdirSync3(dirname3(this.filePath), { recursive: true });
-        writeFileSync4(this.filePath, JSON.stringify(sessions, null, 2), "utf-8");
+        const dir = dirname3(this.filePath);
+        mkdirSync3(dir, { recursive: true });
+        const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
+        const payload = JSON.stringify(sessions, null, 2);
+        const tmpFd = openSync(tmpPath, "w");
+        try {
+          try {
+            writeFileSync4(tmpFd, payload, "utf-8");
+            fsyncSync(tmpFd);
+          } finally {
+            closeSync(tmpFd);
+          }
+          renameSync(tmpPath, this.filePath);
+        } catch (err) {
+          try {
+            unlinkSync(tmpPath);
+          } catch {
+          }
+          throw err;
+        }
+        try {
+          const dirFd = openSync(dir, "r");
+          try {
+            fsyncSync(dirFd);
+          } finally {
+            closeSync(dirFd);
+          }
+        } catch {
+        }
       }
       get(id) {
         return this.load().find((session) => session.id === id) ?? null;
@@ -5755,7 +5819,35 @@ var init_sessions = __esm({
       list() {
         return this.load();
       }
+      /** Remove a single session by label. Returns true if a row was removed. */
+      delete(id) {
+        const sessions = this.load();
+        const filtered = sessions.filter((session) => session.id !== id);
+        if (filtered.length === sessions.length) return false;
+        this.save(filtered);
+        return true;
+      }
+      /** Drop sessions whose `lastUsedAt` is older than `cutoff`. Returns the IDs removed. */
+      pruneOlderThan(cutoff) {
+        const sessions = this.load();
+        const cutoffIso = cutoff.toISOString();
+        const removed = sessions.filter((s) => s.lastUsedAt < cutoffIso).map((s) => s.id);
+        if (removed.length === 0) return [];
+        const kept = sessions.filter((s) => s.lastUsedAt >= cutoffIso);
+        this.save(kept);
+        return removed;
+      }
+      /** Drop every session. Returns the count removed. */
+      clear() {
+        const sessions = this.load();
+        if (sessions.length === 0) return 0;
+        this.save([]);
+        return sessions.length;
+      }
       upsert(opts) {
+        if (opts.historyAppend !== void 0 && opts.replaceHistory !== void 0) {
+          throw new Error("upsert: historyAppend and replaceHistory are mutually exclusive");
+        }
         const sessions = this.load();
         const now = (/* @__PURE__ */ new Date()).toISOString();
         const existing = sessions.find((session2) => session2.id === opts.id);
@@ -5765,19 +5857,22 @@ var init_sessions = __esm({
           if (opts.backendSessionId) {
             existing.backendSessionId = opts.backendSessionId;
           }
-          if (opts.historyAppend?.length) {
+          if (opts.replaceHistory !== void 0) {
+            existing.history = [...opts.replaceHistory];
+          } else if (opts.historyAppend?.length) {
             existing.history.push(...opts.historyAppend);
           }
           existing.lastUsedAt = now;
           this.save(sessions);
           return existing;
         }
+        const initialHistory = opts.replaceHistory !== void 0 ? [...opts.replaceHistory] : [...opts.historyAppend ?? []];
         const session = {
           id: opts.id,
           backend: opts.backend,
           backendSessionId: opts.backendSessionId,
           repoPath: opts.repoPath,
-          history: [...opts.historyAppend ?? []],
+          history: initialHistory,
           createdAt: now,
           lastUsedAt: now
         };
@@ -5954,6 +6049,7 @@ function prepareRelay(opts) {
     sandbox = DEFAULT_SANDBOX,
     schema = null,
     session = null,
+    backendSession = null,
     fast = false
   } = opts;
   if (!prompt.trim()) {
@@ -5978,6 +6074,16 @@ function prepareRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
+  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
+    throw new RelayError(
+      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
+    );
+  }
+  if (session && selectedBackend.capabilities.resumeStrategy === "unsupported") {
+    throw new RelayError(
+      `--session is not supported by the ${selectedBackend.name} backend (resume strategy: unsupported). The backend cannot resume a prior conversation, so PaF refuses to persist a label that would silently fresh-spawn each call.`
+    );
+  }
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : "";
   const fullPrompt = buildPrompt({
@@ -5999,6 +6105,7 @@ function prepareRelay(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore: opts.sessionStore
   };
@@ -6014,10 +6121,62 @@ async function relay(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore
   } = prepareRelay(opts);
   try {
+    if (backendSession) {
+      const store2 = session ? sessionStore ?? new SessionStore() : null;
+      const existing = session && store2 ? store2.get(session) : null;
+      if (existing) {
+        const conflicts = [];
+        if (existing.backend !== selectedBackend.name) {
+          conflicts.push(`backend "${existing.backend}" (expected "${selectedBackend.name}")`);
+        }
+        if (existing.backendSessionId && existing.backendSessionId !== backendSession) {
+          conflicts.push(`backend session "${existing.backendSessionId}" (expected "${backendSession}")`);
+        }
+        if (existing.repoPath !== resolvedRepo) {
+          conflicts.push(`repo "${existing.repoPath}" (expected "${resolvedRepo}")`);
+        }
+        if (conflicts.length > 0) {
+          throw new RelayError(
+            `Session label "${session}" already exists with conflicting metadata: ${conflicts.join("; ")}. Use a different label or remove the existing entry.`
+          );
+        }
+      }
+      let createdSessionId2 = backendSession;
+      const result2 = await selectedBackend.run({
+        prompt: fullPrompt,
+        repoPath: resolvedRepo,
+        timeoutSeconds,
+        sandbox,
+        model,
+        env: env3,
+        schema,
+        sessionId: backendSession,
+        persistSession: Boolean(session),
+        resumeSession: true,
+        fast,
+        sessionHistory: existing?.history ?? [],
+        onSessionCreated: (newSessionId) => {
+          createdSessionId2 = newSessionId;
+        }
+      });
+      if (session && store2) {
+        persistRelaySession(
+          store2,
+          session,
+          selectedBackend,
+          resolvedRepo,
+          fullPrompt,
+          result2,
+          createdSessionId2
+        );
+      }
+      return result2;
+    }
     const store = session ? sessionStore ?? new SessionStore() : null;
     const storedSession = session ? store?.get(session) ?? null : null;
     if (storedSession && storedSession.backend !== selectedBackend.name) {
@@ -6028,6 +6187,11 @@ async function relay(opts) {
     if (storedSession && storedSession.repoPath !== resolvedRepo) {
       throw new RelayError(
         `Session ${session} belongs to a different repository: ${storedSession.repoPath}`
+      );
+    }
+    if (session && !storedSession) {
+      console.error(
+        `[phone-a-friend] Session label "${session}" not found in store. Starting a fresh session under this label. If you meant to attach to an existing backend thread, use --backend-session <id>.`
       );
     }
     let backendSessionId = storedSession?.backendSessionId ?? null;
@@ -6077,15 +6241,26 @@ async function relay(opts) {
   }
 }
 function persistRelaySession(store, id, backend, repoPath, prompt, output, backendSessionId) {
+  const replaysHistory = backend.capabilities.resumeStrategy === "transcript-replay";
+  if (replaysHistory) {
+    store.upsert({
+      id,
+      backend: backend.name,
+      repoPath,
+      backendSessionId: backendSessionId ?? void 0,
+      historyAppend: [
+        { role: "user", content: prompt },
+        { role: "assistant", content: output }
+      ]
+    });
+    return;
+  }
   store.upsert({
     id,
     backend: backend.name,
     repoPath,
     backendSessionId: backendSessionId ?? void 0,
-    historyAppend: [
-      { role: "user", content: prompt },
-      { role: "assistant", content: output }
-    ]
+    replaceHistory: []
   });
 }
 async function* relayStream(opts) {
@@ -6099,11 +6274,12 @@ async function* relayStream(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore
   } = prepareRelay(opts);
-  const store = session ? sessionStore ?? new SessionStore() : null;
-  const storedSession = session ? store?.get(session) ?? null : null;
+  const store = session && !backendSession ? sessionStore ?? new SessionStore() : null;
+  const storedSession = session && !backendSession ? store?.get(session) ?? null : null;
   const runOpts = {
     prompt: fullPrompt,
     repoPath: resolvedRepo,
@@ -6113,9 +6289,9 @@ async function* relayStream(opts) {
     env: env3,
     schema,
     fast,
-    sessionId: storedSession?.backendSessionId ?? null,
+    sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
-    resumeSession: Boolean(session && storedSession),
+    resumeSession: Boolean(backendSession || session && storedSession),
     sessionHistory: storedSession?.history ?? []
   };
   try {
@@ -6287,7 +6463,7 @@ import {
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
-  unlinkSync
+  unlinkSync as unlinkSync2
 } from "fs";
 import { resolve as resolve3, join as join5, dirname as dirname5 } from "path";
 import { homedir as homedir4 } from "os";
@@ -6303,7 +6479,7 @@ function removePath(filePath) {
     throw err;
   }
   if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync(filePath);
+    unlinkSync2(filePath);
   } else if (stat.isDirectory()) {
     rmSync2(filePath, { recursive: true, force: true });
   }
@@ -17884,7 +18060,7 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { readFileSync as readFileSync8, unlinkSync as unlinkSync2, writeFileSync as writeFileSync5 } from "fs";
+import { readFileSync as readFileSync8, unlinkSync as unlinkSync3, writeFileSync as writeFileSync5 } from "fs";
 import path2 from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
@@ -17959,7 +18135,7 @@ var init_dist8 = __esm({
         if (!this.tempFile)
           return;
         try {
-          unlinkSync2(this.tempFile);
+          unlinkSync3(this.tempFile);
           this.tempFile = "";
         } catch (removeFileError) {
           throw new RemoveFileError(removeFileError);
@@ -76642,8 +76818,14 @@ var GeminiBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
+  // Session resume is declared 'unsupported' rather than 'transcript-replay':
+  // run() never reads opts.sessionHistory, and the --resume code path below
+  // depends on a session ID that the upstream extractor cannot reliably
+  // produce (see extractGeminiSessionId). Until the Gemini CLI's session
+  // surface is verified, --session against this backend is rejected at the
+  // relay layer instead of silently no-opping.
   capabilities = {
-    resumeStrategy: "transcript-replay",
+    resumeStrategy: "unsupported",
     requiresClientSessionId: false
   };
   async run(opts) {
@@ -80349,7 +80531,7 @@ init_version();
 function repoRootDefault() {
   return getPackageRoot();
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-v", "-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -80545,7 +80727,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
@@ -80603,9 +80785,10 @@ ${banner("AI coding agent relay")}
       sandbox: resolved.sandbox,
       schema: opts.schema ?? null,
       session: opts.session ?? null,
+      backendSession: opts.backendSession ?? null,
       fast: Boolean(opts.fast)
     };
-    const shouldStream = resolved.stream && !opts.schema && !opts.session;
+    const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
     if (opts.quiet) {
       const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
       const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
@@ -80967,6 +81150,71 @@ ${banner("AI coding agent relay")}
     }
     manager.update(id, { status: "cancelled" });
     console.log(`  ${theme.success("\u2713")} Cancelled job ${theme.bold(id)}`);
+  });
+  const sessionCmd = program2.command("session").description("Manage persisted relay sessions");
+  sessionCmd.command("list").description("List persisted relay sessions").option("--json", "Output as JSON", false).action(async (opts) => {
+    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+    const store = new SessionStore2();
+    const sessions = store.list();
+    if (opts.json) {
+      console.log(JSON.stringify(sessions, null, 2));
+      return;
+    }
+    if (sessions.length === 0) {
+      console.log(`
+  ${theme.hint("No persisted sessions.")}
+`);
+      return;
+    }
+    console.log(`
+  ${theme.heading("Persisted Sessions")} ${theme.hint(`(${sessions.length})`)}
+`);
+    const sorted = [...sessions].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+    for (const session of sorted) {
+      const age = timeSince(session.lastUsedAt);
+      const backendSid = session.backendSessionId ?? theme.hint("(none)");
+      console.log(`  ${theme.bold(session.id)}  ${theme.info(session.backend)}  ${theme.hint(age)}`);
+      console.log(`    ${theme.hint("backend session:")} ${backendSid}`);
+      console.log(`    ${theme.hint("repo:")} ${session.repoPath}`);
+      console.log(`    ${theme.hint("history:")} ${session.history.length} entries`);
+    }
+    console.log("");
+  });
+  sessionCmd.command("delete <label>").description("Remove a persisted session by label").action(async (label) => {
+    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+    const store = new SessionStore2();
+    const removed = store.delete(label);
+    if (!removed) {
+      console.error(`  ${theme.crossmark} Session ${theme.bold(label)} not found`);
+      exitCode = 1;
+      return;
+    }
+    console.log(`  ${theme.success("\u2713")} Deleted session ${theme.bold(label)}`);
+  });
+  sessionCmd.command("prune").description("Remove old sessions (default: older than 30 days)").option("--older-than <days>", "Drop sessions whose lastUsedAt is older than N days", "30").option("--all", "Drop every session", false).action(async (opts) => {
+    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+    const store = new SessionStore2();
+    if (opts.all) {
+      const count = store.clear();
+      console.log(`  ${theme.success("\u2713")} Removed ${theme.bold(String(count))} session${count === 1 ? "" : "s"}`);
+      return;
+    }
+    const days = Number(opts.olderThan);
+    if (!Number.isFinite(days) || days <= 0) {
+      console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
+      exitCode = 1;
+      return;
+    }
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1e3);
+    const removed = store.pruneOlderThan(cutoff);
+    if (removed.length === 0) {
+      console.log(`  ${theme.hint(`No sessions older than ${days} day${days === 1 ? "" : "s"}.`)}`);
+      return;
+    }
+    console.log(`  ${theme.success("\u2713")} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}`);
+    for (const id of removed) {
+      console.log(`    ${theme.hint("-")} ${id}`);
+    }
   });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")

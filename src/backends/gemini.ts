@@ -40,8 +40,14 @@ export class GeminiBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
+  // Session resume is declared 'unsupported' rather than 'transcript-replay':
+  // run() never reads opts.sessionHistory, and the --resume code path below
+  // depends on a session ID that the upstream extractor cannot reliably
+  // produce (see extractGeminiSessionId). Until the Gemini CLI's session
+  // surface is verified, --session against this backend is rejected at the
+  // relay layer instead of silently no-opping.
   readonly capabilities: BackendCapabilities = {
-    resumeStrategy: 'transcript-replay',
+    resumeStrategy: 'unsupported',
     requiresClientSessionId: false,
   };
 

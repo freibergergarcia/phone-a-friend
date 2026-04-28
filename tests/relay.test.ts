@@ -789,3 +789,409 @@ describe('reviewRelay', () => {
     ).rejects.toThrow('Timeout must be greater than zero');
   });
 });
+
+// ---------------------------------------------------------------------------
+// --backend-session and unknown-label warning
+// ---------------------------------------------------------------------------
+
+function makeNativeSessionBackend(name: string): Backend {
+  return {
+    name,
+    localFileAccess: true,
+    allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: {
+      resumeStrategy: 'native-session',
+      requiresClientSessionId: false,
+    },
+    run: vi.fn(async () => 'attached reply'),
+  };
+}
+
+describe('relay with --backend-session', () => {
+  let repo: string;
+  let backend: Backend;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    registerBackend(makeMockBackend('gemini')); // transcript-replay
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('passes the raw backend session id and resumes without writing the label store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    const result = await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    expect(result).toBe('attached reply');
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    expect(callArgs.resumeSession).toBe(true);
+    expect(callArgs.persistSession).toBe(false);
+    expect(store.list()).toHaveLength(0);
+  });
+
+  it('rejects when backend does not support native session resume', async () => {
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        backend: 'gemini',
+        backendSession: 'thread-abc',
+      }),
+    ).rejects.toThrow(/--backend-session is not supported/);
+  });
+
+  it('adopts a backend session under a new PaF label and persists metadata only', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'adopt-me',
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    expect(callArgs.resumeSession).toBe(true);
+    expect(callArgs.persistSession).toBe(true);
+
+    const saved = store.get('adopt-me');
+    expect(saved?.backend).toBe('codex');
+    expect(saved?.backendSessionId).toBe('thread-abc');
+    expect(saved?.repoPath).toBe(repo);
+    // Native-session backends don't replay history; PaF persists metadata only.
+    expect(saved?.history).toHaveLength(0);
+  });
+
+  it('is idempotent when the label already points at the same backend session and repo', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-abc',
+      historyAppend: [
+        { role: 'user', content: 'old prompt' },
+        { role: 'assistant', content: 'old reply' },
+      ],
+    });
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'adopt-me',
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    // Pre-existing history is still passed to run() so transcript-replay backends
+    // would have it; for native-session backends it's ignored at the backend layer.
+    expect(callArgs.sessionHistory).toHaveLength(2);
+
+    const saved = store.get('adopt-me');
+    // Fat history on the existing row is trimmed on first write under the new policy.
+    expect(saved?.history).toHaveLength(0);
+  });
+
+  it('errors when the existing label points at a different backend session id', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-OTHER',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+
+  it('errors when the existing label belongs to a different backend', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'gemini',
+      repoPath: repo,
+      backendSessionId: 'thread-abc',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+
+  it('errors when the existing label was used in a different repo', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: '/some/other/repo',
+      backendSessionId: 'thread-abc',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+});
+
+describe('relay --session warning on unknown label', () => {
+  let repo: string;
+  let backend: Backend;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('warns when --session label is not in the store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    await relay({
+      prompt: 'first call',
+      repoPath: repo,
+      session: 'fresh-label',
+      sessionStore: store,
+    });
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    const message = stderrSpy.mock.calls[0][0] as string;
+    expect(message).toContain('Session label "fresh-label" not found');
+    expect(message).toContain('--backend-session');
+  });
+
+  it('does not warn when the label already exists in the store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'known-label',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-xyz',
+    });
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'known-label',
+      sessionStore: store,
+    });
+
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not warn when neither --session nor --backend-session is set', async () => {
+    await relay({ prompt: 'one-shot', repoPath: repo });
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persistence rule + unsupported-backend guard
+// ---------------------------------------------------------------------------
+
+function makeTranscriptReplayBackend(name: string): Backend {
+  return {
+    name,
+    localFileAccess: true,
+    allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: {
+      resumeStrategy: 'transcript-replay',
+      requiresClientSessionId: false,
+    },
+    run: vi.fn(async () => 'replay reply'),
+  };
+}
+
+function makeUnsupportedBackend(name: string): Backend {
+  return {
+    name,
+    localFileAccess: true,
+    allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: {
+      resumeStrategy: 'unsupported',
+      requiresClientSessionId: false,
+    },
+    run: vi.fn(async () => 'unsupported reply'),
+  };
+}
+
+describe('relay history persistence rule', () => {
+  let repo: string;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('persists prompt+reply history for transcript-replay backends', async () => {
+    const backend = makeTranscriptReplayBackend('ollama');
+    registerBackend(backend);
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    await relay({
+      prompt: 'first call',
+      repoPath: repo,
+      backend: 'ollama',
+      session: 'replay-label',
+      sessionStore: store,
+    });
+
+    const saved = store.get('replay-label');
+    expect(saved?.history).toHaveLength(2);
+    expect(saved?.history[0].role).toBe('user');
+    expect(saved?.history[1].role).toBe('assistant');
+    expect(saved?.history[1].content).toBe('replay reply');
+  });
+
+  it('writes empty history for native-session backends', async () => {
+    const backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    await relay({
+      prompt: 'first call',
+      repoPath: repo,
+      session: 'native-label',
+      sessionStore: store,
+    });
+
+    const saved = store.get('native-label');
+    expect(saved?.backendSessionId).toBeUndefined();
+    expect(saved?.history).toEqual([]);
+  });
+
+  it('trims pre-existing fat history for native-session backends on next write', async () => {
+    const backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    store.upsert({
+      id: 'legacy-fat',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-xyz',
+      historyAppend: [
+        { role: 'user', content: 'old prompt' },
+        { role: 'assistant', content: 'old reply' },
+        { role: 'user', content: 'older prompt' },
+        { role: 'assistant', content: 'older reply' },
+      ],
+    });
+    expect(store.get('legacy-fat')?.history).toHaveLength(4);
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'legacy-fat',
+      sessionStore: store,
+    });
+
+    expect(store.get('legacy-fat')?.history).toEqual([]);
+    expect(store.get('legacy-fat')?.backendSessionId).toBe('thread-xyz');
+  });
+});
+
+describe('relay --session unsupported backend guard', () => {
+  let repo: string;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('errors when --session is used against an unsupported backend', async () => {
+    const backend = makeUnsupportedBackend('gemini');
+    registerBackend(backend);
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        backend: 'gemini',
+        session: 'should-fail',
+      }),
+    ).rejects.toThrow(/--session is not supported by the gemini backend/);
+  });
+
+  it('does not error when --session is omitted on an unsupported backend', async () => {
+    const backend = makeUnsupportedBackend('gemini');
+    registerBackend(backend);
+
+    await expect(
+      relay({
+        prompt: 'one-shot',
+        repoPath: repo,
+        backend: 'gemini',
+      }),
+    ).resolves.toBe('unsupported reply');
+  });
+});
