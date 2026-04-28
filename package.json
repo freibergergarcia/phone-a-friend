@@ -39,7 +39,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "license": "Apache-2.0",
   "author": "Bruno Freiberger",
