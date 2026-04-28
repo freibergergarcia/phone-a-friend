@@ -12,6 +12,7 @@ import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './confi
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
+import { isOpenCodeInstalled, isPluginInstalled } from './installer.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,10 +28,16 @@ export interface DoctorResult {
   output: string;
 }
 
+export interface HostInstallations {
+  claude: boolean;
+  opencode: boolean;
+}
+
 function formatHumanReadable(
   report: DetectionReport,
   config: PafConfig,
   paths: { user: string; repo: string | null },
+  hostInstallations: HostInstallations,
   advisories: string[] = [],
 ): string {
   const lines: string[] = [];
@@ -73,6 +80,12 @@ function formatHumanReadable(
   for (const b of report.host) {
     lines.push(`  ${formatBackendLine(b)}`);
   }
+  lines.push('');
+
+  // Installed host commands/plugins
+  lines.push(`  ${theme.label('Host Install Status:')}`);
+  lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning('!')} Claude plugin ${hostInstallations.claude ? theme.success('installed') : theme.warning('not installed')}`);
+  lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning('!')} OpenCode commands/skills ${hostInstallations.opencode ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push('');
 
   // Default
@@ -120,6 +133,7 @@ function formatJson(
   report: DetectionReport,
   config: PafConfig,
   exitCode: number,
+  hostInstallations: HostInstallations,
   advisories: string[] = [],
 ): string {
   const allRelay = [...report.cli, ...report.local];
@@ -136,6 +150,7 @@ function formatJson(
       local: normalizeForJson(report.local),
     },
     host: normalizeForJson(report.host),
+    hostInstallations,
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
@@ -216,16 +231,20 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
   const advisories = await collectAdvisories(report);
+  const hostInstallations = {
+    claude: isPluginInstalled(),
+    opencode: isOpenCodeInstalled(),
+  };
 
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, advisories),
+      output: formatJson(report, config, exitCode, hostInstallations, advisories),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, advisories),
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories),
   };
 }

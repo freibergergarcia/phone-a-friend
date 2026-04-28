@@ -103,6 +103,7 @@ function printBackendAvailability(): void {
 
 function installAction(opts: {
   claude?: boolean;
+  opencode?: boolean;
   all?: boolean;
   mode?: string;
   force?: boolean;
@@ -131,10 +132,16 @@ function installAction(opts: {
     return;
   }
   // Existing local install flow
-  const target = opts.all ? 'all' : 'claude';
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: target as 'claude' | 'all',
+    target: target as 'claude' | 'opencode' | 'all',
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: opts.force ?? false,
     syncClaudeCli: opts.claudeCliSync !== false,
@@ -145,14 +152,24 @@ function installAction(opts: {
 }
 
 function updateAction(opts: {
+  claude?: boolean;
+  opencode?: boolean;
+  all?: boolean;
   mode?: string;
   repoRoot?: string;
   claudeCliSync?: boolean;
   forceMarketplaceSync?: boolean;
 }): void {
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: 'claude',
+    target: target as 'claude' | 'opencode' | 'all',
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
@@ -162,10 +179,21 @@ function updateAction(opts: {
   printBackendAvailability();
 }
 
-function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketplace?: boolean }): void {
-  const target = opts.all ? 'all' : 'claude';
+function uninstallAction(opts: {
+  claude?: boolean;
+  opencode?: boolean;
+  all?: boolean;
+  purgeMarketplace?: boolean;
+}): void {
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = uninstallHosts({
-    target: target as 'claude' | 'all',
+    target: target as 'claude' | 'opencode' | 'all',
     claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
   });
   for (const line of lines) console.log(line);
@@ -178,7 +206,8 @@ function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketpla
 function addInstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Install for Claude', false)
-    .option('--all', 'Alias for --claude', false)
+    .option('--opencode', 'Install for OpenCode', false)
+    .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
     .option('--repo-root <path>', 'Repository root path')
@@ -189,6 +218,9 @@ function addInstallOptions(cmd: Command): Command {
 
 function addUpdateOptions(cmd: Command): Command {
   return cmd
+    .option('--claude', 'Install for Claude', false)
+    .option('--opencode', 'Install for OpenCode', false)
+    .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
@@ -198,7 +230,8 @@ function addUpdateOptions(cmd: Command): Command {
 function addUninstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Uninstall for Claude', false)
-    .option('--all', 'Alias for --claude', false)
+    .option('--opencode', 'Uninstall for OpenCode', false)
+    .option('--all', 'Uninstall for all supported hosts', false)
     .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)');
 }
 

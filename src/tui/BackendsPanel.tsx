@@ -19,6 +19,10 @@ function badgeStatus(b: BackendStatus): BadgeStatus {
   return 'unavailable';
 }
 
+function backendKey(b: BackendStatus): string {
+  return `${b.category}:${b.name}`;
+}
+
 type PanelMode = 'nav' | 'modelSelect';
 
 function BackendDetail({
@@ -47,7 +51,10 @@ function BackendDetail({
 
   return (
     <Box flexDirection="column" paddingLeft={2} borderStyle="single" borderColor="gray" paddingRight={2}>
-      <Text bold>{backend.name}</Text>
+      <Box gap={1}>
+        <Text bold>{backend.name}</Text>
+        <Text dimColor>({backend.category})</Text>
+      </Box>
       <Text> </Text>
 
       {/* Status */}
@@ -262,12 +269,14 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
             items={allBackends}
             onChange={setSelectedIndex}
             isActive={mode === 'nav'}
-            getKey={(b) => b.name}
+            selectedIndex={selectedIndex}
+            getKey={backendKey}
             renderItem={(b, _i, isSelected) => (
               <Box gap={1}>
                 <Text>{isSelected ? '\u25b8' : ' '}</Text>
                 <Badge status={badgeStatus(b)} />
                 <Text bold={isSelected}>{b.name}</Text>
+                <Text dimColor>({b.category})</Text>
                 {b.planned && <Text dimColor>[planned]</Text>}
               </Box>
             )}

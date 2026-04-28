@@ -20,7 +20,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
-| **Relay** | One-shot delegation to Codex, Gemini, Ollama, or Claude | Quick second opinions, code reviews, analysis |
+| **Relay** | One-shot delegation to Codex, Gemini, Ollama, Claude, or OpenCode | Quick second opinions, code reviews, analysis |
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
@@ -44,6 +44,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 - [Codex CLI](https://developers.openai.com/codex/quickstart/)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - [Ollama](https://ollama.com/download)
+- [OpenCode](https://opencode.ai/docs)
 
 **Install:**
 
@@ -52,7 +53,7 @@ npm install -g @freibergergarcia/phone-a-friend
 phone-a-friend    # first run shows a guided menu — choose Setup
 ```
 
-The setup wizard detects your backends, installs the Claude Code plugin, and verifies everything works.
+The setup wizard detects your backends, installs detected host integrations, and verifies everything works.
 
 **Claude Code marketplace (commands and skills only):**
 
@@ -77,6 +78,20 @@ This fetches the latest version from npm automatically. To update later:
 > the web dashboard on localhost, install globally with
 > `npm install -g @freibergergarcia/phone-a-friend`.
 
+**OpenCode commands and skills:**
+
+If you use [OpenCode](https://opencode.ai/docs), install the same Phone-a-Friend skills plus thin slash-command shims into your OpenCode config:
+
+```bash
+phone-a-friend plugin install --opencode
+```
+
+This installs to `~/.config/opencode/skills/` and `~/.config/opencode/commands/` (or `$XDG_CONFIG_HOME/opencode/...`). From OpenCode, ask naturally, for example:
+
+```
+Ask Codex through phone-a-friend for a short sanity review of this repo; do not edit files.
+```
+
 **From source:**
 
 ```bash
@@ -86,7 +101,7 @@ npm install && npm run build
 ./dist/index.js   # first run guides you through setup
 ```
 
-Then from Claude Code, just talk naturally — the plugin loads the skills automatically:
+Then from Claude Code or OpenCode, just talk naturally — the host integration loads the skills automatically:
 
 ```
 Ask Gemini to review the error handling in relay.ts
@@ -98,7 +113,7 @@ Build a team with Claude and Ollama. Have them review the website copy,
 loop through 3 rounds, and converge on final suggestions.
 ```
 
-No slash commands needed. Once the plugin is installed (the setup wizard does this automatically), Claude loads the `/phone-a-friend` and `/phone-a-team` skills. Mention one backend and Claude routes through `/phone-a-friend`; mention multiple and Claude can use `/phone-a-team` for iterative refinement. You can also invoke either skill explicitly.
+No slash commands needed. Once the host integration is installed (the setup wizard can do this automatically), Claude Code and OpenCode can load the `/phone-a-friend` and `/phone-a-team` entrypoints. Mention one backend and the host routes through `/phone-a-friend`; mention multiple and it can use `/phone-a-team` for iterative refinement. You can also invoke either command explicitly.
 
 > [!TIP]
 > **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
@@ -181,6 +196,8 @@ phone-a-friend agentic dashboard           # Launch web dashboard (localhost:777
 phone-a-friend                 # Interactive TUI dashboard (TTY only)
 phone-a-friend setup           # Guided setup wizard
 phone-a-friend doctor          # Health check all backends
+phone-a-friend plugin install --claude    # Install Claude Code plugin
+phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
@@ -193,6 +210,7 @@ phone-a-friend config edit     # Open in $EDITOR
 | **Gemini** | CLI subprocess | No | Runs `gemini --prompt` with `--yolo` auto-approve |
 | **Ollama** | HTTP API | Yes (NDJSON) | POSTs to `localhost:11434/api/chat` via native fetch |
 | **Claude** | CLI subprocess | Yes (JSON) | Runs `claude` with sandbox-to-tool mapping |
+| **OpenCode** | CLI subprocess | Yes (NDJSON) | Runs `opencode run` with repo-local tool access |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
@@ -270,7 +288,7 @@ Full usage guide, examples, CLI reference, and configuration details:
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-The Claude Code plugin is removed automatically.
+The Claude Code plugin and OpenCode commands/skills are removed automatically when installed through the CLI.
 
 ## Contributing
 

@@ -8,6 +8,11 @@ const { mockDetectAll, mockLoadConfig, mockConfigPaths } = vi.hoisted(() => ({
   mockConfigPaths: vi.fn(),
 }));
 
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled } = vi.hoisted(() => ({
+  mockIsPluginInstalled: vi.fn(),
+  mockIsOpenCodeInstalled: vi.fn(),
+}));
+
 vi.mock('../src/detection.js', () => ({
   detectAll: mockDetectAll,
   decorateOpenCodeModels: vi.fn(),
@@ -19,6 +24,11 @@ vi.mock('../src/config.js', () => ({
   DEFAULT_CONFIG: {
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
   },
+}));
+
+vi.mock('../src/installer.js', () => ({
+  isPluginInstalled: mockIsPluginInstalled,
+  isOpenCodeInstalled: mockIsOpenCodeInstalled,
 }));
 
 // Helper: build a detection report
@@ -54,6 +64,8 @@ describe('doctor', () => {
     mockLoadConfig.mockReturnValue({
       defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     });
+    mockIsPluginInstalled.mockReturnValue(true);
+    mockIsOpenCodeInstalled.mockReturnValue(false);
     doctor = await import('../src/doctor.js');
   });
 
@@ -90,6 +102,15 @@ describe('doctor', () => {
 
       expect(result.output).toContain('Host');
       expect(result.output).toContain('claude');
+    });
+
+    it('shows host install status separately', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('Host Install Status');
+      expect(result.output).toContain('Claude plugin');
+      expect(result.output).toContain('OpenCode commands/skills');
     });
 
     it('shows install hints for missing backends', async () => {
@@ -166,6 +187,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });

@@ -20,7 +20,7 @@ src/
   config.ts          TOML configuration system
   doctor.ts          Health check command
   setup.ts           Interactive setup wizard
-  installer.ts       Claude plugin installer (symlink/copy)
+  installer.ts       Claude/OpenCode host integration installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
@@ -59,15 +59,17 @@ src/
     AgenticPanel.tsx Session browser with list view and dashboard URL hint
     hooks/
       useDetection.ts    Async detection with throttled refresh
-      usePluginStatus.ts Plugin install status (sync FS check)
+      usePluginStatus.ts Host integration install status (sync FS check)
       useAgenticSessions.ts  SQLite session loader for Agentic panel
     components/
       TabBar.tsx             Tab navigation bar
-      PluginStatusBar.tsx    Persistent plugin install indicator
+      PluginStatusBar.tsx    Persistent host integration install indicator
       Badge.tsx              Status badges (✓ ✗ ! ·)
       KeyHint.tsx            Footer keyboard hints
       ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
+skills/              Canonical Agent Skills (`skills/<name>/SKILL.md`) shared by Claude Code and OpenCode
+commands/            Thin slash-command shims that delegate into the canonical skills
 dist/                Built bundle (committed, self-contained)
 ```
 
@@ -219,9 +221,13 @@ phone-a-friend config edit                  # Open in $EDITOR
 
 # Plugin management
 phone-a-friend plugin install --claude      # Install as Claude plugin
+phone-a-friend plugin install --opencode    # Install OpenCode commands and skills
+phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
+phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
+phone-a-friend plugin uninstall --opencode  # Uninstall OpenCode commands and skills
 
 # Job management
 phone-a-friend job status                  # List all tracked jobs
@@ -254,12 +260,12 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Status** — system info + live backend detection (auto-refreshes)
 - **Backends** — navigable backend list with detail pane
 - **Config** — inline config editing with focus model (nav/edit modes)
-- **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+- **Actions** — async-wrapped actions (re-detect, reinstall host integrations, open config)
 - **Agentic** — session browser with list view and dashboard URL hint
 
 A persistent plugin status bar sits between the tab bar and panel content,
-showing `✓ Claude Plugin: Installed` (green) or `! Claude Plugin: Not Installed` (yellow).
-It updates instantly after Reinstall/Uninstall actions complete.
+showing Claude and OpenCode host integration state. It updates instantly after
+install/uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
 Global keys: `q` quit, `Tab`/`1-5` switch tabs, `r` refresh detection.
@@ -333,6 +339,11 @@ plugin from npm when users install through the marketplace.
 Marketplace install provides Claude Code integration only (slash commands and skills).
 For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
+
+OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or
+symlinks the canonical `skills/<name>/SKILL.md` directories plus `commands/*.md`
+shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`
+respectively, honoring `$XDG_CONFIG_HOME`.
 
 ## Job tracking
 
@@ -408,4 +419,4 @@ The `--fast` flag maps to `--bare` for the Claude backend, skipping project cont
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

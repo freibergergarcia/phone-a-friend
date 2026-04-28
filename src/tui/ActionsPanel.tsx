@@ -85,6 +85,49 @@ function buildActions(
       },
     },
     {
+      label: 'Install OpenCode Commands',
+      description: 'Install OpenCode commands and skills',
+      run: async () => {
+        return new Promise<string>((resolve, reject) => {
+          const proc = spawn(process.execPath, [process.argv[1] ?? 'phone-a-friend', 'plugin', 'install', '--opencode', '--no-claude-cli-sync'], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          processRef.current = proc;
+          let output = '';
+          proc.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.on('close', (code) => {
+            processRef.current = null;
+            if (code === 0) resolve(output.trim() || 'OpenCode commands installed');
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on('error', (err) => { processRef.current = null; reject(err); });
+        });
+      },
+    },
+    {
+      label: 'Uninstall OpenCode Commands',
+      description: 'Remove OpenCode commands and skills',
+      confirm: 'Uninstall OpenCode commands and skills? (y/n)',
+      run: async () => {
+        return new Promise<string>((resolve, reject) => {
+          const proc = spawn(process.execPath, [process.argv[1] ?? 'phone-a-friend', 'plugin', 'uninstall', '--opencode'], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          processRef.current = proc;
+          let output = '';
+          proc.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
+          proc.on('close', (code) => {
+            processRef.current = null;
+            if (code === 0) resolve(output.trim() || 'OpenCode commands uninstalled');
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on('error', (err) => { processRef.current = null; reject(err); });
+        });
+      },
+    },
+    {
       label: 'Open Config',
       description: 'Open config in $EDITOR',
       run: async () => {

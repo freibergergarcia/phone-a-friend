@@ -60,6 +60,23 @@ interface OpenCodeRunArgsOptions {
   title?: string | null;
 }
 
+export function isOpenCodeHostEnv(env: Record<string, string | undefined>): boolean {
+  if (env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'opencode') return true;
+
+  // Best-effort fallback for direct shell invocations from OpenCode. The
+  // installer shim sets PHONE_A_FRIEND_HOST explicitly; OPENCODE_* is only a
+  // convenience for environments that expose it.
+  return Object.keys(env).some(key => key.toUpperCase().startsWith('OPENCODE_'));
+}
+
+function assertNotOpenCodeHost(env: Record<string, string>): void {
+  if (!isOpenCodeHostEnv(env)) return;
+  throw new OpenCodeBackendError(
+    'OpenCode is already the host for this Phone-a-Friend invocation. ' +
+      'Choose another friend backend such as codex, gemini, claude, or ollama.',
+  );
+}
+
 export function buildOpenCodeArgs(opts: OpenCodeRunArgsOptions): string[] {
   const args = ['run', '--format', 'json', '--dir', opts.repoPath];
 
@@ -146,6 +163,8 @@ export class OpenCodeBackend implements Backend {
   }
 
   async run(opts: BackendRunOptions): Promise<string> {
+    assertNotOpenCodeHost(opts.env);
+
     if (!isInPath('opencode')) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`,
@@ -197,6 +216,8 @@ export class OpenCodeBackend implements Backend {
   }
 
   async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
+    assertNotOpenCodeHost(opts.env);
+
     if (!isInPath('opencode')) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`,
@@ -280,6 +301,8 @@ export class OpenCodeBackend implements Backend {
   }
 
   async review(opts: ReviewOptions): Promise<string> {
+    assertNotOpenCodeHost(opts.env);
+
     if (!isInPath('opencode')) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`,

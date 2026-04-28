@@ -2,7 +2,8 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (codex/gemini), Local (ollama), plus host integrations (claude).
+ * backends: CLI (codex/gemini/opencode), Local (ollama), plus host integrations
+ * (claude/opencode).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -51,6 +52,7 @@ const OLLAMA_INSTALL_HINT = 'brew install ollama  # or: curl -fsSL https://ollam
 
 const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] = [
   { name: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code', label: 'Claude Code CLI' },
+  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI' },
 ];
 
 // ---------------------------------------------------------------------------

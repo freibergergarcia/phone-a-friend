@@ -61,6 +61,7 @@ describe('ActionsPanel', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('Check Backends');
     expect(frame).toContain('Reinstall Plugin');
+    expect(frame).toContain('Install OpenCode Commands');
   });
 
   it('shows action descriptions', () => {

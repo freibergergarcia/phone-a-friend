@@ -24,6 +24,7 @@ vi.mock('../../src/version.js', () => ({
 // Mock installer for PluginStatusBar
 vi.mock('../../src/installer.js', () => ({
   isPluginInstalled: vi.fn().mockReturnValue(false),
+  isOpenCodeInstalled: vi.fn().mockReturnValue(false),
   claudeTarget: vi.fn().mockReturnValue('/tmp/test-claude-plugin'),
 }));
 

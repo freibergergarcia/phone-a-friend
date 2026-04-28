@@ -16,6 +16,7 @@ import { AgenticPanel } from './AgenticPanel.js';
 import { useDetection } from './hooks/useDetection.js';
 import { PluginStatusBar } from './components/PluginStatusBar.js';
 import { usePluginStatus } from './hooks/usePluginStatus.js';
+import type { PluginHostStatus } from './hooks/usePluginStatus.js';
 import { useAgenticSessions } from './hooks/useAgenticSessions.js';
 
 const TABS = ['Status', 'Backends', 'Config', 'Actions', 'Agentic'] as const;
@@ -90,9 +91,9 @@ export function App() {
   return (
     <Box flexDirection="column" padding={1}>
       <TabBar tabs={[...TABS]} activeIndex={activeTab} />
-      {activeTab !== 0 && <PluginStatusBar installed={pluginStatus.installed} />}
+      {activeTab !== 0 && <PluginStatusBar hosts={pluginStatus.hosts} />}
       <Box flexDirection="column" minHeight={10}>
-        <PanelContent tab={currentTab} detection={detection} pluginInstalled={pluginStatus.installed} onPluginRecheck={pluginStatus.recheck} onFocusChange={setChildHasFocus} onExit={() => exit()} agenticSessions={agenticSessions} />
+        <PanelContent tab={currentTab} detection={detection} pluginInstalled={pluginStatus.installed} pluginHosts={pluginStatus.hosts} onPluginRecheck={pluginStatus.recheck} onFocusChange={setChildHasFocus} onExit={() => exit()} agenticSessions={agenticSessions} />
       </Box>
       <KeyHint hints={hints} />
     </Box>
@@ -103,13 +104,14 @@ interface PanelProps {
   tab: string;
   detection: ReturnType<typeof useDetection>;
   pluginInstalled: boolean;
+  pluginHosts: PluginHostStatus;
   onPluginRecheck: () => void;
   onFocusChange: (hasFocus: boolean) => void;
   onExit: () => void;
   agenticSessions: ReturnType<typeof useAgenticSessions>;
 }
 
-function PanelContent({ tab, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit, agenticSessions }: PanelProps) {
+function PanelContent({ tab, detection, pluginInstalled, pluginHosts, onPluginRecheck, onFocusChange, onExit, agenticSessions }: PanelProps) {
   switch (tab) {
     case 'Status':
       return (
@@ -119,6 +121,7 @@ function PanelContent({ tab, detection, pluginInstalled, onPluginRecheck, onFocu
           refreshing={detection.refreshing}
           error={detection.error}
           pluginInstalled={pluginInstalled}
+          pluginHosts={pluginHosts}
         />
       );
     case 'Backends':

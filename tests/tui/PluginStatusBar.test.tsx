@@ -29,4 +29,14 @@ describe('PluginStatusBar', () => {
     const { lastFrame: notInstalled } = render(<PluginStatusBar installed={false} />);
     expect(notInstalled()).toContain('Claude Plugin');
   });
+
+  it('shows multi-host status when host state is provided', () => {
+    const { lastFrame } = render(<PluginStatusBar hosts={{ claude: true, opencode: false }} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain('Plugins:');
+    expect(frame).toContain('Claude');
+    expect(frame).toContain('OpenCode');
+    expect(frame).toContain('\u2713');
+    expect(frame).toContain('!');
+  });
 });

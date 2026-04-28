@@ -500,16 +500,24 @@ describe('CLI', () => {
 
   // --- Plugin subcommand (new primary namespace) ---
 
-  it('plugin install --claude works', async () => {
-    const code = await run(['plugin', 'install', '--claude', '--no-claude-cli-sync']);
-    expect(code).toBe(0);
-    expect(mockInstallHosts).toHaveBeenCalledOnce();
-  });
+    it('plugin install --claude works', async () => {
+      const code = await run(['plugin', 'install', '--claude', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
+    });
 
-  it('plugin update --claude works', async () => {
-    const code = await run(['plugin', 'update', '--no-claude-cli-sync']);
-    expect(code).toBe(0);
-    expect(mockInstallHosts).toHaveBeenCalledOnce();
+    it('plugin install --opencode passes OpenCode target', async () => {
+      const code = await run(['plugin', 'install', '--opencode', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
+      const opts = mockInstallHosts.mock.calls[0][0];
+      expect(opts.target).toBe('opencode');
+    });
+
+    it('plugin update --claude works', async () => {
+      const code = await run(['plugin', 'update', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.force).toBe(true);
   });

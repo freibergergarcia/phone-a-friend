@@ -17,9 +17,12 @@ import {
   installHosts,
   uninstallHosts,
   verifyBackends,
+  isOpenCodeInstalled,
   isPluginInstalled,
   installFromGitHubMarketplace,
   getMarketplaceSourceType,
+  opencodeCommandTarget,
+  opencodeSkillTarget,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
@@ -38,10 +41,24 @@ function makeRepo(): string {
   const repo = makeTempDir('phone-a-friend-repo-');
   const pluginDir = path.join(repo, '.claude-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(pluginDir, 'plugin.json'),
-    '{"name":"phone-a-friend"}',
-  );
+    fs.writeFileSync(
+      path.join(pluginDir, 'plugin.json'),
+      '{"name":"phone-a-friend"}',
+    );
+  const commandsDir = path.join(repo, 'commands');
+  fs.mkdirSync(commandsDir, { recursive: true });
+  for (const name of ['phone-a-friend', 'curiosity-engine', 'phone-a-team']) {
+    const skillDir = path.join(repo, 'skills', name);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: test skill\n---\n`,
+    );
+    fs.writeFileSync(
+      path.join(commandsDir, `${name}.md`),
+      '---\ndescription: test command\n---\n',
+    );
+  }
   return repo;
 }
 
@@ -60,21 +77,24 @@ describe('installer constants', () => {
   });
 });
 
-describe('installHosts', () => {
-  let repo: string;
-  let claudeHome: string;
+  describe('installHosts', () => {
+    let repo: string;
+    let claudeHome: string;
+    let opencodeHome: string;
 
-  beforeEach(() => {
-    mockExecFileSync.mockReset();
-    repo = makeRepo();
-    claudeHome = makeHome();
-  });
+    beforeEach(() => {
+      mockExecFileSync.mockReset();
+      repo = makeRepo();
+      claudeHome = makeHome();
+      opencodeHome = makeHome();
+    });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
-    try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
-  });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+    });
 
   it('installs via symlink', () => {
     const lines = installHosts({
@@ -113,7 +133,7 @@ describe('installHosts', () => {
     expect(lines.some(l => l.includes('installed'))).toBe(true);
   });
 
-  it('detects already-installed symlink', () => {
+    it('detects already-installed symlink', () => {
     // First install
     installHosts({
       repoRoot: repo,
@@ -134,8 +154,34 @@ describe('installHosts', () => {
       syncClaudeCli: false,
     });
 
-    expect(lines.some(l => l.includes('already-installed'))).toBe(true);
-  });
+      expect(lines.some(l => l.includes('already-installed'))).toBe(true);
+    });
+
+    it('installs OpenCode skill and command shims', () => {
+      const lines = installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+
+      const skillTarget = opencodeSkillTarget('phone-a-friend', opencodeHome);
+      const commandTarget = opencodeCommandTarget('phone-a-friend', opencodeHome);
+
+      expect(fs.lstatSync(skillTarget).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(skillTarget)).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-friend')));
+      expect(fs.lstatSync(commandTarget).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(commandTarget)).toBe(fs.realpathSync(path.join(repo, 'commands', 'phone-a-friend.md')));
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-friend'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-friend'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_skill:curiosity-engine'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:curiosity-engine'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-team'))).toBe(true);
+      expect(lines.some(l => l.includes('claude:'))).toBe(false);
+    });
 
   it('raises when destination exists and force is false', () => {
     // Install once
@@ -404,6 +450,45 @@ describe('isPluginInstalled (marketplace cache)', () => {
     expect(isPluginInstalled(tmpHome)).toBe(true);
     fs.rmSync(tmpHome, { recursive: true });
     fs.rmSync(repo, { recursive: true });
+  });
+});
+
+describe('isOpenCodeInstalled', () => {
+  it('returns true when all OpenCode skills and command shims exist', () => {
+    const repo = makeRepo();
+    const opencodeHome = makeHome();
+    installHosts({
+      repoRoot: repo,
+      target: 'opencode',
+      mode: 'symlink',
+      force: false,
+      opencodeHome,
+      syncClaudeCli: false,
+    });
+
+    expect(isOpenCodeInstalled(opencodeHome)).toBe(true);
+
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(opencodeHome, { recursive: true, force: true });
+  });
+
+  it('returns false when any OpenCode command shim is missing', () => {
+    const repo = makeRepo();
+    const opencodeHome = makeHome();
+    installHosts({
+      repoRoot: repo,
+      target: 'opencode',
+      mode: 'symlink',
+      force: false,
+      opencodeHome,
+      syncClaudeCli: false,
+    });
+
+    fs.rmSync(opencodeCommandTarget('phone-a-team', opencodeHome), { force: true });
+    expect(isOpenCodeInstalled(opencodeHome)).toBe(false);
+
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(opencodeHome, { recursive: true, force: true });
   });
 });
 

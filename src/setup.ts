@@ -120,7 +120,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     });
   }
 
-  // Offer Claude plugin install if claude is available
+  // Offer host integration installs for detected hosts.
   const claudeAvailable = report.host.some(h => h.name === 'claude' && h.available);
   if (claudeAvailable) {
     console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('Claude integration')}`);
@@ -141,6 +141,30 @@ export async function setup(opts?: SetupOptions): Promise<void> {
         for (const line of lines) console.log(`  ${line}`);
       } catch (err) {
         console.log(theme.warning(`  Plugin install failed: ${(err as Error).message}`));
+      }
+    }
+  }
+
+  const opencodeAvailable = report.host.some(h => h.name === 'opencode' && h.available);
+  if (opencodeAvailable) {
+    console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('OpenCode integration')}`);
+    const installOpenCode = await confirm({
+      message: 'Install OpenCode commands and skills?',
+      default: true,
+    });
+    if (installOpenCode) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: 'opencode',
+          mode: 'symlink',
+          force: true,
+          syncClaudeCli: false,
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  OpenCode install failed: ${(err as Error).message}`));
       }
     }
   }
@@ -205,6 +229,9 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log('');
   console.log(`    ${theme.hint('Note: Marketplace install provides Claude Code commands and skills only.')}`);
   console.log(`    ${theme.hint('The full CLI (agentic mode, TUI, web dashboard) requires the global npm install.')}`);
+  console.log('');
+  console.log(`  ${theme.hint('OpenCode:')}`);
+  console.log(`    ${theme.info('phone-a-friend plugin install --opencode')}`);
   console.log('');
   console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log('');

@@ -33,8 +33,11 @@ const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 /** GitHub repository for marketplace distribution. */
 export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
-const INSTALL_TARGETS = new Set(['claude', 'all']);
+const INSTALL_TARGETS = new Set(['claude', 'opencode', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
+const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
+
+type InstallTarget = 'claude' | 'opencode' | 'all';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -266,6 +269,20 @@ export function claudeTarget(claudeHome?: string): string {
   return join(base, 'plugins', PLUGIN_NAME);
 }
 
+export function opencodeConfigRoot(opencodeHome?: string): string {
+  if (opencodeHome) return opencodeHome;
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+  return join(xdgConfig, 'opencode');
+}
+
+export function opencodeSkillTarget(name: string, opencodeHome?: string): string {
+  return join(opencodeConfigRoot(opencodeHome), 'skills', name);
+}
+
+export function opencodeCommandTarget(name: string, opencodeHome?: string): string {
+  return join(opencodeConfigRoot(opencodeHome), 'commands', `${name}.md`);
+}
+
 export function isPluginInstalled(claudeHome?: string): boolean {
   const target = claudeTarget(claudeHome);
   // Check local symlink/copy install
@@ -291,6 +308,13 @@ export function isPluginInstalled(claudeHome?: string): boolean {
   }
 }
 
+export function isOpenCodeInstalled(opencodeHome?: string): boolean {
+  return OPENCODE_SKILLS.every((name) => (
+    existsSync(join(opencodeSkillTarget(name, opencodeHome), 'SKILL.md')) &&
+    existsSync(opencodeCommandTarget(name, opencodeHome))
+  ));
+}
+
 function installClaude(
   repoRoot: string,
   mode: string,
@@ -300,6 +324,37 @@ function installClaude(
   const target = claudeTarget(claudeHome);
   const status = installPath(repoRoot, target, mode, force);
   return { status, targetPath: target };
+}
+
+function installOpenCode(
+  repoRoot: string,
+  mode: string,
+  force: boolean,
+  opencodeHome?: string,
+): string[] {
+  const lines: string[] = [];
+
+  for (const name of OPENCODE_SKILLS) {
+    const skillSource = join(repoRoot, 'skills', name);
+    const commandSource = join(repoRoot, 'commands', `${name}.md`);
+
+    if (!existsSync(join(skillSource, 'SKILL.md'))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join(skillSource, 'SKILL.md')}`);
+    }
+    if (!existsSync(commandSource)) {
+      throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
+    }
+
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const skillStatus = installPath(skillSource, skillTarget, mode, force);
+    lines.push(`- opencode_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    const commandStatus = installPath(commandSource, commandTarget, mode, force);
+    lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
+  }
+
+  return lines;
 }
 
 function uninstallPath(filePath: string): string {
@@ -313,6 +368,18 @@ function uninstallPath(filePath: string): string {
 function uninstallClaude(claudeHome?: string): { status: string; targetPath: string } {
   const target = claudeTarget(claudeHome);
   return { status: uninstallPath(target), targetPath: target };
+}
+
+function uninstallOpenCode(opencodeHome?: string): string[] {
+  const lines: string[] = [];
+  for (const name of OPENCODE_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
+
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    lines.push(`- opencode_command:${name}: ${uninstallPath(commandTarget)}`);
+  }
+  return lines;
 }
 
 function isValidRepoRoot(repoRoot: string): boolean {
@@ -364,10 +431,11 @@ export function installFromGitHubMarketplace(): string[] {
 
 export interface InstallOptions {
   repoRoot: string;
-  target: 'claude' | 'all';
+  target: InstallTarget;
   mode?: 'symlink' | 'copy';
   force?: boolean;
   claudeHome?: string;
+  opencodeHome?: string;
   syncClaudeCli?: boolean;
   /** Force overwrite of a remote marketplace source with local path. */
   forceMarketplaceSync?: boolean;
@@ -380,6 +448,7 @@ export function installHosts(opts: InstallOptions): string[] {
     mode = 'symlink',
     force = false,
     claudeHome,
+    opencodeHome,
     syncClaudeCli = true,
     forceMarketplaceSync = false,
   } = opts;
@@ -402,10 +471,19 @@ export function installHosts(opts: InstallOptions): string[] {
     `- mode: ${mode}`,
   ];
 
-  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
+  const shouldInstallClaude = target === 'claude' || target === 'all';
+  const shouldInstallOpenCode = target === 'opencode' || target === 'all';
 
-  if (syncClaudeCli) {
+  if (shouldInstallClaude) {
+    const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
+    lines.push(`- claude: ${status} -> ${targetPath}`);
+  }
+
+  if (shouldInstallOpenCode) {
+    lines.push(...installOpenCode(resolvedRepo, mode, force, opencodeHome));
+  }
+
+  if (shouldInstallClaude && syncClaudeCli) {
     // Guard: don't overwrite a remote marketplace source with a local path
     const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
     if (remoteSource && !forceMarketplaceSync) {
@@ -421,8 +499,9 @@ export function installHosts(opts: InstallOptions): string[] {
 }
 
 export interface UninstallOptions {
-  target: 'claude' | 'all';
+  target: InstallTarget;
   claudeHome?: string;
+  opencodeHome?: string;
   /**
    * Controls whether marketplace registration is removed during uninstall.
    * - 'auto' (default): skip unsync when marketplace has a remote source (github/npm/git),
@@ -434,7 +513,7 @@ export interface UninstallOptions {
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome, claudeCliUnsync = 'auto' } = opts;
+  const { target, claudeHome, opencodeHome, claudeCliUnsync = 'auto' } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -442,8 +521,21 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   const lines = ['phone-a-friend uninstaller'];
 
-  const { status } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status}`);
+  const shouldUninstallClaude = target === 'claude' || target === 'all';
+  const shouldUninstallOpenCode = target === 'opencode' || target === 'all';
+
+  if (shouldUninstallClaude) {
+    const { status } = uninstallClaude(claudeHome);
+    lines.push(`- claude: ${status}`);
+  }
+
+  if (shouldUninstallOpenCode) {
+    lines.push(...uninstallOpenCode(opencodeHome));
+  }
+
+  if (!shouldUninstallClaude) {
+    return lines;
+  }
 
   if (claudeCliUnsync === 'never') {
     lines.push('- claude_cli_unsync: skipped');
