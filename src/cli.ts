@@ -345,7 +345,8 @@ export async function run(argv: string[]): Promise<number> {
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
     .option('--schema <json>', 'Request structured JSON output matching this schema')
-    .option('--session <id>', 'Resume or create a persisted relay session')
+    .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
+    .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
     .option('--fast', 'Use fast mode when supported (maps to --bare for Claude)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
@@ -422,10 +423,11 @@ export async function run(argv: string[]): Promise<number> {
         sandbox: resolved.sandbox as SandboxMode,
         schema: opts.schema ?? null,
         session: opts.session ?? null,
+        backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
       };
 
-      const shouldStream = resolved.stream && !opts.schema && !opts.session;
+      const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
 
       if (opts.quiet) {
         const { relayBackground } = await import('./relay.js');

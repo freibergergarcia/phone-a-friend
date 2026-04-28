@@ -5954,6 +5954,7 @@ function prepareRelay(opts) {
     sandbox = DEFAULT_SANDBOX,
     schema = null,
     session = null,
+    backendSession = null,
     fast = false
   } = opts;
   if (!prompt.trim()) {
@@ -5978,6 +5979,11 @@ function prepareRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
+  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
+    throw new RelayError(
+      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
+    );
+  }
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : "";
   const fullPrompt = buildPrompt({
@@ -5999,6 +6005,7 @@ function prepareRelay(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore: opts.sessionStore
   };
@@ -6014,10 +6021,62 @@ async function relay(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore
   } = prepareRelay(opts);
   try {
+    if (backendSession) {
+      const store2 = session ? sessionStore ?? new SessionStore() : null;
+      const existing = session && store2 ? store2.get(session) : null;
+      if (existing) {
+        const conflicts = [];
+        if (existing.backend !== selectedBackend.name) {
+          conflicts.push(`backend "${existing.backend}" (expected "${selectedBackend.name}")`);
+        }
+        if (existing.backendSessionId && existing.backendSessionId !== backendSession) {
+          conflicts.push(`backend session "${existing.backendSessionId}" (expected "${backendSession}")`);
+        }
+        if (existing.repoPath !== resolvedRepo) {
+          conflicts.push(`repo "${existing.repoPath}" (expected "${resolvedRepo}")`);
+        }
+        if (conflicts.length > 0) {
+          throw new RelayError(
+            `Session label "${session}" already exists with conflicting metadata: ${conflicts.join("; ")}. Use a different label or remove the existing entry.`
+          );
+        }
+      }
+      let createdSessionId2 = backendSession;
+      const result2 = await selectedBackend.run({
+        prompt: fullPrompt,
+        repoPath: resolvedRepo,
+        timeoutSeconds,
+        sandbox,
+        model,
+        env: env3,
+        schema,
+        sessionId: backendSession,
+        persistSession: Boolean(session),
+        resumeSession: true,
+        fast,
+        sessionHistory: existing?.history ?? [],
+        onSessionCreated: (newSessionId) => {
+          createdSessionId2 = newSessionId;
+        }
+      });
+      if (session && store2) {
+        persistRelaySession(
+          store2,
+          session,
+          selectedBackend,
+          resolvedRepo,
+          fullPrompt,
+          result2,
+          createdSessionId2
+        );
+      }
+      return result2;
+    }
     const store = session ? sessionStore ?? new SessionStore() : null;
     const storedSession = session ? store?.get(session) ?? null : null;
     if (storedSession && storedSession.backend !== selectedBackend.name) {
@@ -6028,6 +6087,11 @@ async function relay(opts) {
     if (storedSession && storedSession.repoPath !== resolvedRepo) {
       throw new RelayError(
         `Session ${session} belongs to a different repository: ${storedSession.repoPath}`
+      );
+    }
+    if (session && !storedSession) {
+      console.error(
+        `[phone-a-friend] Session label "${session}" not found in store. Starting a fresh session under this label. If you meant to attach to an existing backend thread, use --backend-session <id>.`
       );
     }
     let backendSessionId = storedSession?.backendSessionId ?? null;
@@ -6099,11 +6163,12 @@ async function* relayStream(opts) {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore
   } = prepareRelay(opts);
-  const store = session ? sessionStore ?? new SessionStore() : null;
-  const storedSession = session ? store?.get(session) ?? null : null;
+  const store = session && !backendSession ? sessionStore ?? new SessionStore() : null;
+  const storedSession = session && !backendSession ? store?.get(session) ?? null : null;
   const runOpts = {
     prompt: fullPrompt,
     repoPath: resolvedRepo,
@@ -6113,9 +6178,9 @@ async function* relayStream(opts) {
     env: env3,
     schema,
     fast,
-    sessionId: storedSession?.backendSessionId ?? null,
+    sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
-    resumeSession: Boolean(session && storedSession),
+    resumeSession: Boolean(backendSession || session && storedSession),
     sessionHistory: storedSession?.history ?? []
   };
   try {
@@ -80545,7 +80610,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
@@ -80603,9 +80668,10 @@ ${banner("AI coding agent relay")}
       sandbox: resolved.sandbox,
       schema: opts.schema ?? null,
       session: opts.session ?? null,
+      backendSession: opts.backendSession ?? null,
       fast: Boolean(opts.fast)
     };
-    const shouldStream = resolved.stream && !opts.schema && !opts.session;
+    const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
     if (opts.quiet) {
       const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
       const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));

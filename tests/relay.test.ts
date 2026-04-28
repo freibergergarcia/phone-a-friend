@@ -789,3 +789,245 @@ describe('reviewRelay', () => {
     ).rejects.toThrow('Timeout must be greater than zero');
   });
 });
+
+// ---------------------------------------------------------------------------
+// --backend-session and unknown-label warning
+// ---------------------------------------------------------------------------
+
+function makeNativeSessionBackend(name: string): Backend {
+  return {
+    name,
+    localFileAccess: true,
+    allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+    capabilities: {
+      resumeStrategy: 'native-session',
+      requiresClientSessionId: false,
+    },
+    run: vi.fn(async () => 'attached reply'),
+  };
+}
+
+describe('relay with --backend-session', () => {
+  let repo: string;
+  let backend: Backend;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    registerBackend(makeMockBackend('gemini')); // transcript-replay
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('passes the raw backend session id and resumes without writing the label store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    const result = await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    expect(result).toBe('attached reply');
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    expect(callArgs.resumeSession).toBe(true);
+    expect(callArgs.persistSession).toBe(false);
+    expect(store.list()).toHaveLength(0);
+  });
+
+  it('rejects when backend does not support native session resume', async () => {
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        backend: 'gemini',
+        backendSession: 'thread-abc',
+      }),
+    ).rejects.toThrow(/--backend-session is not supported/);
+  });
+
+  it('adopts a backend session under a new PaF label and persists it', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'adopt-me',
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    expect(callArgs.resumeSession).toBe(true);
+    expect(callArgs.persistSession).toBe(true);
+
+    const saved = store.get('adopt-me');
+    expect(saved?.backend).toBe('codex');
+    expect(saved?.backendSessionId).toBe('thread-abc');
+    expect(saved?.repoPath).toBe(repo);
+    expect(saved?.history).toHaveLength(2);
+  });
+
+  it('is idempotent when the label already points at the same backend session and repo', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-abc',
+      historyAppend: [
+        { role: 'user', content: 'old prompt' },
+        { role: 'assistant', content: 'old reply' },
+      ],
+    });
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'adopt-me',
+      backendSession: 'thread-abc',
+      sessionStore: store,
+    });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.sessionId).toBe('thread-abc');
+    expect(callArgs.sessionHistory).toHaveLength(2);
+
+    const saved = store.get('adopt-me');
+    expect(saved?.history).toHaveLength(4);
+  });
+
+  it('errors when the existing label points at a different backend session id', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-OTHER',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+
+  it('errors when the existing label belongs to a different backend', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'gemini',
+      repoPath: repo,
+      backendSessionId: 'thread-abc',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+
+  it('errors when the existing label was used in a different repo', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'adopt-me',
+      backend: 'codex',
+      repoPath: '/some/other/repo',
+      backendSessionId: 'thread-abc',
+    });
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        session: 'adopt-me',
+        backendSession: 'thread-abc',
+        sessionStore: store,
+      }),
+    ).rejects.toThrow(/conflicting metadata/);
+  });
+});
+
+describe('relay --session warning on unknown label', () => {
+  let repo: string;
+  let backend: Backend;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    backend = makeNativeSessionBackend('codex');
+    registerBackend(backend);
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('warns when --session label is not in the store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    await relay({
+      prompt: 'first call',
+      repoPath: repo,
+      session: 'fresh-label',
+      sessionStore: store,
+    });
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    const message = stderrSpy.mock.calls[0][0] as string;
+    expect(message).toContain('Session label "fresh-label" not found');
+    expect(message).toContain('--backend-session');
+  });
+
+  it('does not warn when the label already exists in the store', async () => {
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    store.upsert({
+      id: 'known-label',
+      backend: 'codex',
+      repoPath: repo,
+      backendSessionId: 'thread-xyz',
+    });
+
+    await relay({
+      prompt: 'follow up',
+      repoPath: repo,
+      session: 'known-label',
+      sessionStore: store,
+    });
+
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not warn when neither --session nor --backend-session is set', async () => {
+    await relay({ prompt: 'one-shot', repoPath: repo });
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+});

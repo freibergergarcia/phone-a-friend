@@ -223,6 +223,10 @@ export interface RelayOptions {
   sandbox?: SandboxMode;
   schema?: string | null;
   session?: string | null;
+  /** Raw backend session/thread ID. Bypasses PaF's label store and resumes
+   *  the backend session directly. May be combined with `session` to also
+   *  start tracking that backend session under a PaF label (adoption). */
+  backendSession?: string | null;
   fast?: boolean;
   sessionStore?: SessionStore;
 }
@@ -241,6 +245,7 @@ interface PreparedRelay {
   model: string | null;
   schema: string | null;
   session: string | null;
+  backendSession: string | null;
   fast: boolean;
   sessionStore?: SessionStore;
 }
@@ -258,6 +263,7 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     sandbox = DEFAULT_SANDBOX,
     schema = null,
     session = null,
+    backendSession = null,
     fast = false,
   } = opts;
 
@@ -287,6 +293,13 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
 
+  if (backendSession && selectedBackend.capabilities.resumeStrategy !== 'native-session') {
+    throw new RelayError(
+      `--backend-session is not supported by the ${selectedBackend.name} backend ` +
+        `(resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`,
+    );
+  }
+
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : '';
   const fullPrompt = buildPrompt({
@@ -310,6 +323,7 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore: opts.sessionStore,
   };
@@ -326,11 +340,71 @@ export async function relay(opts: RelayOptions): Promise<string> {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore,
   } = prepareRelay(opts);
 
   try {
+    // --- Path A: --backend-session (raw passthrough, with optional adoption) ---
+    if (backendSession) {
+      const store = session ? (sessionStore ?? new SessionStore()) : null;
+      const existing = session && store ? store.get(session) : null;
+
+      if (existing) {
+        const conflicts: string[] = [];
+        if (existing.backend !== selectedBackend.name) {
+          conflicts.push(`backend "${existing.backend}" (expected "${selectedBackend.name}")`);
+        }
+        if (existing.backendSessionId && existing.backendSessionId !== backendSession) {
+          conflicts.push(`backend session "${existing.backendSessionId}" (expected "${backendSession}")`);
+        }
+        if (existing.repoPath !== resolvedRepo) {
+          conflicts.push(`repo "${existing.repoPath}" (expected "${resolvedRepo}")`);
+        }
+        if (conflicts.length > 0) {
+          throw new RelayError(
+            `Session label "${session}" already exists with conflicting metadata: ${conflicts.join('; ')}. ` +
+              `Use a different label or remove the existing entry.`,
+          );
+        }
+      }
+
+      let createdSessionId: string | null = backendSession;
+      const result = await selectedBackend.run({
+        prompt: fullPrompt,
+        repoPath: resolvedRepo,
+        timeoutSeconds,
+        sandbox,
+        model,
+        env,
+        schema,
+        sessionId: backendSession,
+        persistSession: Boolean(session),
+        resumeSession: true,
+        fast,
+        sessionHistory: existing?.history ?? [],
+        onSessionCreated: (newSessionId) => {
+          createdSessionId = newSessionId;
+        },
+      });
+
+      if (session && store) {
+        persistRelaySession(
+          store,
+          session,
+          selectedBackend,
+          resolvedRepo,
+          fullPrompt,
+          result,
+          createdSessionId,
+        );
+      }
+
+      return result;
+    }
+
+    // --- Path B: --session label only (PaF-managed) ---
     const store = session ? (sessionStore ?? new SessionStore()) : null;
     const storedSession = session ? store?.get(session) ?? null : null;
 
@@ -343,6 +417,14 @@ export async function relay(opts: RelayOptions): Promise<string> {
     if (storedSession && storedSession.repoPath !== resolvedRepo) {
       throw new RelayError(
         `Session ${session} belongs to a different repository: ${storedSession.repoPath}`,
+      );
+    }
+
+    if (session && !storedSession) {
+      console.error(
+        `[phone-a-friend] Session label "${session}" not found in store. ` +
+          `Starting a fresh session under this label. ` +
+          `If you meant to attach to an existing backend thread, use --backend-session <id>.`,
       );
     }
 
@@ -437,13 +519,15 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     model,
     schema,
     session,
+    backendSession,
     fast,
     sessionStore,
   } = prepareRelay(opts);
 
-  // Session support: look up stored session for resume context
-  const store = session ? (sessionStore ?? new SessionStore()) : null;
-  const storedSession = session ? store?.get(session) ?? null : null;
+  // Session support: look up stored session for resume context (skipped when
+  // --backend-session is set, since that path bypasses the label store).
+  const store = session && !backendSession ? (sessionStore ?? new SessionStore()) : null;
+  const storedSession = session && !backendSession ? store?.get(session) ?? null : null;
 
   const runOpts = {
     prompt: fullPrompt,
@@ -454,9 +538,9 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     env,
     schema,
     fast,
-    sessionId: storedSession?.backendSessionId ?? null,
+    sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
-    resumeSession: Boolean(session && storedSession),
+    resumeSession: Boolean(backendSession || (session && storedSession)),
     sessionHistory: storedSession?.history ?? [],
   };
 

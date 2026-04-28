@@ -199,7 +199,9 @@ phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
-phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a session
+phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
+phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
+phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
 phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude, --pure for OpenCode)
 
 # Setup & diagnostics
@@ -354,14 +356,21 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 
 ## Session continuity
 
-The `--session <id>` flag enables relay session persistence and resumption across calls.
+Two flags handle session resume, with separate concerns:
+
+- `--session <label>` is a PaF-managed label. PaF stores the label and the underlying backend session ID together in `~/.config/phone-a-friend/sessions.json` and uses the label for lookup on subsequent calls.
+- `--backend-session <id>` is a raw passthrough. PaF skips the label store and resumes the backend session directly. Combine with `--session <label>` to also start tracking that backend session under a label (adoption). Adoption is idempotent: re-running the same `--session label --backend-session id` pair is fine; conflicts (same label pointing at a different backend, session id, or repo) error explicitly.
+
+Implementation notes:
 
 - `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
 - Ollama: stateless replay (full history prepended to each request)
-- Streaming is disabled when `--session` is active
+- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, OpenCode)
+- An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
+- Streaming is disabled when `--session` or `--backend-session` is active
 
 ### Known limitations
 
