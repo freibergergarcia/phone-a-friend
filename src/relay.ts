@@ -300,6 +300,14 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     );
   }
 
+  if (session && selectedBackend.capabilities.resumeStrategy === 'unsupported') {
+    throw new RelayError(
+      `--session is not supported by the ${selectedBackend.name} backend ` +
+        `(resume strategy: unsupported). The backend cannot resume a prior conversation, ` +
+        `so PaF refuses to persist a label that would silently fresh-spawn each call.`,
+    );
+  }
+
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : '';
   const fullPrompt = buildPrompt({
@@ -488,15 +496,34 @@ function persistRelaySession(
   output: string,
   backendSessionId: string | null,
 ): void {
+  // Only transcript-replay backends actually use the stored history on resume.
+  // Native-session backends (Codex/Claude/OpenCode) resume via their own server-side
+  // state; the history field is dead weight that only inflates the JSON store.
+  // Anything else (`unsupported`) doesn't replay either.
+  const replaysHistory = backend.capabilities.resumeStrategy === 'transcript-replay';
+
+  if (replaysHistory) {
+    store.upsert({
+      id,
+      backend: backend.name,
+      repoPath,
+      backendSessionId: backendSessionId ?? undefined,
+      historyAppend: [
+        { role: 'user', content: prompt },
+        { role: 'assistant', content: output },
+      ],
+    });
+    return;
+  }
+
+  // Non-replay backend: keep history empty. If the row was created before this
+  // policy and has accumulated entries, replaceHistory clears them on first write.
   store.upsert({
     id,
     backend: backend.name,
     repoPath,
     backendSessionId: backendSessionId ?? undefined,
-    historyAppend: [
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: output },
-    ],
+    replaceHistory: [],
   });
 }
 

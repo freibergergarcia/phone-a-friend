@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../src/sessions.js';
@@ -84,5 +84,147 @@ describe('SessionStore', () => {
       store.upsert({ id: `session-${i}`, backend: 'codex', repoPath: '/tmp' });
     }
     expect(store.list().length).toBeLessThanOrEqual(100);
+  });
+
+  // --- replaceHistory ---
+
+  it('replaceHistory clears the existing history on an existing row', () => {
+    store.upsert({
+      id: 'fat-row',
+      backend: 'codex',
+      repoPath: '/tmp/repo',
+      historyAppend: [
+        { role: 'user', content: 'old 1' },
+        { role: 'assistant', content: 'old 2' },
+      ],
+    });
+
+    const updated = store.upsert({
+      id: 'fat-row',
+      backend: 'codex',
+      repoPath: '/tmp/repo',
+      replaceHistory: [],
+    });
+
+    expect(updated.history).toHaveLength(0);
+    expect(store.get('fat-row')?.history).toHaveLength(0);
+  });
+
+  it('replaceHistory replaces with arbitrary contents', () => {
+    store.upsert({
+      id: 'row',
+      backend: 'codex',
+      repoPath: '/tmp',
+      historyAppend: [{ role: 'user', content: 'old' }],
+    });
+
+    const updated = store.upsert({
+      id: 'row',
+      backend: 'codex',
+      repoPath: '/tmp',
+      replaceHistory: [{ role: 'user', content: 'new' }],
+    });
+
+    expect(updated.history).toEqual([{ role: 'user', content: 'new' }]);
+  });
+
+  it('throws when historyAppend and replaceHistory are both set', () => {
+    expect(() =>
+      store.upsert({
+        id: 'row',
+        backend: 'codex',
+        repoPath: '/tmp',
+        historyAppend: [{ role: 'user', content: 'a' }],
+        replaceHistory: [{ role: 'user', content: 'b' }],
+      }),
+    ).toThrow(/mutually exclusive/);
+  });
+
+  // --- delete / prune / clear ---
+
+  it('delete removes a single row and reports whether it existed', () => {
+    store.upsert({ id: 'a', backend: 'codex', repoPath: '/tmp' });
+    store.upsert({ id: 'b', backend: 'codex', repoPath: '/tmp' });
+
+    expect(store.delete('a')).toBe(true);
+    expect(store.delete('a')).toBe(false);
+    expect(store.list().map((s) => s.id)).toEqual(['b']);
+  });
+
+  it('pruneOlderThan drops rows older than the cutoff and returns their ids', () => {
+    const old = store.upsert({ id: 'old', backend: 'codex', repoPath: '/tmp' });
+    // Backdate the lastUsedAt by manipulating the file directly.
+    const path = join(tmpDir, 'sessions.json');
+    const data = JSON.parse(readFileSync(path, 'utf-8'));
+    data[0].lastUsedAt = '2020-01-01T00:00:00.000Z';
+    writeFileSync(path, JSON.stringify(data));
+
+    store.upsert({ id: 'fresh', backend: 'codex', repoPath: '/tmp' });
+
+    const removed = store.pruneOlderThan(new Date('2024-01-01T00:00:00.000Z'));
+    expect(removed).toEqual([old.id]);
+    expect(store.list().map((s) => s.id)).toEqual(['fresh']);
+  });
+
+  it('pruneOlderThan returns empty when nothing to remove', () => {
+    store.upsert({ id: 'fresh', backend: 'codex', repoPath: '/tmp' });
+    const removed = store.pruneOlderThan(new Date('2000-01-01T00:00:00.000Z'));
+    expect(removed).toEqual([]);
+  });
+
+  it('clear removes every row and returns the count', () => {
+    store.upsert({ id: 'a', backend: 'codex', repoPath: '/tmp' });
+    store.upsert({ id: 'b', backend: 'codex', repoPath: '/tmp' });
+    expect(store.clear()).toBe(2);
+    expect(store.list()).toEqual([]);
+    expect(store.clear()).toBe(0);
+  });
+
+  // --- corrupt-file rotation ---
+
+  describe('corrupt-file handling', () => {
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+    });
+
+    it('rotates a corrupt file to .corrupt-<ts> and starts fresh', () => {
+      const path = join(tmpDir, 'sessions.json');
+      writeFileSync(path, '{ this is not valid JSON', 'utf-8');
+
+      const fresh = new SessionStore(path);
+      expect(fresh.list()).toEqual([]);
+
+      const rotated = readdirSync(tmpDir).filter((f) => f.startsWith('sessions.json.corrupt-'));
+      expect(rotated).toHaveLength(1);
+      expect(existsSync(path)).toBe(false);
+      expect(stderrSpy).toHaveBeenCalled();
+      expect(stderrSpy.mock.calls[0][0]).toContain('could not be parsed');
+    });
+
+    it('rotates non-array JSON (schema break) the same way', () => {
+      const path = join(tmpDir, 'sessions.json');
+      writeFileSync(path, '{"not":"an array"}', 'utf-8');
+
+      const fresh = new SessionStore(path);
+      expect(fresh.list()).toEqual([]);
+
+      const rotated = readdirSync(tmpDir).filter((f) => f.startsWith('sessions.json.corrupt-'));
+      expect(rotated).toHaveLength(1);
+      expect(stderrSpy).toHaveBeenCalled();
+    });
+  });
+
+  // --- atomic write ---
+
+  it('does not leave a tmp file behind on successful save', () => {
+    store.upsert({ id: 'a', backend: 'codex', repoPath: '/tmp' });
+    const stragglers = readdirSync(tmpDir).filter((f) => f.includes('.tmp.'));
+    expect(stragglers).toEqual([]);
   });
 });
