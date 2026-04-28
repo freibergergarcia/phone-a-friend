@@ -26,12 +26,17 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
   user explicitly asked for a diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
-  separate `phone-a-friend` calls or use the `/phone-a-team` skill.
-- `phone-a-team` and `curiosity-engine` are host slash commands / Agent
-  Skills, not PaF CLI subcommands. Never run `phone-a-friend phone-a-team`
-  or `phone-a-friend curiosity-engine`.
-- `--backend` is an argument to `/phone-a-team`, not a PaF CLI flag. Do not
-  pass `--backend` to `phone-a-friend`.
+  separate `phone-a-friend` calls. In Claude Code, the `/phone-a-team`
+  slash command orchestrates that for you. In OpenCode, run multiple
+  separate `phone-a-friend` invocations yourself; `/phone-a-team` is not
+  available in OpenCode (it depends on Claude Agent Teams primitives that
+  OpenCode does not have).
+- `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
+  subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
+  applies to any other slash command: never invoke them as PaF
+  subcommands (e.g. `phone-a-friend phone-a-team`).
+- `--backend` is a `/phone-a-team` skill argument (Claude only), not a PaF
+  CLI flag. Do not pass `--backend` to `phone-a-friend`.
 - When running inside OpenCode, prefix relay invocations with
   `PHONE_A_FRIEND_HOST=opencode` so PaF can deterministically detect the
   host (recursion guard).

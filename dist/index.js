@@ -6685,6 +6685,18 @@ function installClaude(repoRoot, mode, force, claudeHome) {
 }
 function installOpenCode(repoRoot, mode, force, opencodeHome) {
   const lines = [];
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (existsSync6(skillTarget) || isSymlink(skillTarget)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    }
+    if (existsSync6(commandTarget) || isSymlink(commandTarget)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    }
+  }
   for (const name of OPENCODE_SKILLS) {
     const skillSource = join5(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
@@ -6718,7 +6730,7 @@ function uninstallClaude(claudeHome) {
 }
 function uninstallOpenCode(opencodeHome) {
   const lines = [];
-  for (const name of OPENCODE_SKILLS) {
+  for (const name of [...OPENCODE_SKILLS, ...OPENCODE_LEGACY_SKILLS]) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
@@ -6837,7 +6849,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, OPENCODE_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -6848,7 +6860,8 @@ var init_installer = __esm({
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
     INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
-    OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
+    OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    OPENCODE_LEGACY_SKILLS = ["phone-a-team"];
     InstallerError = class extends Error {
       constructor(message) {
         super(message);

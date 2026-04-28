@@ -35,7 +35,21 @@ export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
 const INSTALL_TARGETS = new Set(['claude', 'opencode', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
-const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
+const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+
+/**
+ * Skills/commands that PaF previously installed for OpenCode but no longer
+ * supports there. The installer removes any installed artifacts for these
+ * names so existing users get a clean uninstall on their next
+ * `plugin update --opencode`.
+ *
+ * `phone-a-team` was dropped because it relies on Claude Agent Teams
+ * primitives (TeamCreate, Task, SendMessage, TeamDelete) that have no
+ * OpenCode equivalent. The portable shell-based version we shipped for
+ * OpenCode could not orchestrate reliably with smaller models. Claude
+ * keeps the rich `commands/phone-a-team.md` runbook.
+ */
+const OPENCODE_LEGACY_SKILLS = ['phone-a-team'] as const;
 
 type InstallTarget = 'claude' | 'opencode' | 'all';
 
@@ -363,6 +377,22 @@ function installOpenCode(
 ): string[] {
   const lines: string[] = [];
 
+  // Auto-clean legacy artifacts before installing the active set, so users
+  // who previously had a now-dropped skill (e.g. phone-a-team) don't keep
+  // stale files in ~/.config/opencode/.
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (existsSync(skillTarget) || isSymlink(skillTarget)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    }
+    if (existsSync(commandTarget) || isSymlink(commandTarget)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    }
+  }
+
   for (const name of OPENCODE_SKILLS) {
     const skillSource = join(repoRoot, 'skills', name);
     const commandSource = opencodeCommandSource(repoRoot, name);
@@ -403,7 +433,9 @@ function uninstallClaude(claudeHome?: string): { status: string; targetPath: str
 
 function uninstallOpenCode(opencodeHome?: string): string[] {
   const lines: string[] = [];
-  for (const name of OPENCODE_SKILLS) {
+  // Remove the active set and any legacy artifacts together so a single
+  // `plugin uninstall --opencode` leaves no PaF files behind.
+  for (const name of [...OPENCODE_SKILLS, ...OPENCODE_LEGACY_SKILLS]) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
 

@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N] [--model <name>]
+argument-hint: <task description> [--backend codex|gemini|ollama|both|all] [--max-rounds N] [--model <name>]
 ---
 
 # /phone-a-team

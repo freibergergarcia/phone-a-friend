@@ -47,7 +47,8 @@ function makeRepo(): string {
     );
   const commandsDir = path.join(repo, 'commands');
   fs.mkdirSync(commandsDir, { recursive: true });
-  for (const name of ['phone-a-friend', 'curiosity-engine', 'phone-a-team']) {
+  // OpenCode skills (active set after option C — phone-a-team was dropped)
+  for (const name of ['phone-a-friend', 'curiosity-engine']) {
     const skillDir = path.join(repo, 'skills', name);
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(
@@ -59,6 +60,11 @@ function makeRepo(): string {
       '---\ndescription: test command\n---\n',
     );
   }
+  // phone-a-team is Claude-only — has a command file but no OpenCode skill.
+  fs.writeFileSync(
+    path.join(commandsDir, 'phone-a-team.md'),
+    '---\nname: phone-a-team\ndescription: test claude command\n---\n',
+  );
   return repo;
 }
 
@@ -178,14 +184,16 @@ describe('installer constants', () => {
       expect(lines.some(l => l.includes('opencode_command:phone-a-friend'))).toBe(true);
       expect(lines.some(l => l.includes('opencode_skill:curiosity-engine'))).toBe(true);
       expect(lines.some(l => l.includes('opencode_command:curiosity-engine'))).toBe(true);
-      expect(lines.some(l => l.includes('opencode_skill:phone-a-team'))).toBe(true);
-      expect(lines.some(l => l.includes('opencode_command:phone-a-team'))).toBe(true);
+      // phone-a-team is Claude-only; must NOT be installed for OpenCode.
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && !l.includes('removed'))).toBe(false);
+      expect(fs.existsSync(opencodeSkillTarget('phone-a-team', opencodeHome))).toBe(false);
+      expect(fs.existsSync(opencodeCommandTarget('phone-a-team', opencodeHome))).toBe(false);
       expect(lines.some(l => l.includes('claude:'))).toBe(false);
     });
 
     it('uses skills/<name>/COMMAND.opencode.md as the OpenCode command source when present', () => {
-      // Add per-skill overlay for phone-a-team
-      const overlayPath = path.join(repo, 'skills', 'phone-a-team', 'COMMAND.opencode.md');
+      // Add per-skill overlay for phone-a-friend (any active OpenCode skill works).
+      const overlayPath = path.join(repo, 'skills', 'phone-a-friend', 'COMMAND.opencode.md');
       fs.writeFileSync(overlayPath, '---\ndescription: opencode overlay\n---\nuse the skill\n');
 
       installHosts({
@@ -197,19 +205,19 @@ describe('installer constants', () => {
         syncClaudeCli: false,
       });
 
-      const phoneATeamCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
       const phoneAFriendCmd = opencodeCommandTarget('phone-a-friend', opencodeHome);
+      const curiosityCmd = opencodeCommandTarget('curiosity-engine', opencodeHome);
 
-      // phone-a-team uses the overlay
-      expect(fs.realpathSync(phoneATeamCmd)).toBe(fs.realpathSync(overlayPath));
-      // phone-a-friend (no overlay) still uses commands/<name>.md
-      expect(fs.realpathSync(phoneAFriendCmd)).toBe(
-        fs.realpathSync(path.join(repo, 'commands', 'phone-a-friend.md')),
+      // phone-a-friend uses the overlay
+      expect(fs.realpathSync(phoneAFriendCmd)).toBe(fs.realpathSync(overlayPath));
+      // curiosity-engine (no overlay) still uses commands/<name>.md
+      expect(fs.realpathSync(curiosityCmd)).toBe(
+        fs.realpathSync(path.join(repo, 'commands', 'curiosity-engine.md')),
       );
     });
 
     it('migrates a stale OpenCode command symlink that points into the same repo', () => {
-      // Simulate prior install: command symlink → commands/phone-a-team.md
+      // Simulate prior install: command symlink → commands/phone-a-friend.md
       installHosts({
         repoRoot: repo,
         target: 'opencode',
@@ -218,14 +226,14 @@ describe('installer constants', () => {
         opencodeHome,
         syncClaudeCli: false,
       });
-      const cmdTarget = opencodeCommandTarget('phone-a-team', opencodeHome);
+      const cmdTarget = opencodeCommandTarget('phone-a-friend', opencodeHome);
       expect(fs.realpathSync(cmdTarget)).toBe(
-        fs.realpathSync(path.join(repo, 'commands', 'phone-a-team.md')),
+        fs.realpathSync(path.join(repo, 'commands', 'phone-a-friend.md')),
       );
 
-      // Now add the overlay and reinstall WITHOUT --force; the existing symlink
+      // Now add an overlay and reinstall WITHOUT --force; the existing symlink
       // points inside the repo (PaF-owned) so it should be auto-replaced.
-      const overlayPath = path.join(repo, 'skills', 'phone-a-team', 'COMMAND.opencode.md');
+      const overlayPath = path.join(repo, 'skills', 'phone-a-friend', 'COMMAND.opencode.md');
       fs.writeFileSync(overlayPath, '---\ndescription: opencode overlay\n---\nuse the skill\n');
 
       installHosts({
@@ -245,10 +253,10 @@ describe('installer constants', () => {
       // OpenCode command target at it. The installer should refuse to
       // overwrite without force, since this was not PaF-managed.
       const foreign = makeTempDir('paf-foreign-');
-      const foreignFile = path.join(foreign, 'phone-a-team.md');
+      const foreignFile = path.join(foreign, 'phone-a-friend.md');
       fs.writeFileSync(foreignFile, 'not ours\n');
 
-      const cmdTarget = opencodeCommandTarget('phone-a-team', opencodeHome);
+      const cmdTarget = opencodeCommandTarget('phone-a-friend', opencodeHome);
       fs.mkdirSync(path.dirname(cmdTarget), { recursive: true });
       fs.symlinkSync(foreignFile, cmdTarget);
 
@@ -266,6 +274,33 @@ describe('installer constants', () => {
       } finally {
         try { fs.rmSync(foreign, { recursive: true, force: true }); } catch {}
       }
+    });
+
+    it('removes legacy phone-a-team artifacts from prior OpenCode installs', () => {
+      // Simulate a user who previously had phone-a-team installed for OpenCode
+      // (skill dir + command file under ~/.config/opencode/...). The installer
+      // should remove both on the next plugin update --opencode, even though
+      // phone-a-team is no longer in the active OpenCode set.
+      const legacySkillDir = opencodeSkillTarget('phone-a-team', opencodeHome);
+      const legacyCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
+      fs.mkdirSync(legacySkillDir, { recursive: true });
+      fs.writeFileSync(path.join(legacySkillDir, 'SKILL.md'), '---\nname: phone-a-team\ndescription: legacy\n---\n');
+      fs.mkdirSync(path.dirname(legacyCmd), { recursive: true });
+      fs.writeFileSync(legacyCmd, '---\ndescription: legacy\n---\n');
+
+      const lines = installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+
+      expect(fs.existsSync(legacySkillDir)).toBe(false);
+      expect(fs.existsSync(legacyCmd)).toBe(false);
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && l.includes('removed'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-team') && l.includes('removed'))).toBe(true);
     });
 
   it('raises when destination exists and force is false', () => {
@@ -569,7 +604,7 @@ describe('isOpenCodeInstalled', () => {
       syncClaudeCli: false,
     });
 
-    fs.rmSync(opencodeCommandTarget('phone-a-team', opencodeHome), { force: true });
+    fs.rmSync(opencodeCommandTarget('phone-a-friend', opencodeHome), { force: true });
     expect(isOpenCodeInstalled(opencodeHome)).toBe(false);
 
     fs.rmSync(repo, { recursive: true, force: true });

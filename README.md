@@ -113,7 +113,7 @@ Build a team with Claude and Ollama. Have them review the website copy,
 loop through 3 rounds, and converge on final suggestions.
 ```
 
-No slash commands needed. Once the host integration is installed (the setup wizard can do this automatically), Claude Code and OpenCode can load the `/phone-a-friend` and `/phone-a-team` entrypoints. Mention one backend and the host routes through `/phone-a-friend`; mention multiple and it can use `/phone-a-team` for iterative refinement. You can also invoke either command explicitly.
+No slash commands needed. Once the host integration is installed (the setup wizard can do this automatically), the host routes through `/phone-a-friend` for single-backend tasks. In Claude Code, mention multiple backends and Claude can use `/phone-a-team` for iterative multi-agent refinement; that command is Claude-only because it depends on Claude Agent Teams primitives. In OpenCode, run multiple `/phone-a-friend` calls for the same effect. You can also invoke either command explicitly.
 
 > [!TIP]
 > **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
