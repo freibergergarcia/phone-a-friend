@@ -203,6 +203,7 @@ function uninstallAction(opts: {
         : 'claude';
   const lines = uninstallHosts({
     target: target as 'claude' | 'opencode' | 'all',
+    repoRoot: repoRootDefault(),
     claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
   });
   for (const line of lines) console.log(line);

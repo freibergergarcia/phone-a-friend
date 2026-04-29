@@ -465,16 +465,40 @@ function uninstallClaude(claudeHome?: string): { status: string; targetPath: str
   return { status: uninstallPath(target), targetPath: target };
 }
 
-function uninstallOpenCode(opencodeHome?: string): string[] {
+function uninstallOpenCode(opencodeHome?: string, repoRoot?: string): string[] {
   const lines: string[] = [];
-  // Remove the active set and any legacy artifacts together so a single
-  // `plugin uninstall --opencode` leaves no PaF files behind.
-  for (const name of [...OPENCODE_SKILLS, ...OPENCODE_LEGACY_SKILLS]) {
+  // Active skills (phone-a-friend, curiosity-engine): the user explicitly
+  // opted to uninstall PaF's OpenCode integration, so remove unconditionally.
+  for (const name of OPENCODE_SKILLS) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
 
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
     lines.push(`- opencode_command:${name}: ${uninstallPath(commandTarget)}`);
+  }
+  // Legacy skills (phone-a-team): preserve user-authored files. Only remove
+  // when ownership can be verified (PaF symlink into the current repo). If
+  // we can't verify ownership (no repoRoot, or the file is a plain user
+  // file), keep it and surface a "kept" log line.
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy)`);
+    } else if (existsSync(skillTarget) || isSymlink(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_skill:${name}: not-installed`);
+    }
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy)`);
+    } else if (existsSync(commandTarget) || isSymlink(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_command:${name}: not-installed`);
+    }
   }
   return lines;
 }
@@ -600,6 +624,12 @@ export interface UninstallOptions {
   claudeHome?: string;
   opencodeHome?: string;
   /**
+   * Repo root for PaF-ownership checks during legacy-skill cleanup. Optional;
+   * if absent, legacy artifacts at the user's path are preserved (safer
+   * default than deleting unverified files).
+   */
+  repoRoot?: string;
+  /**
    * Controls whether marketplace registration is removed during uninstall.
    * - 'auto' (default): skip unsync when marketplace has a remote source (github/npm/git),
    *   proceed when local/directory or not registered.
@@ -610,7 +640,7 @@ export interface UninstallOptions {
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome, opencodeHome, claudeCliUnsync = 'auto' } = opts;
+  const { target, claudeHome, opencodeHome, repoRoot, claudeCliUnsync = 'auto' } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -627,7 +657,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
   }
 
   if (shouldUninstallOpenCode) {
-    lines.push(...uninstallOpenCode(opencodeHome));
+    lines.push(...uninstallOpenCode(opencodeHome, repoRoot));
   }
 
   if (!shouldUninstallClaude) {

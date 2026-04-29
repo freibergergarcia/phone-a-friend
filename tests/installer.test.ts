@@ -536,6 +536,68 @@ describe('uninstallHosts', () => {
     expect(lines.some(l => l.includes('not-installed'))).toBe(true);
   });
 
+  it('preserves user-authored phone-a-team files on uninstall --opencode', () => {
+    // Same safety property as the install-time legacy cleanup: a user who
+    // hand-authored their own phone-a-team skill must not lose it when they
+    // run `phone-a-friend plugin uninstall --opencode`.
+    const opencodeHome = makeHome();
+    try {
+      const userSkillDir = opencodeSkillTarget('phone-a-team', opencodeHome);
+      const userCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
+      fs.mkdirSync(userSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(userSkillDir, 'SKILL.md'), '---\nname: phone-a-team\ndescription: my own version\n---\n');
+      fs.mkdirSync(path.dirname(userCmd), { recursive: true });
+      fs.writeFileSync(userCmd, '---\ndescription: my own version\n---\n');
+
+      const lines = uninstallHosts({
+        target: 'opencode',
+        opencodeHome,
+        repoRoot: repo,
+      });
+
+      expect(fs.existsSync(userSkillDir)).toBe(true);
+      expect(fs.existsSync(userCmd)).toBe(true);
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && l.includes('kept'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-team') && l.includes('kept'))).toBe(true);
+    } finally {
+      try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('removes PaF-owned legacy phone-a-team symlinks on uninstall --opencode', () => {
+    const opencodeHome = makeHome();
+    try {
+      const legacySkillDir = opencodeSkillTarget('phone-a-team', opencodeHome);
+      const legacyCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
+      // Source files inside the test repo, then deleted to simulate the
+      // post-option-C broken-symlink state.
+      const fakeSkillSource = path.join(repo, 'skills', 'phone-a-team');
+      const fakeCmdSource = path.join(repo, 'commands', 'phone-a-team-uninstall.md');
+      fs.mkdirSync(fakeSkillSource, { recursive: true });
+      fs.writeFileSync(path.join(fakeSkillSource, 'SKILL.md'), 'legacy');
+      fs.writeFileSync(fakeCmdSource, 'legacy');
+      fs.mkdirSync(path.dirname(legacySkillDir), { recursive: true });
+      fs.symlinkSync(fakeSkillSource, legacySkillDir);
+      fs.mkdirSync(path.dirname(legacyCmd), { recursive: true });
+      fs.symlinkSync(fakeCmdSource, legacyCmd);
+      fs.rmSync(fakeSkillSource, { recursive: true, force: true });
+      fs.rmSync(fakeCmdSource, { force: true });
+
+      const lines = uninstallHosts({
+        target: 'opencode',
+        opencodeHome,
+        repoRoot: repo,
+      });
+
+      expect(() => fs.lstatSync(legacySkillDir)).toThrow();
+      expect(() => fs.lstatSync(legacyCmd)).toThrow();
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && l.includes('removed'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-team') && l.includes('removed'))).toBe(true);
+    } finally {
+      try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+    }
+  });
+
   it('raises on invalid target', () => {
     expect(() =>
       uninstallHosts({ target: 'invalid' as 'claude' }),

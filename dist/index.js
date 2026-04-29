@@ -6752,13 +6752,33 @@ function uninstallClaude(claudeHome) {
   const target = claudeTarget(claudeHome);
   return { status: uninstallPath(target), targetPath: target };
 }
-function uninstallOpenCode(opencodeHome) {
+function uninstallOpenCode(opencodeHome, repoRoot) {
   const lines = [];
-  for (const name of [...OPENCODE_SKILLS, ...OPENCODE_LEGACY_SKILLS]) {
+  for (const name of OPENCODE_SKILLS) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
     lines.push(`- opencode_command:${name}: ${uninstallPath(commandTarget)}`);
+  }
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy)`);
+    } else if (existsSync6(skillTarget) || isSymlink(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_skill:${name}: not-installed`);
+    }
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy)`);
+    } else if (existsSync6(commandTarget) || isSymlink(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_command:${name}: not-installed`);
+    }
   }
   return lines;
 }
@@ -6833,7 +6853,7 @@ function installHosts(opts) {
   return lines;
 }
 function uninstallHosts(opts) {
-  const { target, claudeHome, opencodeHome, claudeCliUnsync = "auto" } = opts;
+  const { target, claudeHome, opencodeHome, repoRoot, claudeCliUnsync = "auto" } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
   }
@@ -6845,7 +6865,7 @@ function uninstallHosts(opts) {
     lines.push(`- claude: ${status}`);
   }
   if (shouldUninstallOpenCode) {
-    lines.push(...uninstallOpenCode(opencodeHome));
+    lines.push(...uninstallOpenCode(opencodeHome, repoRoot));
   }
   if (!shouldUninstallClaude) {
     return lines;
@@ -80894,6 +80914,7 @@ function uninstallAction(opts) {
   const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = uninstallHosts({
     target,
+    repoRoot: repoRootDefault(),
     claudeCliUnsync: opts.purgeMarketplace ? "always" : "auto"
   });
   for (const line of lines) console.log(line);
