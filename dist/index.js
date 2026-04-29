@@ -6459,13 +6459,14 @@ import {
   lstatSync,
   mkdirSync as mkdirSync4,
   readFileSync as readFileSync7,
+  readlinkSync,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync as unlinkSync2
 } from "fs";
-import { resolve as resolve3, join as join5, dirname as dirname5, sep } from "path";
+import { resolve as resolve3, join as join5, dirname as dirname5, isAbsolute, sep } from "path";
 import { homedir as homedir4 } from "os";
 function ensureParent(filePath) {
   mkdirSync4(dirname5(filePath), { recursive: true });
@@ -6651,12 +6652,31 @@ function opencodeCommandSource(repoRoot, name) {
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
+  let realRepo;
   try {
-    const realTarget = realpathSync(target);
-    const realRepo = realpathSync(repoRoot);
-    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+    realRepo = realpathSync(repoRoot);
   } catch {
     return false;
+  }
+  try {
+    const realTarget = realpathSync(target);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    try {
+      const link2 = readlinkSync(target);
+      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname5(target), link2);
+      let probe = absLink;
+      while (probe !== dirname5(probe)) {
+        if (existsSync6(probe)) {
+          const realProbe = realpathSync(probe);
+          return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
+        }
+        probe = dirname5(probe);
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 }
 function isPluginInstalled(claudeHome) {
@@ -6688,13 +6708,17 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
   for (const name of OPENCODE_LEGACY_SKILLS) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
-    if (existsSync6(skillTarget) || isSymlink(skillTarget)) {
+    if (isStalePafSymlink(skillTarget, repoRoot)) {
       removePath(skillTarget);
       lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync6(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
-    if (existsSync6(commandTarget) || isSymlink(commandTarget)) {
+    if (isStalePafSymlink(commandTarget, repoRoot)) {
       removePath(commandTarget);
       lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync6(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
   }
   for (const name of OPENCODE_SKILLS) {
@@ -77659,8 +77683,7 @@ function normalizeOpenCodeModel(model, provider = "ollama") {
   return model.includes("/") ? model : `${provider}/${model}`;
 }
 function isOpenCodeHostEnv(env3) {
-  if (env3.PHONE_A_FRIEND_HOST?.toLowerCase() === "opencode") return true;
-  return Object.keys(env3).some((key) => key.toUpperCase().startsWith("OPENCODE_"));
+  return env3.PHONE_A_FRIEND_HOST?.toLowerCase() === "opencode";
 }
 function assertNotOpenCodeHost(env3) {
   if (!isOpenCodeHostEnv(env3)) return;
@@ -80826,6 +80849,13 @@ function installAction(opts) {
     }
     if (opts.repoRoot) {
       console.error("Error: --repo-root is not compatible with --github");
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.opencode || opts.all) {
+      console.error(
+        "Error: --github only applies to Claude Code; OpenCode has no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` separately."
+      );
       process.exitCode = 1;
       return;
     }

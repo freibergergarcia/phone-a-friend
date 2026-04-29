@@ -592,6 +592,25 @@ describe('CLI', () => {
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
   });
 
+  it('plugin install --github rejects --opencode (no marketplace for OpenCode)', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--opencode']);
+    });
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(stderr).toContain('OpenCode has no marketplace');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --all (would silently skip OpenCode)', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--all']);
+    });
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
   it('install --github works via backward-compat alias', async () => {
     const { stdout } = await captureOutputAsync(async () => {
       const code = await run(['install', '--github']);

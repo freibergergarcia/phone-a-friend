@@ -61,12 +61,15 @@ interface OpenCodeRunArgsOptions {
 }
 
 export function isOpenCodeHostEnv(env: Record<string, string | undefined>): boolean {
-  if (env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'opencode') return true;
-
-  // Best-effort fallback for direct shell invocations from OpenCode. The
-  // installer shim sets PHONE_A_FRIEND_HOST explicitly; OPENCODE_* is only a
-  // convenience for environments that expose it.
-  return Object.keys(env).some(key => key.toUpperCase().startsWith('OPENCODE_'));
+  // Block only on the explicit marker. The OpenCode install shims set
+  // PHONE_A_FRIEND_HOST=opencode when invoking PaF; that's the reliable
+  // signal under our control.
+  //
+  // We previously also matched any env var prefixed with OPENCODE_ as a
+  // best-effort fallback, but it produced false positives for users with
+  // OPENCODE_SERVER_PASSWORD or similar in their shell rc, blocking
+  // legitimate `phone-a-friend --to opencode` calls from a regular terminal.
+  return env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'opencode';
 }
 
 function assertNotOpenCodeHost(env: Record<string, string>): void {

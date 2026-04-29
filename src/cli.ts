@@ -124,6 +124,15 @@ function installAction(opts: {
       process.exitCode = 1;
       return;
     }
+    if (opts.opencode || opts.all) {
+      console.error(
+        'Error: --github only applies to Claude Code; OpenCode has no marketplace. ' +
+          'Run `phone-a-friend plugin install --github` for Claude, then ' +
+          '`phone-a-friend plugin install --opencode` separately.',
+      );
+      process.exitCode = 1;
+      return;
+    }
     // GitHub marketplace flow
     const lines = ['phone-a-friend installer (GitHub marketplace)'];
     lines.push(...installFromGitHubMarketplace());

@@ -10,13 +10,14 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
   cpSync,
   unlinkSync,
 } from 'node:fs';
-import { resolve, join, dirname, sep } from 'node:path';
+import { resolve, join, dirname, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 
@@ -317,12 +318,37 @@ export function opencodeCommandSource(repoRoot: string, name: string): string {
  */
 function isStalePafSymlink(target: string, repoRoot: string): boolean {
   if (!isSymlink(target)) return false;
+  let realRepo: string;
   try {
-    const realTarget = realpathSync(target);
-    const realRepo = realpathSync(repoRoot);
-    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+    realRepo = realpathSync(repoRoot);
   } catch {
     return false;
+  }
+  // Valid symlink: resolve and compare.
+  try {
+    const realTarget = realpathSync(target);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    // Symlink target may be deleted (e.g. after option C removed the
+    // phone-a-team source files). Fall back to reading the literal symlink
+    // path and walk up until we find an existing parent we can realpath.
+    // This handles macOS path aliases like /var → /private/var that would
+    // otherwise foil a string-prefix comparison.
+    try {
+      const link = readlinkSync(target);
+      const absLink = isAbsolute(link) ? link : resolve(dirname(target), link);
+      let probe = absLink;
+      while (probe !== dirname(probe)) {
+        if (existsSync(probe)) {
+          const realProbe = realpathSync(probe);
+          return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
+        }
+        probe = dirname(probe);
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -380,16 +406,24 @@ function installOpenCode(
   // Auto-clean legacy artifacts before installing the active set, so users
   // who previously had a now-dropped skill (e.g. phone-a-team) don't keep
   // stale files in ~/.config/opencode/.
+  //
+  // Only remove PaF-owned symlinks. User-authored files at the same path
+  // (e.g. someone manually wrote their own phone-a-team skill for OpenCode)
+  // are left alone — silently deleting them would be surprising.
   for (const name of OPENCODE_LEGACY_SKILLS) {
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
     const commandTarget = opencodeCommandTarget(name, opencodeHome);
-    if (existsSync(skillTarget) || isSymlink(skillTarget)) {
+    if (isStalePafSymlink(skillTarget, repoRoot)) {
       removePath(skillTarget);
       lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
-    if (existsSync(commandTarget) || isSymlink(commandTarget)) {
+    if (isStalePafSymlink(commandTarget, repoRoot)) {
       removePath(commandTarget);
       lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
   }
 

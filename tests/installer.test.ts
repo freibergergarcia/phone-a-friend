@@ -276,17 +276,28 @@ describe('installer constants', () => {
       }
     });
 
-    it('removes legacy phone-a-team artifacts from prior OpenCode installs', () => {
-      // Simulate a user who previously had phone-a-team installed for OpenCode
-      // (skill dir + command file under ~/.config/opencode/...). The installer
-      // should remove both on the next plugin update --opencode, even though
-      // phone-a-team is no longer in the active OpenCode set.
+    it('removes legacy phone-a-team symlinks from prior OpenCode installs (PaF-owned)', () => {
+      // Simulate a user whose previous PaF install symlinked phone-a-team
+      // into ~/.config/opencode/. After option C those source files no longer
+      // exist in the repo, leaving broken symlinks. The cleanup pass should
+      // remove them.
       const legacySkillDir = opencodeSkillTarget('phone-a-team', opencodeHome);
       const legacyCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
-      fs.mkdirSync(legacySkillDir, { recursive: true });
-      fs.writeFileSync(path.join(legacySkillDir, 'SKILL.md'), '---\nname: phone-a-team\ndescription: legacy\n---\n');
+      // Source files we'll point at, then delete to simulate the post-option-C
+      // state where the symlinks are broken.
+      const fakeSkillSource = path.join(repo, 'skills', 'phone-a-team');
+      const fakeCmdSource = path.join(repo, 'commands', 'phone-a-team-legacy.md');
+      fs.mkdirSync(fakeSkillSource, { recursive: true });
+      fs.writeFileSync(path.join(fakeSkillSource, 'SKILL.md'), 'legacy');
+      fs.writeFileSync(fakeCmdSource, 'legacy');
+      // Create the user's existing PaF-owned symlinks.
+      fs.mkdirSync(path.dirname(legacySkillDir), { recursive: true });
+      fs.symlinkSync(fakeSkillSource, legacySkillDir);
       fs.mkdirSync(path.dirname(legacyCmd), { recursive: true });
-      fs.writeFileSync(legacyCmd, '---\ndescription: legacy\n---\n');
+      fs.symlinkSync(fakeCmdSource, legacyCmd);
+      // Now delete the source files to simulate the broken-symlink case.
+      fs.rmSync(fakeSkillSource, { recursive: true, force: true });
+      fs.rmSync(fakeCmdSource, { force: true });
 
       const lines = installHosts({
         repoRoot: repo,
@@ -297,10 +308,40 @@ describe('installer constants', () => {
         syncClaudeCli: false,
       });
 
-      expect(fs.existsSync(legacySkillDir)).toBe(false);
-      expect(fs.existsSync(legacyCmd)).toBe(false);
+      // Symlinks themselves should be gone (even though their targets were
+      // already deleted — fs.lstat on a removed symlink throws ENOENT).
+      expect(() => fs.lstatSync(legacySkillDir)).toThrow();
+      expect(() => fs.lstatSync(legacyCmd)).toThrow();
       expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && l.includes('removed'))).toBe(true);
       expect(lines.some(l => l.includes('opencode_command:phone-a-team') && l.includes('removed'))).toBe(true);
+    });
+
+    it('preserves user-authored phone-a-team files (not PaF-owned)', () => {
+      // A user might manually author their own phone-a-team skill for OpenCode
+      // (e.g. a homemade portable team workflow). PaF must not silently delete
+      // their work during the legacy cleanup pass.
+      const userSkillDir = opencodeSkillTarget('phone-a-team', opencodeHome);
+      const userCmd = opencodeCommandTarget('phone-a-team', opencodeHome);
+      fs.mkdirSync(userSkillDir, { recursive: true });
+      fs.writeFileSync(path.join(userSkillDir, 'SKILL.md'), '---\nname: phone-a-team\ndescription: my own version\n---\n');
+      fs.mkdirSync(path.dirname(userCmd), { recursive: true });
+      fs.writeFileSync(userCmd, '---\ndescription: my own version\n---\n');
+
+      const lines = installHosts({
+        repoRoot: repo,
+        target: 'opencode',
+        mode: 'symlink',
+        force: false,
+        opencodeHome,
+        syncClaudeCli: false,
+      });
+
+      // Files survive untouched.
+      expect(fs.existsSync(userSkillDir)).toBe(true);
+      expect(fs.existsSync(userCmd)).toBe(true);
+      // Cleanup logs a "kept" line so users see what happened.
+      expect(lines.some(l => l.includes('opencode_skill:phone-a-team') && l.includes('kept'))).toBe(true);
+      expect(lines.some(l => l.includes('opencode_command:phone-a-team') && l.includes('kept'))).toBe(true);
     });
 
   it('raises when destination exists and force is false', () => {
