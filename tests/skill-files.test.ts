@@ -58,6 +58,17 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toContain('successful cleanup must be followed immediately by final text');
     expect(file).not.toContain('shutdown_response');
   });
+
+  it('instructs workers to exit after approving shutdown', () => {
+    // Belt-and-suspenders for models that interpret "approve" as plain-text "OK".
+    // Without an explicit exit instruction, a teammate could acknowledge and hang.
+    // Asserts the phrase appears in BOTH WORKER blocks (helper-mode + direct-mode);
+    // a regression that loses one block would otherwise pass with a single occurrence.
+    const occurrences = file.match(/exit your process/g) ?? [];
+    expect(occurrences.length).toBe(2);
+    expect(file).toContain('stay active waiting for follow-up');
+    expect(file).toContain('shutdown response unless explicitly recovering');
+  });
 });
 
 describe('OpenCode does not ship a phone-a-team skill', () => {

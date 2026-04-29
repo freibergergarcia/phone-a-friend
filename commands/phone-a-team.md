@@ -359,9 +359,9 @@ command:
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
    SHUTDOWN: When the team lead asks you to shut down, approve the native
-   Claude Code Agent Teams shutdown request. Do not invent a custom
-   shutdown JSON protocol; use the built-in Agent Teams shutdown approval
-   flow.
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
    ```
 
    **Direct mode** (`RELAY_MODE = direct`):
@@ -381,9 +381,9 @@ command:
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
    SHUTDOWN: When the team lead asks you to shut down, approve the native
-   Claude Code Agent Teams shutdown request. Do not invent a custom
-   shutdown JSON protocol; use the built-in Agent Teams shutdown approval
-   flow.
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
    ```
 
    Where `<direct-command>` is the backend-specific command from the "Direct
