@@ -53,7 +53,7 @@ npm install -g @freibergergarcia/phone-a-friend
 phone-a-friend    # first run shows a guided menu — choose Setup
 ```
 
-The setup wizard detects your backends, installs detected host integrations, and verifies everything works.
+The setup wizard detects your backends, offers to install detected host integrations, and verifies everything works.
 
 **Claude Code marketplace (commands and skills only):**
 
@@ -113,7 +113,7 @@ Build a team with Claude and Ollama. Have them review the website copy,
 loop through 3 rounds, and converge on final suggestions.
 ```
 
-No slash commands needed. Once the host integration is installed (the setup wizard can do this automatically), the host routes through `/phone-a-friend` for single-backend tasks. In Claude Code, mention multiple backends and Claude can use `/phone-a-team` for iterative multi-agent refinement; that command is Claude-only because it depends on Claude Agent Teams primitives. In OpenCode, run multiple `/phone-a-friend` calls for the same effect. You can also invoke either command explicitly.
+No slash commands needed. Once the host integration is installed (the setup wizard offers to do this), the host can route single-backend tasks through `/phone-a-friend`. In Claude Code, mention multiple backends and Claude can use `/phone-a-team` for iterative multi-agent refinement; `/phone-a-team` is Claude-only because it depends on Claude Agent Teams primitives. In OpenCode, use repeated `/phone-a-friend` calls and synthesize the results manually. You can explicitly invoke `/phone-a-friend` in both hosts, and `/phone-a-team` in Claude Code only.
 
 > [!TIP]
 > **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
@@ -156,7 +156,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work reliably with Claude, Codex, and OpenCode. Ollama replays history (may hit token limits on long conversations). Gemini session resume is best-effort.
+Sessions work reliably with Claude, Codex, and OpenCode. Ollama replays history (may hit token limits on long conversations). Gemini sessions are currently unsupported.
 
 ### Job tracking
 

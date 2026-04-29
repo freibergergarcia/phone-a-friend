@@ -199,6 +199,7 @@ phone-a-friend --to codex --prompt "..." --base develop # Review against specifi
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
+phone-a-friend --prompt "..." --no-include-diff        # Do not append git diff, overriding defaults.include_diff
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
@@ -340,10 +341,7 @@ Marketplace install provides Claude Code integration only (slash commands and sk
 For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
 
-OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or
-symlinks the canonical `skills/<name>/SKILL.md` directories plus `commands/*.md`
-shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`
-respectively, honoring `$XDG_CONFIG_HOME`.
+OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is Claude-only.
 
 ## Job tracking
 
