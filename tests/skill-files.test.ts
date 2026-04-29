@@ -49,6 +49,15 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toContain('--to codex,gemini');
     expect(file).toMatch(/`--backend`[^\n]*not a PaF flag/);
   });
+
+  it('uses native Agent Teams shutdown semantics', () => {
+    expect(file).toContain('shutdown_approved');
+    expect(file).toContain('Do NOT poll `~/.claude/teams/<team-name>/`');
+    expect(file).toContain('Do not use Bash `ls`, `grep`,');
+    expect(file).toContain('only cleanup wait allowed');
+    expect(file).toContain('successful cleanup must be followed immediately by final text');
+    expect(file).not.toContain('shutdown_response');
+  });
 });
 
 describe('OpenCode does not ship a phone-a-team skill', () => {

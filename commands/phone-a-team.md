@@ -358,9 +358,10 @@ command:
    - Whether the command succeeded or failed (exit code)
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
-   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
-   respond using SendMessage with type: "shutdown_response", request_id from
-   the message, and approve: true. Do NOT just say "shutting down" in text.
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request. Do not invent a custom
+   shutdown JSON protocol; use the built-in Agent Teams shutdown approval
+   flow.
    ```
 
    **Direct mode** (`RELAY_MODE = direct`):
@@ -379,9 +380,10 @@ command:
    - Whether the command succeeded or failed (exit code)
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
-   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
-   respond using SendMessage with type: "shutdown_response", request_id from
-   the message, and approve: true. Do NOT just say "shutting down" in text.
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request. Do not invent a custom
+   shutdown JSON protocol; use the built-in Agent Teams shutdown approval
+   flow.
    ```
 
    Where `<direct-command>` is the backend-specific command from the "Direct
@@ -683,17 +685,31 @@ ended (convergence, forced stop, abort, error, or user interruption).
 **Execute cleanup BEFORE presenting the final synthesis** so that teams are
 never left orphaned if the session ends after synthesis.
 
-1. Send `shutdown_request` to each teammate in WORKERS via `SendMessage`
-   with `type: "shutdown_request"`.
-2. Wait up to 30 seconds for `shutdown_response` confirmations (must be
-   tool calls, not plain text acknowledgments).
-3. If a teammate responds in plain text instead of using the
-   `shutdown_response` tool, resend the `shutdown_request` with explicit
-   instructions to use `SendMessage` with `type: "shutdown_response"`.
+1. Ask each teammate in WORKERS to shut down via `SendMessage`. Use natural
+   language and let Claude Code's native Agent Teams shutdown flow handle
+   approval.
+2. Wait up to 30 seconds for native shutdown confirmation messages, but stop
+   waiting as soon as every teammate has either approved or rejected
+   shutdown. Treat `shutdown_approved` as success. If a teammate rejects
+   shutdown, reports that it is still working, or does not respond, continue
+   to the next step after the timeout.
+3. Do NOT poll `~/.claude/teams/<team-name>/`, `config.json`, inbox files,
+   tmux pane state, or any other Claude-managed runtime state waiting for a
+   teammate or team directory to disappear. Do not use Bash `ls`, `grep`,
+   `test`, `sleep`, or `until` loops for cleanup verification. The docs
+   describe team files as runtime state that Claude Code manages; polling
+   them can hang in in-process mode.
 4. Call `TeamDelete` to remove the team and its task list.
-5. If `TeamDelete` fails due to active members, do NOT kill tmux panes
+5. If `TeamDelete` fails due to active members, wait 15 seconds and retry
+   `TeamDelete` once. This explicit retry is the only cleanup wait allowed
+   after shutdown confirmations arrive. If it still fails, do NOT kill tmux panes
    from the lead session (this can kill the lead). Instead, inform the
    user and suggest they manually run: `tmux kill-session -t <name>`
+6. After `TeamDelete` returns or the team is otherwise gone, immediately
+   continue to Step 9 and present the final synthesis. Do not wait for any
+   additional Agent Teams acknowledgement, runtime-state change, file-system
+   change, background command, or model reflection step. In non-interactive
+   print mode, successful cleanup must be followed immediately by final text.
 
 If a teammate does not respond to the shutdown request within 30 seconds
 (even after a retry), proceed with `TeamDelete` anyway. Do not leave
