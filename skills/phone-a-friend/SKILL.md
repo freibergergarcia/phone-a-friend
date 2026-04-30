@@ -38,18 +38,23 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
   subcommands (e.g. `phone-a-friend phone-a-team`).
 - `--backend` is a `/phone-a-team` skill argument (Claude only), not a PaF
   CLI flag. Do not pass `--backend` to `phone-a-friend`.
-- When running inside OpenCode, prefix relay invocations with
-  `PHONE_A_FRIEND_HOST=opencode` so PaF can deterministically detect the
-  host (recursion guard).
+- When running inside OpenCode, always prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=opencode` (recursion guard) AND
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` (diff suppression that works on
+  every shipped binary version). Do NOT use the `$PAF_NO_DIFF`
+  probe-and-gate pattern from OpenCode — small host models skip the
+  probe and inline `--no-include-diff` literally, which fails on stale
+  CLIs. The probe-and-gate is reserved for the rich orchestrator path
+  (Claude Code / capable orchestrators).
 
 For example, from OpenCode:
 
 ```bash
-PHONE_A_FRIEND_HOST=opencode phone-a-friend --to codex --repo "$PWD" --prompt "Give a short sanity review of this repo. Do not edit files." --timeout 300 --no-stream --fast $PAF_NO_DIFF
+PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
+  phone-a-friend --to codex --repo "$PWD" \
+  --prompt "Give a short sanity review of this repo. Do not edit files." \
+  --timeout 300 --no-stream --fast
 ```
-
-`$PAF_NO_DIFF` comes from the version-tolerant probe in "Diff suppression"
-below.
 
 ## Inputs
 
@@ -58,8 +63,12 @@ below.
 ## Host awareness
 
 PaF blocks accidental `OpenCode -> phone-a-friend --to opencode -> OpenCode`
-recursion internally when it can detect OpenCode as the host. You do not need
-to add a host marker for normal `codex`, `gemini`, `claude`, or `ollama` calls.
+recursion using the `PHONE_A_FRIEND_HOST=opencode` environment marker.
+When running from OpenCode, **always** set this marker on every relay
+invocation so the recursion guard fires deterministically — the OpenCode
+install shims set it automatically, but be explicit when constructing
+commands by hand. From Claude Code or other hosts, the marker is not
+needed.
 
 When running from OpenCode, do not select `opencode` as the friend backend.
 Choose `codex`, `gemini`, `claude`, or `ollama`.

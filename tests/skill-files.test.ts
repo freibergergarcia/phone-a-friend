@@ -214,6 +214,31 @@ describe('Phone-a-friend skill (skills/phone-a-friend/SKILL.md)', () => {
   it('prescribes PHONE_A_FRIEND_HOST=opencode for OpenCode invocations', () => {
     expect(file).toContain('PHONE_A_FRIEND_HOST=opencode');
   });
+
+  it('"from OpenCode" example uses env-var, not the probe gate', () => {
+    // The shim delegates into this skill. If a small model loads the skill
+    // and copies the "from OpenCode" example verbatim, the example MUST
+    // use PHONE_A_FRIEND_INCLUDE_DIFF=false (universal across binaries),
+    // NOT $PAF_NO_DIFF (requires the probe to be run first — which small
+    // models skip, see the OpenCode smoke test history).
+    //
+    // Locate the "For example, from OpenCode" code fence and check it.
+    const match = file.match(/For example, from OpenCode:\s*\n\s*```bash\n([\s\S]*?)\n```/);
+    expect(match).toBeTruthy();
+    const example = match![1];
+    expect(example).toContain('PHONE_A_FRIEND_HOST=opencode');
+    expect(example).toContain('PHONE_A_FRIEND_INCLUDE_DIFF=false');
+    expect(example).not.toContain('$PAF_NO_DIFF');
+    expect(example).not.toMatch(/(?<!`)--no-include-diff/);
+  });
+
+  it('explicitly tells OpenCode users NOT to use the probe-and-gate pattern', () => {
+    // Without this, small host models reading the rich workflow's probe
+    // section may copy that pattern back into their relays and re-introduce
+    // the smoke-test failure. Pin a host-aware steer.
+    // (\s allows the prose line wrap between `$PAF_NO_DIFF` and "from OpenCode".)
+    expect(file).toMatch(/Do (?:NOT|not) use[\s\S]{0,60}\$PAF_NO_DIFF[\s\S]{0,60}from OpenCode/);
+  });
 });
 
 describe('Curiosity-engine skill (skills/curiosity-engine/SKILL.md)', () => {
