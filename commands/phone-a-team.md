@@ -155,21 +155,38 @@ default. PaF reads `defaults.include_diff` from user config; if a user has
 that set to `true`, every relay would silently leak the full git diff into
 every backend, which is surprising for general tasks.
 
-Pass `--no-include-diff` on every PaF relay command this skill issues, unless
-the user explicitly asked for one of:
+Suppress the diff on every relay this skill issues, unless the user
+explicitly asked for one of:
 
 - a code review of current changes
 - a review of the current diff, branch, or staged changes
 - a sanity check against the diff
 - "what's wrong with my changes?" or similar
 
-When the user did ask for a diff-scoped review, pass `--include-diff` instead
-(and prefer `--review` for branch-level reviews).
+When the user did ask for a diff-scoped review, swap suppression for
+`--include-diff` instead (and prefer `--review` for branch-level reviews).
 
-Note: `--no-include-diff` is a CLI flag added in this version of PaF. If the
-binary in the user's PATH is older and rejects it, run `phone-a-friend
---version` to check, and fall back to setting
-`PHONE_A_FRIEND_INCLUDE_DIFF=false` as an env override.
+The cleanest suppression flag is `--no-include-diff`, added in
+phone-a-friend v2.2.0. Older binaries reject the flag with `unknown option
+'--no-include-diff'`. Probe once before spawning workers, then reuse the
+gate on every relay command in this session:
+
+```bash
+if phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'; then
+  PAF_NO_DIFF="--no-include-diff"
+else
+  export PHONE_A_FRIEND_INCLUDE_DIFF=false
+  PAF_NO_DIFF=""
+fi
+```
+
+Append `$PAF_NO_DIFF` to every binary-mode relay command (lead and worker)
+in this session. The env var fallback works in v1.7.2 and later; the
+explicit flag is preferred when available because it doesn't leak the
+override into worker child processes.
+
+Use `phone-a-friend --version` if you also need to surface the binary
+version to the user (e.g., when explaining why a flag was rejected).
 
 ## Step 2 — Preflight Check
 
@@ -334,14 +351,17 @@ command:
    Run this now:
 
    phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
-     [--context-text "<context>"] [--no-include-diff | --include-diff] \
+     [--context-text "<context>"] $PAF_NO_DIFF \
      [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
 
    Note: for `--to claude`, `--fast` has no effect.
 
-   Default to `--no-include-diff` per the "Diff inclusion policy" section
-   above. Use `--include-diff` only when the user explicitly asked for a
-   diff/branch/staged review.
+   `$PAF_NO_DIFF` comes from the probe in "Diff inclusion policy" above; it
+   resolves to `--no-include-diff` on new binaries and to an empty string on
+   older ones (with `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported). Pass it
+   through to every worker so the lead-side fallback applies uniformly.
+   Swap `$PAF_NO_DIFF` for `--include-diff` only when the user explicitly
+   asked for a diff/branch/staged review.
 
    Include `--session <SESSION_ID>` ONLY when <backend> is `codex` or
    `ollama`. For `gemini`, omit `--session` entirely (PaF rejects it for
@@ -467,12 +487,13 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--no-include-diff | --include-diff] [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
-  Diff inclusion: default to `--no-include-diff` per the "Diff inclusion
-  policy" section. Use `--include-diff` only when the user explicitly asked
-  for a diff/branch/staged review.
+  Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
+  policy" — `--no-include-diff` on new binaries, empty on older ones with
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported. Swap for `--include-diff`
+  only when the user explicitly asked for a diff/branch/staged review.
 
   Always include `--fast` (relay prompts are self-contained). For
   `--to claude`, `--fast` has no effect. Include `--session` ONLY when

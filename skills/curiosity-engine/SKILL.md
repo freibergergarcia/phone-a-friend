@@ -1,17 +1,24 @@
 ---
 name: curiosity-engine
-description: Structured Q&A rally between Claude and a backend model. Both sides must always reply with ANSWER: and QUESTION:. Seeded by topic, runs for N rounds.
+description: Structured Q&A rally between the host orchestrating model and a backend model. Both sides must always reply with ANSWER: and QUESTION:. Seeded by topic, runs for N rounds.
 argument-hint: --topic "<topic>" [--rounds N] [--backend codex|gemini|ollama]
 ---
 
 # /curiosity-engine
 
-A structured ping-pong Q&A game between Claude and a backend model.
+A structured ping-pong Q&A game between the host orchestrating model (the
+agent running this skill — Claude in Claude Code, the OpenCode model in
+OpenCode) and a backend model.
 Both sides MUST produce an ANSWER: and a QUESTION: every round.
 The game is seeded with a topic and runs for N rounds (default 3, max 6).
 
 ## Execution rules
 
+- The host model running this skill is the orchestrator. It serves the
+  opening question and answers each round directly. Do NOT call
+  `phone-a-friend --to claude` (or any other backend) to generate the
+  orchestrator's questions or answers — that would relay the orchestrator
+  role to a different model.
 - One backend per relay call. Never pass comma-separated values to `--to`
   (e.g. `phone-a-friend --to codex,gemini`).
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
@@ -20,6 +27,9 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   `--backend` to `phone-a-friend`.
 - Inside OpenCode, prefix relay invocations with
   `PHONE_A_FRIEND_HOST=opencode` so PaF detects the host deterministically.
+- Suppress the working-tree diff on every binary-mode relay (see "Diff
+  suppression" below). Curiosity rounds are seeded with self-contained
+  prompts; the diff would be noise.
 
 ## Inputs
 
@@ -62,6 +72,35 @@ Request:
 
 No "Additional Context" section is needed for curiosity-engine (prompts are
 self-contained).
+
+Note: do NOT pass PaF flags like `--no-include-diff`, `--fast`, or
+`--session` in direct mode. They are CLI flags on the `phone-a-friend`
+binary; the underlying backend CLIs do not accept them.
+
+## Diff suppression
+
+`/curiosity-engine` rounds use self-contained prompts; the working-tree diff
+would be irrelevant noise. PaF reads `defaults.include_diff` from user
+config, so without explicit suppression a user with `include_diff = true`
+would silently leak the diff into every relay round.
+
+The cleanest flag is `--no-include-diff`, added in phone-a-friend v2.2.0.
+Older binaries reject the flag with `unknown option '--no-include-diff'`.
+Probe once before Round 1, then reuse the gate across every binary-mode
+relay (initial round, follow-up rounds, and the schema re-prompt):
+
+```bash
+if phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'; then
+  PAF_NO_DIFF="--no-include-diff"
+else
+  export PHONE_A_FRIEND_INCLUDE_DIFF=false
+  PAF_NO_DIFF=""
+fi
+```
+
+Append `$PAF_NO_DIFF` to every binary-mode `phone-a-friend` invocation in
+the steps below. The env var fallback works in v1.7.2 and later; the
+explicit flag is preferred when available.
 
 ## Step 1 — Parse Arguments
 
@@ -113,24 +152,29 @@ If `RELAY_MODE = binary`, the binary handles model selection internally.
 
 ## Step 3 — Serve Round 1
 
-Claude serves first. Claude's opening move:
+The orchestrating agent (the host model running this skill) serves first.
+It produces the opening move directly, without relaying to any backend:
 
 ```
 ANSWER: N/A — I'm serving first.
-QUESTION: <Claude's opening question on TOPIC — make it genuinely curious and specific>
+QUESTION: <orchestrator's opening question on TOPIC — make it genuinely curious and specific>
 ```
 
 Display to user:
 ```
 --- Round 1 of <MAX_ROUNDS> | Topic: <TOPIC> ---
-🤖 Claude  QUESTION: <question>
+🤖 <orchestrator>  QUESTION: <question>
 ```
+
+`<orchestrator>` is the host model's display label (e.g., "Claude" in
+Claude Code, the OpenCode model name in OpenCode). Pick one that the user
+will recognize.
 
 Then relay to backend:
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast [--model <model>] --prompt "<relay-prompt>"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "<relay-prompt>"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -148,17 +192,17 @@ curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
 Where `<relay-prompt>` is:
 
 ```
-You are playing The Curiosity Engine — a structured Q&A rally with Claude.
+You are playing The Curiosity Engine — a structured Q&A rally with another agent.
 Topic: <TOPIC>
 Round: 1 of <MAX_ROUNDS>
 
-Claude's question for you:
+The orchestrating agent's question for you:
 <QUESTION>
 
 You MUST respond in EXACTLY this format — no exceptions, no extra text:
 
-ANSWER: <your answer to Claude's question, 2-4 sentences>
-QUESTION: <a new question for Claude on the same topic, that you are genuinely curious about>
+ANSWER: <your answer to the orchestrator's question, 2-4 sentences>
+QUESTION: <a new question for the orchestrator on the same topic, that you are genuinely curious about>
 
 Do not add any text before ANSWER: or after the QUESTION line.
 ```
@@ -186,7 +230,7 @@ Send one correction relay if `ANSWER:` or `QUESTION:` is missing:
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast [--model <model>] --prompt "<re-prompt>"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "<re-prompt>"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -208,7 +252,7 @@ Your previous response did not follow the required format.
 You MUST respond with EXACTLY this structure:
 
 ANSWER: <your answer>
-QUESTION: <your question for Claude>
+QUESTION: <your question for the orchestrator>
 
 No other text. Try again.
 ```
@@ -230,34 +274,37 @@ Display backend's response:
 
 If this was the final round (ROUND == MAX_ROUNDS) → jump to Step 6 (Synthesis).
 
-Otherwise, increment ROUND. Claude now responds:
+Otherwise, increment ROUND. The orchestrating agent (the host model)
+now responds directly — no relay:
 
 ```
-🤖 Claude  ANSWER: <Claude's genuine answer to backend's question, 2-4 sentences>
-           QUESTION: <Claude's new question for backend on TOPIC>
+🤖 <orchestrator>  ANSWER: <orchestrator's genuine answer to backend's question, 2-4 sentences>
+                   QUESTION: <orchestrator's new question for backend on TOPIC>
 ```
 
-Relay Claude's question to backend using this template (same structure as Step 3, substituting current values):
+Relay the orchestrator's question to backend using this template (same
+structure as Step 3, substituting current values):
 
 ```
-You are playing The Curiosity Engine — a structured Q&A rally with Claude.
+You are playing The Curiosity Engine — a structured Q&A rally with another agent.
 Topic: <TOPIC>
 Round: <ROUND> of <MAX_ROUNDS>
 
-Claude's question for you:
+The orchestrating agent's question for you:
 <QUESTION>
 
 You MUST respond in EXACTLY this format — no exceptions, no extra text:
 
-ANSWER: <your answer to Claude's question, 2-4 sentences>
-QUESTION: <a new question for Claude on the same topic, that you are genuinely curious about>
+ANSWER: <your answer to the orchestrator's question, 2-4 sentences>
+QUESTION: <a new question for the orchestrator on the same topic, that you are genuinely curious about>
 
 Do not add any text before ANSWER: or after the QUESTION line.
 ```
 
 Repeat Step 4 and Step 5 until MAX_ROUNDS reached or early termination.
 
-**Claude's discipline:** Claude ALWAYS provides both ANSWER: and QUESTION: — never skips either field, never breaks the schema itself.
+**Orchestrator discipline:** the host model ALWAYS provides both ANSWER:
+and QUESTION: — never skips either field, never breaks the schema itself.
 
 ## Step 6 — Final Synthesis
 
@@ -285,7 +332,7 @@ Present the full session summary:
 
 ### Most Interesting Exchange
 
-<Claude picks the sharpest Q&A pair from the transcript and explains in 2-3 sentences why it was the most interesting — what tension, insight, or surprise it revealed>
+<orchestrator picks the sharpest Q&A pair from the transcript and explains in 2-3 sentences why it was the most interesting — what tension, insight, or surprise it revealed>
 
 ---
 
@@ -306,7 +353,7 @@ When BACKEND=gemini, the relay command must include `--model`:
 
 **Binary mode:**
 ```bash
-phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --fast --prompt "<relay-prompt>"
+phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "<relay-prompt>"
 ```
 
 **Direct mode:**
@@ -320,7 +367,7 @@ Do NOT use aliases like `auto`, `pro`, or `flash` — always use the full model 
 ## Constraints
 
 - MAX_ROUNDS clamped to [1, 6]. Never exceed.
-- Both sides must always produce ANSWER: and QUESTION:. Claude never breaks the schema.
+- Both sides must always produce ANSWER: and QUESTION:. The orchestrator never breaks the schema.
 - One re-prompt allowed per round on schema violation. Two strikes = early termination.
 - No nested curiosity-engine sessions.
 - phone-a-friend is used as a black box — do not modify its internals.

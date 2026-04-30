@@ -19325,14 +19325,15 @@ var init_dist18 = __esm({
 // src/detection.ts
 import { execFileSync as execFileSync4 } from "child_process";
 async function detectCliBackends(whichFn = isInPath) {
-  return CLI_BACKENDS.map(({ name, installHint, label }) => {
+  return CLI_BACKENDS.map(({ name, installHint, label, optional }) => {
     const found = whichFn(name);
     return {
       name,
       category: "cli",
       available: found,
       detail: found ? `${label} (found in PATH)` : "not found in PATH",
-      installHint
+      installHint,
+      ...optional ? { optional } : {}
     };
   });
 }
@@ -19486,7 +19487,11 @@ var init_detection = __esm({
     CLI_BACKENDS = [
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
       { name: "gemini", installHint: "npm install -g @google/gemini-cli", label: "Google Gemini CLI" },
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" }
+      // OpenCode is a recent addition. Existing Claude-Code-only users who
+      // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
+      // exit with code 1 just because OpenCode is absent. Mark it optional so
+      // doctor counts/exit-code only include OpenCode when it is present.
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
@@ -80670,6 +80675,13 @@ init_detection();
 init_config();
 init_version();
 init_installer();
+function countableBackends(report) {
+  return [...report.cli, ...report.local].filter((b) => {
+    if (b.planned) return false;
+    if (b.optional && !b.available) return false;
+    return true;
+  });
+}
 function formatHumanReadable(report, config, paths, hostInstallations, advisories = []) {
   const lines = [];
   lines.push("");
@@ -80707,9 +80719,9 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
   lines.push("");
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter((b) => b.available).length;
-  const total = allRelay.length;
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
+  const total = counted.length;
   const summaryColor = available === total ? theme.success : available > 0 ? theme.warning : theme.error;
   lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push("");
@@ -80732,9 +80744,9 @@ function normalizeForJson(backends) {
   });
 }
 function formatJson(report, config, exitCode, hostInstallations, advisories = []) {
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter((b) => b.available).length;
-  const total = allRelay.length;
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
+  const total = counted.length;
   return JSON.stringify({
     system: {
       nodeVersion: process.version,
@@ -80753,10 +80765,10 @@ function formatJson(report, config, exitCode, hostInstallations, advisories = []
   }, null, 2);
 }
 function computeExitCode(report) {
-  const allRelay = [...report.cli, ...report.local].filter((b) => !b.planned);
-  const available = allRelay.filter((b) => b.available).length;
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
   if (available === 0) return 2;
-  const total = allRelay.length;
+  const total = counted.length;
   if (available < total) return 1;
   return 0;
 }

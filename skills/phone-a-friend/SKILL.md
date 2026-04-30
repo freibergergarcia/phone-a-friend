@@ -22,8 +22,9 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 - If the user says not to edit files, keep that instruction in `--prompt`.
 - From OpenCode, do not select `opencode` as the friend backend. Choose `codex`,
   `gemini`, `claude`, or `ollama`.
-- Pass `--no-include-diff` by default; only pass `--include-diff` when the
-  user explicitly asked for a diff/branch/staged review.
+- Suppress the working-tree diff by default (see "Diff suppression" below);
+  only include the diff when the user explicitly asked for a
+  diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. In Claude Code, the `/phone-a-team`
@@ -44,8 +45,11 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 For example, from OpenCode:
 
 ```bash
-PHONE_A_FRIEND_HOST=opencode phone-a-friend --to codex --repo "$PWD" --prompt "Give a short sanity review of this repo. Do not edit files." --timeout 300 --no-stream --fast --no-include-diff
+PHONE_A_FRIEND_HOST=opencode phone-a-friend --to codex --repo "$PWD" --prompt "Give a short sanity review of this repo. Do not edit files." --timeout 300 --no-stream --fast $PAF_NO_DIFF
 ```
+
+`$PAF_NO_DIFF` comes from the version-tolerant probe in "Diff suppression"
+below.
 
 ## Inputs
 
@@ -101,6 +105,38 @@ In direct mode, also verify the backend CLI is available (`command -v codex` or
 `command -v gemini`) before calling it. If not found, tell the user how to
 install it and stop.
 
+Note: do NOT pass PaF flags like `--no-include-diff`, `--fast`, or
+`--session` in direct mode. They are CLI flags on the `phone-a-friend`
+binary; the underlying backend CLIs do not accept them.
+
+## Diff suppression
+
+PaF reads `defaults.include_diff` from user config. If a user has
+`include_diff = true` set, every relay would silently leak the working-tree
+diff into the prompt. Suppress the diff explicitly on every binary-mode
+relay.
+
+The cleanest flag is `--no-include-diff`, added in phone-a-friend v2.2.0.
+Older binaries reject the flag with `unknown option '--no-include-diff'`.
+Probe once at the start of the workflow, then reuse the gate:
+
+```bash
+if phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'; then
+  PAF_NO_DIFF="--no-include-diff"
+else
+  export PHONE_A_FRIEND_INCLUDE_DIFF=false
+  PAF_NO_DIFF=""
+fi
+```
+
+Append `$PAF_NO_DIFF` to every binary-mode `phone-a-friend` invocation. The
+env var fallback works in v1.7.2 and later; the explicit flag is preferred
+when available.
+
+Only when the user explicitly asked to review the diff, branch changes, or
+staged changes, swap `$PAF_NO_DIFF` for `--include-diff` (and prefer
+`phone-a-friend ... --review` for branch-level reviews).
+
 ## Workflow
 
 1. Identify:
@@ -129,17 +165,15 @@ I'm working on this task and got the above response. Please review it and return
 
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
-   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --no-include-diff [--fast] [--session <id>]
+   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast] [--session <id>]
    # For gemini, always include --model (see "Gemini Model Priority" below).
    # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> --no-include-diff [--fast]
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> $PAF_NO_DIFF [--fast]
    ```
 
-   Pass `--no-include-diff` by default. PaF reads `defaults.include_diff`
-   from user config; without `--no-include-diff` a user with that set to
-   `true` would silently leak the working tree diff into every relay. Only
-   pass `--include-diff` instead when the user explicitly asked to review
-   the diff, branch changes, or staged changes (and prefer
+   `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. Swap
+   for `--include-diff` only when the user explicitly asked to review the
+   diff, branch changes, or staged changes (and prefer
    `phone-a-friend ... --review` for branch-level reviews).
 
    See "Speed optimization" and "Session continuity" below for when to
@@ -157,7 +191,9 @@ I'm working on this task and got the above response. Please review it and return
    "Direct call reference" section, substituting `<relay-prompt>` and
    `<context-payload>` into the template.
 
-   Note: `--fast` and `--session` are only available in binary mode.
+   Note: `--fast`, `--session`, and `--no-include-diff` are PaF CLI flags
+   only available in binary mode. Do not append them to direct-mode
+   invocations of `codex` or `gemini`.
 
 5. Return backend feedback in concise review format:
    - Critical issues
@@ -235,10 +271,10 @@ Combine with `--session <label>` to also start tracking under a label.
 
 ```bash
 # Resume a raw backend thread once (no PaF persistence):
-phone-a-friend --to codex --repo "$PWD" --backend-session <thread-id> --prompt "<...>"
+phone-a-friend --to codex --repo "$PWD" --backend-session <thread-id> --prompt "<...>" $PAF_NO_DIFF
 
 # Adopt: resume AND start tracking under a PaF label going forward:
-phone-a-friend --to codex --repo "$PWD" --session <label> --backend-session <thread-id> --prompt "<...>"
+phone-a-friend --to codex --repo "$PWD" --session <label> --backend-session <thread-id> --prompt "<...>" $PAF_NO_DIFF
 ```
 
 This is rarely the right move from inside a Claude Code conversation — the
