@@ -784,6 +784,19 @@ happened and whether the result is complete.
   `phone-a-friend --to <backend> ...`.
 - **`--backend` is a `/phone-a-team` argument, not a PaF flag.** Do not
   pass `--backend` to the `phone-a-friend` CLI.
+- **Context hygiene.** Do not generate `--context-text` or
+  `--context-file` from repository files, `git show`, `git diff`,
+  `git status`, or other local file/git output for relays sent to
+  repo-aware backends (codex, gemini, claude, opencode). Pass
+  `--repo "$PWD"` and let the backend read files with its own tools.
+  `--context-text` and `--context-file` are reserved for narrative
+  context that does not exist in the repo: prior round outputs,
+  conflict-resolution notes, the orchestrator's analysis, or feedback
+  to apply. Inlining repo content is wasteful, can leak tracked
+  uncommitted edits or committed secrets, and bypasses the backend's
+  normal file-access controls. For `ollama` (no repo file access), ask
+  before sending file content and send a minimal excerpt rather than
+  bulk-dumping.
 
 ## Gemini Model Priority
 

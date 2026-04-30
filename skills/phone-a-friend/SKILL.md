@@ -46,6 +46,9 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
   probe and inline `--no-include-diff` literally, which fails on stale
   CLIs. The probe-and-gate is reserved for the rich orchestrator path
   (Claude Code / capable orchestrators).
+- Do NOT dump repo files or git output into `--context-file` or
+  `--context-text`. Repo-aware backends read files via `--repo "$PWD"`
+  using their own tools. See "Context hygiene" below.
 
 For example, from OpenCode:
 
@@ -117,6 +120,28 @@ install it and stop.
 Note: do NOT pass PaF flags like `--no-include-diff`, `--fast`, or
 `--session` in direct mode. They are CLI flags on the `phone-a-friend`
 binary; the underlying backend CLIs do not accept them.
+
+## Context hygiene
+
+Do not generate `--context-file` or `--context-text` from repository files,
+`git show`, `git diff`, `git status`, or other local file/git output. Do
+not create temp files just to pass repo content. For repo-aware backends
+(codex, gemini, claude, opencode), pass `--repo "$PWD"` and let the
+backend inspect files with its own tools.
+
+`--context-file` and `--context-text` are reserved for **narrative
+context that is not already in the repo** — for example: conversation
+history that the backend cannot see, your own analysis, user constraints,
+prior model output you want reviewed. These remain valid and useful.
+
+Inlining repo content is wasteful, can leak tracked uncommitted edits or
+committed secrets into the relay payload, and bypasses the backend's
+normal file-access controls.
+
+Backend exception: `ollama` has `localFileAccess: false` and cannot read
+the repo on its own. For Ollama specifically, ask the user before sending
+file content, and send a minimal excerpt rather than bulk-dumping files
+or git output.
 
 ## Diff suppression
 
@@ -338,6 +363,10 @@ This does NOT apply to `--to codex`.
 
 ## Notes
 
-- Prefer `--context-text` for small payloads.
+- Prefer `--context-text` for small narrative payloads.
 - `--context-file` and `--context-text` are mutually exclusive.
-- If context is too large for inline args, use a repo-local temp file.
+- If your narrative context is too large for inline args, write it to a
+  temp file outside the repo (e.g. under `/tmp`). Do NOT use a repo-local
+  temp file — it muddies git status and risks accidental commit. Repo
+  content itself does not need a temp file at all; see "Context hygiene"
+  above.

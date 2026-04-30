@@ -350,6 +350,67 @@ describe('Curiosity-engine is host-neutral about the orchestrator', () => {
   }
 });
 
+describe('Context hygiene rule prevents repo-content dumping', () => {
+  // Real incident on PR #101 review: the orchestrator (Claude) was about to
+  // dump `git show HEAD` into a temp file and pass it via `--context-file`
+  // to a backend that already had `--repo` access. The user caught it
+  // before the relay fired. The existing instructions did not forbid the
+  // pattern; in fact, both phone-a-friend files explicitly recommended
+  // "use a repo-local temp file" for large context — directly encouraging
+  // the anti-pattern.
+  //
+  // Pin the new Context Hygiene rule everywhere it applies, and pin the
+  // absence of the recommendation it replaced.
+
+  const filesWithRule = [
+    'commands/phone-a-friend.md',
+    'skills/phone-a-friend/SKILL.md',
+    'commands/phone-a-team.md',
+    'commands/curiosity-engine.md',
+    'skills/curiosity-engine/SKILL.md',
+  ];
+
+  for (const rel of filesWithRule) {
+    describe(rel, () => {
+      const file = readFile(rel);
+
+      it('mentions the specific bad patterns (git show / git diff)', () => {
+        expect(file).toMatch(/git show/);
+        expect(file).toMatch(/git diff/);
+      });
+
+      it('forbids dumping repo files / git output into context flags', () => {
+        // Either "Do NOT dump" (curiosity-engine, phone-a-friend bullet,
+        // phone-a-team bullet) or "Do not generate" (the dedicated section).
+        expect(file).toMatch(/Do (?:NOT|not) dump|Do not generate/);
+      });
+
+      it('preserves legitimate narrative context as allowed use', () => {
+        // Without this, future edits could overcorrect and ban useful
+        // conversation summaries / analysis.
+        expect(file).toMatch(/narrative context|conversation history|analysis|prior model output|prior round/);
+      });
+
+      it('does not recommend repo-local temp files', () => {
+        // The line "use a repo-local temp file" was directly encouraging
+        // the dumping anti-pattern. It must not return.
+        expect(file).not.toMatch(/use a repo-local temp file/);
+      });
+    });
+  }
+
+  // Phone-a-friend files get the dedicated section, not just a bullet.
+  // It must mention the Ollama exception (Ollama has localFileAccess: false).
+  for (const rel of ['commands/phone-a-friend.md', 'skills/phone-a-friend/SKILL.md']) {
+    it(`${rel} has a dedicated Context hygiene section with Ollama exception`, () => {
+      const file = readFile(rel);
+      expect(file).toContain('## Context hygiene');
+      expect(file).toMatch(/ollama|Ollama/);
+      expect(file).toMatch(/localFileAccess|cannot read the repo/);
+    });
+  }
+});
+
 describe('Probe pattern uses subcommand help, not top-level help', () => {
   // Top-level `phone-a-friend --help` lists subcommands but NOT relay flags
   // (relay-specific flags live under `phone-a-friend relay --help`).

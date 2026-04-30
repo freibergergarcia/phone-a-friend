@@ -30,6 +30,14 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
+- Do NOT dump repo files or git output (`git show`, `git diff`, etc.)
+  into the relay prompt. Curiosity rounds are seeded with self-contained
+  prompts; if the round needs file context, the backend can read the repo
+  via `--repo "$PWD"`. Inlining repo content can leak uncommitted edits
+  or committed secrets and is not needed for a Q&A rally. The opening
+  question and round transcripts are narrative context that the
+  orchestrator generates and inlines into the relay prompt; that is the
+  intended use, not file dumping.
 
 ## Inputs
 
