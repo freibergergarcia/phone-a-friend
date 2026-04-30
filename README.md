@@ -133,6 +133,8 @@ phone-a-friend --to opencode --prompt "Audit this repo" --model qwen3-coder  # L
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
 phone-a-friend --to opencode --prompt "Explain this" --fast        # Skip OpenCode plugins (faster)
+phone-a-friend --to codex --prompt "Review my fix" --include-diff   # Append `git diff HEAD` to the prompt
+phone-a-friend --to codex --prompt "Quick question" --no-include-diff  # Override defaults.include_diff = true
 ```
 
 ### Structured output
@@ -179,6 +181,11 @@ phone-a-friend --to codex --review --base develop  # Review against a specific b
 phone-a-friend --to opencode --review              # Review with local model (reads repo via tools)
 ```
 
+`--review` is the diff-scoped review mode (uses the backend's native review path when available). For ad-hoc prompts where you want the working-tree diff appended, use `--include-diff` with normal prompt mode. To override a `defaults.include_diff = true` config setting on a single call, use `--no-include-diff` (or set `PHONE_A_FRIEND_INCLUDE_DIFF=false` in the environment for older binaries).
+
+> [!TIP]
+> Don't paste code into `--prompt` just to review it — the backend can read the repo directly via `--repo "$PWD"` (default: current working directory). Pasting risks leaking uncommitted edits and burns tokens for content the backend can fetch itself.
+
 ### Agentic
 
 Spawn multiple agents that collaborate via @mentions (see [Agentic Mode](#agentic-mode) below):
@@ -195,12 +202,14 @@ phone-a-friend agentic dashboard           # Launch web dashboard (localhost:777
 ```bash
 phone-a-friend                 # Interactive TUI dashboard (TTY only)
 phone-a-friend setup           # Guided setup wizard
-phone-a-friend doctor          # Health check all backends
+phone-a-friend doctor          # Health check all backends + host install status
 phone-a-friend plugin install --claude    # Install Claude Code plugin
 phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
+
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode plugin install state), and a summary count. The OpenCode CLI is treated as optional: if you only use Claude Code and don't have OpenCode installed, doctor will not flag that as a degraded state.
 
 ## Backends
 
@@ -215,6 +224,10 @@ phone-a-friend config edit     # Open in $EDITOR
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
+
+Phone-a-friend environment variables:
+- `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion across every relay; equivalent to passing `--no-include-diff` on every command. Useful when `defaults.include_diff = true` in your config but you want a session without the diff. Also the canonical mechanism used by OpenCode shims for stale-binary compatibility (the `--no-include-diff` flag was added in v2.2.0+; older binaries reject it but accept this env var since v1.7.2).
+- `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard. Set automatically by the OpenCode shims; only relevant if you're invoking PaF programmatically from inside an OpenCode session.
 
 OpenCode configuration via TOML:
 ```toml
