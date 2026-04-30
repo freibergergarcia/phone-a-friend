@@ -796,7 +796,13 @@ happened and whether the result is complete.
   uncommitted edits or committed secrets, and bypasses the backend's
   normal file-access controls. For `ollama` (no repo file access), ask
   before sending file content and send a minimal excerpt rather than
-  bulk-dumping.
+  bulk-dumping. **Exception**: when the user explicitly asked for a
+  diff-scoped review (a code review of current changes, branch review,
+  or "what's wrong with my changes?"), `--include-diff` and direct-mode
+  `git diff HEAD` flows are the right tool for the job — that path is
+  documented above and is not what this rule prohibits. The rule
+  targets *unsolicited* repo-content dumps, not user-requested
+  diff-scoped reviews.
 
 ## Gemini Model Priority
 

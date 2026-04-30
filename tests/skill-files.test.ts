@@ -374,9 +374,10 @@ describe('Context hygiene rule prevents repo-content dumping', () => {
     describe(rel, () => {
       const file = readFile(rel);
 
-      it('mentions the specific bad patterns (git show / git diff)', () => {
+      it('mentions the specific bad patterns (git show / git diff / git status)', () => {
         expect(file).toMatch(/git show/);
         expect(file).toMatch(/git diff/);
+        expect(file).toMatch(/git status/);
       });
 
       it('forbids dumping repo files / git output into context flags', () => {
