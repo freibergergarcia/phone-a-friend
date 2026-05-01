@@ -353,25 +353,26 @@ Present the full session summary:
 
 ## Gemini Model Priority
 
-When BACKEND=gemini, always pass `--model` using the first available model from this list:
+When BACKEND=gemini, always pass `--model`. Default to `gemini-2.5-flash`.
 
-1. `gemini-2.5-flash` — reliable, confirmed working
-2. `gemini-2.5-pro` — higher capability, frequently at capacity (429)
-3. `gemini-2.5-flash-lite` — last resort
+1. `gemini-2.5-flash` — reliable, confirmed working (default)
+2. `gemini-2.5-flash-lite` — automatic fallback in binary mode
+3. `gemini-2.5-pro` — higher capability, opt-in; frequently 429-prone
 
-When BACKEND=gemini, the relay command must include `--model`:
+**Binary mode** (preferred — auto-falls-back when a model returns 404, caches
+the dead model for 24h, surfaces one stderr line per fallback hop):
 
-**Binary mode:**
 ```bash
 phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "<relay-prompt>"
 ```
 
-**Direct mode:**
+**Direct mode** (no auto-fallback — orchestrator handles retry):
 ```bash
 gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m gemini-2.5-flash --prompt "<relay-prompt>"
 ```
 
-On capacity/transient errors (429, 500, 503), try the next model before treating as round failure.
+In direct mode, on capacity/transient errors (429, 500, 503), try the next
+model before treating as round failure.
 Do NOT use aliases like `auto`, `pro`, or `flash` — always use the full model name.
 
 ## Constraints

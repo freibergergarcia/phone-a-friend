@@ -301,22 +301,34 @@ this broken behavior and handle retry/fallback ourselves.
 
 ### Priority rationale
 
-As of 2026-02-22, `gemini-3.1-pro-preview-*` models return 404 (not yet
-deployed) and `gemini-2.5-pro` is perpetually at capacity (429). Based on
-empirical testing across 10+ relay sessions, `gemini-2.5-flash` is the only
-model that reliably works. Lead with what works; fall forward to newer models
-as they become available.
+Lead with `gemini-2.5-flash` — fast, reliable, and confirmed across many relay
+sessions. `gemini-2.5-pro` is higher capability but frequently at capacity
+(429); use it deliberately, not as a default. Preview tracks (such as
+`gemini-3.1-pro-preview-*`) are listed in Google's docs but may not be
+deployed yet; PaF will auto-fall-back when one returns 404.
 
-1. `gemini-2.5-flash` — reliable, fast, confirmed working
-2. `gemini-2.5-pro` — higher capability but frequently at capacity (429)
-3. `gemini-2.5-flash-lite` — last resort
-4. `gemini-3.1-pro-preview-customtools` — not yet deployed (404 as of 2026-02-22)
-5. `gemini-3.1-pro-preview` — not yet deployed (404 as of 2026-02-22)
+1. `gemini-2.5-flash` — reliable, fast, confirmed working (default)
+2. `gemini-2.5-flash-lite` — automatic fallback when flash is unavailable
+3. `gemini-2.5-pro` — higher capability, opt-in for harder reviews; 429-prone
 
 ### Fallback rule
 
-On Gemini relay failure, retry with the next model **only** for transient or
-capacity errors:
+PaF binary mode (`phone-a-friend --to gemini`) auto-falls-back at the relay
+layer. When the requested model returns model-not-found (404), PaF caches it
+as unavailable for 24h and retries with `gemini-2.5-flash` and then
+`gemini-2.5-flash-lite`, surfacing one stderr line per fallback hop. Capacity
+(429 / RESOURCE_EXHAUSTED) errors retry without caching. Authentication and
+unknown errors propagate immediately — fallback won't help.
+
+To disable auto-fallback (debugging or exact reproduction):
+
+```bash
+PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false phone-a-friend --to gemini --model X --prompt "..."
+```
+
+When invoking the `gemini` CLI directly (without `phone-a-friend --to gemini`),
+auto-fallback does NOT apply — the orchestrator is responsible for retry. In
+that case, retry rules:
 
 - **Retry with next model**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED;
   "high demand"; model not found; transient/timeout errors
