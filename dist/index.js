@@ -80876,26 +80876,23 @@ function installAction(opts) {
   if (opts.github) {
     if (opts.mode && opts.mode !== "symlink") {
       console.error("Error: --mode is not compatible with --github");
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.repoRoot) {
       console.error("Error: --repo-root is not compatible with --github");
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.opencode || opts.all) {
       console.error(
         "Error: --github only applies to Claude Code; OpenCode has no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` separately."
       );
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     const lines2 = ["phone-a-friend installer (GitHub marketplace)"];
     lines2.push(...installFromGitHubMarketplace());
     for (const line of lines2) console.log(line);
     printBackendAvailability();
-    return;
+    return 0;
   }
   const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = installHosts({
@@ -80908,6 +80905,7 @@ function installAction(opts) {
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
+  return 0;
 }
 function updateAction(opts) {
   const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
@@ -81012,7 +81010,7 @@ async function run(argv) {
           return 0;
         }
         if (choice === "install") {
-          installAction({ claude: true, force: true });
+          exitCode = installAction({ claude: true, force: true });
           return 0;
         }
         if (choice === "tui") {
@@ -81255,7 +81253,9 @@ ${banner("AI coding agent relay")}
   const pluginCmd = program2.command("plugin").description("Manage host integrations");
   addInstallOptions(
     pluginCmd.command("install").description("Install as Claude Code plugin")
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
   addUpdateOptions(
     pluginCmd.command("update").description("Update Claude plugin")
   ).action((opts) => updateAction(opts));
@@ -81539,7 +81539,9 @@ ${banner("AI coding agent relay")}
   });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
   addUpdateOptions(
     program2.command("update").description("Update Claude plugin (alias for: plugin update)")
   ).action((opts) => updateAction(opts));

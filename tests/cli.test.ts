@@ -577,25 +577,28 @@ describe('CLI', () => {
   });
 
   it('plugin install --github rejects --mode copy', async () => {
-    const { stderr } = await captureOutputAsync(async () => {
-      await run(['plugin', 'install', '--github', '--mode', 'copy']);
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--mode', 'copy']);
     });
+    expect(result).toBe(1);
     expect(stderr).toContain('--mode is not compatible with --github');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
   });
 
   it('plugin install --github rejects --repo-root', async () => {
-    const { stderr } = await captureOutputAsync(async () => {
-      await run(['plugin', 'install', '--github', '--repo-root', '/foo']);
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--repo-root', '/foo']);
     });
+    expect(result).toBe(1);
     expect(stderr).toContain('--repo-root is not compatible with --github');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
   });
 
   it('plugin install --github rejects --opencode (no marketplace for OpenCode)', async () => {
-    const { stderr } = await captureOutputAsync(async () => {
-      await run(['plugin', 'install', '--github', '--opencode']);
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--opencode']);
     });
+    expect(result).toBe(1);
     expect(stderr).toContain('--github only applies to Claude Code');
     expect(stderr).toContain('OpenCode has no marketplace');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
@@ -603,9 +606,10 @@ describe('CLI', () => {
   });
 
   it('plugin install --github rejects --all (would silently skip OpenCode)', async () => {
-    const { stderr } = await captureOutputAsync(async () => {
-      await run(['plugin', 'install', '--github', '--all']);
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--all']);
     });
+    expect(result).toBe(1);
     expect(stderr).toContain('--github only applies to Claude Code');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
     expect(mockInstallHosts).not.toHaveBeenCalled();
