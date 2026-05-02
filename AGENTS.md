@@ -203,6 +203,8 @@ phone-a-friend --prompt "..." --include-diff           # Append git diff to prom
 phone-a-friend --prompt "..." --no-include-diff        # Do not append git diff, overriding defaults.include_diff
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
+phone-a-friend --to codex --review --verdict-json                       # Opinionated verdict envelope (JSON: ship/iterate/abstain + findings)
+phone-a-friend --to codex --review --verdict-json --prompt "focus on auth"  # Verdict envelope scoped to a specific review focus
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
 phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
 phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
@@ -369,7 +371,45 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 - Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
 - Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
 - Ollama: `format: "json"` in HTTP body with schema injected into prompt (best-effort)
+- OpenCode: schema injected into prompt (best-effort, not validated; matches Gemini/Ollama path)
 - Streaming is disabled when `--schema` is active (structured output requires batch mode)
+- When a `--schema` is set in review mode, native `review()` is bypassed and the generic `run()` path is used so the schema is honored uniformly across backends.
+
+### Verdict envelope (`--verdict-json`)
+
+Opinionated review-mode flag that activates a built-in JSON envelope so callers (especially `/phone-a-team` and downstream skills) can decide iterate-or-stop deterministically without regexing free text.
+
+```bash
+phone-a-friend --to codex --review --verdict-json                       # default review focus
+phone-a-friend --to codex --review --verdict-json --prompt "auth only"  # scoped review focus
+```
+
+- Implies `--review`. Cannot be combined with `--schema` (PaF sets the schema itself; conflicting input errors out).
+- The caller's `--prompt` is preserved as the review request and combined with the canonical envelope instructions; omit `--prompt` to use the default ("Review the changes in this branch...").
+- The envelope shape:
+  ```json
+  {
+    "schema_version": 1,
+    "verdict": "ship" | "iterate" | "abstain",
+    "summary": "<one-paragraph synthesis>",
+    "findings": [
+      {
+        "severity": "blocker" | "important" | "nit",
+        "title": "<short headline>",
+        "rationale": "<1-3 sentences>",
+        "location": "<file or file:line> or null"
+      }
+    ]
+  }
+  ```
+- `verdict` is **derived from severities** at parse time, not trusted from the model:
+  - any `blocker` or `important` → `iterate`
+  - empty findings, or only `nit` findings → `ship`
+  - `abstain` is allowed only when findings is empty
+  - if the model's claimed verdict contradicts severities, the response is treated as malformed and PaF fails closed
+- Output: compact one-line JSON on stdout. Pipe through `jq` for human consumption.
+- On parse / validation failure: stderr emits `Verdict parse failed: <reason>` followed by the raw response wrapped in `<<<RAW_BEGIN ... RAW_END>>>` markers. PaF exits with code 2.
+- Implementation: `src/verdict.ts` (schema, prompt, parser, derived-verdict logic). The schema satisfies OpenAI's structured-output strict mode (`additionalProperties: false`, all keys listed in `required`, no unsupported keywords).
 
 ## Session continuity
 

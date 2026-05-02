@@ -788,6 +788,87 @@ describe('reviewRelay', () => {
       reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', timeoutSeconds: 0 }),
     ).rejects.toThrow('Timeout must be greater than zero');
   });
+
+  it('skips native review() when schema is set (so schema is honored)', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) return 'some diff';
+      throw new Error('not found');
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      schema: '{"type":"object"}',
+    });
+
+    // Native review() must NOT be used when schema is set; generic run() path takes over.
+    expect(backend.review).not.toHaveBeenCalled();
+    expect(backend.run).toHaveBeenCalledOnce();
+    const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(runArgs.schema).toBe('{"type":"object"}');
+  });
+
+  it('verdictJson preserves the caller prompt and adds verdict envelope instructions', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) return 'some diff';
+      throw new Error('not found');
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      verdictJson: true,
+      // Caller's review focus must survive into the prompt.
+      prompt: 'focus on the auth module',
+      // Stray schema must be overridden.
+      schema: '{"type":"string"}',
+    });
+
+    expect(backend.review).not.toHaveBeenCalled();
+    expect(backend.run).toHaveBeenCalledOnce();
+    const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // Schema is the verdict schema.
+    const schemaParsed = JSON.parse(runArgs.schema);
+    expect(schemaParsed.required).toContain('verdict');
+    expect(schemaParsed.required).toContain('findings');
+    // Prompt contains BOTH the caller request AND the envelope instructions.
+    expect(runArgs.prompt).toMatch(/focus on the auth module/);
+    expect(runArgs.prompt).toMatch(/JSON object/);
+    expect(runArgs.prompt).toMatch(/blocker/);
+  });
+
+  it('verdictJson uses a default review request when the caller omits --prompt', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) return 'some diff';
+      throw new Error('not found');
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      verdictJson: true,
+      // no prompt
+    });
+
+    const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(runArgs.prompt).toMatch(/Review the changes in this branch/);
+    expect(runArgs.prompt).toMatch(/JSON object/);
+  });
 });
 
 // ---------------------------------------------------------------------------
