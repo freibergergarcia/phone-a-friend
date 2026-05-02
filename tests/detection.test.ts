@@ -177,19 +177,26 @@ describe('detection', () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectHostIntegrations(whichFn);
       const claude = results.find(b => b.name === 'claude');
+      const opencode = results.find(b => b.name === 'opencode');
 
       expect(claude).toBeDefined();
       expect(claude!.available).toBe(true);
       expect(claude!.category).toBe('host' as string);
+      expect(opencode).toBeDefined();
+      expect(opencode!.available).toBe(true);
+      expect(opencode!.category).toBe('host' as string);
     });
 
-    it('marks claude as unavailable when not in PATH', async () => {
+    it('marks hosts as unavailable when not in PATH', async () => {
       const whichFn = vi.fn(() => false);
       const results = await detection.detectHostIntegrations(whichFn);
       const claude = results.find(b => b.name === 'claude');
+      const opencode = results.find(b => b.name === 'opencode');
 
       expect(claude!.available).toBe(false);
       expect(claude!.installHint).toContain('npm install');
+      expect(opencode!.available).toBe(false);
+      expect(opencode!.installHint).toContain('opencode.ai');
     });
   });
 

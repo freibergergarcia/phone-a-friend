@@ -7,11 +7,32 @@
  *   2 = no relay backends available
  */
 
-import { detectAll, decorateOpenCodeModels, type DetectionReport } from './detection.js';
+import { detectAll, decorateOpenCodeModels, type DetectionReport, type BackendStatus } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
+import { isOpenCodeInstalled, isPluginInstalled } from './installer.js';
+
+/**
+ * Backends that count toward the "X of Y ready" summary and exit code.
+ *
+ * Excludes:
+ * - planned backends (declared but not yet implemented)
+ * - optional backends that the user does not have installed (e.g. OpenCode
+ *   CLI for a Claude-Code-only install)
+ *
+ * Available optional backends ARE counted (so installing OpenCode lifts it
+ * into the denominator and the user gets a healthy "all ready" count when
+ * everything they have is working).
+ */
+function countableBackends(report: DetectionReport): BackendStatus[] {
+  return [...report.cli, ...report.local].filter(b => {
+    if (b.planned) return false;
+    if (b.optional && !b.available) return false;
+    return true;
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,10 +48,16 @@ export interface DoctorResult {
   output: string;
 }
 
+export interface HostInstallations {
+  claude: boolean;
+  opencode: boolean;
+}
+
 function formatHumanReadable(
   report: DetectionReport,
   config: PafConfig,
   paths: { user: string; repo: string | null },
+  hostInstallations: HostInstallations,
   advisories: string[] = [],
 ): string {
   const lines: string[] = [];
@@ -75,15 +102,21 @@ function formatHumanReadable(
   }
   lines.push('');
 
+  // Installed host commands/plugins
+  lines.push(`  ${theme.label('Host Install Status:')}`);
+  lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning('!')} Claude plugin ${hostInstallations.claude ? theme.success('installed') : theme.warning('not installed')}`);
+  lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning('!')} OpenCode commands/skills ${hostInstallations.opencode ? theme.success('installed') : theme.warning('not installed')}`);
+  lines.push('');
+
   // Default
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label('Default:')} ${defaultBackend}`);
   lines.push('');
 
   // Summary count — colored by health status
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter(b => b.available).length;
-  const total = allRelay.length;
+  const counted = countableBackends(report);
+  const available = counted.filter(b => b.available).length;
+  const total = counted.length;
   const summaryColor = available === total ? theme.success :
                        available > 0 ? theme.warning : theme.error;
   lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
@@ -120,11 +153,12 @@ function formatJson(
   report: DetectionReport,
   config: PafConfig,
   exitCode: number,
+  hostInstallations: HostInstallations,
   advisories: string[] = [],
 ): string {
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter(b => b.available).length;
-  const total = allRelay.length;
+  const counted = countableBackends(report);
+  const available = counted.filter(b => b.available).length;
+  const total = counted.length;
 
   return JSON.stringify({
     system: {
@@ -136,6 +170,7 @@ function formatJson(
       local: normalizeForJson(report.local),
     },
     host: normalizeForJson(report.host),
+    hostInstallations,
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
@@ -148,13 +183,12 @@ function formatJson(
 // ---------------------------------------------------------------------------
 
 function computeExitCode(report: DetectionReport): number {
-  // Only count implemented (non-planned) backends for exit code
-  const allRelay = [...report.cli, ...report.local].filter(b => !b.planned);
-  const available = allRelay.filter(b => b.available).length;
+  const counted = countableBackends(report);
+  const available = counted.filter(b => b.available).length;
 
   if (available === 0) return 2;
 
-  const total = allRelay.length;
+  const total = counted.length;
   if (available < total) return 1;
 
   return 0;
@@ -216,16 +250,20 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
   const advisories = await collectAdvisories(report);
+  const hostInstallations = {
+    claude: isPluginInstalled(),
+    opencode: isOpenCodeInstalled(),
+  };
 
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, advisories),
+      output: formatJson(report, config, exitCode, hostInstallations, advisories),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, advisories),
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories),
   };
 }

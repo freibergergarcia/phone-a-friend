@@ -8,6 +8,11 @@ const { mockDetectAll, mockLoadConfig, mockConfigPaths } = vi.hoisted(() => ({
   mockConfigPaths: vi.fn(),
 }));
 
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled } = vi.hoisted(() => ({
+  mockIsPluginInstalled: vi.fn(),
+  mockIsOpenCodeInstalled: vi.fn(),
+}));
+
 vi.mock('../src/detection.js', () => ({
   detectAll: mockDetectAll,
   decorateOpenCodeModels: vi.fn(),
@@ -19,6 +24,11 @@ vi.mock('../src/config.js', () => ({
   DEFAULT_CONFIG: {
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
   },
+}));
+
+vi.mock('../src/installer.js', () => ({
+  isPluginInstalled: mockIsPluginInstalled,
+  isOpenCodeInstalled: mockIsOpenCodeInstalled,
 }));
 
 // Helper: build a detection report
@@ -54,6 +64,8 @@ describe('doctor', () => {
     mockLoadConfig.mockReturnValue({
       defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
     });
+    mockIsPluginInstalled.mockReturnValue(true);
+    mockIsOpenCodeInstalled.mockReturnValue(false);
     doctor = await import('../src/doctor.js');
   });
 
@@ -90,6 +102,15 @@ describe('doctor', () => {
 
       expect(result.output).toContain('Host');
       expect(result.output).toContain('claude');
+    });
+
+    it('shows host install status separately', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('Host Install Status');
+      expect(result.output).toContain('Claude plugin');
+      expect(result.output).toContain('OpenCode commands/skills');
     });
 
     it('shows install hints for missing backends', async () => {
@@ -153,6 +174,68 @@ describe('doctor', () => {
       const result = await doctor.doctor();
       expect(result.exitCode).toBe(2);
     });
+
+    it('does not penalize Claude-only installs missing the optional OpenCode CLI', async () => {
+      // A Claude-only user with codex+gemini+ollama healthy but no OpenCode
+      // CLI should still see exit code 0. The opencode entry is `optional`
+      // when absent, so it must not count toward the denominator.
+      // (Without this, adding OpenCode to CLI_BACKENDS would silently
+      // poison every existing Claude user's `phone-a-friend doctor` check.)
+      const report = makeReport({
+        cli: [
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'opencode', category: 'cli', available: false, detail: 'not found', installHint: 'install opencode', optional: true },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('3 of 3 relay backends ready');
+    });
+
+    it('counts optional OpenCode toward the denominator when present', async () => {
+      // If the user installs OpenCode, it joins the count. Optional-and-
+      // available means "the user opted in; treat it like any other backend."
+      const report = makeReport({
+        cli: [
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', optional: true },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('4 of 4 relay backends ready');
+    });
+
+    it('JSON summary stays in lockstep with exit code', async () => {
+      // Codex's specific concern: the human-readable summary used to count
+      // all backends while exit code filtered planned. JSON had the same
+      // bug. This test pins that all three (human, JSON, exit code) apply
+      // the same `countableBackends` filter.
+      const report = makeReport({
+        cli: [
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'opencode', category: 'cli', available: false, detail: 'not found', installHint: '', optional: true },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const json = JSON.parse((await doctor.doctor({ json: true })).output);
+      expect(json.summary).toEqual({ available: 3, total: 3 });
+      expect(json.exitCode).toBe(0);
+    });
   });
 
   describe('JSON output', () => {
@@ -166,6 +249,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });

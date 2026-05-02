@@ -25,6 +25,8 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   subcommand. Never run `phone-a-friend curiosity-engine`.
 - `--backend` is an argument to this skill, not a PaF CLI flag. Do not pass
   `--backend` to `phone-a-friend`.
+- Inside OpenCode, prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=opencode` so PaF detects the host deterministically.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
@@ -292,8 +294,7 @@ now responds directly — no relay:
 ```
 
 Relay the orchestrator's question to backend using this template (same
-structure as Step 3, substituting current values, and reusing
-`$PAF_NO_DIFF` for binary mode):
+structure as Step 3, substituting current values):
 
 ```
 You are playing The Curiosity Engine — a structured Q&A rally with another agent.

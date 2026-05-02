@@ -142,9 +142,9 @@ export class ClaudeBackend implements Backend {
     args.push('--disable-slash-commands');
     args.push('--disallowedTools', 'Task');
 
-    if (opts.fast) {
-      args.push('--bare');
-    }
+    // Intentionally ignore opts.fast for Claude. `--bare` skips OAuth/keychain
+    // reads and breaks subscription auth; API-key users may be fine, but PaF
+    // cannot reliably detect that auth mode.
 
     // Ephemeral by default (print mode persists sessions otherwise)
     if (!opts.sessionId) {

@@ -236,7 +236,7 @@ function skipVoid(str, ptr, banNewLines, banComments) {
   }
   return ptr;
 }
-function skipUntil(str, ptr, sep2, end, banNewLines = false) {
+function skipUntil(str, ptr, sep3, end, banNewLines = false) {
   if (!end) {
     ptr = indexOfNewline(str, ptr);
     return ptr < 0 ? str.length : ptr;
@@ -245,7 +245,7 @@ function skipUntil(str, ptr, sep2, end, banNewLines = false) {
     let c = str[i];
     if (c === "#") {
       i = indexOfNewline(str, i);
-    } else if (c === sep2) {
+    } else if (c === sep3) {
       return i + 1;
     } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
       return i;
@@ -6459,13 +6459,14 @@ import {
   lstatSync,
   mkdirSync as mkdirSync4,
   readFileSync as readFileSync7,
+  readlinkSync,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync as unlinkSync2
 } from "fs";
-import { resolve as resolve3, join as join5, dirname as dirname5 } from "path";
+import { resolve as resolve3, join as join5, dirname as dirname5, isAbsolute, sep } from "path";
 import { homedir as homedir4 } from "os";
 function ensureParent(filePath) {
   mkdirSync4(dirname5(filePath), { recursive: true });
@@ -6633,6 +6634,51 @@ function claudeTarget(claudeHome) {
   const base = claudeHome ?? join5(homedir4(), ".claude");
   return join5(base, "plugins", PLUGIN_NAME);
 }
+function opencodeConfigRoot(opencodeHome) {
+  if (opencodeHome) return opencodeHome;
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config");
+  return join5(xdgConfig, "opencode");
+}
+function opencodeSkillTarget(name, opencodeHome) {
+  return join5(opencodeConfigRoot(opencodeHome), "skills", name);
+}
+function opencodeCommandTarget(name, opencodeHome) {
+  return join5(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+}
+function opencodeCommandSource(repoRoot, name) {
+  const overlay = join5(repoRoot, "skills", name, "COMMAND.opencode.md");
+  if (existsSync6(overlay)) return overlay;
+  return join5(repoRoot, "commands", `${name}.md`);
+}
+function isStalePafSymlink(target, repoRoot) {
+  if (!isSymlink(target)) return false;
+  let realRepo;
+  try {
+    realRepo = realpathSync(repoRoot);
+  } catch {
+    return false;
+  }
+  try {
+    const realTarget = realpathSync(target);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    try {
+      const link2 = readlinkSync(target);
+      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname5(target), link2);
+      let probe = absLink;
+      while (probe !== dirname5(probe)) {
+        if (existsSync6(probe)) {
+          const realProbe = realpathSync(probe);
+          return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
+        }
+        probe = dirname5(probe);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+}
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
@@ -6649,10 +6695,51 @@ function isPluginInstalled(claudeHome) {
     return false;
   }
 }
+function isOpenCodeInstalled(opencodeHome) {
+  return OPENCODE_SKILLS.every((name) => existsSync6(join5(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync6(opencodeCommandTarget(name, opencodeHome)));
+}
 function installClaude(repoRoot, mode, force, claudeHome) {
   const target = claudeTarget(claudeHome);
   const status = installPath(repoRoot, target, mode, force);
   return { status, targetPath: target };
+}
+function installOpenCode(repoRoot, mode, force, opencodeHome) {
+  const lines = [];
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync6(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    }
+    if (isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync6(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    }
+  }
+  for (const name of OPENCODE_SKILLS) {
+    const skillSource = join5(repoRoot, "skills", name);
+    const commandSource = opencodeCommandSource(repoRoot, name);
+    if (!existsSync6(join5(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join5(skillSource, "SKILL.md")}`);
+    }
+    if (!existsSync6(commandSource)) {
+      throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
+    }
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    lines.push(`- opencode_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    const commandForce = force || isStalePafSymlink(commandTarget, repoRoot);
+    const commandStatus = installPath(commandSource, commandTarget, mode, commandForce);
+    lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
+  }
+  return lines;
 }
 function uninstallPath(filePath) {
   if (existsSync6(filePath) || isSymlink(filePath)) {
@@ -6664,6 +6751,36 @@ function uninstallPath(filePath) {
 function uninstallClaude(claudeHome) {
   const target = claudeTarget(claudeHome);
   return { status: uninstallPath(target), targetPath: target };
+}
+function uninstallOpenCode(opencodeHome, repoRoot) {
+  const lines = [];
+  for (const name of OPENCODE_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    lines.push(`- opencode_command:${name}: ${uninstallPath(commandTarget)}`);
+  }
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy)`);
+    } else if (existsSync6(skillTarget) || isSymlink(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_skill:${name}: not-installed`);
+    }
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy)`);
+    } else if (existsSync6(commandTarget) || isSymlink(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_command:${name}: not-installed`);
+    }
+  }
+  return lines;
 }
 function isValidRepoRoot(repoRoot) {
   return existsSync6(join5(repoRoot, ".claude-plugin", "plugin.json"));
@@ -6695,6 +6812,7 @@ function installHosts(opts) {
     mode = "symlink",
     force = false,
     claudeHome,
+    opencodeHome,
     syncClaudeCli = true,
     forceMarketplaceSync = false
   } = opts;
@@ -6713,9 +6831,16 @@ function installHosts(opts) {
     `- repo_root: ${resolvedRepo}`,
     `- mode: ${mode}`
   ];
-  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
-  if (syncClaudeCli) {
+  const shouldInstallClaude = target === "claude" || target === "all";
+  const shouldInstallOpenCode = target === "opencode" || target === "all";
+  if (shouldInstallClaude) {
+    const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
+    lines.push(`- claude: ${status} -> ${targetPath}`);
+  }
+  if (shouldInstallOpenCode) {
+    lines.push(...installOpenCode(resolvedRepo, mode, force, opencodeHome));
+  }
+  if (shouldInstallClaude && syncClaudeCli) {
     const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
     if (remoteSource && !forceMarketplaceSync) {
       lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
@@ -6728,13 +6853,23 @@ function installHosts(opts) {
   return lines;
 }
 function uninstallHosts(opts) {
-  const { target, claudeHome, claudeCliUnsync = "auto" } = opts;
+  const { target, claudeHome, opencodeHome, repoRoot, claudeCliUnsync = "auto" } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
   }
   const lines = ["phone-a-friend uninstaller"];
-  const { status } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status}`);
+  const shouldUninstallClaude = target === "claude" || target === "all";
+  const shouldUninstallOpenCode = target === "opencode" || target === "all";
+  if (shouldUninstallClaude) {
+    const { status } = uninstallClaude(claudeHome);
+    lines.push(`- claude: ${status}`);
+  }
+  if (shouldUninstallOpenCode) {
+    lines.push(...uninstallOpenCode(opencodeHome, repoRoot));
+  }
+  if (!shouldUninstallClaude) {
+    return lines;
+  }
   if (claudeCliUnsync === "never") {
     lines.push("- claude_cli_unsync: skipped");
     return lines;
@@ -6758,7 +6893,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, OPENCODE_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -6767,8 +6902,10 @@ var init_installer = __esm({
     MARKETPLACE_NAME = "phone-a-friend-marketplace";
     LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
-    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "all"]);
+    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
+    OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    OPENCODE_LEGACY_SKILLS = ["phone-a-team"];
     InstallerError = class extends Error {
       constructor(message) {
         super(message);
@@ -19188,14 +19325,15 @@ var init_dist18 = __esm({
 // src/detection.ts
 import { execFileSync as execFileSync4 } from "child_process";
 async function detectCliBackends(whichFn = isInPath) {
-  return CLI_BACKENDS.map(({ name, installHint, label }) => {
+  return CLI_BACKENDS.map(({ name, installHint, label, optional }) => {
     const found = whichFn(name);
     return {
       name,
       category: "cli",
       available: found,
       detail: found ? `${label} (found in PATH)` : "not found in PATH",
-      installHint
+      installHint,
+      ...optional ? { optional } : {}
     };
   });
 }
@@ -19349,12 +19487,17 @@ var init_detection = __esm({
     CLI_BACKENDS = [
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
       { name: "gemini", installHint: "npm install -g @google/gemini-cli", label: "Google Gemini CLI" },
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" }
+      // OpenCode is a recent addition. Existing Claude-Code-only users who
+      // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
+      // exit with code 1 just because OpenCode is absent. Mark it optional so
+      // doctor counts/exit-code only include OpenCode when it is present.
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
     HOST_INTEGRATIONS = [
-      { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" }
+      { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" }
     ];
   }
 });
@@ -61449,7 +61592,7 @@ var require_backend = __commonJS({
                 var symbolOrNumber = renderer_typeof(type) === "object" && type !== null ? type.$$typeof : type;
                 return renderer_typeof(symbolOrNumber) === "symbol" ? symbolOrNumber.toString() : symbolOrNumber;
               }
-              var _ReactTypeOfWork = ReactTypeOfWork, CacheComponent = _ReactTypeOfWork.CacheComponent, ClassComponent = _ReactTypeOfWork.ClassComponent, IncompleteClassComponent = _ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = _ReactTypeOfWork.IncompleteFunctionComponent, FunctionComponent = _ReactTypeOfWork.FunctionComponent, IndeterminateComponent = _ReactTypeOfWork.IndeterminateComponent, ForwardRef = _ReactTypeOfWork.ForwardRef, HostRoot = _ReactTypeOfWork.HostRoot, HostHoistable = _ReactTypeOfWork.HostHoistable, HostSingleton = _ReactTypeOfWork.HostSingleton, HostComponent = _ReactTypeOfWork.HostComponent, HostPortal = _ReactTypeOfWork.HostPortal, HostText = _ReactTypeOfWork.HostText, Fragment = _ReactTypeOfWork.Fragment, LazyComponent = _ReactTypeOfWork.LazyComponent, LegacyHiddenComponent = _ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = _ReactTypeOfWork.MemoComponent, OffscreenComponent = _ReactTypeOfWork.OffscreenComponent, Profiler = _ReactTypeOfWork.Profiler, ScopeComponent = _ReactTypeOfWork.ScopeComponent, SimpleMemoComponent = _ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = _ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = _ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = _ReactTypeOfWork.TracingMarkerComponent, Throw = _ReactTypeOfWork.Throw, ViewTransitionComponent = _ReactTypeOfWork.ViewTransitionComponent, ActivityComponent = _ReactTypeOfWork.ActivityComponent;
+              var _ReactTypeOfWork = ReactTypeOfWork, CacheComponent = _ReactTypeOfWork.CacheComponent, ClassComponent = _ReactTypeOfWork.ClassComponent, IncompleteClassComponent = _ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = _ReactTypeOfWork.IncompleteFunctionComponent, FunctionComponent = _ReactTypeOfWork.FunctionComponent, IndeterminateComponent = _ReactTypeOfWork.IndeterminateComponent, ForwardRef = _ReactTypeOfWork.ForwardRef, HostRoot = _ReactTypeOfWork.HostRoot, HostHoistable = _ReactTypeOfWork.HostHoistable, HostSingleton = _ReactTypeOfWork.HostSingleton, HostComponent = _ReactTypeOfWork.HostComponent, HostPortal = _ReactTypeOfWork.HostPortal, HostText = _ReactTypeOfWork.HostText, Fragment2 = _ReactTypeOfWork.Fragment, LazyComponent = _ReactTypeOfWork.LazyComponent, LegacyHiddenComponent = _ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = _ReactTypeOfWork.MemoComponent, OffscreenComponent = _ReactTypeOfWork.OffscreenComponent, Profiler = _ReactTypeOfWork.Profiler, ScopeComponent = _ReactTypeOfWork.ScopeComponent, SimpleMemoComponent = _ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = _ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = _ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = _ReactTypeOfWork.TracingMarkerComponent, Throw = _ReactTypeOfWork.Throw, ViewTransitionComponent = _ReactTypeOfWork.ViewTransitionComponent, ActivityComponent = _ReactTypeOfWork.ActivityComponent;
               function resolveFiberType(type) {
                 var typeSymbol = getTypeSymbol(type);
                 switch (typeSymbol) {
@@ -61505,7 +61648,7 @@ var require_backend = __commonJS({
                   case HostPortal:
                   case HostText:
                     return null;
-                  case Fragment:
+                  case Fragment2:
                     return "Fragment";
                   case LazyComponent:
                     return "Lazy";
@@ -61660,7 +61803,7 @@ var require_backend = __commonJS({
             function renderer_attach(hook, rendererID, renderer2, global3, shouldStartProfilingNow, profilingSettings) {
               var version = renderer2.reconcilerVersion || renderer2.version;
               var _getInternalReactCons = getInternalReactConstants(version), getDisplayNameForFiber = _getInternalReactCons.getDisplayNameForFiber, getTypeSymbol = _getInternalReactCons.getTypeSymbol, ReactPriorityLevels = _getInternalReactCons.ReactPriorityLevels, ReactTypeOfWork = _getInternalReactCons.ReactTypeOfWork, StrictModeBits = _getInternalReactCons.StrictModeBits, SuspenseyImagesMode = _getInternalReactCons.SuspenseyImagesMode;
-              var ActivityComponent = ReactTypeOfWork.ActivityComponent, ClassComponent = ReactTypeOfWork.ClassComponent, ContextConsumer = ReactTypeOfWork.ContextConsumer, DehydratedSuspenseComponent = ReactTypeOfWork.DehydratedSuspenseComponent, ForwardRef = ReactTypeOfWork.ForwardRef, Fragment = ReactTypeOfWork.Fragment, FunctionComponent = ReactTypeOfWork.FunctionComponent, HostRoot = ReactTypeOfWork.HostRoot, HostHoistable = ReactTypeOfWork.HostHoistable, HostSingleton = ReactTypeOfWork.HostSingleton, HostPortal = ReactTypeOfWork.HostPortal, HostComponent = ReactTypeOfWork.HostComponent, HostText = ReactTypeOfWork.HostText, IncompleteClassComponent = ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = ReactTypeOfWork.IncompleteFunctionComponent, IndeterminateComponent = ReactTypeOfWork.IndeterminateComponent, LegacyHiddenComponent = ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = ReactTypeOfWork.MemoComponent, OffscreenComponent = ReactTypeOfWork.OffscreenComponent, SimpleMemoComponent = ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = ReactTypeOfWork.TracingMarkerComponent, Throw = ReactTypeOfWork.Throw, ViewTransitionComponent = ReactTypeOfWork.ViewTransitionComponent;
+              var ActivityComponent = ReactTypeOfWork.ActivityComponent, ClassComponent = ReactTypeOfWork.ClassComponent, ContextConsumer = ReactTypeOfWork.ContextConsumer, DehydratedSuspenseComponent = ReactTypeOfWork.DehydratedSuspenseComponent, ForwardRef = ReactTypeOfWork.ForwardRef, Fragment2 = ReactTypeOfWork.Fragment, FunctionComponent = ReactTypeOfWork.FunctionComponent, HostRoot = ReactTypeOfWork.HostRoot, HostHoistable = ReactTypeOfWork.HostHoistable, HostSingleton = ReactTypeOfWork.HostSingleton, HostPortal = ReactTypeOfWork.HostPortal, HostComponent = ReactTypeOfWork.HostComponent, HostText = ReactTypeOfWork.HostText, IncompleteClassComponent = ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = ReactTypeOfWork.IncompleteFunctionComponent, IndeterminateComponent = ReactTypeOfWork.IndeterminateComponent, LegacyHiddenComponent = ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = ReactTypeOfWork.MemoComponent, OffscreenComponent = ReactTypeOfWork.OffscreenComponent, SimpleMemoComponent = ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = ReactTypeOfWork.TracingMarkerComponent, Throw = ReactTypeOfWork.Throw, ViewTransitionComponent = ReactTypeOfWork.ViewTransitionComponent;
               var ImmediatePriority = ReactPriorityLevels.ImmediatePriority, UserBlockingPriority = ReactPriorityLevels.UserBlockingPriority, NormalPriority = ReactPriorityLevels.NormalPriority, LowPriority = ReactPriorityLevels.LowPriority, IdlePriority = ReactPriorityLevels.IdlePriority, NoPriority = ReactPriorityLevels.NoPriority;
               var getLaneLabelMap = renderer2.getLaneLabelMap, injectProfilingHooks = renderer2.injectProfilingHooks, overrideHookState = renderer2.overrideHookState, overrideHookStateDeletePath = renderer2.overrideHookStateDeletePath, overrideHookStateRenamePath = renderer2.overrideHookStateRenamePath, overrideProps = renderer2.overrideProps, overridePropsDeletePath = renderer2.overridePropsDeletePath, overridePropsRenamePath = renderer2.overridePropsRenamePath, scheduleRefresh = renderer2.scheduleRefresh, setErrorHandler = renderer2.setErrorHandler, setSuspenseHandler = renderer2.setSuspenseHandler, scheduleUpdate = renderer2.scheduleUpdate, scheduleRetry = renderer2.scheduleRetry, getCurrentFiber = renderer2.getCurrentFiber;
               var supportsTogglingError = typeof setErrorHandler === "function" && typeof scheduleUpdate === "function";
@@ -62021,7 +62164,7 @@ var require_backend = __commonJS({
                     return true;
                   case HostRoot:
                     return false;
-                  case Fragment:
+                  case Fragment2:
                     return key === null;
                   default:
                     var typeSymbol = getTypeSymbol(type);
@@ -62095,7 +62238,7 @@ var require_backend = __commonJS({
                     return ElementTypeHostComponent;
                   case HostPortal:
                   case HostText:
-                  case Fragment:
+                  case Fragment2:
                     return ElementTypeOtherOrUnknown;
                   case MemoComponent:
                   case SimpleMemoComponent:
@@ -73622,7 +73765,26 @@ function CategorySection({ label, backends }) {
     backends.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BackendRow, { backend: b }, b.name))
   ] });
 }
-function StatusPanel({ report, loading, refreshing, error: error3, pluginInstalled }) {
+function PluginSummary({ pluginInstalled, pluginHosts }) {
+  if (pluginHosts) {
+    return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: pluginHosts.claude ? "green" : "yellow", children: [
+        pluginHosts.claude ? "\u2713" : "!",
+        " Claude"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: " \xB7 " }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: pluginHosts.opencode ? "green" : "yellow", children: [
+        pluginHosts.opencode ? "\u2713" : "!",
+        " OpenCode"
+      ] })
+    ] });
+  }
+  return pluginInstalled ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "green", children: [
+    "\u2713",
+    " Claude Plugin"
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "yellow", children: "! Plugin: Not Installed" });
+}
+function StatusPanel({ report, loading, refreshing, error: error3, pluginInstalled, pluginHosts }) {
   if (!report) {
     if (error3) {
       return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
@@ -73693,10 +73855,7 @@ function StatusPanel({ report, loading, refreshing, error: error3, pluginInstall
         "    ",
         /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "\u2571 \u2502 \u2572" }),
         "    ",
-        pluginInstalled ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: "green", children: [
-          "\u2713",
-          " Claude Plugin"
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "yellow", children: "! Plugin: Not Installed" })
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(PluginSummary, { pluginInstalled, pluginHosts })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" })
     ] }),
@@ -73720,6 +73879,7 @@ function StatusPanel({ report, loading, refreshing, error: error3, pluginInstall
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "Host Integrations" }),
       report.host.map((b) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BackendRow, { backend: b }, b.name))
     ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: "Overview only. Use tabs 2-5 for interactive panels." }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ProTip, { environment: report.environment })
   ] });
 }
@@ -73807,6 +73967,9 @@ function badgeStatus(b) {
   if (b.name === "ollama" && (b.models !== void 0 || b.installHint === "ollama serve")) return "partial";
   return "unavailable";
 }
+function backendKey(b) {
+  return `${b.category}:${b.name}`;
+}
 function BackendDetail({
   backend,
   config,
@@ -73823,7 +73986,14 @@ function BackendDetail({
   const caps = backend.modelCapabilities ?? {};
   const modelMismatch = hasModels && configuredModel && !models.includes(configuredModel);
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { flexDirection: "column", paddingLeft: 2, borderStyle: "single", borderColor: "gray", paddingRight: 2, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
+    /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: true, children: backend.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { dimColor: true, children: [
+        "(",
+        backend.category,
+        ")"
+      ] })
+    ] }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: " " }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { status: badgeStatus(backend) }),
@@ -73994,11 +74164,17 @@ function BackendsPanel({ report, onEditingChange }) {
             items: allBackends,
             onChange: setSelectedIndex,
             isActive: mode === "nav",
-            getKey: (b) => b.name,
+            selectedIndex,
+            getKey: backendKey,
             renderItem: (b, _i, isSelected) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Box_default, { gap: 1, children: [
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { children: isSelected ? "\u25B8" : " " }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Badge, { status: badgeStatus(b) }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { bold: isSelected, children: b.name }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Text, { dimColor: true, children: [
+                "(",
+                b.category,
+                ")"
+              ] }),
               b.planned && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Text, { dimColor: true, children: "[planned]" })
             ] })
           }
@@ -74279,6 +74455,63 @@ function buildActions(report, onRefresh, processRef) {
           proc.on("close", (code) => {
             processRef.current = null;
             if (code === 0) resolve5(output.trim() || "Plugin uninstalled");
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on("error", (err) => {
+            processRef.current = null;
+            reject(err);
+          });
+        });
+      }
+    },
+    {
+      label: "Install OpenCode Commands",
+      description: "Install OpenCode commands and skills",
+      run: async () => {
+        return new Promise((resolve5, reject) => {
+          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--opencode", "--no-claude-cli-sync"], {
+            stdio: ["ignore", "pipe", "pipe"]
+          });
+          processRef.current = proc;
+          let output = "";
+          proc.stdout?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.stderr?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.on("close", (code) => {
+            processRef.current = null;
+            if (code === 0) resolve5(output.trim() || "OpenCode commands installed");
+            else reject(new Error(output.trim() || `Exit code ${code}`));
+          });
+          proc.on("error", (err) => {
+            processRef.current = null;
+            reject(err);
+          });
+        });
+      }
+    },
+    {
+      label: "Uninstall OpenCode Commands",
+      description: "Remove OpenCode commands and skills",
+      confirm: "Uninstall OpenCode commands and skills? (y/n)",
+      run: async () => {
+        return new Promise((resolve5, reject) => {
+          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--opencode"], {
+            stdio: ["ignore", "pipe", "pipe"]
+          });
+          processRef.current = proc;
+          let output = "";
+          proc.stdout?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.stderr?.on("data", (d) => {
+            output += d.toString();
+          });
+          proc.on("close", (code) => {
+            processRef.current = null;
+            if (code === 0) resolve5(output.trim() || "OpenCode commands uninstalled");
             else reject(new Error(output.trim() || `Exit code ${code}`));
           });
           proc.on("error", (err) => {
@@ -74719,7 +74952,22 @@ var init_useDetection = __esm({
 });
 
 // src/tui/components/PluginStatusBar.tsx
-function PluginStatusBar({ installed }) {
+function HostLabel({ label, installed }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: installed ? "green" : "yellow", children: [
+    label,
+    " ",
+    installed ? "\u2713" : "!"
+  ] });
+}
+function PluginStatusBar({ installed = false, hosts }) {
+  if (hosts) {
+    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Box_default, { marginBottom: 1, gap: 1, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "Plugins:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Claude", installed: hosts.claude }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "OpenCode", installed: hosts.opencode })
+    ] });
+  }
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
     "\u2713",
     " Claude Plugin: Installed"
@@ -74735,12 +74983,18 @@ var init_PluginStatusBar = __esm({
 });
 
 // src/tui/hooks/usePluginStatus.ts
+function readStatus() {
+  return {
+    claude: isPluginInstalled(),
+    opencode: isOpenCodeInstalled()
+  };
+}
 function usePluginStatus() {
-  const [installed, setInstalled] = (0, import_react40.useState)(() => isPluginInstalled());
+  const [hosts, setHosts] = (0, import_react40.useState)(readStatus);
   const recheck = (0, import_react40.useCallback)(() => {
-    setInstalled(isPluginInstalled());
+    setHosts(readStatus());
   }, []);
-  return { installed, recheck };
+  return { installed: hosts.claude, hosts, recheck };
 }
 var import_react40;
 var init_usePluginStatus = __esm({
@@ -75078,12 +75332,12 @@ function App2() {
   const hints = [...GLOBAL_HINTS, ...TAB_HINTS[currentTab] ?? []];
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(Box_default, { flexDirection: "column", padding: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(TabBar, { tabs: [...TABS], activeIndex: activeTab }),
-    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PluginStatusBar, { installed: pluginStatus.installed }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit(), agenticSessions }) }),
+    activeTab !== 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PluginStatusBar, { hosts: pluginStatus.hosts }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Box_default, { flexDirection: "column", minHeight: 10, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PanelContent, { tab: currentTab, detection, pluginInstalled: pluginStatus.installed, pluginHosts: pluginStatus.hosts, onPluginRecheck: pluginStatus.recheck, onFocusChange: setChildHasFocus, onExit: () => exit(), agenticSessions }) }),
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(KeyHint, { hints })
   ] });
 }
-function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, onFocusChange, onExit: onExit2, agenticSessions }) {
+function PanelContent({ tab: tab2, detection, pluginInstalled, pluginHosts, onPluginRecheck, onFocusChange, onExit: onExit2, agenticSessions }) {
   switch (tab2) {
     case "Status":
       return /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
@@ -75093,7 +75347,8 @@ function PanelContent({ tab: tab2, detection, pluginInstalled, onPluginRecheck, 
           loading: detection.loading,
           refreshing: detection.refreshing,
           error: detection.error,
-          pluginInstalled
+          pluginInstalled,
+          pluginHosts
         }
       );
     case "Backends":
@@ -76476,7 +76731,7 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join7, extname, resolve as resolve4, relative, sep } from "path";
+import { join as join7, extname, resolve as resolve4, relative, sep as sep2 } from "path";
 import { readFile } from "fs/promises";
 import { existsSync as existsSync11 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
@@ -76505,7 +76760,7 @@ async function startDashboard(opts = {}) {
     const filePath = path3 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path3);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
-    if (rel.startsWith("..") || rel.startsWith(sep)) {
+    if (rel.startsWith("..") || rel.startsWith(sep2)) {
       res.writeHead(403);
       res.end("Forbidden");
       return;
@@ -77329,9 +77584,6 @@ var ClaudeBackend = class {
     }
     args.push("--disable-slash-commands");
     args.push("--disallowedTools", "Task");
-    if (opts.fast) {
-      args.push("--bare");
-    }
     if (!opts.sessionId) {
       args.push("--no-session-persistence");
     }
@@ -77455,6 +77707,15 @@ function normalizeOpenCodeModel(model, provider = "ollama") {
   if (!model) return null;
   return model.includes("/") ? model : `${provider}/${model}`;
 }
+function isOpenCodeHostEnv(env3) {
+  return env3.PHONE_A_FRIEND_HOST?.toLowerCase() === "opencode";
+}
+function assertNotOpenCodeHost(env3) {
+  if (!isOpenCodeHostEnv(env3)) return;
+  throw new OpenCodeBackendError(
+    "OpenCode is already the host for this Phone-a-Friend invocation. Choose another friend backend such as codex, gemini, claude, or ollama."
+  );
+}
 function buildOpenCodeArgs(opts) {
   const args = ["run", "--format", "json", "--dir", opts.repoPath];
   const model = normalizeOpenCodeModel(opts.model, opts.provider);
@@ -77511,6 +77772,7 @@ var OpenCodeBackend = class {
     };
   }
   async run(opts) {
+    assertNotOpenCodeHost(opts.env);
     if (!isInPath("opencode")) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
@@ -77554,6 +77816,7 @@ var OpenCodeBackend = class {
     }
   }
   async *runStream(opts) {
+    assertNotOpenCodeHost(opts.env);
     if (!isInPath("opencode")) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
@@ -77631,6 +77894,7 @@ var OpenCodeBackend = class {
     }
   }
   async review(opts) {
+    assertNotOpenCodeHost(opts.env);
     if (!isInPath("opencode")) {
       throw new OpenCodeBackendError(
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
@@ -80320,6 +80584,29 @@ async function setup(opts) {
       }
     }
   }
+  const opencodeAvailable = report.host.some((h) => h.name === "opencode" && h.available);
+  if (opencodeAvailable) {
+    console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("OpenCode integration")}`);
+    const installOpenCode2 = await dist_default6({
+      message: "Install OpenCode commands and skills?",
+      default: true
+    });
+    if (installOpenCode2) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: "opencode",
+          mode: "symlink",
+          force: true,
+          syncClaudeCli: false
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  OpenCode install failed: ${err.message}`));
+      }
+    }
+  }
   const existing = loadConfig(opts?.repoRoot);
   const cfg = {
     ...existing,
@@ -80376,6 +80663,9 @@ async function setup(opts) {
   console.log(`    ${theme.hint("Note: Marketplace install provides Claude Code commands and skills only.")}`);
   console.log(`    ${theme.hint("The full CLI (agentic mode, TUI, web dashboard) requires the global npm install.")}`);
   console.log("");
+  console.log(`  ${theme.hint("OpenCode:")}`);
+  console.log(`    ${theme.info("phone-a-friend plugin install --opencode")}`);
+  console.log("");
   console.log(`  Tip: ${theme.hint("alias paf='phone-a-friend'")}`);
   console.log("");
 }
@@ -80384,7 +80674,15 @@ async function setup(opts) {
 init_detection();
 init_config();
 init_version();
-function formatHumanReadable(report, config, paths, advisories = []) {
+init_installer();
+function countableBackends(report) {
+  return [...report.cli, ...report.local].filter((b) => {
+    if (b.planned) return false;
+    if (b.optional && !b.available) return false;
+    return true;
+  });
+}
+function formatHumanReadable(report, config, paths, hostInstallations, advisories = []) {
   const lines = [];
   lines.push("");
   lines.push(banner("Health Check"));
@@ -80414,12 +80712,16 @@ function formatHumanReadable(report, config, paths, advisories = []) {
     lines.push(`  ${formatBackendLine(b)}`);
   }
   lines.push("");
+  lines.push(`  ${theme.label("Host Install Status:")}`);
+  lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning("!")} Claude plugin ${hostInstallations.claude ? theme.success("installed") : theme.warning("not installed")}`);
+  lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning("!")} OpenCode commands/skills ${hostInstallations.opencode ? theme.success("installed") : theme.warning("not installed")}`);
+  lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
   lines.push("");
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter((b) => b.available).length;
-  const total = allRelay.length;
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
+  const total = counted.length;
   const summaryColor = available === total ? theme.success : available > 0 ? theme.warning : theme.error;
   lines.push(`  ${summaryColor(`${available} of ${total} relay backends ready`)}`);
   lines.push("");
@@ -80441,10 +80743,10 @@ function normalizeForJson(backends) {
     return b;
   });
 }
-function formatJson(report, config, exitCode, advisories = []) {
-  const allRelay = [...report.cli, ...report.local];
-  const available = allRelay.filter((b) => b.available).length;
-  const total = allRelay.length;
+function formatJson(report, config, exitCode, hostInstallations, advisories = []) {
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
+  const total = counted.length;
   return JSON.stringify({
     system: {
       nodeVersion: process.version,
@@ -80455,6 +80757,7 @@ function formatJson(report, config, exitCode, advisories = []) {
       local: normalizeForJson(report.local)
     },
     host: normalizeForJson(report.host),
+    hostInstallations,
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
@@ -80462,10 +80765,10 @@ function formatJson(report, config, exitCode, advisories = []) {
   }, null, 2);
 }
 function computeExitCode(report) {
-  const allRelay = [...report.cli, ...report.local].filter((b) => !b.planned);
-  const available = allRelay.filter((b) => b.available).length;
+  const counted = countableBackends(report);
+  const available = counted.filter((b) => b.available).length;
   if (available === 0) return 2;
-  const total = allRelay.length;
+  const total = counted.length;
   if (available < total) return 1;
   return 0;
 }
@@ -80513,15 +80816,19 @@ async function doctor(opts) {
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
   const advisories = await collectAdvisories(report);
+  const hostInstallations = {
+    claude: isPluginInstalled(),
+    opencode: isOpenCodeInstalled()
+  };
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, advisories)
+      output: formatJson(report, config, exitCode, hostInstallations, advisories)
     };
   }
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, advisories)
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories)
   };
 }
 
@@ -80577,13 +80884,20 @@ function installAction(opts) {
       process.exitCode = 1;
       return;
     }
+    if (opts.opencode || opts.all) {
+      console.error(
+        "Error: --github only applies to Claude Code; OpenCode has no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` separately."
+      );
+      process.exitCode = 1;
+      return;
+    }
     const lines2 = ["phone-a-friend installer (GitHub marketplace)"];
     lines2.push(...installFromGitHubMarketplace());
     for (const line of lines2) console.log(line);
     printBackendAvailability();
     return;
   }
-  const target = opts.all ? "all" : "claude";
+  const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
     target,
@@ -80596,9 +80910,10 @@ function installAction(opts) {
   printBackendAvailability();
 }
 function updateAction(opts) {
+  const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: "claude",
+    target,
     mode: opts.mode ?? "symlink",
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
@@ -80608,21 +80923,22 @@ function updateAction(opts) {
   printBackendAvailability();
 }
 function uninstallAction(opts) {
-  const target = opts.all ? "all" : "claude";
+  const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = uninstallHosts({
     target,
+    repoRoot: repoRootDefault(),
     claudeCliUnsync: opts.purgeMarketplace ? "always" : "auto"
   });
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--all", "Alias for --claude", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUninstallOptions(cmd) {
-  return cmd.option("--claude", "Uninstall for Claude", false).option("--all", "Alias for --claude", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)");
+  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)");
 }
 async function run(argv) {
   const normalized = normalizeArgv(argv);
@@ -80727,7 +81043,7 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
     const isReview = opts.review || opts.base !== void 0;
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
@@ -80735,15 +81051,20 @@ ${banner("AI coding agent relay")}
       return;
     }
     const streamExplicit = command.getOptionValueSource("stream") === "cli";
-    const resolved = resolveConfig({
-      to: opts.to,
-      sandbox: opts.sandbox,
-      timeout: opts.timeout,
-      includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
-      stream: streamExplicit ? String(opts.stream) : void 0,
-      model: opts.model,
-      base: opts.base
-    });
+    const includeDiffExplicit = command.getOptionValueSource("includeDiff") === "cli";
+    const resolved = resolveConfig(
+      {
+        to: opts.to,
+        sandbox: opts.sandbox,
+        timeout: opts.timeout,
+        includeDiff: includeDiffExplicit ? String(opts.includeDiff) : void 0,
+        stream: streamExplicit ? String(opts.stream) : void 0,
+        model: opts.model,
+        base: opts.base
+      },
+      process.env,
+      opts.repo
+    );
     const backendName = resolved.backend;
     if (isReview) {
       const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";

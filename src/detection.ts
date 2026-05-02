@@ -2,7 +2,8 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (codex/gemini), Local (ollama), plus host integrations (claude).
+ * backends: CLI (codex/gemini/opencode), Local (ollama), plus host integrations
+ * (claude/opencode).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -21,7 +22,14 @@ export interface BackendStatus {
   models?: string[];
   /** Per-model capabilities from Ollama /api/show (e.g., "tools", "vision", "thinking"). */
   modelCapabilities?: Record<string, string[]>;
+  /** Backend is declared but not yet implemented. Excluded from doctor counts. */
   planned?: boolean;
+  /**
+   * Backend is implemented but optional for most users (e.g. an additional
+   * host integration that not every install needs). Excluded from doctor
+   * counts when absent; counted normally when present.
+   */
+  optional?: boolean;
 }
 
 export interface EnvironmentStatus {
@@ -40,10 +48,14 @@ export interface DetectionReport {
 // Install hints
 // ---------------------------------------------------------------------------
 
-const CLI_BACKENDS: { name: string; installHint: string; label: string }[] = [
+const CLI_BACKENDS: { name: string; installHint: string; label: string; optional?: boolean }[] = [
   { name: 'codex', installHint: 'npm install -g @openai/codex', label: 'OpenAI Codex CLI' },
   { name: 'gemini', installHint: 'npm install -g @google/gemini-cli', label: 'Google Gemini CLI' },
-  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI' },
+  // OpenCode is a recent addition. Existing Claude-Code-only users who
+  // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
+  // exit with code 1 just because OpenCode is absent. Mark it optional so
+  // doctor counts/exit-code only include OpenCode when it is present.
+  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI', optional: true },
 ];
 
 const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
@@ -51,6 +63,7 @@ const OLLAMA_INSTALL_HINT = 'brew install ollama  # or: curl -fsSL https://ollam
 
 const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] = [
   { name: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code', label: 'Claude Code CLI' },
+  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -67,7 +80,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<{ ok: boolean; json:
 export async function detectCliBackends(
   whichFn: WhichFn = isInPath,
 ): Promise<BackendStatus[]> {
-  return CLI_BACKENDS.map(({ name, installHint, label }) => {
+  return CLI_BACKENDS.map(({ name, installHint, label, optional }) => {
     const found = whichFn(name);
     return {
       name,
@@ -75,6 +88,7 @@ export async function detectCliBackends(
       available: found,
       detail: found ? `${label} (found in PATH)` : 'not found in PATH',
       installHint,
+      ...(optional ? { optional } : {}),
     };
   });
 }

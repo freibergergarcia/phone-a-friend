@@ -75,6 +75,13 @@ describe('StatusPanel', () => {
     expect(lastFrame()).toContain('claude');
   });
 
+  it('makes clear that Status is read-only', () => {
+    const { lastFrame } = render(
+      <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={null} />
+    );
+    expect(lastFrame()).toContain('Overview only');
+  });
+
   it('shows error message when error is present', () => {
     const { lastFrame } = render(
       <StatusPanel report={MOCK_REPORT} loading={false} refreshing={false} error={new Error('Network timeout')} />

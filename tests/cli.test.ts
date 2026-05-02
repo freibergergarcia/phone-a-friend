@@ -299,6 +299,42 @@ describe('CLI', () => {
     expect(opts.model).toBe('o3');
     expect(opts.sandbox).toBe('workspace-write');
     expect(opts.includeDiff).toBe(true);
+
+    // Bug fix verification: resolveConfig must receive the repo path so that
+    // .phone-a-friend.toml in the repo is honored. Before the fix, only the
+    // first arg (cliOpts) was passed, leaving repo-local config invisible.
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBe('true');
+    expect(resolveCall[2]).toBe(tmpDir);
+  });
+
+  it('--no-include-diff passes explicit false to resolveConfig (overrides config default)', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+      '--no-include-diff',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBe('false');
+  });
+
+  it('omitting --include-diff/--no-include-diff leaves cliOpts.includeDiff undefined so config/env can win', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].includeDiff).toBeUndefined();
   });
 
   it('passes schema, session, and fast flags through to relay', async () => {
@@ -500,16 +536,24 @@ describe('CLI', () => {
 
   // --- Plugin subcommand (new primary namespace) ---
 
-  it('plugin install --claude works', async () => {
-    const code = await run(['plugin', 'install', '--claude', '--no-claude-cli-sync']);
-    expect(code).toBe(0);
-    expect(mockInstallHosts).toHaveBeenCalledOnce();
-  });
+    it('plugin install --claude works', async () => {
+      const code = await run(['plugin', 'install', '--claude', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
+    });
 
-  it('plugin update --claude works', async () => {
-    const code = await run(['plugin', 'update', '--no-claude-cli-sync']);
-    expect(code).toBe(0);
-    expect(mockInstallHosts).toHaveBeenCalledOnce();
+    it('plugin install --opencode passes OpenCode target', async () => {
+      const code = await run(['plugin', 'install', '--opencode', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
+      const opts = mockInstallHosts.mock.calls[0][0];
+      expect(opts.target).toBe('opencode');
+    });
+
+    it('plugin update --claude works', async () => {
+      const code = await run(['plugin', 'update', '--no-claude-cli-sync']);
+      expect(code).toBe(0);
+      expect(mockInstallHosts).toHaveBeenCalledOnce();
     const opts = mockInstallHosts.mock.calls[0][0];
     expect(opts.force).toBe(true);
   });
@@ -546,6 +590,25 @@ describe('CLI', () => {
     });
     expect(stderr).toContain('--repo-root is not compatible with --github');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --opencode (no marketplace for OpenCode)', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--opencode']);
+    });
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(stderr).toContain('OpenCode has no marketplace');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --all (would silently skip OpenCode)', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      await run(['plugin', 'install', '--github', '--all']);
+    });
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
   });
 
   it('install --github works via backward-compat alias', async () => {

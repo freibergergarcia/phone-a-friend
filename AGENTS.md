@@ -20,7 +20,7 @@ src/
   config.ts          TOML configuration system
   doctor.ts          Health check command
   setup.ts           Interactive setup wizard
-  installer.ts       Claude plugin installer (symlink/copy)
+  installer.ts       Claude/OpenCode host integration installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
@@ -59,15 +59,18 @@ src/
     AgenticPanel.tsx Session browser with list view and dashboard URL hint
     hooks/
       useDetection.ts    Async detection with throttled refresh
-      usePluginStatus.ts Plugin install status (sync FS check)
+      usePluginStatus.ts Host integration install status (sync FS check)
       useAgenticSessions.ts  SQLite session loader for Agentic panel
     components/
       TabBar.tsx             Tab navigation bar
-      PluginStatusBar.tsx    Persistent plugin install indicator
+      PluginStatusBar.tsx    Persistent host integration install indicator
       Badge.tsx              Status badges (✓ ✗ ! ·)
       KeyHint.tsx            Footer keyboard hints
       ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
+commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini priority, etc.)
+skills/<name>/SKILL.md         Canonical Agent Skills — primary OpenCode entry point, also auto-discovered by Claude Code as plugin-namespaced skills
+skills/<name>/COMMAND.opencode.md  Thin OpenCode command shim (overlay). Installer prefers this over commands/<name>.md when present, so OpenCode users get a small shim that delegates into SKILL.md while Claude users get the rich commands/<name>.md inline.
 dist/                Built bundle (committed, self-contained)
 ```
 
@@ -77,7 +80,7 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
 - Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
-- Backend `localFileAccess: boolean` property — controls whether repo path is passed or file contents are inlined
+- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
@@ -197,12 +200,13 @@ phone-a-friend --to codex --prompt "..." --base develop # Review against specifi
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
+phone-a-friend --prompt "..." --no-include-diff        # Do not append git diff, overriding defaults.include_diff
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
 phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
 phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
-phone-a-friend --to claude --prompt "..." --fast                       # Fast mode (--bare for Claude, --pure for OpenCode)
+phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -219,9 +223,13 @@ phone-a-friend config edit                  # Open in $EDITOR
 
 # Plugin management
 phone-a-friend plugin install --claude      # Install as Claude plugin
+phone-a-friend plugin install --opencode    # Install OpenCode commands and skills
+phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
+phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
+phone-a-friend plugin uninstall --opencode  # Uninstall OpenCode commands and skills
 
 # Job management
 phone-a-friend job status                  # List all tracked jobs
@@ -254,12 +262,12 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Status** — system info + live backend detection (auto-refreshes)
 - **Backends** — navigable backend list with detail pane
 - **Config** — inline config editing with focus model (nav/edit modes)
-- **Actions** — async-wrapped actions (re-detect, reinstall plugin, open config)
+- **Actions** — async-wrapped actions (re-detect, reinstall host integrations, open config)
 - **Agentic** — session browser with list view and dashboard URL hint
 
 A persistent plugin status bar sits between the tab bar and panel content,
-showing `✓ Claude Plugin: Installed` (green) or `! Claude Plugin: Not Installed` (yellow).
-It updates instantly after Reinstall/Uninstall actions complete.
+showing Claude and OpenCode host integration state. It updates instantly after
+install/uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
 Global keys: `q` quit, `Tab`/`1-5` switch tabs, `r` refresh detection.
@@ -319,6 +327,11 @@ Config files (TOML format):
 
 Precedence: CLI flags > env vars > repo config > user config > defaults
 
+Environment variables:
+- `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
+- `PHONE_A_FRIEND_HOST=opencode` — recursion guard marker. OpenCode install shims set this so that `--to opencode` from inside an OpenCode session is blocked deterministically. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
+- `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
+
 ## Marketplace distribution
 
 Users can install the Claude Code plugin (commands and skills) via the marketplace:
@@ -333,6 +346,10 @@ plugin from npm when users install through the marketplace.
 Marketplace install provides Claude Code integration only (slash commands and skills).
 For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
+
+OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is Claude-only.
+
+The OpenCode command source uses **overlay inversion**: `installer.ts` `opencodeCommandSource()` prefers `skills/<name>/COMMAND.opencode.md` (the OpenCode-tuned thin shim, env-var-only diff suppression, `PHONE_A_FRIEND_HOST=opencode` prefix) when it exists, and falls back to the rich `commands/<name>.md` only when no overlay is shipped for that skill. This keeps the rich content host-neutral for Claude consumption while letting OpenCode ship a host-tuned shim per skill. Today both shared skills (`phone-a-friend`, `curiosity-engine`) ship overlays.
 
 ## Job tracking
 
@@ -404,8 +421,8 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--bare` for the Claude backend, skipping project context loading (CLAUDE.md, MCP servers, skills, hooks), and to `--pure` for the OpenCode backend, skipping external plugins. No-op for other backends. Useful for self-contained tasks where project conventions and tools are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude plugin installer, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

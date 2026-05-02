@@ -103,6 +103,7 @@ function printBackendAvailability(): void {
 
 function installAction(opts: {
   claude?: boolean;
+  opencode?: boolean;
   all?: boolean;
   mode?: string;
   force?: boolean;
@@ -123,6 +124,15 @@ function installAction(opts: {
       process.exitCode = 1;
       return;
     }
+    if (opts.opencode || opts.all) {
+      console.error(
+        'Error: --github only applies to Claude Code; OpenCode has no marketplace. ' +
+          'Run `phone-a-friend plugin install --github` for Claude, then ' +
+          '`phone-a-friend plugin install --opencode` separately.',
+      );
+      process.exitCode = 1;
+      return;
+    }
     // GitHub marketplace flow
     const lines = ['phone-a-friend installer (GitHub marketplace)'];
     lines.push(...installFromGitHubMarketplace());
@@ -131,10 +141,16 @@ function installAction(opts: {
     return;
   }
   // Existing local install flow
-  const target = opts.all ? 'all' : 'claude';
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: target as 'claude' | 'all',
+    target: target as 'claude' | 'opencode' | 'all',
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: opts.force ?? false,
     syncClaudeCli: opts.claudeCliSync !== false,
@@ -145,14 +161,24 @@ function installAction(opts: {
 }
 
 function updateAction(opts: {
+  claude?: boolean;
+  opencode?: boolean;
+  all?: boolean;
   mode?: string;
   repoRoot?: string;
   claudeCliSync?: boolean;
   forceMarketplaceSync?: boolean;
 }): void {
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: 'claude',
+    target: target as 'claude' | 'opencode' | 'all',
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
@@ -162,10 +188,22 @@ function updateAction(opts: {
   printBackendAvailability();
 }
 
-function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketplace?: boolean }): void {
-  const target = opts.all ? 'all' : 'claude';
+function uninstallAction(opts: {
+  claude?: boolean;
+  opencode?: boolean;
+  all?: boolean;
+  purgeMarketplace?: boolean;
+}): void {
+  const target = opts.all
+    ? 'all'
+    : opts.opencode && opts.claude
+      ? 'all'
+      : opts.opencode
+        ? 'opencode'
+        : 'claude';
   const lines = uninstallHosts({
-    target: target as 'claude' | 'all',
+    target: target as 'claude' | 'opencode' | 'all',
+    repoRoot: repoRootDefault(),
     claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
   });
   for (const line of lines) console.log(line);
@@ -178,7 +216,8 @@ function uninstallAction(opts: { claude?: boolean; all?: boolean; purgeMarketpla
 function addInstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Install for Claude', false)
-    .option('--all', 'Alias for --claude', false)
+    .option('--opencode', 'Install for OpenCode', false)
+    .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
     .option('--repo-root <path>', 'Repository root path')
@@ -189,6 +228,9 @@ function addInstallOptions(cmd: Command): Command {
 
 function addUpdateOptions(cmd: Command): Command {
   return cmd
+    .option('--claude', 'Install for Claude', false)
+    .option('--opencode', 'Install for OpenCode', false)
+    .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
@@ -198,7 +240,8 @@ function addUpdateOptions(cmd: Command): Command {
 function addUninstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Uninstall for Claude', false)
-    .option('--all', 'Alias for --claude', false)
+    .option('--opencode', 'Uninstall for OpenCode', false)
+    .option('--all', 'Uninstall for all supported hosts', false)
     .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)');
 }
 
@@ -341,13 +384,14 @@ export async function run(argv: string[]): Promise<number> {
     .option('--context-file <path>', 'File with additional context')
     .option('--context-text <text>', 'Inline context text')
     .option('--include-diff', 'Append git diff to prompt')
+    .option('--no-include-diff', 'Do not append git diff (overrides config defaults.include_diff)')
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
     .option('--schema <json>', 'Request structured JSON output matching this schema')
     .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
     .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
-    .option('--fast', 'Use fast mode when supported (maps to --bare for Claude)')
+    .option('--fast', 'Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
@@ -363,21 +407,27 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
-      // Only pass stream to config resolution when user explicitly passed --stream or --no-stream.
-      // Commander sets opts.stream to true (default or --stream) or false (--no-stream),
-      // so opts.stream is never undefined — we must check the option value source.
+      // Commander defaults paired flags to true when neither is passed (e.g. with both
+      // --include-diff and --no-include-diff registered, opts.includeDiff is never
+      // undefined). Use getOptionValueSource to distinguish "user explicitly passed
+      // a flag" from "default value", so absent CLI flags fall through to env/config.
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
+      const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
 
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
-      const resolved = resolveConfig({
-        to: opts.to,
-        sandbox: opts.sandbox,
-        timeout: opts.timeout,
-        includeDiff: opts.includeDiff !== undefined ? String(opts.includeDiff) : undefined,
-        stream: streamExplicit ? String(opts.stream) : undefined,
-        model: opts.model,
-        base: opts.base,
-      });
+      const resolved = resolveConfig(
+        {
+          to: opts.to,
+          sandbox: opts.sandbox,
+          timeout: opts.timeout,
+          includeDiff: includeDiffExplicit ? String(opts.includeDiff) : undefined,
+          stream: streamExplicit ? String(opts.stream) : undefined,
+          model: opts.model,
+          base: opts.base,
+        },
+        process.env,
+        opts.repo,
+      );
 
       const backendName = resolved.backend;
 

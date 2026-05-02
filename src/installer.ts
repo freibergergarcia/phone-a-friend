@@ -10,13 +10,14 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   symlinkSync,
   cpSync,
   unlinkSync,
 } from 'node:fs';
-import { resolve, join, dirname } from 'node:path';
+import { resolve, join, dirname, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 
@@ -33,8 +34,25 @@ const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 /** GitHub repository for marketplace distribution. */
 export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
-const INSTALL_TARGETS = new Set(['claude', 'all']);
+const INSTALL_TARGETS = new Set(['claude', 'opencode', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
+const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+
+/**
+ * Skills/commands that PaF previously installed for OpenCode but no longer
+ * supports there. The installer removes any installed artifacts for these
+ * names so existing users get a clean uninstall on their next
+ * `plugin update --opencode`.
+ *
+ * `phone-a-team` was dropped because it relies on Claude Agent Teams
+ * primitives (TeamCreate, Task, SendMessage, TeamDelete) that have no
+ * OpenCode equivalent. The portable shell-based version we shipped for
+ * OpenCode could not orchestrate reliably with smaller models. Claude
+ * keeps the rich `commands/phone-a-team.md` runbook.
+ */
+const OPENCODE_LEGACY_SKILLS = ['phone-a-team'] as const;
+
+type InstallTarget = 'claude' | 'opencode' | 'all';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -266,6 +284,74 @@ export function claudeTarget(claudeHome?: string): string {
   return join(base, 'plugins', PLUGIN_NAME);
 }
 
+export function opencodeConfigRoot(opencodeHome?: string): string {
+  if (opencodeHome) return opencodeHome;
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+  return join(xdgConfig, 'opencode');
+}
+
+export function opencodeSkillTarget(name: string, opencodeHome?: string): string {
+  return join(opencodeConfigRoot(opencodeHome), 'skills', name);
+}
+
+export function opencodeCommandTarget(name: string, opencodeHome?: string): string {
+  return join(opencodeConfigRoot(opencodeHome), 'commands', `${name}.md`);
+}
+
+/**
+ * Resolve the OpenCode command source path for a skill.
+ *
+ * Per-skill overlay at `skills/<name>/COMMAND.opencode.md` wins when present,
+ * otherwise falls back to the shared `commands/<name>.md`. The overlay lets a
+ * skill ship a different command shim for OpenCode than the one Claude loads.
+ */
+export function opencodeCommandSource(repoRoot: string, name: string): string {
+  const overlay = join(repoRoot, 'skills', name, 'COMMAND.opencode.md');
+  if (existsSync(overlay)) return overlay;
+  return join(repoRoot, 'commands', `${name}.md`);
+}
+
+/**
+ * True when `target` is a symlink pointing somewhere inside this PaF repo.
+ * Used to auto-replace stale PaF-owned symlinks when source paths change
+ * (e.g. moving the OpenCode command shim from commands/ to skills/<name>/).
+ */
+function isStalePafSymlink(target: string, repoRoot: string): boolean {
+  if (!isSymlink(target)) return false;
+  let realRepo: string;
+  try {
+    realRepo = realpathSync(repoRoot);
+  } catch {
+    return false;
+  }
+  // Valid symlink: resolve and compare.
+  try {
+    const realTarget = realpathSync(target);
+    return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
+  } catch {
+    // Symlink target may be deleted (e.g. after option C removed the
+    // phone-a-team source files). Fall back to reading the literal symlink
+    // path and walk up until we find an existing parent we can realpath.
+    // This handles macOS path aliases like /var → /private/var that would
+    // otherwise foil a string-prefix comparison.
+    try {
+      const link = readlinkSync(target);
+      const absLink = isAbsolute(link) ? link : resolve(dirname(target), link);
+      let probe = absLink;
+      while (probe !== dirname(probe)) {
+        if (existsSync(probe)) {
+          const realProbe = realpathSync(probe);
+          return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
+        }
+        probe = dirname(probe);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export function isPluginInstalled(claudeHome?: string): boolean {
   const target = claudeTarget(claudeHome);
   // Check local symlink/copy install
@@ -291,6 +377,13 @@ export function isPluginInstalled(claudeHome?: string): boolean {
   }
 }
 
+export function isOpenCodeInstalled(opencodeHome?: string): boolean {
+  return OPENCODE_SKILLS.every((name) => (
+    existsSync(join(opencodeSkillTarget(name, opencodeHome), 'SKILL.md')) &&
+    existsSync(opencodeCommandTarget(name, opencodeHome))
+  ));
+}
+
 function installClaude(
   repoRoot: string,
   mode: string,
@@ -300,6 +393,63 @@ function installClaude(
   const target = claudeTarget(claudeHome);
   const status = installPath(repoRoot, target, mode, force);
   return { status, targetPath: target };
+}
+
+function installOpenCode(
+  repoRoot: string,
+  mode: string,
+  force: boolean,
+  opencodeHome?: string,
+): string[] {
+  const lines: string[] = [];
+
+  // Auto-clean legacy artifacts before installing the active set, so users
+  // who previously had a now-dropped skill (e.g. phone-a-team) don't keep
+  // stale files in ~/.config/opencode/.
+  //
+  // Only remove PaF-owned symlinks. User-authored files at the same path
+  // (e.g. someone manually wrote their own phone-a-team skill for OpenCode)
+  // are left alone — silently deleting them would be surprising.
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    }
+    if (isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
+    } else if (existsSync(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    }
+  }
+
+  for (const name of OPENCODE_SKILLS) {
+    const skillSource = join(repoRoot, 'skills', name);
+    const commandSource = opencodeCommandSource(repoRoot, name);
+
+    if (!existsSync(join(skillSource, 'SKILL.md'))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join(skillSource, 'SKILL.md')}`);
+    }
+    if (!existsSync(commandSource)) {
+      throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
+    }
+
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    lines.push(`- opencode_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    const commandForce = force || isStalePafSymlink(commandTarget, repoRoot);
+    const commandStatus = installPath(commandSource, commandTarget, mode, commandForce);
+    lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
+  }
+
+  return lines;
 }
 
 function uninstallPath(filePath: string): string {
@@ -313,6 +463,44 @@ function uninstallPath(filePath: string): string {
 function uninstallClaude(claudeHome?: string): { status: string; targetPath: string } {
   const target = claudeTarget(claudeHome);
   return { status: uninstallPath(target), targetPath: target };
+}
+
+function uninstallOpenCode(opencodeHome?: string, repoRoot?: string): string[] {
+  const lines: string[] = [];
+  // Active skills (phone-a-friend, curiosity-engine): the user explicitly
+  // opted to uninstall PaF's OpenCode integration, so remove unconditionally.
+  for (const name of OPENCODE_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    lines.push(`- opencode_skill:${name}: ${uninstallPath(skillTarget)}`);
+
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    lines.push(`- opencode_command:${name}: ${uninstallPath(commandTarget)}`);
+  }
+  // Legacy skills (phone-a-team): preserve user-authored files. Only remove
+  // when ownership can be verified (PaF symlink into the current repo). If
+  // we can't verify ownership (no repoRoot, or the file is a plain user
+  // file), keep it and surface a "kept" log line.
+  for (const name of OPENCODE_LEGACY_SKILLS) {
+    const skillTarget = opencodeSkillTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- opencode_skill:${name}: removed (legacy)`);
+    } else if (existsSync(skillTarget) || isSymlink(skillTarget)) {
+      lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_skill:${name}: not-installed`);
+    }
+    const commandTarget = opencodeCommandTarget(name, opencodeHome);
+    if (repoRoot && isStalePafSymlink(commandTarget, repoRoot)) {
+      removePath(commandTarget);
+      lines.push(`- opencode_command:${name}: removed (legacy)`);
+    } else if (existsSync(commandTarget) || isSymlink(commandTarget)) {
+      lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- opencode_command:${name}: not-installed`);
+    }
+  }
+  return lines;
 }
 
 function isValidRepoRoot(repoRoot: string): boolean {
@@ -364,10 +552,11 @@ export function installFromGitHubMarketplace(): string[] {
 
 export interface InstallOptions {
   repoRoot: string;
-  target: 'claude' | 'all';
+  target: InstallTarget;
   mode?: 'symlink' | 'copy';
   force?: boolean;
   claudeHome?: string;
+  opencodeHome?: string;
   syncClaudeCli?: boolean;
   /** Force overwrite of a remote marketplace source with local path. */
   forceMarketplaceSync?: boolean;
@@ -380,6 +569,7 @@ export function installHosts(opts: InstallOptions): string[] {
     mode = 'symlink',
     force = false,
     claudeHome,
+    opencodeHome,
     syncClaudeCli = true,
     forceMarketplaceSync = false,
   } = opts;
@@ -402,10 +592,19 @@ export function installHosts(opts: InstallOptions): string[] {
     `- mode: ${mode}`,
   ];
 
-  const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
-  lines.push(`- claude: ${status} -> ${targetPath}`);
+  const shouldInstallClaude = target === 'claude' || target === 'all';
+  const shouldInstallOpenCode = target === 'opencode' || target === 'all';
 
-  if (syncClaudeCli) {
+  if (shouldInstallClaude) {
+    const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
+    lines.push(`- claude: ${status} -> ${targetPath}`);
+  }
+
+  if (shouldInstallOpenCode) {
+    lines.push(...installOpenCode(resolvedRepo, mode, force, opencodeHome));
+  }
+
+  if (shouldInstallClaude && syncClaudeCli) {
     // Guard: don't overwrite a remote marketplace source with a local path
     const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
     if (remoteSource && !forceMarketplaceSync) {
@@ -421,8 +620,15 @@ export function installHosts(opts: InstallOptions): string[] {
 }
 
 export interface UninstallOptions {
-  target: 'claude' | 'all';
+  target: InstallTarget;
   claudeHome?: string;
+  opencodeHome?: string;
+  /**
+   * Repo root for PaF-ownership checks during legacy-skill cleanup. Optional;
+   * if absent, legacy artifacts at the user's path are preserved (safer
+   * default than deleting unverified files).
+   */
+  repoRoot?: string;
   /**
    * Controls whether marketplace registration is removed during uninstall.
    * - 'auto' (default): skip unsync when marketplace has a remote source (github/npm/git),
@@ -434,7 +640,7 @@ export interface UninstallOptions {
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome, claudeCliUnsync = 'auto' } = opts;
+  const { target, claudeHome, opencodeHome, repoRoot, claudeCliUnsync = 'auto' } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -442,8 +648,21 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   const lines = ['phone-a-friend uninstaller'];
 
-  const { status } = uninstallClaude(claudeHome);
-  lines.push(`- claude: ${status}`);
+  const shouldUninstallClaude = target === 'claude' || target === 'all';
+  const shouldUninstallOpenCode = target === 'opencode' || target === 'all';
+
+  if (shouldUninstallClaude) {
+    const { status } = uninstallClaude(claudeHome);
+    lines.push(`- claude: ${status}`);
+  }
+
+  if (shouldUninstallOpenCode) {
+    lines.push(...uninstallOpenCode(opencodeHome, repoRoot));
+  }
+
+  if (!shouldUninstallClaude) {
+    return lines;
+  }
 
   if (claudeCliUnsync === 'never') {
     lines.push('- claude_cli_unsync: skipped');

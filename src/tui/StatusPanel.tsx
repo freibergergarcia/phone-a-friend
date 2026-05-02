@@ -8,6 +8,7 @@ import { Box, Text } from 'ink';
 import { Badge } from './components/Badge.js';
 import type { BadgeStatus } from './components/Badge.js';
 import type { BackendStatus, DetectionReport, EnvironmentStatus } from '../detection.js';
+import type { PluginHostStatus } from './hooks/usePluginStatus.js';
 
 import { getVersion } from '../version.js';
 
@@ -55,9 +56,23 @@ export interface StatusPanelProps {
   refreshing: boolean;
   error: Error | null;
   pluginInstalled?: boolean;
+  pluginHosts?: PluginHostStatus;
 }
 
-export function StatusPanel({ report, loading, refreshing, error, pluginInstalled }: StatusPanelProps) {
+function PluginSummary({ pluginInstalled, pluginHosts }: { pluginInstalled?: boolean; pluginHosts?: PluginHostStatus }) {
+  if (pluginHosts) {
+    return (
+      <>
+        <Text color={pluginHosts.claude ? 'green' : 'yellow'}>{pluginHosts.claude ? '\u2713' : '!'} Claude</Text>
+        <Text dimColor> · </Text>
+        <Text color={pluginHosts.opencode ? 'green' : 'yellow'}>{pluginHosts.opencode ? '\u2713' : '!'} OpenCode</Text>
+      </>
+    );
+  }
+  return pluginInstalled ? <Text color="green">{'\u2713'} Claude Plugin</Text> : <Text color="yellow">! Plugin: Not Installed</Text>;
+}
+
+export function StatusPanel({ report, loading, refreshing, error, pluginInstalled, pluginHosts }: StatusPanelProps) {
   // Initial load with no report yet
   if (!report) {
     // Show error if detection failed before producing any report
@@ -97,7 +112,7 @@ export function StatusPanel({ report, loading, refreshing, error, pluginInstalle
         <Text color="cyan">   ·  ·  ·</Text>
         <Text>    <Text dimColor>╲ │ ╱</Text>    <Text color="cyan" bold>phone-a-friend</Text> <Text dimColor>v{cachedVersion}</Text></Text>
         <Text>     <Text color="cyan" bold>▐█▌</Text>     <Text dimColor>Node.js {process.version}</Text></Text>
-        <Text>    <Text dimColor>╱ │ ╲</Text>    {pluginInstalled ? <Text color="green">{'\u2713'} Claude Plugin</Text> : <Text color="yellow">! Plugin: Not Installed</Text>}</Text>
+        <Text>    <Text dimColor>╱ │ ╲</Text>    <PluginSummary pluginInstalled={pluginInstalled} pluginHosts={pluginHosts} /></Text>
         <Text color="cyan">   ·  ·  ·</Text>
       </Box>
 
@@ -129,6 +144,8 @@ export function StatusPanel({ report, loading, refreshing, error, pluginInstalle
           <BackendRow key={b.name} backend={b} />
         ))}
       </Box>
+
+      <Text dimColor>Overview only. Use tabs 2-5 for interactive panels.</Text>
 
       {/* Pro Tip */}
       <ProTip environment={report.environment} />

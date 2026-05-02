@@ -60,6 +60,18 @@ const MOCK_REPORT_MISMATCH: DetectionReport = {
   ],
 };
 
+const MOCK_REPORT_DUPLICATE_NAMES: DetectionReport = {
+  ...MOCK_REPORT,
+  cli: [
+    ...MOCK_REPORT.cli,
+    { name: 'opencode', category: 'cli', available: true, detail: 'OpenCode CLI (found in PATH)', installHint: '', models: ['ollama/qwen3-coder'] },
+  ],
+  host: [
+    ...MOCK_REPORT.host,
+    { name: 'opencode', category: 'host', available: true, detail: 'OpenCode CLI (found in PATH)', installHint: '' },
+  ],
+};
+
 const tick = () => new Promise((r) => setTimeout(r, 50));
 
 beforeEach(() => {
@@ -113,6 +125,43 @@ describe('BackendsPanel', () => {
   it('shows host integrations', () => {
     const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT} />);
     expect(lastFrame()).toContain('claude');
+  });
+
+  it('handles backend and host entries with the same name', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { lastFrame } = render(<BackendsPanel report={MOCK_REPORT_DUPLICATE_NAMES} />);
+    const frame = lastFrame()!;
+
+    expect(frame).toContain('opencode');
+    expect(frame).toContain('(cli)');
+    expect(frame).toContain('(host)');
+    expect(consoleError).not.toHaveBeenCalledWith(
+      expect.stringContaining('Encountered two children with the same key'),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it('navigates through backend and host entries with the same name', async () => {
+    const { lastFrame, stdin } = render(<BackendsPanel report={MOCK_REPORT_DUPLICATE_NAMES} />);
+
+    stdin.write('\u001B[B'); // gemini
+    await tick();
+    stdin.write('\u001B[B'); // opencode cli
+    await tick();
+    let frame = lastFrame()!;
+    expect(frame).toContain('opencode (cli)');
+    expect(frame).toContain('Models:');
+
+    stdin.write('\u001B[B'); // ollama
+    await tick();
+    stdin.write('\u001B[B'); // claude host
+    await tick();
+    stdin.write('\u001B[B'); // opencode host
+    await tick();
+    frame = lastFrame()!;
+    expect(frame).toContain('opencode (host)');
+    expect(frame).not.toContain('Models:');
   });
 
   it('handles empty backend list without crashing', () => {

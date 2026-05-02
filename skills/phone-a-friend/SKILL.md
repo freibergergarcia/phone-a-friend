@@ -6,13 +6,11 @@ argument-hint: [optional review focus]
 
 # /phone-a-friend
 
-Use this command after an assistant reply you want reviewed by another AI.
+Use this skill after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to a backend (Codex,
-Gemini, Claude, or Ollama) using `phone-a-friend`, then bring the feedback back
-into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Codex, Gemini, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Execution rules
 
@@ -22,26 +20,61 @@ into the current conversation.
 - If the user asks for a repo sanity check, architecture opinion, plan critique,
   or general second opinion, use normal prompt mode with `--repo "$PWD"`.
 - If the user says not to edit files, keep that instruction in `--prompt`.
+- From OpenCode, do not select `opencode` as the friend backend. Choose `codex`,
+  `gemini`, `claude`, or `ollama`.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
-  only include the diff when the user explicitly asked to review the diff,
-  branch changes, or staged changes.
+  only include the diff when the user explicitly asked for a
+  diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
-  separate `phone-a-friend` calls. The `/phone-a-team` slash command
-  orchestrates that for you in Claude Code.
+  separate `phone-a-friend` calls. In Claude Code, the `/phone-a-team`
+  slash command orchestrates that for you. In OpenCode, run multiple
+  separate `phone-a-friend` invocations yourself; `/phone-a-team` is not
+  available in OpenCode (it depends on Claude Agent Teams primitives that
+  OpenCode does not have).
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
   applies to any other slash command: never invoke them as PaF
   subcommands (e.g. `phone-a-friend phone-a-team`).
-- `--backend` is a `/phone-a-team` skill argument, not a PaF CLI flag. Do
-  not pass `--backend` to `phone-a-friend`.
+- `--backend` is a `/phone-a-team` skill argument (Claude only), not a PaF
+  CLI flag. Do not pass `--backend` to `phone-a-friend`.
+- When running inside OpenCode, always prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=opencode` (recursion guard) AND
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` (diff suppression that works on
+  every shipped binary version). Do NOT use the `$PAF_NO_DIFF`
+  probe-and-gate pattern from OpenCode — small host models skip the
+  probe and inline `--no-include-diff` literally, which fails on stale
+  CLIs. The probe-and-gate is reserved for the rich orchestrator path
+  (Claude Code / capable orchestrators).
 - Do NOT dump repo files or git output into `--context-file` or
   `--context-text`. Repo-aware backends read files via `--repo "$PWD"`
   using their own tools. See "Context hygiene" below.
 
+For example, from OpenCode:
+
+```bash
+PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
+  phone-a-friend --to codex --repo "$PWD" \
+  --prompt "Give a short sanity review of this repo. Do not edit files." \
+  --timeout 300 --no-stream --fast
+```
+
 ## Inputs
 
 - Review focus (optional): `$ARGUMENTS`
+
+## Host awareness
+
+PaF blocks accidental `OpenCode -> phone-a-friend --to opencode -> OpenCode`
+recursion using the `PHONE_A_FRIEND_HOST=opencode` environment marker.
+When running from OpenCode, **always** set this marker on every relay
+invocation so the recursion guard fires deterministically — the OpenCode
+install shims set it automatically, but be explicit when constructing
+commands by hand. From Claude Code or other hosts, the marker is not
+needed.
+
+When running from OpenCode, do not select `opencode` as the friend backend.
+Choose `codex`, `gemini`, `claude`, or `ollama`.
 
 ## Relay mode
 
@@ -80,12 +113,12 @@ Additional Context:
 <context-payload>
 ```
 
-In direct mode, also verify the backend CLI is available (`command -v codex`
-or `command -v gemini`) before calling it. If not found, tell the user how
-to install it and stop.
+In direct mode, also verify the backend CLI is available (`command -v codex` or
+`command -v gemini`) before calling it. If not found, tell the user how to
+install it and stop.
 
 Note: do NOT pass PaF flags like `--no-include-diff`, `--fast`, or
-`--session` in direct mode. Those are CLI flags on the `phone-a-friend`
+`--session` in direct mode. They are CLI flags on the `phone-a-friend`
 binary; the underlying backend CLIs do not accept them.
 
 ## Context hygiene
@@ -114,11 +147,10 @@ or git output.
 
 PaF reads `defaults.include_diff` from user config. If a user has
 `include_diff = true` set, every relay would silently leak the working-tree
-diff into the prompt. To prevent that, every binary-mode relay must suppress
-the diff explicitly.
+diff into the prompt. Suppress the diff explicitly on every binary-mode
+relay.
 
-The cleanest flag is `--no-include-diff`, which was added in
-phone-a-friend v2.2.0 (the same release that introduced this command).
+The cleanest flag is `--no-include-diff`, added in phone-a-friend v2.2.0.
 Older binaries reject the flag with `unknown option '--no-include-diff'`.
 Probe once at the start of the workflow, then reuse the gate:
 
@@ -131,10 +163,9 @@ else
 fi
 ```
 
-Then append `$PAF_NO_DIFF` to every binary-mode `phone-a-friend` invocation.
-The env var fallback works in v1.7.2 and later; the explicit flag is
-preferred when available because it doesn't leak the override into child
-processes.
+Append `$PAF_NO_DIFF` to every binary-mode `phone-a-friend` invocation. The
+env var fallback works in v1.7.2 and later; the explicit flag is preferred
+when available.
 
 Only when the user explicitly asked to review the diff, branch changes, or
 staged changes, swap `$PAF_NO_DIFF` for `--include-diff` (and prefer
@@ -174,10 +205,10 @@ I'm working on this task and got the above response. Please review it and return
    phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> $PAF_NO_DIFF [--fast]
    ```
 
-   `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. It
-   resolves to `--no-include-diff` on new binaries and an empty string on
-   stale binaries (with `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported as
-   the fallback).
+   `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. Swap
+   for `--include-diff` only when the user explicitly asked to review the
+   diff, branch changes, or staged changes (and prefer
+   `phone-a-friend ... --review` for branch-level reviews).
 
    See "Speed optimization" and "Session continuity" below for when to
    include `--fast` and `--session`.
@@ -219,8 +250,8 @@ use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.
 
 Most `/phone-a-friend` relay calls are self-contained reviews where the
-context is already in the prompt. Default to including `--fast`; it is
-harmless for Claude/Codex/Gemini/Ollama and meaningful for OpenCode.
+context is already in the prompt. Default to including `--fast` when the
+backend may be OpenCode; it is harmless elsewhere.
 
 ## Session continuity
 

@@ -211,6 +211,28 @@ describe('setup', () => {
     expect(mockInstallHosts).not.toHaveBeenCalled();
   });
 
+  it('offers OpenCode command install when opencode host is available', async () => {
+    const report = makeReport({
+      host: [
+        { name: 'claude', category: 'host', available: false, detail: 'not found', installHint: 'install' },
+        { name: 'opencode', category: 'host', available: true, detail: 'found', installHint: '' },
+      ],
+    });
+    mockDetectAll.mockResolvedValue(report);
+    mockConfirm
+      .mockResolvedValueOnce(true)  // yes install OpenCode
+      .mockResolvedValueOnce(false); // no test run
+
+    await setup.setup();
+
+    expect(mockInstallHosts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'opencode',
+        syncClaudeCli: false,
+      }),
+    );
+  });
+
   it('saves config to TOML path', async () => {
     mockDetectAll.mockResolvedValue(makeReport());
     mockSelect.mockResolvedValue('codex');

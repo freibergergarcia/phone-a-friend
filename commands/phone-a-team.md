@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|ollama|both] [--max-rounds N] [--model <name>]
+argument-hint: <task description> [--backend codex|gemini|ollama|both|all] [--max-rounds N] [--model <name>]
 ---
 
 # /phone-a-team
@@ -81,13 +81,16 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 - If `$ARGUMENTS` contains `--backend gemini`: set BACKEND = `gemini`
 - If `$ARGUMENTS` contains `--backend ollama`: set BACKEND = `ollama`
 - If `$ARGUMENTS` contains `--backend both`: set BACKEND = `both`
+- If `$ARGUMENTS` contains `--backend all`: set BACKEND = `all`
 - If no `--backend` flag is present: set BACKEND = `codex` (default)
 - If `--backend` is present but the value is not `codex`, `gemini`, `ollama`,
-  or `both`: report an error and stop. Valid values: `codex`, `gemini`,
-  `ollama`, `both`.
+  `both`, or `all`: report an error and stop. Valid values: `codex`,
+  `gemini`, `ollama`, `both`, `all`.
 
 Note: `both` means `codex + gemini` (the two CLI backends). Ollama is a
-separate single-backend option. To use all three, run separate sessions.
+separate single-backend option that runs alone. `all` includes every
+available friend backend (see Step 2 — Backend selection for the resolution
+matrix and skip rules).
 
 ### Max rounds parsing
 
@@ -144,6 +147,46 @@ Extract a model name from the task arguments.
   language round-cap/model phrase) is the TASK_DESCRIPTION.
 - If TASK_DESCRIPTION is empty after parsing, ask the user what task they want
   to work on. Do not proceed until you have a task.
+
+### Diff inclusion policy
+
+`/phone-a-team` does NOT include the working-tree diff in relay prompts by
+default. PaF reads `defaults.include_diff` from user config; if a user has
+that set to `true`, every relay would silently leak the full git diff into
+every backend, which is surprising for general tasks.
+
+Suppress the diff on every relay this skill issues, unless the user
+explicitly asked for one of:
+
+- a code review of current changes
+- a review of the current diff, branch, or staged changes
+- a sanity check against the diff
+- "what's wrong with my changes?" or similar
+
+When the user did ask for a diff-scoped review, swap suppression for
+`--include-diff` instead (and prefer `--review` for branch-level reviews).
+
+The cleanest suppression flag is `--no-include-diff`, added in
+phone-a-friend v2.2.0. Older binaries reject the flag with `unknown option
+'--no-include-diff'`. Probe once before spawning workers, then reuse the
+gate on every relay command in this session:
+
+```bash
+if phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'; then
+  PAF_NO_DIFF="--no-include-diff"
+else
+  export PHONE_A_FRIEND_INCLUDE_DIFF=false
+  PAF_NO_DIFF=""
+fi
+```
+
+Append `$PAF_NO_DIFF` to every binary-mode relay command (lead and worker)
+in this session. The env var fallback works in v1.7.2 and later; the
+explicit flag is preferred when available because it doesn't leak the
+override into worker child processes.
+
+Use `phone-a-friend --version` if you also need to surface the binary
+version to the user (e.g., when explaining why a flag was rejected).
 
 ## Step 2 — Preflight Check
 
@@ -216,6 +259,36 @@ Report the selected model to the user: "Ollama: using model `<name>`"
 
 After degradation, update BACKEND to the single available backend and continue.
 
+### Backend selection for `--backend all`
+
+When BACKEND is `all`, expand to every available friend backend, run probes,
+and report skipped backends with reasons. Never fail silently.
+
+Resolution matrix:
+
+| Friend backend | Include when |
+|----------------|--------------|
+| `codex`        | `command -v codex` AND `codex --version` succeeds |
+| `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini Model Priority retry rules) |
+| `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry |
+| `claude`       | `command -v claude` AND `claude --version` succeeds. Claude is excluded by default when this skill is running inside Claude Code (we are already orchestrating with Claude). Include only when the user explicitly asked for Claude in addition |
+| `opencode`     | `command -v opencode` succeeds AND the host is NOT OpenCode (`PHONE_A_FRIEND_HOST=opencode` means we are inside OpenCode; relaying back to opencode is blocked by the recursion guard regardless) |
+
+Build `BACKENDS` from the matrix, then emit a one-line summary BEFORE the
+round loop starts:
+
+```text
+Used: codex, gemini, ollama
+Skipped: claude (already host), opencode (host is opencode), gemini (CLI not found)
+```
+
+Skip-silently is forbidden. If zero backends pass probes, abort with the same
+message as the all-backends-unavailable row in the decision table above.
+
+For the rest of the loop, treat `all` like `both`: spawn one teammate per
+backend (or run them as parallel direct calls when teams are unavailable),
+collect outputs, and resolve conflicts using the existing rules.
+
 ## Step 3 — Create Agent Team
 
 Create an agent team and spawn worker teammate(s) for relay delegation.
@@ -278,8 +351,17 @@ command:
    Run this now:
 
    phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
-     [--context-text "<context>"] [--include-diff] [--sandbox <mode>] \
-     [--model <model>] --fast [--session <SESSION_ID>]
+     [--context-text "<context>"] $PAF_NO_DIFF \
+     [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+
+   Note: for `--to claude`, `--fast` has no effect.
+
+   `$PAF_NO_DIFF` comes from the probe in "Diff inclusion policy" above; it
+   resolves to `--no-include-diff` on new binaries and to an empty string on
+   older ones (with `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported). Pass it
+   through to every worker so the lead-side fallback applies uniformly.
+   Swap `$PAF_NO_DIFF` for `--include-diff` only when the user explicitly
+   asked for a diff/branch/staged review.
 
    Include `--session <SESSION_ID>` ONLY when <backend> is `codex` or
    `ollama`. For `gemini`, omit `--session` entirely (PaF rejects it for
@@ -296,9 +378,10 @@ command:
    - Whether the command succeeded or failed (exit code)
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
-   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
-   respond using SendMessage with type: "shutdown_response", request_id from
-   the message, and approve: true. Do NOT just say "shutting down" in text.
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
    ```
 
    **Direct mode** (`RELAY_MODE = direct`):
@@ -317,9 +400,10 @@ command:
    - Whether the command succeeded or failed (exit code)
    Do NOT summarize, interpret, or editorialize. Send the raw output.
 
-   SHUTDOWN: When you receive a JSON message with "type": "shutdown_request",
-   respond using SendMessage with type: "shutdown_response", request_id from
-   the message, and approve: true. Do NOT just say "shutting down" in text.
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
    ```
 
    Where `<direct-command>` is the backend-specific command from the "Direct
@@ -403,14 +487,19 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] [--include-diff] [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
-  Always include `--fast` (relay prompts are self-contained). Include
-  `--session` ONLY when `<backend>` is `codex` or `ollama` — pass the
-  backend-specific ID from `SESSION_IDS`. For `gemini`, omit `--session`
-  entirely; PaF rejects `--session` against Gemini (resume strategy
-  declared `unsupported`).
+  Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
+  policy" — `--no-include-diff` on new binaries, empty on older ones with
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported. Swap for `--include-diff`
+  only when the user explicitly asked for a diff/branch/staged review.
+
+  Always include `--fast` (relay prompts are self-contained). For
+  `--to claude`, `--fast` has no effect. Include `--session` ONLY when
+  `<backend>` is `codex` or `ollama` — pass the backend-specific ID from
+  `SESSION_IDS`. For `gemini`, omit `--session` entirely; PaF rejects
+  `--session` against Gemini (resume strategy declared `unsupported`).
 
   When `--session` is used, the session lets the backend remember
   previous rounds, so follow-up prompts can focus on feedback deltas
@@ -617,17 +706,31 @@ ended (convergence, forced stop, abort, error, or user interruption).
 **Execute cleanup BEFORE presenting the final synthesis** so that teams are
 never left orphaned if the session ends after synthesis.
 
-1. Send `shutdown_request` to each teammate in WORKERS via `SendMessage`
-   with `type: "shutdown_request"`.
-2. Wait up to 30 seconds for `shutdown_response` confirmations (must be
-   tool calls, not plain text acknowledgments).
-3. If a teammate responds in plain text instead of using the
-   `shutdown_response` tool, resend the `shutdown_request` with explicit
-   instructions to use `SendMessage` with `type: "shutdown_response"`.
+1. Ask each teammate in WORKERS to shut down via `SendMessage`. Use natural
+   language and let Claude Code's native Agent Teams shutdown flow handle
+   approval.
+2. Wait up to 30 seconds for native shutdown confirmation messages, but stop
+   waiting as soon as every teammate has either approved or rejected
+   shutdown. Treat `shutdown_approved` as success. If a teammate rejects
+   shutdown, reports that it is still working, or does not respond, continue
+   to the next step after the timeout.
+3. Do NOT poll `~/.claude/teams/<team-name>/`, `config.json`, inbox files,
+   tmux pane state, or any other Claude-managed runtime state waiting for a
+   teammate or team directory to disappear. Do not use Bash `ls`, `grep`,
+   `test`, `sleep`, or `until` loops for cleanup verification. The docs
+   describe team files as runtime state that Claude Code manages; polling
+   them can hang in in-process mode.
 4. Call `TeamDelete` to remove the team and its task list.
-5. If `TeamDelete` fails due to active members, do NOT kill tmux panes
+5. If `TeamDelete` fails due to active members, wait 15 seconds and retry
+   `TeamDelete` once. This explicit retry is the only cleanup wait allowed
+   after shutdown confirmations arrive. If it still fails, do NOT kill tmux panes
    from the lead session (this can kill the lead). Instead, inform the
    user and suggest they manually run: `tmux kill-session -t <name>`
+6. After `TeamDelete` returns or the team is otherwise gone, immediately
+   continue to Step 9 and present the final synthesis. Do not wait for any
+   additional Agent Teams acknowledgement, runtime-state change, file-system
+   change, background command, or model reflection step. In non-interactive
+   print mode, successful cleanup must be followed immediately by final text.
 
 If a teammate does not respond to the shutdown request within 30 seconds
 (even after a retry), proceed with `TeamDelete` anyway. Do not leave
@@ -672,6 +775,34 @@ happened and whether the result is complete.
 - **Cleanup is mandatory.** Step 8 must execute if a team was created (i.e.,
   `TeamCreate` succeeded at any point during this session), even on error
   paths.
+- **One backend per relay call.** Never pass comma-separated values to
+  `--to` (e.g. `phone-a-friend --to codex,gemini`). PaF is one backend per
+  call. For multi-backend rounds, run separate `phone-a-friend` invocations
+  (or message separate teammates).
+- **`phone-a-team` is not a PaF subcommand.** Never invoke
+  `phone-a-friend phone-a-team`. The valid PaF CLI shape is
+  `phone-a-friend --to <backend> ...`.
+- **`--backend` is a `/phone-a-team` argument, not a PaF flag.** Do not
+  pass `--backend` to the `phone-a-friend` CLI.
+- **Context hygiene.** Do not generate `--context-text` or
+  `--context-file` from repository files, `git show`, `git diff`,
+  `git status`, or other local file/git output for relays sent to
+  repo-aware backends (codex, gemini, claude, opencode). Pass
+  `--repo "$PWD"` and let the backend read files with its own tools.
+  `--context-text` and `--context-file` are reserved for narrative
+  context that does not exist in the repo: prior round outputs,
+  conflict-resolution notes, the orchestrator's analysis, or feedback
+  to apply. Inlining repo content is wasteful, can leak tracked
+  uncommitted edits or committed secrets, and bypasses the backend's
+  normal file-access controls. For `ollama` (no repo file access), ask
+  before sending file content and send a minimal excerpt rather than
+  bulk-dumping. **Exception**: when the user explicitly asked for a
+  diff-scoped review (a code review of current changes, branch review,
+  or "what's wrong with my changes?"), `--include-diff` and direct-mode
+  `git diff HEAD` flows are the right tool for the job — that path is
+  documented above and is not what this rule prohibits. The rule
+  targets *unsolicited* repo-content dumps, not user-requested
+  diff-scoped reviews.
 
 ## Gemini Model Priority
 
