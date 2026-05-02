@@ -23,6 +23,6 @@ OpenCode-specific execution rules:
   `phone-a-friend --to claude` to generate the opening question.
 
 Defer to the canonical `curiosity-engine` skill for parsing, round
-orchestration, schema enforcement, and Gemini model priority. The skill is
+orchestration, schema enforcement, and Gemini model selection. The skill is
 host-agnostic; the only OpenCode-specific bits are the host-marker prefix,
 the env-var diff suppression, and the orchestrator-is-the-host rule above.

@@ -269,7 +269,7 @@ Resolution matrix:
 | Friend backend | Include when |
 |----------------|--------------|
 | `codex`        | `command -v codex` AND `codex --version` succeeds |
-| `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini Model Priority retry rules) |
+| `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini auto-routing) |
 | `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry |
 | `claude`       | `command -v claude` AND `claude --version` succeeds. Claude is excluded by default when this skill is running inside Claude Code (we are already orchestrating with Claude). Include only when the user explicitly asked for Claude in addition |
 | `opencode`     | `command -v opencode` succeeds AND the host is NOT OpenCode (`PHONE_A_FRIEND_HOST=opencode` means we are inside OpenCode; relaying back to opencode is blocked by the recursion guard regardless) |
@@ -525,7 +525,7 @@ Delegate the task to the backend via the relay. The lead's job is to
   "Direct call reference" section. If `--include-diff` is used, run
   `git diff HEAD` and append the output to the template's "Git Diff" section.
 
-  For gemini, always include `--model` / `-m` per the Gemini Model Priority section.
+  For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
   For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
@@ -804,58 +804,45 @@ happened and whether the result is complete.
   targets *unsolicited* repo-content dumps, not user-requested
   diff-scoped reviews.
 
-## Gemini Model Priority
+## Gemini model selection
 
-When using `--to gemini` (including the gemini side of `--backend both`),
-**always** pass `--model` using the first model from this priority list. Never
-use aliases (`auto`, `pro`, `flash`) — use concrete model names only:
+For `--to gemini` (including the gemini side of `--backend both`), **omit
+`--model` by default** and let Gemini CLI's auto-routing pick. This mirrors
+how `--to codex` and `--to claude` are used in this command — the CLI's own
+default is the right default.
 
-### Why we bypass auto-routing
+Set `--model` explicitly only when reproducibility, specific capability, or
+debugging requires a pin.
 
-Gemini CLI has built-in model fallback via auto mode, but it does NOT work in
-headless/non-interactive mode. `--yolo` (and `--approval-mode yolo`) only
-auto-approve tool calls, not model switch prompts. When Gemini hits a capacity
-error in headless mode, it tries to prompt for consent and fails
-(`google-gemini/gemini-cli#13561`). By passing `--model` explicitly, we bypass
-this broken behavior and handle retry/fallback ourselves.
+### Cache-aware failure for explicit pins
 
-### Priority rationale
+PaF binary mode (`phone-a-friend --to gemini --model X`) caches strong 404s
+(`ModelNotFoundError`) at `~/.config/phone-a-friend/gemini-models.json` for
+24h and surfaces a clear error with the cache path, expiry, and bypass
+instructions. PaF does **not** auto-substitute another model — explicit
+pins surface explicit failures.
 
-Lead with `gemini-2.5-flash` — fast, reliable, and confirmed across many relay
-sessions. `gemini-2.5-pro` is higher capability but frequently at capacity
-(429); use it deliberately, not as a default. Preview tracks (such as
-`gemini-3.1-pro-preview-*`) are listed in Google's docs but may not be
-deployed yet; PaF will auto-fall-back when one returns 404.
+What is and isn't cached:
 
-1. `gemini-2.5-flash` — reliable, fast, confirmed working (default)
-2. `gemini-2.5-flash-lite` — automatic fallback when flash is unavailable
-3. `gemini-2.5-pro` — higher capability, opt-in for harder reviews; 429-prone
+- **Cached** (24h): strong 404 (`ModelNotFoundError` from gemini-cli's own classifier).
+- **Not cached**: ambiguous 404s, 429 / RESOURCE_EXHAUSTED, authentication failures, any other error class.
+- **Not consulted**: when `--model` is unset (auto-routing), or during session resume.
 
-### Fallback rule
+To bypass the cache: `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false`. Or delete the
+cache file to clear it.
 
-PaF binary mode (`phone-a-friend --to gemini`) auto-falls-back at the relay
-layer. When the requested model returns model-not-found (404), PaF caches it
-as unavailable for 24h and retries with `gemini-2.5-flash` and then
-`gemini-2.5-flash-lite`, surfacing one stderr line per fallback hop. Capacity
-(429 / RESOURCE_EXHAUSTED) errors retry without caching. Authentication and
-unknown errors propagate immediately — fallback won't help.
+### Direct Gemini CLI mode
 
-When invoking the `gemini` CLI directly (without `phone-a-friend --to gemini`),
-auto-fallback does NOT apply. Orchestrator-level fallback rules:
+When invoking `gemini` directly (no PaF wrapper), the dead-model cache does
+NOT apply. Orchestrator-level retry rules:
 
-- **Retry with next model**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED;
-  "high demand"; model not found; transient/timeout errors
-- **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
-  permission errors
-- **Default**: if an error cannot be confidently classified as transient, do
-  NOT model-fallback — treat as immediate round failure
+- **Retry**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED; transient/timeout.
+- **Do NOT retry**: auth failures, invalid args, permission errors, model-not-found.
+- **Default**: surface unclassified errors immediately, do not loop.
 
-Model fallback happens **within the current round** (see Step 7 precedence
-rule). After exhausting all models in a round, escalate to round-level retry
-or stop per Step 7. Each new round resets to model #1.
-
-When reporting errors in synthesis, list all attempted models and the error
-from each.
+Round-level retry: each new round can attempt a different `--model` if the
+prior round failed (see Step 7). When reporting errors in synthesis, list
+the attempted models and each error.
 
 This does NOT apply to `--to codex` or `--to ollama`.
 

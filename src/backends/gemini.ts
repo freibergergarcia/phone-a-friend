@@ -25,10 +25,10 @@ import {
   type SandboxMode,
 } from './index.js';
 import {
-  buildAttemptChain,
   classifyGeminiError,
+  type DeadModelEntry,
   GeminiModelCache,
-  isAutoFallbackDisabled,
+  isDeadCacheDisabled,
 } from '../gemini-models.js';
 
 export class GeminiBackendError extends BackendError {
@@ -36,12 +36,6 @@ export class GeminiBackendError extends BackendError {
     super(message);
     this.name = 'GeminiBackendError';
   }
-}
-
-interface AttemptFailure {
-  model: string;
-  kind: ReturnType<typeof classifyGeminiError>['kind'];
-  message: string;
 }
 
 export class GeminiBackend implements Backend {
@@ -74,126 +68,89 @@ export class GeminiBackend implements Backend {
       ? opts.env
       : process.env) as NodeJS.ProcessEnv;
 
-    const fallbackEligible =
+    // Cache is consulted only when the caller pinned a specific model. For
+    // unset --model we let gemini-cli's own auto-routing pick, and we never
+    // cache results from the auto-routed path. Session resume is also
+    // exempt because the cache is keyed by model name.
+    const cacheEligible =
       Boolean(opts.model) &&
       !opts.resumeSession &&
-      !isAutoFallbackDisabled(envForOpts);
+      !isDeadCacheDisabled(envForOpts);
 
-    if (!fallbackEligible) {
-      return this.runOnce(opts, opts.model ?? null, false);
-    }
-
-    const cache = new GeminiModelCache();
-    cache.prune();
-    const requestedModel = opts.model as string;
-    const chain = buildAttemptChain(requestedModel, cache.load());
-    if (chain.length === 0) {
-      throw new GeminiBackendError(
-        `All known Gemini models are cached as unavailable. Run 'phone-a-friend doctor' or wait for the 24h cache to expire.`,
-      );
-    }
-
-    // If the cache filtered the user's requested model out of the chain,
-    // surface that explicitly. They asked for X and they're getting Y; they
-    // should know without having to inspect the cache file.
-    if (chain[0] !== requestedModel) {
-      process.stderr.write(
-        `[phone-a-friend] Gemini model ${requestedModel} is cached as unavailable; using ${chain[0]}. ` +
-          `Set PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false or wait 24h for the cache to expire.\n`,
-      );
-    }
-
-    const failures: AttemptFailure[] = [];
-    const overallStart = Date.now();
-    const overallBudgetMs = opts.timeoutSeconds * 1000;
-
-    for (let i = 0; i < chain.length; i++) {
-      const candidate = chain[i];
-      const elapsed = Date.now() - overallStart;
-      const remaining = overallBudgetMs - elapsed;
-
-      // Strict deadline: do not start a new attempt past the budget.
-      if (remaining <= 0) {
-        failures.push({
-          model: candidate,
-          kind: 'other',
-          message: 'shared deadline exhausted before attempt',
-        });
-        break;
-      }
-
-      const remainingSeconds = Math.max(1, Math.ceil(remaining / 1000));
-
-      try {
-        return await this.runOnce(
-          { ...opts, timeoutSeconds: remainingSeconds },
-          candidate,
-          true,
+    let cache: GeminiModelCache | null = null;
+    if (cacheEligible) {
+      cache = new GeminiModelCache();
+      cache.prune();
+      const requestedModel = opts.model as string;
+      const deadEntry = cache.getDeadEntry(requestedModel);
+      if (deadEntry) {
+        // Fail fast: previously cached as dead. No spawn, no slow 404
+        // round-trip. Caller decides how to proceed.
+        throw new GeminiBackendError(
+          formatDeadModelError(requestedModel, deadEntry, cache.getCachePath()),
         );
-      } catch (err) {
-        const cls = classifyGeminiAttemptError(err);
-        failures.push({
-          model: candidate,
-          kind: cls.kind,
-          message: cls.message,
-        });
+      }
+    }
 
-        if (cls.kind === 'model-not-found') {
-          if (cls.cacheable) {
-            // Cache write failures are non-fatal: the cache is an optimization,
-            // not a correctness primitive. Keep falling back even if disk fails.
-            try {
-              cache.markDead(candidate, {
-                httpStatus: cls.httpStatus ?? 404,
-                message: cls.message,
-                source: 'relay-failure',
-              });
-            } catch (cacheErr) {
-              process.stderr.write(
-                `[phone-a-friend] Failed to persist Gemini model cache: ${(cacheErr as Error).message}\n`,
+    try {
+      return await this.runOnce(opts, opts.model ?? null);
+    } catch (err) {
+      // On a strong ModelNotFoundError, persist the dead-model entry so
+      // subsequent calls fail fast. Do NOT cache ambiguous 404s, rate
+      // limits, auth failures, or any other error class — those either
+      // resolve themselves (transient) or aren't model-bound (project /
+      // file 404s, auth scope issues).
+      if (cacheEligible && cache) {
+        const cls = classifyAttemptError(err);
+        if (cls.kind === 'model-not-found' && cls.cacheable) {
+          const requestedModel = opts.model as string;
+          try {
+            cache.markDead(requestedModel, {
+              httpStatus: cls.httpStatus ?? 404,
+              message: cls.message,
+              source: 'relay-failure',
+            });
+            // Re-read the entry we just wrote so the error message
+            // includes the same fields the cache-hit path would surface.
+            const writtenEntry = cache.getDeadEntry(requestedModel);
+            if (writtenEntry) {
+              throw new GeminiBackendError(
+                formatDeadModelError(
+                  requestedModel,
+                  writtenEntry,
+                  cache.getCachePath(),
+                ),
               );
             }
-          }
-          if (i < chain.length - 1) {
-            const cachedSuffix = cls.cacheable ? ' Cached for 24h.' : '';
+          } catch (cacheErr) {
+            // Cache write failures are non-fatal: the cache is an
+            // optimization, not a correctness primitive. Surface a
+            // best-effort error that still includes bypass instructions
+            // even if we couldn't persist.
+            if (cacheErr instanceof GeminiBackendError) throw cacheErr;
             process.stderr.write(
-              `[phone-a-friend] Gemini model ${candidate} is unavailable (404); falling back to ${chain[i + 1]}.${cachedSuffix}\n`,
+              `[phone-a-friend] Failed to persist Gemini model cache: ${(cacheErr as Error).message}\n`,
+            );
+            throw new GeminiBackendError(
+              `Model \`${requestedModel}\` returned 404 from Gemini (ModelNotFoundError). ` +
+                `Cache could not be persisted at ${cache.getCachePath()}. ` +
+                `Run without \`--model\` to use Gemini's auto-routing, or set ` +
+                `\`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to skip the cache check.`,
             );
           }
-          continue;
         }
-
-        if (cls.kind === 'rate-limit') {
-          if (i < chain.length - 1) {
-            process.stderr.write(
-              `[phone-a-friend] Gemini model ${candidate} hit a rate-limit / capacity error; falling back to ${chain[i + 1]} (not cached, transient).\n`,
-            );
-          }
-          continue;
-        }
-
-        // Auth or other: fallback won't help. Surface immediately.
-        if (err instanceof GeminiBackendError) throw err;
-        if (err instanceof BackendError) {
-          throw new GeminiBackendError(err.message);
-        }
-        throw err;
       }
+      if (err instanceof GeminiBackendError) throw err;
+      if (err instanceof BackendError) {
+        throw new GeminiBackendError(err.message);
+      }
+      throw err;
     }
-
-    const summary = failures
-      .map((f) => `  - ${f.model}: ${f.kind} (${f.message})`)
-      .join('\n');
-    throw new GeminiBackendError(
-      `Gemini auto-fallback exhausted after ${failures.length} attempt(s):\n${summary}\n` +
-        `Set PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false to disable fallback and surface the original error.`,
-    );
   }
 
   private async runOnce(
     opts: BackendRunOptions,
     model: string | null,
-    fromFallbackChain: boolean,
   ): Promise<string> {
     const args: string[] = [];
     const useJsonOutput = Boolean(opts.schema);
@@ -251,20 +208,33 @@ export class GeminiBackend implements Backend {
         }
         throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
       }
-      // When called from the fallback chain, propagate the raw error so the
-      // caller can classify it. Otherwise preserve legacy single-shot behavior:
-      // wrap BackendError as GeminiBackendError, rethrow GeminiBackendError as-is.
-      if (fromFallbackChain) throw err;
-      if (err instanceof GeminiBackendError) throw err;
-      if (err instanceof BackendError) {
-        throw new GeminiBackendError(err.message);
-      }
+      // Re-throw raw so run() can classify and decide whether to cache.
       throw err;
     }
   }
 }
 
-function classifyGeminiAttemptError(err: unknown): ReturnType<typeof classifyGeminiError> {
+/**
+ * Format the cache-aware error message used on both the strong-404 first-hit
+ * path and the fail-fast cache-hit path. Includes the cache file location,
+ * expiry timestamp, and bypass instructions, but never recommends specific
+ * fallback model names — that's the staleness vector this redesign avoids.
+ */
+function formatDeadModelError(
+  model: string,
+  entry: DeadModelEntry,
+  cachePath: string,
+): string {
+  return (
+    `Model \`${model}\` returned 404 from Gemini (ModelNotFoundError). ` +
+    `Cached as unavailable until ${entry.expiresAt} at ${cachePath}. ` +
+    `Run without \`--model\` to use Gemini's auto-routing, ` +
+    `set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to bypass the cache, ` +
+    `or delete the cache file to clear it.`
+  );
+}
+
+function classifyAttemptError(err: unknown): ReturnType<typeof classifyGeminiError> {
   if (err instanceof SpawnCliError) {
     return classifyGeminiError({
       exitCode: err.exitCode ?? undefined,

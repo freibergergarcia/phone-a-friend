@@ -351,29 +351,33 @@ Present the full session summary:
 <2-3 questions raised during the rally that weren't followed up on, worth exploring in a future session>
 ```
 
-## Gemini Model Priority
+## Gemini model selection
 
-When BACKEND=gemini, always pass `--model`. Default to `gemini-2.5-flash`.
+For BACKEND=gemini, **omit `--model` by default** and let Gemini CLI's
+auto-routing pick. Set `--model` only when reproducibility, specific
+capability, or debugging requires a pin.
 
-1. `gemini-2.5-flash` — reliable, confirmed working (default)
-2. `gemini-2.5-flash-lite` — automatic fallback in binary mode
-3. `gemini-2.5-pro` — higher capability, opt-in; frequently 429-prone
-
-**Binary mode** (preferred — auto-falls-back when a model returns 404, caches
-the dead model for 24h, surfaces one stderr line per fallback hop):
+**Binary mode** (preferred — when a pinned model returns a strong 404
+`ModelNotFoundError`, PaF caches it for 24h at
+`~/.config/phone-a-friend/gemini-models.json` and surfaces a clear error
+with cache path, expiry, and bypass instructions; no auto-substitution):
 
 ```bash
-phone-a-friend --to gemini --model gemini-2.5-flash --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "<relay-prompt>"
+phone-a-friend --to gemini --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "<relay-prompt>"
 ```
 
-**Direct mode** (no auto-fallback — orchestrator handles retry):
+To bypass the cache: `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false`. Or delete the
+cache file to clear it.
+
+**Direct mode** (no PaF wrapper — orchestrator handles retry):
 ```bash
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m gemini-2.5-flash --prompt "<relay-prompt>"
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "<relay-prompt>"
 ```
 
-In direct mode, on capacity/transient errors (429, 500, 503), try the next
-model before treating as round failure.
-Do NOT use aliases like `auto`, `pro`, or `flash` — always use the full model name.
+In direct mode, on capacity/transient errors (429, 500, 503), retry with a
+different model before treating as round failure. On `ModelNotFoundError`,
+surface immediately. Either omit `--model` entirely or pass a concrete
+model name; do NOT use aliases like `auto`, `pro`, or `flash`.
 
 ## Constraints
 

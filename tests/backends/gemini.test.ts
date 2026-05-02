@@ -357,7 +357,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-describe('GeminiBackend auto-fallback', () => {
+describe('GeminiBackend dead-model cache', () => {
   let tmpDir: string;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
 
@@ -367,7 +367,7 @@ describe('GeminiBackend auto-fallback', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'gemini-fallback-'));
     // Redirect XDG so the cache lands in tmp.
     vi.stubEnv('XDG_CONFIG_HOME', tmpDir);
-    vi.stubEnv('PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK', '');
+    vi.stubEnv('PHONE_A_FRIEND_GEMINI_DEAD_CACHE', '');
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     mockExecFileSync.mockImplementation((cmd: string) => {
@@ -383,65 +383,152 @@ describe('GeminiBackend auto-fallback', () => {
     vi.restoreAllMocks();
   });
 
-  it('falls back to the next model when the first returns 404', async () => {
-    const calls: string[] = [];
-    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
-      const modelIdx = args.indexOf('-m');
-      const model = modelIdx >= 0 ? args[modelIdx + 1] : '';
-      calls.push(model);
-      if (model === 'gemini-stale-preview') {
-        return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
-      }
-      return fakeChild(0, 'fallback worked');
+  it('strong 404 (ModelNotFoundError) caches the model and surfaces a clear error', async () => {
+    let calls = 0;
+    mockSpawn.mockImplementation(() => {
+      calls++;
+      return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
     });
 
-    const result = await GEMINI_BACKEND.run({
-      prompt: 'x',
-      repoPath: '/tmp/repo',
-      timeoutSeconds: 60,
-      sandbox: 'read-only',
-      model: 'gemini-stale-preview',
-      env: {},
-    });
+    await expect(
+      GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only',
+        model: 'gemini-stale-preview',
+        env: {},
+      }),
+    ).rejects.toThrow(
+      /Model `gemini-stale-preview` returned 404 from Gemini.*Cached as unavailable until.*PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false/s,
+    );
 
-    expect(result).toBe('fallback worked');
-    expect(calls.length).toBeGreaterThan(1);
-    expect(calls[0]).toBe('gemini-stale-preview');
-    expect(calls[1]).toBe('gemini-2.5-flash');
-    // Stderr fallback notice should fire on the failed attempt.
-    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(stderrText).toMatch(/falling back/);
-    expect(stderrText).toMatch(/Cached for 24h/);
+    // Single attempt, no fallback spawn.
+    expect(calls).toBe(1);
+
+    // Cache file should now have the entry.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    expect(cache.isDead('gemini-stale-preview')).toBe(true);
+    const entry = cache.getDeadEntry('gemini-stale-preview');
+    expect(entry?.source).toBe('relay-failure');
+    expect(entry?.httpStatus).toBe(404);
   });
 
-  it('falls back on rate-limit without caching as dead', async () => {
-    const calls: string[] = [];
-    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
-      const modelIdx = args.indexOf('-m');
-      const model = modelIdx >= 0 ? args[modelIdx + 1] : '';
-      calls.push(model);
-      if (model === 'gemini-2.5-flash' && calls.filter((m) => m === model).length === 1) {
-        return fakeChild(1, '', 'Error: RESOURCE_EXHAUSTED quota exceeded');
-      }
-      return fakeChild(0, 'survived rate limit');
+  it('cache hit fails fast with no spawn', async () => {
+    // Pre-populate the cache.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    cache.markDead('gemini-pinned-dead', {
+      httpStatus: 404,
+      message: 'previously dead',
+      source: 'test',
     });
 
-    const result = await GEMINI_BACKEND.run({
-      prompt: 'x',
-      repoPath: '/tmp/repo',
-      timeoutSeconds: 60,
-      sandbox: 'read-only',
-      model: 'gemini-2.5-flash',
-      env: {},
+    let calls = 0;
+    mockSpawn.mockImplementation(() => {
+      calls++;
+      return fakeChild(0, 'should not be called');
     });
 
-    expect(result).toBe('survived rate limit');
-    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(stderrText).toMatch(/rate-limit/);
-    expect(stderrText).not.toMatch(/Cached for 24h/);
+    await expect(
+      GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only',
+        model: 'gemini-pinned-dead',
+        env: {},
+      }),
+    ).rejects.toThrow(
+      /Model `gemini-pinned-dead` returned 404.*Cached as unavailable until.*PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false/s,
+    );
+    // No spawn should occur on a cache hit.
+    expect(calls).toBe(0);
   });
 
-  it('rethrows auth errors without falling back', async () => {
+  it('error message does NOT recommend any fallback model names', async () => {
+    mockSpawn.mockImplementation(() => {
+      return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
+    });
+
+    let caught: Error | undefined;
+    try {
+      await GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only',
+        model: 'gemini-pinned-fail',
+        env: {},
+      });
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).toBeDefined();
+    const msg = caught!.message;
+    // No fallback model names should appear (including those formerly in the priority list).
+    expect(msg).not.toMatch(/gemini-2\.5-flash\b/);
+    expect(msg).not.toMatch(/gemini-2\.5-flash-lite/);
+    expect(msg).not.toMatch(/gemini-2\.5-pro/);
+    expect(msg).not.toMatch(/gemini-3-flash-preview/);
+    expect(msg).not.toMatch(/try .*gemini-/i);
+    // The requested model name IS allowed (it's the user's pin).
+    expect(msg).toContain('gemini-pinned-fail');
+  });
+
+  it('does not cache an ambiguous 404 (no ModelNotFoundError marker)', async () => {
+    let calls = 0;
+    mockSpawn.mockImplementation(() => {
+      calls++;
+      // Ambiguous 404 — could be the model, could be a missing project, etc.
+      return fakeChild(1, '', 'oops, code: 404\nRequested entity was not found.');
+    });
+
+    await expect(
+      GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only',
+        model: 'gemini-ambiguous',
+        env: {},
+      }),
+    ).rejects.toThrow();
+    expect(calls).toBe(1);
+
+    // Verify the cache file was not written for this model.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    expect(cache.isDead('gemini-ambiguous')).toBe(false);
+  });
+
+  it('does not cache rate-limit (429 / RESOURCE_EXHAUSTED) errors', async () => {
+    let calls = 0;
+    mockSpawn.mockImplementation(() => {
+      calls++;
+      return fakeChild(1, '', 'Error: RESOURCE_EXHAUSTED quota exceeded');
+    });
+
+    await expect(
+      GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only',
+        model: 'gemini-busy',
+        env: {},
+      }),
+    ).rejects.toThrow();
+    expect(calls).toBe(1);
+
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    expect(cache.isDead('gemini-busy')).toBe(false);
+  });
+
+  it('rethrows auth errors without caching', async () => {
     let calls = 0;
     mockSpawn.mockImplementation(() => {
       calls++;
@@ -459,10 +546,24 @@ describe('GeminiBackend auto-fallback', () => {
       }),
     ).rejects.toThrow();
     expect(calls).toBe(1);
+
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    expect(cache.isDead('gemini-2.5-flash')).toBe(false);
   });
 
-  it('disables fallback when PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false', async () => {
-    vi.stubEnv('PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK', 'false');
+  it('skips the cache entirely when PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false', async () => {
+    vi.stubEnv('PHONE_A_FRIEND_GEMINI_DEAD_CACHE', 'false');
+
+    // Pre-populate the cache so the model would normally fail fast.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    cache.markDead('gemini-pinned-dead', {
+      httpStatus: 404,
+      message: 'previously dead',
+      source: 'test',
+    });
+
     let calls = 0;
     mockSpawn.mockImplementation(() => {
       calls++;
@@ -475,20 +576,49 @@ describe('GeminiBackend auto-fallback', () => {
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
         sandbox: 'read-only',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-pinned-dead',
         env: {},
       }),
     ).rejects.toThrow();
+    // With cache disabled, the model is attempted (and fails normally).
     expect(calls).toBe(1);
   });
 
-  it('does not engage fallback when model is null (legacy behavior)', async () => {
+  it('honors PHONE_A_FRIEND_GEMINI_DEAD_CACHE from opts.env, not just process.env', async () => {
+    // Pre-populate the cache so the model would normally fail fast.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    cache.markDead('gemini-pinned-dead', {
+      httpStatus: 404,
+      message: 'previously dead',
+      source: 'test',
+    });
+
+    let calls = 0;
+    mockSpawn.mockImplementation(() => {
+      calls++;
+      return fakeChild(0, 'env override worked');
+    });
+
+    const result = await GEMINI_BACKEND.run({
+      prompt: 'x',
+      repoPath: '/tmp/repo',
+      timeoutSeconds: 60,
+      sandbox: 'read-only',
+      model: 'gemini-pinned-dead',
+      env: { PHONE_A_FRIEND_GEMINI_DEAD_CACHE: 'false' },
+    });
+    expect(result).toBe('env override worked');
+    expect(calls).toBe(1);
+  });
+
+  it('does not consult the cache when model is null (auto-routing path)', async () => {
     let calls = 0;
     mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
       calls++;
-      // No -m argument should be present
+      // No -m argument should be present.
       expect(args).not.toContain('-m');
-      return fakeChild(0, 'legacy default');
+      return fakeChild(0, 'auto-routed');
     });
 
     const result = await GEMINI_BACKEND.run({
@@ -499,67 +629,25 @@ describe('GeminiBackend auto-fallback', () => {
       model: null,
       env: {},
     });
-
-    expect(result).toBe('legacy default');
+    expect(result).toBe('auto-routed');
     expect(calls).toBe(1);
   });
 
-  it('does not engage fallback during session resume', async () => {
+  it('does not consult the cache during session resume', async () => {
+    // Pre-populate the cache.
+    const { GeminiModelCache } = await import('../../src/gemini-models.js');
+    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
+    cache.markDead('gemini-2.5-flash', {
+      httpStatus: 404,
+      message: 'previously dead',
+      source: 'test',
+    });
+
     let calls = 0;
     mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
       calls++;
       expect(args).toContain('--resume');
-      return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
-    });
-
-    await expect(
-      GEMINI_BACKEND.run({
-        prompt: 'x',
-        repoPath: '/tmp/repo',
-        timeoutSeconds: 60,
-        sandbox: 'read-only',
-        model: 'gemini-2.5-flash',
-        env: {},
-        resumeSession: true,
-        sessionId: 'abc-123',
-      }),
-    ).rejects.toThrow();
-    expect(calls).toBe(1);
-  });
-
-  it('throws an aggregated error when every attempt fails', async () => {
-    mockSpawn.mockImplementation(() => {
-      return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
-    });
-
-    await expect(
-      GEMINI_BACKEND.run({
-        prompt: 'x',
-        repoPath: '/tmp/repo',
-        timeoutSeconds: 60,
-        sandbox: 'read-only',
-        model: 'gemini-2.5-flash',
-        env: {},
-      }),
-    ).rejects.toThrow(/auto-fallback exhausted/);
-  });
-
-  it('skips models the cache already knows are dead', async () => {
-    // Pre-populate the cache so gemini-2.5-flash is dead.
-    const { GeminiModelCache } = await import('../../src/gemini-models.js');
-    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
-    cache.markDead('gemini-2.5-flash', {
-      httpStatus: 404,
-      message: 'previously dead',
-      source: 'test',
-    });
-
-    const calls: string[] = [];
-    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
-      const modelIdx = args.indexOf('-m');
-      const model = modelIdx >= 0 ? args[modelIdx + 1] : '';
-      calls.push(model);
-      return fakeChild(0, 'lite was used');
+      return fakeChild(0, 'resume worked');
     });
 
     const result = await GEMINI_BACKEND.run({
@@ -569,25 +657,22 @@ describe('GeminiBackend auto-fallback', () => {
       sandbox: 'read-only',
       model: 'gemini-2.5-flash',
       env: {},
+      resumeSession: true,
+      sessionId: 'abc-123',
     });
-
-    expect(result).toBe('lite was used');
-    expect(calls).not.toContain('gemini-2.5-flash');
-    expect(calls[0]).toBe('gemini-2.5-flash-lite');
+    expect(result).toBe('resume worked');
+    expect(calls).toBe(1);
   });
 
-  it('emits a cache-skip banner when the requested model is filtered out', async () => {
-    const { GeminiModelCache } = await import('../../src/gemini-models.js');
-    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
-    cache.markDead('gemini-2.5-flash', {
-      httpStatus: 404,
-      message: 'previously dead',
-      source: 'test',
-    });
+  it('still serves a relay when the cache file is corrupt (rotates and continues)', async () => {
+    // Write garbage to the cache file.
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    mkdirSync(join(tmpDir, 'phone-a-friend'), { recursive: true });
+    writeFileSync(join(tmpDir, 'phone-a-friend', 'gemini-models.json'), 'not valid json {{{', 'utf-8');
 
-    mockSpawn.mockImplementation(() => fakeChild(0, 'lite'));
+    mockSpawn.mockImplementation(() => fakeChild(0, 'survived corrupt cache'));
 
-    await GEMINI_BACKEND.run({
+    const result = await GEMINI_BACKEND.run({
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -595,64 +680,6 @@ describe('GeminiBackend auto-fallback', () => {
       model: 'gemini-2.5-flash',
       env: {},
     });
-
-    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(stderrText).toMatch(/cached as unavailable/);
-    expect(stderrText).toMatch(/gemini-2\.5-flash/);
-    expect(stderrText).toMatch(/using gemini-2\.5-flash-lite/);
-  });
-
-  it('does not cache an ambiguous 404 (no ModelNotFoundError marker)', async () => {
-    const calls: string[] = [];
-    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
-      const modelIdx = args.indexOf('-m');
-      const model = modelIdx >= 0 ? args[modelIdx + 1] : '';
-      calls.push(model);
-      if (model === 'gemini-pro-experimental') {
-        // Ambiguous 404 — could be the model, could be a missing project, etc.
-        return fakeChild(1, '', 'oops, code: 404\nRequested entity was not found.');
-      }
-      return fakeChild(0, 'fallback worked');
-    });
-
-    const result = await GEMINI_BACKEND.run({
-      prompt: 'x',
-      repoPath: '/tmp/repo',
-      timeoutSeconds: 60,
-      sandbox: 'read-only',
-      model: 'gemini-pro-experimental',
-      env: {},
-    });
-
-    expect(result).toBe('fallback worked');
-    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    // Banner says falling back, but does NOT claim it cached.
-    expect(stderrText).toMatch(/falling back/);
-    expect(stderrText).not.toMatch(/Cached for 24h/);
-
-    // Verify the cache file was not written for this model.
-    const { GeminiModelCache } = await import('../../src/gemini-models.js');
-    const cache = new GeminiModelCache(join(tmpDir, 'phone-a-friend', 'gemini-models.json'));
-    expect(cache.isDead('gemini-pro-experimental')).toBe(false);
-  });
-
-  it('honors PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK from opts.env, not just process.env', async () => {
-    let calls = 0;
-    mockSpawn.mockImplementation(() => {
-      calls++;
-      return fakeChild(1, '', 'ModelNotFoundError: Requested entity was not found.\n  code: 404');
-    });
-
-    await expect(
-      GEMINI_BACKEND.run({
-        prompt: 'x',
-        repoPath: '/tmp/repo',
-        timeoutSeconds: 60,
-        sandbox: 'read-only',
-        model: 'gemini-2.5-flash',
-        env: { PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK: 'false' },
-      }),
-    ).rejects.toThrow();
-    expect(calls).toBe(1);
+    expect(result).toBe('survived corrupt cache');
   });
 });

@@ -2,14 +2,22 @@
  * Gemini model availability cache.
  *
  * Tracks Gemini models that returned model-not-found (404) so the backend
- * can skip them on subsequent calls without paying the round-trip cost.
+ * can fail fast on subsequent calls without paying the round-trip cost.
  *
  * Stored at ~/.config/phone-a-friend/gemini-models.json (XDG_CONFIG_HOME aware).
  *
- * Only deterministic unavailability is cached. Transient errors (rate-limits,
- * 5xx) are surfaced as retry-without-caching by the classifier and never
- * persist a "dead" entry — those errors come and go with capacity, and
- * caching them would falsely deny a working model after a momentary spike.
+ * Only deterministic unavailability is cached: gemini-cli's own
+ * `ModelNotFoundError` classifier is treated as a strong, cacheable signal.
+ * Transient errors (rate-limits, 5xx) and ambiguous 404s are surfaced
+ * as-is and never persist a "dead" entry — those errors come and go with
+ * capacity or unrelated resources (project/file 404s), and caching them
+ * would falsely deny a working model.
+ *
+ * The cache is read by the Gemini backend before spawning the CLI. On a
+ * cache hit, the backend throws a clear error with the cache file path,
+ * expiry timestamp, and bypass instructions instead of attempting the call.
+ * No automatic fallback / model substitution is performed; explicit pins
+ * deserve explicit failures so callers can decide their own next step.
  *
  * NOT parallel-write safe (same caveat as src/sessions.ts).
  */
@@ -32,20 +40,6 @@ export const CACHE_SCHEMA_VERSION = 1;
 
 export const DEAD_MODEL_TTL_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Documented Gemini fallback chain, in priority order.
- *
- * Preview / capacity-flaky models are deliberately omitted: they belong in
- * skill docs as discovery aids, not in the auto-fallback path. Adding them
- * here would just waste a round-trip on every relay.
- */
-export const GEMINI_FALLBACK_CHAIN: readonly string[] = Object.freeze([
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-]);
-
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
-
 export type GeminiErrorKind =
   | 'model-not-found'
   | 'rate-limit'
@@ -60,9 +54,9 @@ export interface GeminiErrorClassification {
    * True only when the error has a strong signal that the failure is bound
    * to the model itself (e.g. gemini's own `ModelNotFoundError` classifier).
    * Ambiguous 404s ("Requested entity was not found.") without a model marker
-   * are treated as `model-not-found` for fallback purposes but are not
-   * cached — caching a 404 caused by, say, a missing project would poison a
-   * working model for 24h.
+   * are reported as `model-not-found` for the caller's information but are
+   * NOT cached — a 404 caused by, say, a missing project would otherwise
+   * poison a working model for 24h.
    */
   cacheable?: boolean;
 }
@@ -191,6 +185,29 @@ export class GeminiModelCache {
   isDead(model: string, now = Date.now()): boolean {
     const cache = this.load();
     return isModelDead(cache, model, now);
+  }
+
+  /**
+   * Return the cached dead-model entry if one exists and is still within TTL.
+   * Returns `undefined` for unknown or expired entries. Used by the backend
+   * to construct a fail-fast error message that includes the cached
+   * `expiresAt`, `httpStatus`, and `message`.
+   */
+  getDeadEntry(model: string, now = Date.now()): DeadModelEntry | undefined {
+    const cache = this.load();
+    const entry = cache.models[model];
+    if (!entry) return undefined;
+    const expires = Date.parse(entry.expiresAt);
+    if (Number.isNaN(expires) || expires <= now) return undefined;
+    return entry;
+  }
+
+  /**
+   * Return the absolute path to the cache file (XDG_CONFIG_HOME aware).
+   * Used in error messages so callers can locate / delete the cache.
+   */
+  getCachePath(): string {
+    return this.filePath;
   }
 
   markDead(
@@ -375,34 +392,19 @@ function extractErrorMessage(text: string): string | undefined {
 }
 
 /**
- * Build the ordered list of models to attempt for a given request, given the
- * cache state. The caller's preferred model leads, followed by the fallback
- * chain (deduped, preferred-removed). Models marked dead in the cache are
- * filtered out — they are still skipped before spawning gemini at all.
+ * Returns true when the user has explicitly disabled the dead-model cache
+ * via `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` (or `0` / `no` / `off`).
  *
- * If everything is dead, the chain is empty and the caller should surface
- * a single clear error.
+ * When disabled, the backend skips the cache check entirely on read AND
+ * skips writing on a strong 404. The model is attempted regardless of
+ * whether it was previously cached as dead. Used for debugging and as
+ * an escape hatch when the cache is suspected of holding a stale entry.
+ *
+ * `opts.env` is honored (not just `process.env`), so programmatic callers
+ * that pass an `env` map through `BackendRunOptions` get the same behavior.
  */
-export function buildAttemptChain(
-  preferred: string | null | undefined,
-  cache: DeadModelCache,
-  now = Date.now(),
-): string[] {
-  const chain: string[] = [];
-  const seen = new Set<string>();
-  const candidates = [preferred ?? DEFAULT_GEMINI_MODEL, ...GEMINI_FALLBACK_CHAIN];
-  for (const model of candidates) {
-    if (!model) continue;
-    if (seen.has(model)) continue;
-    seen.add(model);
-    if (isModelDead(cache, model, now)) continue;
-    chain.push(model);
-  }
-  return chain;
-}
-
-export function isAutoFallbackDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const value = env.PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK;
+export function isDeadCacheDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.PHONE_A_FRIEND_GEMINI_DEAD_CACHE;
   if (!value) return false;
   return /^(0|false|no|off)$/i.test(value.trim());
 }

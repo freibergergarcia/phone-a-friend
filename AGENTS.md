@@ -187,7 +187,7 @@ After `npm install -g @freibergergarcia/phone-a-friend`, the `phone-a-friend` co
 # Relay
 phone-a-friend --to codex --repo <path> --prompt "..."
 phone-a-friend --to claude --repo <path> --prompt "..."
-phone-a-friend --to gemini --repo <path> --prompt "..." --model gemini-2.5-flash
+phone-a-friend --to gemini --repo <path> --prompt "..."
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 phone-a-friend --to opencode --repo <path> --prompt "..." --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --prompt "..."               # Uses default backend from config

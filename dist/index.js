@@ -77076,11 +77076,6 @@ import { dirname, join as join2 } from "path";
 import { homedir } from "os";
 var CACHE_SCHEMA_VERSION = 1;
 var DEAD_MODEL_TTL_MS = 24 * 60 * 60 * 1e3;
-var GEMINI_FALLBACK_CHAIN = Object.freeze([
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite"
-]);
-var DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 function emptyCache() {
   return {
     schemaVersion: CACHE_SCHEMA_VERSION,
@@ -77174,6 +77169,27 @@ var GeminiModelCache = class {
   isDead(model, now = Date.now()) {
     const cache3 = this.load();
     return isModelDead(cache3, model, now);
+  }
+  /**
+   * Return the cached dead-model entry if one exists and is still within TTL.
+   * Returns `undefined` for unknown or expired entries. Used by the backend
+   * to construct a fail-fast error message that includes the cached
+   * `expiresAt`, `httpStatus`, and `message`.
+   */
+  getDeadEntry(model, now = Date.now()) {
+    const cache3 = this.load();
+    const entry = cache3.models[model];
+    if (!entry) return void 0;
+    const expires = Date.parse(entry.expiresAt);
+    if (Number.isNaN(expires) || expires <= now) return void 0;
+    return entry;
+  }
+  /**
+   * Return the absolute path to the cache file (XDG_CONFIG_HOME aware).
+   * Used in error messages so callers can locate / delete the cache.
+   */
+  getCachePath() {
+    return this.filePath;
   }
   markDead(model, info2, now = /* @__PURE__ */ new Date()) {
     const cache3 = this.load();
@@ -77289,21 +77305,8 @@ function extractErrorMessage(text) {
   if (errMatch) return errMatch[1].trim();
   return void 0;
 }
-function buildAttemptChain(preferred, cache3, now = Date.now()) {
-  const chain = [];
-  const seen = /* @__PURE__ */ new Set();
-  const candidates = [preferred ?? DEFAULT_GEMINI_MODEL, ...GEMINI_FALLBACK_CHAIN];
-  for (const model of candidates) {
-    if (!model) continue;
-    if (seen.has(model)) continue;
-    seen.add(model);
-    if (isModelDead(cache3, model, now)) continue;
-    chain.push(model);
-  }
-  return chain;
-}
-function isAutoFallbackDisabled(env3 = process.env) {
-  const value = env3.PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK;
+function isDeadCacheDisabled(env3 = process.env) {
+  const value = env3.PHONE_A_FRIEND_GEMINI_DEAD_CACHE;
   if (!value) return false;
   return /^(0|false|no|off)$/i.test(value.trim());
 }
@@ -77340,102 +77343,62 @@ var GeminiBackend = class {
       );
     }
     const envForOpts = opts.env && Object.keys(opts.env).length > 0 ? opts.env : process.env;
-    const fallbackEligible = Boolean(opts.model) && !opts.resumeSession && !isAutoFallbackDisabled(envForOpts);
-    if (!fallbackEligible) {
-      return this.runOnce(opts, opts.model ?? null, false);
-    }
-    const cache3 = new GeminiModelCache();
-    cache3.prune();
-    const requestedModel = opts.model;
-    const chain = buildAttemptChain(requestedModel, cache3.load());
-    if (chain.length === 0) {
-      throw new GeminiBackendError(
-        `All known Gemini models are cached as unavailable. Run 'phone-a-friend doctor' or wait for the 24h cache to expire.`
-      );
-    }
-    if (chain[0] !== requestedModel) {
-      process.stderr.write(
-        `[phone-a-friend] Gemini model ${requestedModel} is cached as unavailable; using ${chain[0]}. Set PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false or wait 24h for the cache to expire.
-`
-      );
-    }
-    const failures = [];
-    const overallStart = Date.now();
-    const overallBudgetMs = opts.timeoutSeconds * 1e3;
-    for (let i = 0; i < chain.length; i++) {
-      const candidate = chain[i];
-      const elapsed = Date.now() - overallStart;
-      const remaining = overallBudgetMs - elapsed;
-      if (remaining <= 0) {
-        failures.push({
-          model: candidate,
-          kind: "other",
-          message: "shared deadline exhausted before attempt"
-        });
-        break;
-      }
-      const remainingSeconds = Math.max(1, Math.ceil(remaining / 1e3));
-      try {
-        return await this.runOnce(
-          { ...opts, timeoutSeconds: remainingSeconds },
-          candidate,
-          true
+    const cacheEligible = Boolean(opts.model) && !opts.resumeSession && !isDeadCacheDisabled(envForOpts);
+    let cache3 = null;
+    if (cacheEligible) {
+      cache3 = new GeminiModelCache();
+      cache3.prune();
+      const requestedModel = opts.model;
+      const deadEntry = cache3.getDeadEntry(requestedModel);
+      if (deadEntry) {
+        throw new GeminiBackendError(
+          formatDeadModelError(requestedModel, deadEntry, cache3.getCachePath())
         );
-      } catch (err) {
-        const cls = classifyGeminiAttemptError(err);
-        failures.push({
-          model: candidate,
-          kind: cls.kind,
-          message: cls.message
-        });
-        if (cls.kind === "model-not-found") {
-          if (cls.cacheable) {
-            try {
-              cache3.markDead(candidate, {
-                httpStatus: cls.httpStatus ?? 404,
-                message: cls.message,
-                source: "relay-failure"
-              });
-            } catch (cacheErr) {
-              process.stderr.write(
-                `[phone-a-friend] Failed to persist Gemini model cache: ${cacheErr.message}
-`
+      }
+    }
+    try {
+      return await this.runOnce(opts, opts.model ?? null);
+    } catch (err) {
+      if (cacheEligible && cache3) {
+        const cls = classifyAttemptError(err);
+        if (cls.kind === "model-not-found" && cls.cacheable) {
+          const requestedModel = opts.model;
+          try {
+            cache3.markDead(requestedModel, {
+              httpStatus: cls.httpStatus ?? 404,
+              message: cls.message,
+              source: "relay-failure"
+            });
+            const writtenEntry = cache3.getDeadEntry(requestedModel);
+            if (writtenEntry) {
+              throw new GeminiBackendError(
+                formatDeadModelError(
+                  requestedModel,
+                  writtenEntry,
+                  cache3.getCachePath()
+                )
               );
             }
-          }
-          if (i < chain.length - 1) {
-            const cachedSuffix = cls.cacheable ? " Cached for 24h." : "";
+          } catch (cacheErr) {
+            if (cacheErr instanceof GeminiBackendError) throw cacheErr;
             process.stderr.write(
-              `[phone-a-friend] Gemini model ${candidate} is unavailable (404); falling back to ${chain[i + 1]}.${cachedSuffix}
+              `[phone-a-friend] Failed to persist Gemini model cache: ${cacheErr.message}
 `
             );
-          }
-          continue;
-        }
-        if (cls.kind === "rate-limit") {
-          if (i < chain.length - 1) {
-            process.stderr.write(
-              `[phone-a-friend] Gemini model ${candidate} hit a rate-limit / capacity error; falling back to ${chain[i + 1]} (not cached, transient).
-`
+            throw new GeminiBackendError(
+              `Model \`${requestedModel}\` returned 404 from Gemini (ModelNotFoundError). Cache could not be persisted at ${cache3.getCachePath()}. Run without \`--model\` to use Gemini's auto-routing, or set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to skip the cache check.`
             );
           }
-          continue;
         }
-        if (err instanceof GeminiBackendError) throw err;
-        if (err instanceof BackendError) {
-          throw new GeminiBackendError(err.message);
-        }
-        throw err;
       }
+      if (err instanceof GeminiBackendError) throw err;
+      if (err instanceof BackendError) {
+        throw new GeminiBackendError(err.message);
+      }
+      throw err;
     }
-    const summary = failures.map((f) => `  - ${f.model}: ${f.kind} (${f.message})`).join("\n");
-    throw new GeminiBackendError(
-      `Gemini auto-fallback exhausted after ${failures.length} attempt(s):
-${summary}
-Set PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false to disable fallback and surface the original error.`
-    );
   }
-  async runOnce(opts, model, fromFallbackChain) {
+  async runOnce(opts, model) {
     const args = [];
     const useJsonOutput = Boolean(opts.schema);
     const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
@@ -77479,16 +77442,14 @@ Set PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK=false to disable fallback and surface th
         }
         throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
       }
-      if (fromFallbackChain) throw err;
-      if (err instanceof GeminiBackendError) throw err;
-      if (err instanceof BackendError) {
-        throw new GeminiBackendError(err.message);
-      }
       throw err;
     }
   }
 };
-function classifyGeminiAttemptError(err) {
+function formatDeadModelError(model, entry, cachePath) {
+  return `Model \`${model}\` returned 404 from Gemini (ModelNotFoundError). Cached as unavailable until ${entry.expiresAt} at ${cachePath}. Run without \`--model\` to use Gemini's auto-routing, set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to bypass the cache, or delete the cache file to clear it.`;
+}
+function classifyAttemptError(err) {
   if (err instanceof SpawnCliError) {
     return classifyGeminiError({
       exitCode: err.exitCode ?? void 0,

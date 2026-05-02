@@ -98,13 +98,23 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
     // delegated to the skill. The rich workflow includes these section
     // headings; together they are infeasible to fit in a shim.
     expect(file).toContain('## Workflow');
-    expect(file).toContain('## Gemini Model Priority');
     expect(file).toContain('## Session continuity');
     expect(file).toContain('## Speed optimization');
     expect(file).toContain('Direct call reference');
     // Length floor: the rich command is ~250 lines; a shim was ~22.
     const lineCount = file.split('\n').length;
     expect(lineCount).toBeGreaterThan(150);
+  });
+
+  it('does not pin Gemini to a specific model (priority list removed)', () => {
+    // The "Gemini Model Priority" section was removed: PaF now lets
+    // Gemini's auto-routing pick the default model, with the dead-model
+    // cache surfacing clear errors when explicit pins 404. Aligning
+    // Gemini examples with Claude/Codex (no --model by default).
+    expect(file).not.toContain('## Gemini Model Priority');
+    expect(file.toLowerCase()).not.toContain('gemini model priority');
+    // No example command should pin --model gemini-2.5-flash.
+    expect(file).not.toMatch(/--model\s+gemini-2\.5-flash\b/);
   });
 
   it('uses the version-tolerant probe and env-var fallback', () => {
@@ -169,12 +179,19 @@ describe('Claude /curiosity-engine rich command (commands/curiosity-engine.md)',
     const lines = file.split('\n');
     const relayLines = lines.filter(line =>
       /^\s*phone-a-friend --to <BACKEND>/.test(line) ||
-      /^\s*phone-a-friend --to gemini --model/.test(line)
+      /^\s*phone-a-friend --to gemini\b/.test(line)
     );
     expect(relayLines.length).toBeGreaterThan(0);
     for (const line of relayLines) {
       expect(line).toContain('$PAF_NO_DIFF');
     }
+  });
+
+  it('does not pin Gemini to a specific model (priority list removed)', () => {
+    // Same redesign as commands/phone-a-friend.md: no --model pin in examples.
+    expect(file).not.toContain('## Gemini Model Priority');
+    expect(file.toLowerCase()).not.toContain('gemini model priority');
+    expect(file).not.toMatch(/--model\s+gemini-2\.5-flash\b/);
   });
 });
 

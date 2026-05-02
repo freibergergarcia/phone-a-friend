@@ -31,4 +31,4 @@ PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
 ```
 
 Defer to the canonical `phone-a-friend` skill for workflow details, Gemini
-model priority, and session continuity.
+model selection, and session continuity.

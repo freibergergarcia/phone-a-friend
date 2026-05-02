@@ -11,14 +11,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  buildAttemptChain,
   CACHE_SCHEMA_VERSION,
   classifyGeminiError,
   DEAD_MODEL_TTL_MS,
-  DEFAULT_GEMINI_MODEL,
-  GEMINI_FALLBACK_CHAIN,
   GeminiModelCache,
-  isAutoFallbackDisabled,
+  isDeadCacheDisabled,
   isModelDead,
   markModelDead,
   pruneExpired,
@@ -224,63 +221,17 @@ describe('pruneExpired', () => {
   });
 });
 
-describe('buildAttemptChain', () => {
-  const now = new Date('2026-05-02T00:00:00.000Z').getTime();
-
-  it('returns preferred model first, then fallback chain (deduped)', () => {
-    const chain = buildAttemptChain('gemini-2.5-flash', emptyCache(), now);
-    expect(chain[0]).toBe('gemini-2.5-flash');
-    expect(new Set(chain).size).toBe(chain.length);
-  });
-
-  it('uses default model when no preferred provided', () => {
-    const chain = buildAttemptChain(null, emptyCache(), now);
-    expect(chain[0]).toBe(DEFAULT_GEMINI_MODEL);
-  });
-
-  it('places preferred model first even when not in fallback list', () => {
-    const chain = buildAttemptChain('gemini-pro-experimental', emptyCache(), now);
-    expect(chain[0]).toBe('gemini-pro-experimental');
-    for (const fallback of GEMINI_FALLBACK_CHAIN) {
-      expect(chain).toContain(fallback);
-    }
-  });
-
-  it('filters out cached-dead models', () => {
-    const cache: DeadModelCache = {
-      ...emptyCache(),
-      models: freshDeadEntry('gemini-2.5-flash', new Date(now)),
-    };
-    const chain = buildAttemptChain('gemini-2.5-flash', cache, now + 1000);
-    expect(chain).not.toContain('gemini-2.5-flash');
-  });
-
-  it('returns empty when all candidates are dead', () => {
-    const dead: Record<string, ReturnType<typeof freshDeadEntry>[string]> = {};
-    Object.assign(dead, freshDeadEntry(DEFAULT_GEMINI_MODEL, new Date(now)));
-    for (const m of GEMINI_FALLBACK_CHAIN) {
-      Object.assign(dead, freshDeadEntry(m, new Date(now)));
-    }
-    const cache: DeadModelCache = {
-      ...emptyCache(),
-      models: dead,
-    };
-    const chain = buildAttemptChain(null, cache, now + 1000);
-    expect(chain).toEqual([]);
-  });
-});
-
-describe('isAutoFallbackDisabled', () => {
+describe('isDeadCacheDisabled', () => {
   it('returns false when env var is unset', () => {
-    expect(isAutoFallbackDisabled({})).toBe(false);
+    expect(isDeadCacheDisabled({})).toBe(false);
   });
 
   it.each(['0', 'false', 'FALSE', 'no', 'off', '  false  '])('returns true for %s', (value) => {
-    expect(isAutoFallbackDisabled({ PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK: value })).toBe(true);
+    expect(isDeadCacheDisabled({ PHONE_A_FRIEND_GEMINI_DEAD_CACHE: value })).toBe(true);
   });
 
   it.each(['1', 'true', 'yes', 'on', 'enabled'])('returns false for truthy %s', (value) => {
-    expect(isAutoFallbackDisabled({ PHONE_A_FRIEND_GEMINI_AUTO_FALLBACK: value })).toBe(false);
+    expect(isDeadCacheDisabled({ PHONE_A_FRIEND_GEMINI_DEAD_CACHE: value })).toBe(false);
   });
 });
 
@@ -315,6 +266,42 @@ describe('GeminiModelCache (filesystem)', () => {
     expect(loaded.models['gemini-3.1-pro-preview']).toBeDefined();
     expect(loaded.models['gemini-3.1-pro-preview'].httpStatus).toBe(404);
     expect(loaded.schemaVersion).toBe(CACHE_SCHEMA_VERSION);
+  });
+
+  it('getDeadEntry returns the live entry for a dead model', () => {
+    cache.markDead('gemini-fake-404', {
+      httpStatus: 404,
+      message: 'ModelNotFoundError',
+      source: 'relay-failure',
+    });
+    const entry = cache.getDeadEntry('gemini-fake-404');
+    expect(entry).toBeDefined();
+    expect(entry?.httpStatus).toBe(404);
+    expect(entry?.source).toBe('relay-failure');
+    expect(entry?.expiresAt).toBeDefined();
+    expect(Date.parse(entry!.expiresAt)).toBeGreaterThan(Date.now());
+  });
+
+  it('getDeadEntry returns undefined for unknown models', () => {
+    expect(cache.getDeadEntry('never-cached')).toBeUndefined();
+  });
+
+  it('getDeadEntry returns undefined for expired entries', () => {
+    const past = new Date(Date.now() - 2 * DEAD_MODEL_TTL_MS);
+    cache.markDead(
+      'gemini-expired',
+      {
+        httpStatus: 404,
+        message: 'ModelNotFoundError',
+        source: 'relay-failure',
+      },
+      past,
+    );
+    expect(cache.getDeadEntry('gemini-expired')).toBeUndefined();
+  });
+
+  it('getCachePath returns the absolute path of the cache file', () => {
+    expect(cache.getCachePath()).toBe(cachePath);
   });
 
   it('rotates and recovers from corrupt JSON', () => {
