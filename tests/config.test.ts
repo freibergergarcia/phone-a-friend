@@ -48,6 +48,36 @@ describe('config', () => {
       expect(config.DEFAULT_CONFIG.defaults.timeout).toBe(600);
       expect(config.DEFAULT_CONFIG.defaults.include_diff).toBe(false);
     });
+
+    it('enables update_check by default', () => {
+      expect(config.DEFAULT_CONFIG.defaults.update_check).toBe(true);
+    });
+  });
+
+  describe('update_check config key', () => {
+    it('reads update_check = false from user TOML', () => {
+      const userConfig = join(tempDir, 'config.toml');
+      writeFileSync(
+        userConfig,
+        '[defaults]\nupdate_check = false\nbackend = "codex"\nsandbox = "read-only"\ntimeout = 600\ninclude_diff = false\n',
+        'utf-8',
+      );
+      const loaded = config.loadConfigFromFile(userConfig);
+      expect(loaded.defaults.update_check).toBe(false);
+    });
+
+    it('preserves update_check = true when not specified (falls back to default)', () => {
+      const result = config.loadConfig(undefined, join(tempDir, 'nonexistent'));
+      expect(result.defaults.update_check).toBe(true);
+    });
+
+    it('persists update_check via configSet', () => {
+      const configPath = join(tempDir, 'config.toml');
+      config.saveConfig(config.DEFAULT_CONFIG, configPath);
+      config.configSet('defaults.update_check', 'false', configPath);
+      const loaded = config.loadConfigFromFile(configPath);
+      expect(loaded.defaults.update_check).toBe(false);
+    });
   });
 
   describe('loadConfig', () => {
