@@ -24,17 +24,18 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
-<div align="center">
+### Host parity
 
-### TUI Dashboard
+| Feature | Claude Code | OpenCode |
+|---|:---:|:---:|
+| `/phone-a-friend` (single-backend relay) | ✓ | ✓ |
+| `/curiosity-engine` (Q&A rally) | ✓ | ✓ |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — |
+| Plugin marketplace install | ✓ | — |
+| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ |
+| Skill auto-discovery | ✓ | ✓ |
 
-<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/tui-dashboard.gif" alt="TUI dashboard" width="600">
-
-### Web Dashboard
-
-<img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/web-dashboard.gif" alt="Web dashboard" width="700">
-
-</div>
+OpenCode users can replicate `/phone-a-team` by running repeated `/phone-a-friend` calls and synthesizing manually.
 
 ## Quick Start
 
@@ -57,26 +58,29 @@ The setup wizard detects your backends, offers to install detected host integrat
 
 **Claude Code marketplace (commands and skills only):**
 
-If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup),
-you can install directly from the marketplace:
-
 ```
 /plugin marketplace add freibergergarcia/phone-a-friend
 /plugin install phone-a-friend@phone-a-friend-marketplace
 ```
 
-This fetches the latest version from npm automatically. To update later:
-
-```
-/plugin marketplace update phone-a-friend-marketplace
-/plugin update phone-a-friend@phone-a-friend-marketplace
-```
+To update: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin update phone-a-friend@phone-a-friend-marketplace`.
 
 > [!NOTE]
-> Marketplace install gives you Claude Code integration (slash commands
-> and skills). For the full CLI including agentic mode, the TUI dashboard, and
-> the web dashboard on localhost, install globally with
-> `npm install -g @freibergergarcia/phone-a-friend`.
+> Marketplace install ships only the slash commands and skills. For the full CLI (agentic mode, TUI, web dashboard), install via `npm install -g @freibergergarcia/phone-a-friend`.
+
+**OpenCode commands and skills:**
+
+If you use [OpenCode](https://opencode.ai/docs), install the same Phone-a-Friend skills plus thin slash-command shims into your OpenCode config:
+
+```bash
+phone-a-friend plugin install --opencode
+```
+
+This installs to `~/.config/opencode/skills/` and `~/.config/opencode/commands/` (or `$XDG_CONFIG_HOME/opencode/...`). From OpenCode, ask naturally, for example:
+
+```
+Ask Codex through phone-a-friend for a short sanity review of this repo; do not edit files.
+```
 
 **OpenCode commands and skills:**
 
@@ -113,10 +117,10 @@ Build a team with Claude and Ollama. Have them review the website copy,
 loop through 3 rounds, and converge on final suggestions.
 ```
 
-No slash commands needed. Once the host integration is installed (the setup wizard offers to do this), the host can route single-backend tasks through `/phone-a-friend`. In Claude Code, mention multiple backends and Claude can use `/phone-a-team` for iterative multi-agent refinement; `/phone-a-team` is Claude-only because it depends on Claude Agent Teams primitives. In OpenCode, use repeated `/phone-a-friend` calls and synthesize the results manually. You can explicitly invoke `/phone-a-friend` in both hosts, and `/phone-a-team` in Claude Code only.
+No slash commands needed once the host integration is installed (see [Host parity](#host-parity) for which slash commands work in which host).
 
 > [!TIP]
-> **Power-user setup:** Run Claude Code in [**tmux**](https://formulae.brew.sh/formula/tmux) and enable [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) for trusted repos. [**Agent teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) show up in split panes, so you can watch agents work in parallel without approval pauses. Pair it with **phone-a-friend agentic mode** for fully autonomous multi-agent sessions.
+> **Claude Code power-user setup:** Run in [**tmux**](https://formulae.brew.sh/formula/tmux) with [**bypass permissions**](https://docs.anthropic.com/en/docs/claude-code/security) (`⏵⏵`) and [**Agent Teams**](https://docs.anthropic.com/en/docs/claude-code/agent-teams) to watch agents work in parallel split panes. Pair with **phone-a-friend agentic mode** for fully autonomous sessions.
 
 ## CLI Usage
 
@@ -213,21 +217,22 @@ phone-a-friend config edit     # Open in $EDITOR
 
 ## Backends
 
-| Backend | Type | Streaming | How it works |
-|---------|------|-----------|-------------|
-| **Codex** | CLI subprocess | No | Runs `codex exec` with sandbox and repo context |
-| **Gemini** | CLI subprocess | No | Runs `gemini --prompt` with `--yolo` auto-approve |
-| **Ollama** | HTTP API | Yes (NDJSON) | POSTs to `localhost:11434/api/chat` via native fetch |
-| **Claude** | CLI subprocess | Yes (JSON) | Runs `claude` with sandbox-to-tool mapping |
-| **OpenCode** | CLI subprocess | Yes (NDJSON) | Runs `opencode run` with repo-local tool access |
+| Backend | Type | Streaming |
+|---------|------|-----------|
+| **Codex** | CLI subprocess | No |
+| **Gemini** | CLI subprocess | No |
+| **Ollama** | HTTP API | Yes (NDJSON) |
+| **Claude** | CLI subprocess | Yes (JSON) |
+| **OpenCode** | CLI subprocess | Yes (NDJSON) |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
 
 Phone-a-friend environment variables:
-- `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion across every relay; equivalent to passing `--no-include-diff` on every command. Useful when `defaults.include_diff = true` in your config but you want a session without the diff. Also the canonical mechanism used by OpenCode shims for stale-binary compatibility (the `--no-include-diff` flag was added in v2.2.0+; older binaries reject it but accept this env var since v1.7.2).
-- `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard. Set automatically by the OpenCode shims; only relevant if you're invoking PaF programmatically from inside an OpenCode session.
+- `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
+- `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard (set automatically by the OpenCode shims).
+- `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries; see Gemini section).
 
 OpenCode configuration via TOML:
 ```toml
@@ -272,14 +277,6 @@ phone-a-friend agentic dashboard              # default: localhost:7777
 phone-a-friend agentic dashboard --port 8080
 ```
 
-**How it works:**
-
-1. The orchestrator spawns each agent with the initial prompt and a unique name (e.g., `ada.reviewer`, `fern.critic`)
-2. Agents respond and `@mention` other agents (or `@all` / `@user`)
-3. The orchestrator routes messages to the targeted agents
-4. Agents reply in subsequent turns, building on accumulated context
-5. The session ends when agents converge (no new messages), hit the turn limit, or time out
-
 **What you get:**
 
 - **Live web dashboard** -- watch agents collaborate in real time at `localhost:7777` (SSE-powered)
@@ -297,11 +294,20 @@ Full usage guide, examples, CLI reference, and configuration details:
 
 ## Uninstall
 
+**npm install:**
+
 ```bash
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-The Claude Code plugin and OpenCode commands/skills are removed automatically when installed through the CLI.
+Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+
+**Claude Code marketplace:**
+
+```
+/plugin uninstall phone-a-friend@phone-a-friend-marketplace
+/plugin marketplace remove phone-a-friend-marketplace
+```
 
 ## Contributing
 
