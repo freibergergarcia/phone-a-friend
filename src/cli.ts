@@ -39,6 +39,7 @@ import {
   DEFAULT_CONFIG,
 } from './config.js';
 import { getVersion, getPackageRoot } from './version.js';
+import { parseVerdict, serializeVerdict, VerdictParseError } from './verdict.js';
 
 // ---------------------------------------------------------------------------
 // Repo root default
@@ -394,13 +395,21 @@ export async function run(argv: string[]): Promise<number> {
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (scoped to diff against base branch)')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
+    .option('--verdict-json', 'Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.')
     .option('--quiet', 'Run silently, save result to job store')
     .action(async (opts, command) => {
-      // --base without --review implies review mode
-      const isReview = opts.review || opts.base !== undefined;
+      // --base without --review implies review mode. So does --verdict-json.
+      const isReview = opts.review || opts.base !== undefined || opts.verdictJson;
+      const isVerdictJson = Boolean(opts.verdictJson);
 
       if (!opts.prompt && !isReview) {
         console.error(`  ${theme.crossmark} ${theme.error('--prompt is required (unless using --review or --base)')}`);
+        exitCode = 1;
+        return;
+      }
+
+      if (isVerdictJson && opts.schema) {
+        console.error(`  ${theme.crossmark} ${theme.error('--verdict-json sets its own schema; do not combine with --schema')}`);
         exitCode = 1;
         return;
       }
@@ -431,12 +440,14 @@ export async function run(argv: string[]): Promise<number> {
 
       if (isReview) {
         const baseLabel = opts.base ?? resolved.reviewBase ?? 'auto-detect';
-        const spinner = ora({
-          text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
-          spinner: 'dots',
-          color: 'cyan',
-          stream: process.stderr,
-        }).start();
+        const spinner = isVerdictJson
+          ? null
+          : ora({
+              text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+              spinner: 'dots',
+              color: 'cyan',
+              stream: process.stderr,
+            }).start();
 
         try {
           const feedback = await reviewRelay({
@@ -449,11 +460,30 @@ export async function run(argv: string[]): Promise<number> {
             sandbox: resolved.sandbox as SandboxMode,
             schema: opts.schema ?? null,
             fast: Boolean(opts.fast),
+            verdictJson: isVerdictJson,
           });
-          spinner.succeed(`${theme.bold(backendName)} reviewed`);
-          process.stdout.write(feedback + '\n');
+          if (isVerdictJson) {
+            try {
+              const envelope = parseVerdict(feedback);
+              process.stdout.write(serializeVerdict(envelope) + '\n');
+            } catch (err) {
+              if (err instanceof VerdictParseError) {
+                process.stderr.write(
+                  `  ${theme.crossmark} ${theme.error('Verdict parse failed')}: ${err.message}\n` +
+                    `  ${theme.hint('Raw response (between markers):')}\n` +
+                    `<<<RAW_BEGIN\n${err.raw}\nRAW_END>>>\n`,
+                );
+                exitCode = 2;
+                return;
+              }
+              throw err;
+            }
+          } else {
+            spinner?.succeed(`${theme.bold(backendName)} reviewed`);
+            process.stdout.write(feedback + '\n');
+          }
         } catch (err) {
-          spinner.fail(`${theme.bold(backendName)} review failed`);
+          spinner?.fail(`${theme.bold(backendName)} review failed`);
           throw err;
         }
         return;

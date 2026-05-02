@@ -5889,6 +5889,201 @@ var init_sessions = __esm({
   }
 });
 
+// src/verdict.ts
+function buildVerdictPrompt(reviewRequest) {
+  const request = reviewRequest && reviewRequest.trim().length > 0 ? reviewRequest.trim() : DEFAULT_REVIEW_REQUEST;
+  return `Review request:
+${request}
+
+${VERDICT_INSTRUCTIONS}`;
+}
+function parseVerdict(raw) {
+  const trimmed = raw.trim();
+  const stripped = stripJsonFence(trimmed);
+  let parsed;
+  try {
+    parsed = JSON.parse(stripped);
+  } catch (err) {
+    throw new VerdictParseError(
+      `verdict response is not valid JSON: ${err.message}`,
+      raw
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new VerdictParseError("verdict response must be a JSON object", raw);
+  }
+  const obj = parsed;
+  if (obj.schema_version !== VERDICT_SCHEMA_VERSION) {
+    throw new VerdictParseError(
+      `verdict schema_version mismatch: expected ${VERDICT_SCHEMA_VERSION}, got ${JSON.stringify(obj.schema_version)}`,
+      raw
+    );
+  }
+  if (typeof obj.summary !== "string" || obj.summary.length === 0) {
+    throw new VerdictParseError("verdict summary must be a non-empty string", raw);
+  }
+  if (!Array.isArray(obj.findings)) {
+    throw new VerdictParseError("verdict findings must be an array", raw);
+  }
+  const findings = obj.findings.map((item, idx) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new VerdictParseError(`finding[${idx}] must be an object`, raw);
+    }
+    const f = item;
+    if (f.severity !== "blocker" && f.severity !== "important" && f.severity !== "nit") {
+      throw new VerdictParseError(
+        `finding[${idx}].severity must be one of blocker|important|nit, got ${JSON.stringify(f.severity)}`,
+        raw
+      );
+    }
+    if (typeof f.title !== "string" || f.title.length === 0) {
+      throw new VerdictParseError(`finding[${idx}].title must be a non-empty string`, raw);
+    }
+    if (typeof f.rationale !== "string" || f.rationale.length === 0) {
+      throw new VerdictParseError(`finding[${idx}].rationale must be a non-empty string`, raw);
+    }
+    let location = null;
+    if (f.location !== void 0 && f.location !== null) {
+      if (typeof f.location !== "string" || f.location.length === 0) {
+        throw new VerdictParseError(
+          `finding[${idx}].location must be a non-empty string or null`,
+          raw
+        );
+      }
+      location = f.location;
+    }
+    return {
+      severity: f.severity,
+      title: f.title,
+      rationale: f.rationale,
+      location
+    };
+  });
+  if (obj.verdict !== "ship" && obj.verdict !== "iterate" && obj.verdict !== "abstain") {
+    throw new VerdictParseError(
+      `verdict must be one of ship|iterate|abstain, got ${JSON.stringify(obj.verdict)}`,
+      raw
+    );
+  }
+  const claimedVerdict = obj.verdict;
+  const derived = deriveVerdict(findings, claimedVerdict);
+  if (derived === null) {
+    throw new VerdictParseError(
+      `verdict ${JSON.stringify(claimedVerdict)} contradicts findings; severities=[${findings.map((f) => f.severity).join(", ")}]`,
+      raw
+    );
+  }
+  return {
+    schema_version: VERDICT_SCHEMA_VERSION,
+    verdict: derived,
+    summary: obj.summary,
+    findings
+  };
+}
+function deriveVerdict(findings, claimed) {
+  const hasBlocking = findings.some(
+    (f) => f.severity === "blocker" || f.severity === "important"
+  );
+  if (hasBlocking) {
+    if (claimed === "ship" || claimed === "abstain") {
+      return null;
+    }
+    return "iterate";
+  }
+  if (claimed === "abstain") {
+    if (findings.length === 0) return "abstain";
+    return null;
+  }
+  if (claimed === "iterate") {
+    return null;
+  }
+  return "ship";
+}
+function stripJsonFence(text) {
+  const fence = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fence) return fence[1].trim();
+  return text;
+}
+function serializeVerdict(envelope) {
+  return JSON.stringify(envelope);
+}
+var VERDICT_SCHEMA_VERSION, VERDICT_SCHEMA, VERDICT_SCHEMA_JSON, DEFAULT_REVIEW_REQUEST, VERDICT_INSTRUCTIONS, VERDICT_SYSTEM_PROMPT, VerdictParseError;
+var init_verdict = __esm({
+  "src/verdict.ts"() {
+    "use strict";
+    VERDICT_SCHEMA_VERSION = 1;
+    VERDICT_SCHEMA = {
+      type: "object",
+      additionalProperties: false,
+      required: ["schema_version", "verdict", "summary", "findings"],
+      properties: {
+        schema_version: { type: "integer", enum: [VERDICT_SCHEMA_VERSION] },
+        verdict: { type: "string", enum: ["ship", "iterate", "abstain"] },
+        summary: { type: "string" },
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["severity", "title", "rationale", "location"],
+            properties: {
+              severity: { type: "string", enum: ["blocker", "important", "nit"] },
+              title: { type: "string" },
+              rationale: { type: "string" },
+              location: {
+                type: ["string", "null"]
+              }
+            }
+          }
+        }
+      }
+    };
+    VERDICT_SCHEMA_JSON = JSON.stringify(VERDICT_SCHEMA);
+    DEFAULT_REVIEW_REQUEST = "Review the changes in this branch. Flag correctness, security, regression, and quality concerns; ignore style preferences unless they obscure intent.";
+    VERDICT_INSTRUCTIONS = `Respond with a JSON object matching this exact shape (no preamble, no
+explanation, JSON only):
+
+  {
+    "schema_version": 1,
+    "verdict": "ship" | "iterate" | "abstain",
+    "summary": "<one-paragraph synthesis of the review>",
+    "findings": [
+      {
+        "severity": "blocker" | "important" | "nit",
+        "title": "<short headline>",
+        "rationale": "<1-3 sentences explaining the issue and what to change>",
+        "location": "<file or file:line> or null"
+      }
+    ]
+  }
+
+Decision rule (the parser enforces this \u2014 do not contradict it):
+- Any "blocker" or "important" finding => verdict MUST be "iterate".
+- Empty findings, or only "nit" findings => verdict MUST be "ship".
+- "abstain" is allowed only when you cannot make a confident call AND
+  findings is empty.
+
+Severity guide:
+- "blocker": correctness, security, data integrity, or a regression. Must
+  be fixed before merge.
+- "important": meaningful concern that should be addressed before merge,
+  but the reviewer can imagine a defensible counter-argument.
+- "nit": optional polish. Style preference, naming, comment phrasing,
+  micro-refactor. Never blocks merge.
+
+Output ONLY the JSON object. No code fences, no markdown, no commentary.`;
+    VERDICT_SYSTEM_PROMPT = buildVerdictPrompt(null);
+    VerdictParseError = class extends Error {
+      raw;
+      constructor(message, raw) {
+        super(message);
+        this.name = "VerdictParseError";
+        this.raw = raw;
+      }
+    };
+  }
+});
+
 // src/relay.ts
 var relay_exports = {};
 __export(relay_exports, {
@@ -6309,16 +6504,19 @@ async function* relayStream(opts) {
   }
 }
 async function reviewRelay(opts) {
+  const verdictJson = Boolean(opts.verdictJson);
+  const effectivePrompt = verdictJson ? buildVerdictPrompt(opts.prompt ?? null) : opts.prompt;
+  const effectiveSchema = verdictJson ? VERDICT_SCHEMA_JSON : opts.schema ?? null;
   const {
     repoPath,
     backend = DEFAULT_BACKEND,
-    prompt,
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
     sandbox = DEFAULT_SANDBOX,
-    schema = null,
     fast = false
   } = opts;
+  const prompt = effectivePrompt;
+  const schema = effectiveSchema;
   if (timeoutSeconds <= 0) {
     throw new RelayError("Timeout must be greater than zero");
   }
@@ -6340,7 +6538,7 @@ async function reviewRelay(opts) {
   }
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env3 = nextRelayEnv();
-  if (typeof selectedBackend.review === "function" && !prompt) {
+  if (typeof selectedBackend.review === "function" && !prompt && !schema) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -6413,6 +6611,7 @@ var init_relay = __esm({
     init_backends();
     init_jobs();
     init_sessions();
+    init_verdict();
     DEFAULT_TIMEOUT_SECONDS = 600;
     DEFAULT_BACKEND = "codex";
     DEFAULT_SANDBOX = "read-only";
@@ -77779,8 +77978,9 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, pure } = this.getConfig();
+    const promptWithSchema = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
-      prompt: opts.prompt,
+      prompt: promptWithSchema,
       repoPath: opts.repoPath,
       model: opts.model,
       provider,
@@ -77932,6 +78132,12 @@ var OpenCodeBackend = class {
     }
   }
 };
+function injectSchemaPrompt3(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
 var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
 
@@ -80835,6 +81041,7 @@ async function doctor(opts) {
 // src/cli.ts
 init_config();
 init_version();
+init_verdict();
 function repoRootDefault() {
   return getPackageRoot();
 }
@@ -81041,10 +81248,16 @@ ${banner("AI coding agent relay")}
     writeOut: (str) => console.log(str.trimEnd()),
     writeErr: (str) => console.error(str.trimEnd())
   }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
-    const isReview = opts.review || opts.base !== void 0;
+  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+    const isReview = opts.review || opts.base !== void 0 || opts.verdictJson;
+    const isVerdictJson = Boolean(opts.verdictJson);
     if (!opts.prompt && !isReview) {
       console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
+      exitCode = 1;
+      return;
+    }
+    if (isVerdictJson && opts.schema) {
+      console.error(`  ${theme.crossmark} ${theme.error("--verdict-json sets its own schema; do not combine with --schema")}`);
       exitCode = 1;
       return;
     }
@@ -81066,7 +81279,7 @@ ${banner("AI coding agent relay")}
     const backendName = resolved.backend;
     if (isReview) {
       const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
-      const spinner = ora({
+      const spinner = isVerdictJson ? null : ora({
         text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
         spinner: "dots",
         color: "cyan",
@@ -81082,12 +81295,34 @@ ${banner("AI coding agent relay")}
           model: resolved.model ?? null,
           sandbox: resolved.sandbox,
           schema: opts.schema ?? null,
-          fast: Boolean(opts.fast)
+          fast: Boolean(opts.fast),
+          verdictJson: isVerdictJson
         });
-        spinner.succeed(`${theme.bold(backendName)} reviewed`);
-        process.stdout.write(feedback + "\n");
+        if (isVerdictJson) {
+          try {
+            const envelope = parseVerdict(feedback);
+            process.stdout.write(serializeVerdict(envelope) + "\n");
+          } catch (err) {
+            if (err instanceof VerdictParseError) {
+              process.stderr.write(
+                `  ${theme.crossmark} ${theme.error("Verdict parse failed")}: ${err.message}
+  ${theme.hint("Raw response (between markers):")}
+<<<RAW_BEGIN
+${err.raw}
+RAW_END>>>
+`
+              );
+              exitCode = 2;
+              return;
+            }
+            throw err;
+          }
+        } else {
+          spinner?.succeed(`${theme.bold(backendName)} reviewed`);
+          process.stdout.write(feedback + "\n");
+        }
       } catch (err) {
-        spinner.fail(`${theme.bold(backendName)} review failed`);
+        spinner?.fail(`${theme.bold(backendName)} review failed`);
         throw err;
       }
       return;
