@@ -439,6 +439,53 @@ is identical — only the execution mechanism changes.
 Execute a do-review-decide loop. Maximum MAX_ROUNDS rounds. Stop early if
 converged.
 
+### Telemetry ledger
+
+Before the loop starts, initialize an in-memory `TELEMETRY` array. After the
+REVIEW phase of each round, append a verdict envelope (the same shape used
+by `phone-a-friend --verdict-json`):
+
+```
+TELEMETRY = []  # index = round - 1
+
+# Each entry:
+{
+  "round": <int, starting at 1>,
+  "verdict": "ship" | "iterate" | "abstain",
+  "summary": "<one-sentence synthesis>",
+  "findings": [
+    { "severity": "blocker" | "important" | "nit",
+      "title": "<headline>",
+      "rationale": "<why it matters>",
+      "location": "<file or file:line> or null" }
+  ]
+}
+```
+
+The verdict is **derived from severities**: any `blocker` or `important`
+finding => `iterate`; empty findings or only `nit` findings => `ship`;
+`abstain` only when the reviewer cannot make a confident call AND findings
+is empty. This matches `parseVerdict()` in PaF's `src/verdict.ts`. Do not
+contradict the rule (e.g. do not record verdict=ship while listing a
+blocker — that is a malformed envelope).
+
+Two ways to source the verdict envelope per round:
+
+1. **Lead-judged (default)**: the lead orchestrator runs the rubric in
+   Phase 2 REVIEW and emits the envelope based on its own judgment. No
+   extra relay call. Cheap, fits text-output rounds, suitable for most
+   tasks.
+2. **Backend-judged (optional, file-change rounds)**: when the round
+   produced file changes that exist as a git diff, the lead MAY also
+   run `phone-a-friend --to <backend> --review --verdict-json` for an
+   independent third-party verdict. If used, prefer the backend's
+   envelope when it disagrees with the lead — backends with file
+   access can spot regressions the lead might miss. Cap at one
+   verdict-json relay call per round.
+
+Both sources produce the same envelope shape, so TELEMETRY is uniform
+either way.
+
 ### Timing Expectations
 
 Different backends have different response times:
@@ -562,16 +609,47 @@ round 1" on tasks that deserve iteration.
   the better output, note the disagreement and rationale for selection.
 - If one backend fails → continue with the successful one, note the failure.
 
+#### Phase 2.5: Telemetry snapshot
+
+After REVIEW, append the verdict envelope for this round to `TELEMETRY`
+(see "Telemetry ledger" above). Display a one-line summary to the user
+before moving to DECIDE:
+
+```
+Round N: verdict=<ship|iterate|abstain> | catches: B blocker, I important, X nits
+```
+
+(omit zero-count categories: `Round 2: verdict=iterate | catches: 1 important, 2 nits`).
+
+**Diminishing-returns warning** (only when comparing round N to round N-1,
+both with verdict=iterate): if round N has equal-or-more findings than
+round N-1 AND blocker+important counts did not decrease, surface a single
+stderr-style line BEFORE the DECIDE phase:
+
+```
+Round N may not be making progress: same/more catches than round N-1, no severity decrease. Consider stopping.
+```
+
+This is a hint, not a hard stop. The lead may still continue if there is a
+reason (e.g. the round addressed a blocker but introduced an important
+finding). When continuing past the warning, briefly note the rationale in
+the next-round feedback.
+
 #### Phase 3: DECIDE
 
-Based on the review:
+Based on TELEMETRY[round-1].verdict and the review:
 
-- **Converged** (all rubric items pass): Stop the loop. Execute Step 8
+- **Converged** (verdict = `ship`): Stop the loop. Execute Step 8
   (Cleanup), then Step 9 (Final Synthesis). Do not iterate further — no
   iterating for its own sake.
-- **Issues found** (one or more rubric items fail): Formulate specific,
-  actionable feedback. Start the next round with this feedback incorporated
-  into the prompt.
+- **Issues found** (verdict = `iterate`): Formulate specific, actionable
+  feedback derived from the round's findings (use the `title` and
+  `rationale` of each blocker/important entry). Start the next round
+  with this feedback incorporated into the prompt.
+- **Inconclusive** (verdict = `abstain`): The reviewer could not make
+  a confident call. Surface what's missing (in `summary`) and either
+  request that information from the user OR run one more round with a
+  more focused prompt. Do not declare convergence on `abstain`.
 - **Backend error** (timeout, crash, unexpected failure): Note the failure.
   If another backend is available, try it. If no backend produced a
   successful result this round: if a previous round had a usable result,
@@ -753,6 +831,17 @@ a clear synthesis to the user. Include ALL of the following:
      convergence.
 5. **Sandbox note**: If `--sandbox workspace-write` was used at any point,
    note it here.
+6. **Convergence retrospective** (from `TELEMETRY`):
+   - Find the first round whose verdict is `ship`. Call that index `K`.
+   - If `K` exists and `K < MAX_ROUNDS_REQUESTED`, append:
+     `Hint: this run reached "ship" at round K. Try --max-rounds K next time for a similar task.`
+   - If `K` does not exist (no ship-verdict in any round), append:
+     `Hint: no round reached "ship" — task may need decomposition, more context, or out-of-band work before re-running.`
+   - If a diminishing-returns warning fired during the run, mention it
+     here too: `Round X did not show progress over round X-1; if you see
+     this pattern again, consider --max-rounds (X-1).`
+   - Skip the retrospective when only a single round ran (insufficient
+     data to make any recommendation).
 
 Format the synthesis clearly. The user should understand at a glance what
 happened and whether the result is complete.
