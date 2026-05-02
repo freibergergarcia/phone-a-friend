@@ -82,20 +82,6 @@ This installs to `~/.config/opencode/skills/` and `~/.config/opencode/commands/`
 Ask Codex through phone-a-friend for a short sanity review of this repo; do not edit files.
 ```
 
-**OpenCode commands and skills:**
-
-If you use [OpenCode](https://opencode.ai/docs), install the same Phone-a-Friend skills plus thin slash-command shims into your OpenCode config:
-
-```bash
-phone-a-friend plugin install --opencode
-```
-
-This installs to `~/.config/opencode/skills/` and `~/.config/opencode/commands/` (or `$XDG_CONFIG_HOME/opencode/...`). From OpenCode, ask naturally, for example:
-
-```
-Ask Codex through phone-a-friend for a short sanity review of this repo; do not edit files.
-```
-
 **From source:**
 
 ```bash
