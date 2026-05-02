@@ -1182,7 +1182,8 @@ var init_config = __esm({
         sandbox: "read-only",
         timeout: 600,
         include_diff: false,
-        stream: true
+        stream: true,
+        update_check: true
       }
     };
   }
@@ -32509,7 +32510,7 @@ var require_react_reconciler_development = __commonJS({
       function scheduleRoot(root, element) {
         root.context === emptyContextObject && (updateContainerSync(element, root, null, null), flushSyncWork());
       }
-      function scheduleRefresh(root, update) {
+      function scheduleRefresh2(root, update) {
         if (null !== resolveFamily) {
           var staleFamilies = update.staleFamilies;
           update = update.updatedFamilies;
@@ -46140,7 +46141,7 @@ var require_react_reconciler_development = __commonJS({
         internals.scheduleRetry = scheduleRetry;
         internals.setErrorHandler = setErrorHandler;
         internals.setSuspenseHandler = setSuspenseHandler;
-        internals.scheduleRefresh = scheduleRefresh;
+        internals.scheduleRefresh = scheduleRefresh2;
         internals.scheduleRoot = scheduleRoot;
         internals.setRefreshHandler = setRefreshHandler;
         internals.getCurrentFiber = getCurrentFiberForDevTools;
@@ -54720,7 +54721,7 @@ var require_backend = __commonJS({
             function _arrayWithHoles(arr) {
               if (Array.isArray(arr)) return arr;
             }
-            var compareVersions = function compareVersions2(v1, v2) {
+            var compareVersions2 = function compareVersions3(v1, v2) {
               var n1 = validateAndParse(v1);
               var n2 = validateAndParse(v2);
               var p1 = n1.pop();
@@ -54739,7 +54740,7 @@ var require_backend = __commonJS({
             };
             var compare = function compare2(v1, v2, operator) {
               assertValidOperator(operator);
-              var res = compareVersions(v1, v2);
+              var res = compareVersions2(v1, v2);
               return operatorResMap[operator].includes(res);
             };
             var satisfies = function satisfies2(version, range) {
@@ -56683,12 +56684,12 @@ var require_backend = __commonJS({
             function gt() {
               var a = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : "";
               var b = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : "";
-              return compareVersions(a, b) === 1;
+              return compareVersions2(a, b) === 1;
             }
             function gte() {
               var a = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : "";
               var b = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : "";
-              return compareVersions(a, b) > -1;
+              return compareVersions2(a, b) > -1;
             }
             var isReactNativeEnvironment = function isReactNativeEnvironment2() {
               return window.document == null;
@@ -61662,16 +61663,16 @@ var require_backend = __commonJS({
               var _getInternalReactCons = getInternalReactConstants(version), getDisplayNameForFiber = _getInternalReactCons.getDisplayNameForFiber, getTypeSymbol = _getInternalReactCons.getTypeSymbol, ReactPriorityLevels = _getInternalReactCons.ReactPriorityLevels, ReactTypeOfWork = _getInternalReactCons.ReactTypeOfWork, StrictModeBits = _getInternalReactCons.StrictModeBits, SuspenseyImagesMode = _getInternalReactCons.SuspenseyImagesMode;
               var ActivityComponent = ReactTypeOfWork.ActivityComponent, ClassComponent = ReactTypeOfWork.ClassComponent, ContextConsumer = ReactTypeOfWork.ContextConsumer, DehydratedSuspenseComponent = ReactTypeOfWork.DehydratedSuspenseComponent, ForwardRef = ReactTypeOfWork.ForwardRef, Fragment = ReactTypeOfWork.Fragment, FunctionComponent = ReactTypeOfWork.FunctionComponent, HostRoot = ReactTypeOfWork.HostRoot, HostHoistable = ReactTypeOfWork.HostHoistable, HostSingleton = ReactTypeOfWork.HostSingleton, HostPortal = ReactTypeOfWork.HostPortal, HostComponent = ReactTypeOfWork.HostComponent, HostText = ReactTypeOfWork.HostText, IncompleteClassComponent = ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = ReactTypeOfWork.IncompleteFunctionComponent, IndeterminateComponent = ReactTypeOfWork.IndeterminateComponent, LegacyHiddenComponent = ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = ReactTypeOfWork.MemoComponent, OffscreenComponent = ReactTypeOfWork.OffscreenComponent, SimpleMemoComponent = ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = ReactTypeOfWork.TracingMarkerComponent, Throw = ReactTypeOfWork.Throw, ViewTransitionComponent = ReactTypeOfWork.ViewTransitionComponent;
               var ImmediatePriority = ReactPriorityLevels.ImmediatePriority, UserBlockingPriority = ReactPriorityLevels.UserBlockingPriority, NormalPriority = ReactPriorityLevels.NormalPriority, LowPriority = ReactPriorityLevels.LowPriority, IdlePriority = ReactPriorityLevels.IdlePriority, NoPriority = ReactPriorityLevels.NoPriority;
-              var getLaneLabelMap = renderer2.getLaneLabelMap, injectProfilingHooks = renderer2.injectProfilingHooks, overrideHookState = renderer2.overrideHookState, overrideHookStateDeletePath = renderer2.overrideHookStateDeletePath, overrideHookStateRenamePath = renderer2.overrideHookStateRenamePath, overrideProps = renderer2.overrideProps, overridePropsDeletePath = renderer2.overridePropsDeletePath, overridePropsRenamePath = renderer2.overridePropsRenamePath, scheduleRefresh = renderer2.scheduleRefresh, setErrorHandler = renderer2.setErrorHandler, setSuspenseHandler = renderer2.setSuspenseHandler, scheduleUpdate = renderer2.scheduleUpdate, scheduleRetry = renderer2.scheduleRetry, getCurrentFiber = renderer2.getCurrentFiber;
+              var getLaneLabelMap = renderer2.getLaneLabelMap, injectProfilingHooks = renderer2.injectProfilingHooks, overrideHookState = renderer2.overrideHookState, overrideHookStateDeletePath = renderer2.overrideHookStateDeletePath, overrideHookStateRenamePath = renderer2.overrideHookStateRenamePath, overrideProps = renderer2.overrideProps, overridePropsDeletePath = renderer2.overridePropsDeletePath, overridePropsRenamePath = renderer2.overridePropsRenamePath, scheduleRefresh2 = renderer2.scheduleRefresh, setErrorHandler = renderer2.setErrorHandler, setSuspenseHandler = renderer2.setSuspenseHandler, scheduleUpdate = renderer2.scheduleUpdate, scheduleRetry = renderer2.scheduleRetry, getCurrentFiber = renderer2.getCurrentFiber;
               var supportsTogglingError = typeof setErrorHandler === "function" && typeof scheduleUpdate === "function";
               var supportsTogglingSuspense = typeof setSuspenseHandler === "function" && typeof scheduleUpdate === "function";
               var supportsPerformanceTracks = gte(version, "19.2.0");
-              if (typeof scheduleRefresh === "function") {
+              if (typeof scheduleRefresh2 === "function") {
                 renderer2.scheduleRefresh = function() {
                   try {
                     hook.emit("fastRefreshScheduled");
                   } finally {
-                    return scheduleRefresh.apply(void 0, arguments);
+                    return scheduleRefresh2.apply(void 0, arguments);
                   }
                 };
               }
@@ -73800,7 +73801,7 @@ var init_ListSelect = __esm({
 });
 
 // src/tui/BackendsPanel.tsx
-import { existsSync as existsSync8 } from "fs";
+import { existsSync as existsSync9 } from "fs";
 function badgeStatus(b) {
   if (b.planned) return "planned";
   if (b.available) return "available";
@@ -73940,7 +73941,7 @@ function BackendsPanel({ report, onEditingChange }) {
     try {
       const paths = configPaths();
       const userPath = paths.user;
-      if (!existsSync8(userPath)) {
+      if (!existsSync9(userPath)) {
         configInit(userPath, true);
       }
       configSet(`backends.${backendName}.model`, modelName, userPath);
@@ -74032,7 +74033,7 @@ var init_BackendsPanel = __esm({
 });
 
 // src/tui/ConfigPanel.tsx
-import { existsSync as existsSync9 } from "fs";
+import { existsSync as existsSync10 } from "fs";
 function buildRows(config) {
   const rows = [];
   const backendOptions = Object.keys(INSTALL_HINTS).sort();
@@ -74069,7 +74070,7 @@ function ConfigPanel({ onEditingChange } = {}) {
   const save = (0, import_react36.useCallback)((dotKey, value) => {
     try {
       const userPath = paths.user;
-      if (!existsSync9(userPath)) {
+      if (!existsSync10(userPath)) {
         configInit(userPath, true);
       }
       configSet(dotKey, value, userPath);
@@ -74217,9 +74218,9 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn4 } from "child_process";
-import { mkdirSync as mkdirSync5, existsSync as existsSync10 } from "fs";
-import { dirname as dirname6 } from "path";
+import { spawn as spawn5 } from "child_process";
+import { mkdirSync as mkdirSync6, existsSync as existsSync11 } from "fs";
+import { dirname as dirname7 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
     {
@@ -74235,7 +74236,7 @@ function buildActions(report, onRefresh, processRef) {
       description: "Reinstall Claude Code plugin",
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
+          const proc = spawn5(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "install", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -74265,7 +74266,7 @@ function buildActions(report, onRefresh, processRef) {
       exitAfter: true,
       run: async () => {
         return new Promise((resolve5, reject) => {
-          const proc = spawn4(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
+          const proc = spawn5(process.execPath, [process.argv[1] ?? "phone-a-friend", "plugin", "uninstall", "--claude"], {
             stdio: ["ignore", "pipe", "pipe"]
           });
           processRef.current = proc;
@@ -74293,8 +74294,8 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        if (!existsSync10(paths.user)) {
-          mkdirSync5(dirname6(paths.user), { recursive: true });
+        if (!existsSync11(paths.user)) {
+          mkdirSync6(dirname7(paths.user), { recursive: true });
           configInit(paths.user, true);
         }
         const editorEnv = process.env.EDITOR ?? "vi";
@@ -74302,7 +74303,7 @@ function buildActions(report, onRefresh, processRef) {
         const editor = parts[0];
         const editorArgs = [...parts.slice(1), paths.user];
         return new Promise((resolve5, reject) => {
-          const proc = spawn4(editor, editorArgs, { stdio: "inherit" });
+          const proc = spawn5(editor, editorArgs, { stdio: "inherit" });
           processRef.current = proc;
           proc.on("close", () => {
             processRef.current = null;
@@ -74752,9 +74753,9 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join6 } from "path";
-import { mkdirSync as mkdirSync6 } from "fs";
-import { homedir as homedir5 } from "os";
+import { join as join7 } from "path";
+import { mkdirSync as mkdirSync7 } from "fs";
+import { homedir as homedir6 } from "os";
 function getDatabase() {
   if (!_Database) {
     _Database = __require("better-sqlite3");
@@ -74762,10 +74763,10 @@ function getDatabase() {
   return _Database;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config");
-  const dir = join6(configBase, "phone-a-friend");
-  mkdirSync6(dir, { recursive: true });
-  return join6(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join7(homedir6(), ".config");
+  const dir = join7(configBase, "phone-a-friend");
+  mkdirSync7(dir, { recursive: true });
+  return join7(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -75231,7 +75232,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn5 } from "child_process";
+import { spawn as spawn6 } from "child_process";
 import { randomUUID as randomUUID4 } from "crypto";
 var NESTED_SESSION_VARS2, SessionManager;
 var init_session = __esm({
@@ -75355,7 +75356,7 @@ ${prompt}`,
       execClaude(args, repoPath) {
         return new Promise((resolve5, reject) => {
           const env3 = this.cleanEnv();
-          const child = spawn5("claude", args, {
+          const child = spawn6("claude", args, {
             env: env3,
             cwd: repoPath,
             stdio: ["pipe", "pipe", "pipe"]
@@ -76476,18 +76477,18 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join7, extname, resolve as resolve4, relative, sep } from "path";
+import { join as join8, extname, resolve as resolve4, relative, sep } from "path";
 import { readFile } from "fs/promises";
-import { existsSync as existsSync11 } from "fs";
+import { existsSync as existsSync12 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function resolvePublicDir() {
   const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
-  const distPath = join7(thisDir, "public");
-  if (existsSync11(distPath)) return distPath;
-  const devPath = join7(thisDir, "..", "..", "src", "web", "public");
-  if (existsSync11(devPath)) return devPath;
-  const cwdPath = join7(process.cwd(), "src", "web", "public");
-  if (existsSync11(cwdPath)) return cwdPath;
+  const distPath = join8(thisDir, "public");
+  if (existsSync12(distPath)) return distPath;
+  const devPath = join8(thisDir, "..", "..", "src", "web", "public");
+  if (existsSync12(devPath)) return devPath;
+  const cwdPath = join8(process.cwd(), "src", "web", "public");
+  if (existsSync12(cwdPath)) return cwdPath;
   return distPath;
 }
 async function startDashboard(opts = {}) {
@@ -76502,7 +76503,7 @@ async function startDashboard(opts = {}) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path3 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path3);
+    const filePath = path3 === "/" ? join8(publicDir, "index.html") : join8(publicDir, path3);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep)) {
@@ -76519,7 +76520,7 @@ async function startDashboard(opts = {}) {
     } catch {
       if (!extname(path3)) {
         try {
-          const index = await readFile(join7(publicDir, "index.html"));
+          const index = await readFile(join8(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(index);
         } catch {
@@ -77672,7 +77673,7 @@ var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
 
 // src/cli.ts
-import { existsSync as existsSync12 } from "fs";
+import { existsSync as existsSync13 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -80384,7 +80385,326 @@ async function setup(opts) {
 init_detection();
 init_config();
 init_version();
-function formatHumanReadable(report, config, paths, advisories = []) {
+
+// src/updates.ts
+import { spawn as spawn4 } from "child_process";
+import {
+  closeSync as closeSync2,
+  existsSync as existsSync7,
+  fsyncSync as fsyncSync2,
+  mkdirSync as mkdirSync5,
+  openSync as openSync2,
+  readFileSync as readFileSync9,
+  renameSync as renameSync2,
+  unlinkSync as unlinkSync4,
+  writeFileSync as writeFileSync6
+} from "fs";
+import { homedir as homedir5 } from "os";
+import { dirname as dirname6, join as join6 } from "path";
+var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
+var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
+var FETCH_TIMEOUT_MS = 5e3;
+var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
+var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
+function defaultCachePath(env3 = process.env, home = homedir5()) {
+  const base = env3.XDG_CONFIG_HOME ?? join6(home, ".config");
+  return join6(base, "phone-a-friend", "update-check.json");
+}
+function emptySnapshot(currentVersion) {
+  return {
+    schemaVersion: 1,
+    lastCheckedAt: null,
+    latestVersion: null,
+    lastNotifiedVersion: null,
+    lastNotifiedAt: null,
+    currentVersion
+  };
+}
+function readSnapshot(filePath, currentVersion) {
+  if (!existsSync7(filePath)) return emptySnapshot(currentVersion);
+  let raw;
+  try {
+    raw = readFileSync9(filePath, "utf-8");
+  } catch {
+    return emptySnapshot(currentVersion);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    rotateCorruptCache(filePath, err.message);
+    return emptySnapshot(currentVersion);
+  }
+  if (!parsed || typeof parsed !== "object" || parsed.schemaVersion !== 1) {
+    return emptySnapshot(currentVersion);
+  }
+  const snap = parsed;
+  return {
+    schemaVersion: 1,
+    lastCheckedAt: typeof snap.lastCheckedAt === "string" ? snap.lastCheckedAt : null,
+    latestVersion: isValidVersionString(snap.latestVersion) ? snap.latestVersion : null,
+    lastNotifiedVersion: isValidVersionString(snap.lastNotifiedVersion) ? snap.lastNotifiedVersion : null,
+    lastNotifiedAt: typeof snap.lastNotifiedAt === "string" ? snap.lastNotifiedAt : null,
+    currentVersion: isValidVersionString(snap.currentVersion) ? snap.currentVersion : currentVersion
+  };
+}
+function rotateCorruptCache(filePath, _reason) {
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  const rotated = `${filePath}.corrupt-${ts}`;
+  try {
+    renameSync2(filePath, rotated);
+  } catch {
+  }
+}
+function writeSnapshot(filePath, snapshot) {
+  const dir = dirname6(filePath);
+  mkdirSync5(dir, { recursive: true });
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  const payload = JSON.stringify(snapshot, null, 2);
+  const tmpFd = openSync2(tmpPath, "w");
+  try {
+    try {
+      writeFileSync6(tmpFd, payload, "utf-8");
+      fsyncSync2(tmpFd);
+    } finally {
+      closeSync2(tmpFd);
+    }
+    renameSync2(tmpPath, filePath);
+  } catch (err) {
+    try {
+      unlinkSync4(tmpPath);
+    } catch {
+    }
+    throw err;
+  }
+  try {
+    const dirFd = openSync2(dir, "r");
+    try {
+      fsyncSync2(dirFd);
+    } finally {
+      closeSync2(dirFd);
+    }
+  } catch {
+  }
+}
+var VERSION_RE = /^[0-9]+(?:\.[0-9]+){0,3}(?:-[A-Za-z0-9.\-]+)?(?:\+[A-Za-z0-9.\-]+)?$/;
+function isValidVersionString(v) {
+  if (typeof v !== "string") return false;
+  if (v.length === 0 || v.length > 64) return false;
+  return VERSION_RE.test(v);
+}
+function compareVersions(a, b) {
+  const stripPre = (v) => v.split("-")[0].split(".").map((part) => {
+    const n = Number(part);
+    return Number.isFinite(n) ? n : 0;
+  });
+  const pa = stripPre(a);
+  const pb = stripPre(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const ai = pa[i] ?? 0;
+    const bi = pb[i] ?? 0;
+    if (ai < bi) return -1;
+    if (ai > bi) return 1;
+  }
+  return 0;
+}
+function decideBanner(snapshot, currentVersion, ctx, nowMs) {
+  if (ctx.envOptedOut) return { show: false, reason: "env-opt-out" };
+  if (!ctx.configEnabled) return { show: false, reason: "config-disabled" };
+  if (ctx.isCi) return { show: false, reason: "ci" };
+  if (ctx.isDumbTerm) return { show: false, reason: "dumb-term" };
+  if (!ctx.isStdoutTty || !ctx.isStderrTty) return { show: false, reason: "no-tty" };
+  if (ctx.hasMachineFlag) return { show: false, reason: "machine-flag" };
+  const latest = snapshot.latestVersion;
+  if (!latest) return { show: false, reason: "no-cache" };
+  if (compareVersions(latest, currentVersion) <= 0) {
+    return { show: false, reason: "up-to-date" };
+  }
+  if (snapshot.lastNotifiedVersion === latest && snapshot.lastNotifiedAt !== null) {
+    const lastMs = Date.parse(snapshot.lastNotifiedAt);
+    if (Number.isFinite(lastMs) && nowMs - lastMs < NOTIFY_COOLDOWN_MS) {
+      return { show: false, reason: "recently-notified" };
+    }
+  }
+  return { show: true, currentVersion, latestVersion: latest };
+}
+function formatBanner(currentVersion, latestVersion) {
+  return `
+  \u2191 phone-a-friend ${latestVersion} available (current: ${currentVersion})
+    Run: npm install -g ${PACKAGE_NAME}@latest
+`;
+}
+async function fetchLatestVersion(currentVersion) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  if (typeof timer === "object" && timer && "unref" in timer) {
+    timer.unref();
+  }
+  try {
+    const resp = await fetch(REGISTRY_URL, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "User-Agent": `phone-a-friend/${currentVersion} (+https://github.com/freibergergarcia/phone-a-friend)`,
+        Accept: "application/json"
+      }
+    });
+    if (!resp.ok) return null;
+    let body;
+    try {
+      body = await resp.json();
+    } catch {
+      return null;
+    }
+    if (!body || typeof body !== "object" || typeof body.latest !== "string") {
+      return null;
+    }
+    const latest = body.latest;
+    if (!isValidVersionString(latest)) return null;
+    return latest;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function scheduleRefresh(args) {
+  const nowMs = args.nowMs ?? Date.now();
+  if (args.snapshot.lastCheckedAt) {
+    const lastMs = Date.parse(args.snapshot.lastCheckedAt);
+    if (Number.isFinite(lastMs) && nowMs - lastMs < CHECK_COOLDOWN_MS) {
+      return;
+    }
+  }
+  const latest = await fetchLatestVersion(args.currentVersion);
+  if (!latest) {
+    const current2 = readSnapshot(args.cachePath, args.currentVersion);
+    const next2 = {
+      schemaVersion: 1,
+      lastCheckedAt: new Date(nowMs).toISOString(),
+      latestVersion: current2.latestVersion,
+      lastNotifiedVersion: current2.lastNotifiedVersion,
+      lastNotifiedAt: current2.lastNotifiedAt,
+      currentVersion: args.currentVersion
+    };
+    try {
+      writeSnapshot(args.cachePath, next2);
+    } catch {
+    }
+    return;
+  }
+  const current = readSnapshot(args.cachePath, args.currentVersion);
+  const next = {
+    schemaVersion: 1,
+    lastCheckedAt: new Date(nowMs).toISOString(),
+    latestVersion: latest,
+    // Preserve any notified-state the parent may have just written.
+    lastNotifiedVersion: current.lastNotifiedVersion,
+    lastNotifiedAt: current.lastNotifiedAt,
+    currentVersion: args.currentVersion
+  };
+  try {
+    writeSnapshot(args.cachePath, next);
+  } catch {
+  }
+}
+function kickoffBackgroundRefresh(args) {
+  if (args.snapshot.lastCheckedAt) {
+    const lastMs = Date.parse(args.snapshot.lastCheckedAt);
+    if (Number.isFinite(lastMs) && Date.now() - lastMs < CHECK_COOLDOWN_MS) {
+      return;
+    }
+  }
+  const entryScript = process.argv[1];
+  if (!entryScript) return;
+  if (!isPafEntryScript(entryScript)) return;
+  if (isTestRuntimeEnv(process.env)) return;
+  try {
+    const child = spawn4(
+      process.execPath,
+      [entryScript, "__update-check", "refresh"],
+      {
+        detached: true,
+        stdio: "ignore",
+        // Recursion guard for the child — also tells it to skip its own
+        // setupUpdateCheck so we don't fork-bomb.
+        env: { ...process.env, PHONE_A_FRIEND_UPDATE_REFRESH: "1" }
+      }
+    );
+    child.on("error", () => {
+    });
+    child.unref();
+  } catch {
+  }
+}
+function isPafEntryScript(entryScript) {
+  const normalized = entryScript.replace(/\\/g, "/");
+  const base = normalized.split("/").pop() ?? "";
+  if (base === "phone-a-friend" || base === "phone-a-friend.js") return true;
+  if (base === "index.js" && normalized.includes("/phone-a-friend/dist/")) {
+    return true;
+  }
+  return false;
+}
+function isTestRuntimeEnv(env3) {
+  if (env3.PHONE_A_FRIEND_DISABLE_UPDATE_REFRESH === "1") return true;
+  if (env3.NODE_ENV === "test") return true;
+  if (env3.VITEST || env3.VITEST_WORKER_ID) return true;
+  if (env3.JEST_WORKER_ID) return true;
+  return false;
+}
+async function runRefresh(args) {
+  const snapshot = readSnapshot(args.cachePath, args.currentVersion);
+  await scheduleRefresh({ ...args, snapshot });
+}
+function recordNotified(args) {
+  const nowMs = args.nowMs ?? Date.now();
+  const current = readSnapshot(args.cachePath, args.snapshot.currentVersion);
+  const next = {
+    schemaVersion: 1,
+    // Prefer the freshly-read fields (child may have refreshed them) but fall
+    // back to the original snapshot if the file disappeared between calls.
+    lastCheckedAt: current.lastCheckedAt ?? args.snapshot.lastCheckedAt,
+    latestVersion: current.latestVersion ?? args.snapshot.latestVersion,
+    lastNotifiedVersion: args.notifiedVersion,
+    lastNotifiedAt: new Date(nowMs).toISOString(),
+    currentVersion: current.currentVersion
+  };
+  try {
+    writeSnapshot(args.cachePath, next);
+  } catch {
+  }
+}
+function buildSuppressionContext(argv, configEnabled, env3 = process.env) {
+  const optOutRaw = env3.PHONE_A_FRIEND_UPDATE_CHECK;
+  const envOptedOut = optOutRaw !== void 0 && (optOutRaw === "false" || optOutRaw === "0" || optOutRaw.toLowerCase() === "no");
+  return {
+    isStdoutTty: Boolean(process.stdout.isTTY),
+    isStderrTty: Boolean(process.stderr.isTTY),
+    isCi: Boolean(env3.CI),
+    isDumbTerm: env3.TERM === "dumb",
+    hasMachineFlag: detectMachineFlag(argv),
+    configEnabled,
+    envOptedOut
+  };
+}
+function detectMachineFlag(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--quiet") return true;
+    if (arg === "--json" || arg.startsWith("--json=")) return true;
+    if (arg === "--schema" || arg.startsWith("--schema=")) return true;
+    if (arg === "--verdict-json") return true;
+  }
+  const sub = argv[0] ?? "";
+  if (sub === "__update-check") return true;
+  if (sub === "doctor" && argv.includes("--json")) return true;
+  if (sub === "config" && argv[1] === "show") return true;
+  return false;
+}
+
+// src/doctor.ts
+function formatHumanReadable(report, config, paths, advisories = [], updateCheck = null) {
   const lines = [];
   lines.push("");
   lines.push(banner("Health Check"));
@@ -80393,6 +80713,21 @@ function formatHumanReadable(report, config, paths, advisories = []) {
   lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
   lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push("");
+  if (updateCheck) {
+    lines.push(`  ${theme.label("Update check:")}`);
+    lines.push(`    ${theme.hint("cache:")} ${updateCheck.cachePath}`);
+    lines.push(`    ${theme.hint("current:")} ${updateCheck.currentVersion}`);
+    lines.push(
+      `    ${theme.hint("latest known:")} ${updateCheck.latestVersion ?? "(not yet fetched)"}`
+    );
+    lines.push(
+      `    ${theme.hint("last checked:")} ${updateCheck.lastCheckedAt ?? "(never)"}`
+    );
+    lines.push(
+      `    ${theme.hint("config opt-in:")} ${updateCheck.configEnabled ? "enabled" : "disabled"}`
+    );
+    lines.push("");
+  }
   lines.push(`  ${theme.label("Relay Backends:")}`);
   if (report.cli.length > 0) {
     lines.push("    CLI:");
@@ -80441,7 +80776,7 @@ function normalizeForJson(backends) {
     return b;
   });
 }
-function formatJson(report, config, exitCode, advisories = []) {
+function formatJson(report, config, exitCode, advisories = [], updateCheck = null) {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter((b) => b.available).length;
   const total = allRelay.length;
@@ -80458,8 +80793,23 @@ function formatJson(report, config, exitCode, advisories = []) {
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
+    updateCheck: updateCheck ?? void 0,
     exitCode
   }, null, 2);
+}
+function collectUpdateCheckState(config) {
+  const cachePath = defaultCachePath();
+  const currentVersion = getVersion();
+  const snapshot = readSnapshot(cachePath, currentVersion);
+  return {
+    cachePath,
+    currentVersion,
+    latestVersion: snapshot.latestVersion,
+    lastCheckedAt: snapshot.lastCheckedAt,
+    lastNotifiedVersion: snapshot.lastNotifiedVersion,
+    lastNotifiedAt: snapshot.lastNotifiedAt,
+    configEnabled: config.defaults?.update_check !== false
+  };
 }
 function computeExitCode(report) {
   const allRelay = [...report.cli, ...report.local].filter((b) => !b.planned);
@@ -80513,15 +80863,16 @@ async function doctor(opts) {
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
   const advisories = await collectAdvisories(report);
+  const updateCheck = collectUpdateCheckState(config);
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, advisories)
+      output: formatJson(report, config, exitCode, advisories, updateCheck)
     };
   }
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, advisories)
+    output: formatHumanReadable(report, config, paths, advisories, updateCheck)
   };
 }
 
@@ -80531,7 +80882,7 @@ init_version();
 function repoRootDefault() {
   return getPackageRoot();
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session", "__update-check"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-v", "-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -80627,66 +80978,29 @@ function addUninstallOptions(cmd) {
 async function run(argv) {
   const normalized = normalizeArgv(argv);
   let exitCode = 0;
-  if (normalized.length === 0) {
-    const paths = configPaths();
-    const isFirstRun = !existsSync12(paths.user);
-    const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
-    if (isTTY && isFirstRun) {
-      const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
-      console.log("");
-      console.log(banner("AI coding agent relay"));
-      console.log("");
-      console.log(`  ${theme.heading("Welcome!")} No configuration found yet.`);
-      console.log("");
-      const choice = await select({
-        message: "What would you like to do?",
-        choices: [
-          { name: "Run setup wizard (recommended)", value: "setup" },
-          { name: "Show quick start examples", value: "quickstart" },
-          { name: "Open TUI dashboard", value: "tui" },
-          { name: "Exit", value: "exit" }
-        ]
-      });
-      if (choice === "setup") {
-        await setup();
-        return 0;
-      }
-      if (choice === "quickstart") {
-        console.log("");
-        console.log(`  ${theme.heading("Quick start")}`);
-        console.log("");
-        console.log(`  ${theme.hint("Relay a prompt to a backend:")}`);
-        console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
-        console.log("");
-        console.log(`  ${theme.hint("Stream tokens as they arrive:")}`);
-        console.log(`    ${theme.info('phone-a-friend --to claude --prompt "Review this code" --stream')}`);
-        console.log("");
-        console.log(`  ${theme.hint("Multi-agent session:")}`);
-        console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth"')}`);
-        console.log("");
-        console.log(`  ${theme.hint("Run setup anytime:")} ${theme.info("phone-a-friend setup")}`);
-        console.log("");
-        return 0;
-      }
-      if (choice === "tui") {
-        const { renderTui: renderTui2 } = await init_render2().then(() => render_exports);
-        return await renderTui2();
-      }
-      return 0;
-    }
-    if (isTTY) {
-      if (!isPluginInstalled()) {
+  const updateState = setupUpdateCheck(normalized);
+  try {
+    return await runMain(normalized);
+  } finally {
+    if (updateState) maybeShowUpdateBanner(updateState);
+  }
+  async function runMain(normalized2) {
+    if (normalized2.length === 0) {
+      const paths = configPaths();
+      const isFirstRun = !existsSync13(paths.user);
+      const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
+      if (isTTY && isFirstRun) {
         const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
         console.log("");
         console.log(banner("AI coding agent relay"));
         console.log("");
-        console.log(`  ${theme.warning("Claude plugin is not installed.")}`);
+        console.log(`  ${theme.heading("Welcome!")} No configuration found yet.`);
         console.log("");
         const choice = await select({
           message: "What would you like to do?",
           choices: [
-            { name: "Run setup wizard (installs plugin + configures backend)", value: "setup" },
-            { name: "Install plugin only", value: "install" },
+            { name: "Run setup wizard (recommended)", value: "setup" },
+            { name: "Show quick start examples", value: "quickstart" },
             { name: "Open TUI dashboard", value: "tui" },
             { name: "Exit", value: "exit" }
           ]
@@ -80695,561 +81009,648 @@ async function run(argv) {
           await setup();
           return 0;
         }
-        if (choice === "install") {
-          installAction({ claude: true, force: true });
+        if (choice === "quickstart") {
+          console.log("");
+          console.log(`  ${theme.heading("Quick start")}`);
+          console.log("");
+          console.log(`  ${theme.hint("Relay a prompt to a backend:")}`);
+          console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
+          console.log("");
+          console.log(`  ${theme.hint("Stream tokens as they arrive:")}`);
+          console.log(`    ${theme.info('phone-a-friend --to claude --prompt "Review this code" --stream')}`);
+          console.log("");
+          console.log(`  ${theme.hint("Multi-agent session:")}`);
+          console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth"')}`);
+          console.log("");
+          console.log(`  ${theme.hint("Run setup anytime:")} ${theme.info("phone-a-friend setup")}`);
+          console.log("");
           return 0;
         }
         if (choice === "tui") {
-          const { renderTui: renderTui3 } = await init_render2().then(() => render_exports);
-          return await renderTui3();
+          const { renderTui: renderTui2 } = await init_render2().then(() => render_exports);
+          return await renderTui2();
         }
         return 0;
       }
-      const { renderTui: renderTui2 } = await init_render2().then(() => render_exports);
-      return await renderTui2();
+      if (isTTY) {
+        if (!isPluginInstalled()) {
+          const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
+          console.log("");
+          console.log(banner("AI coding agent relay"));
+          console.log("");
+          console.log(`  ${theme.warning("Claude plugin is not installed.")}`);
+          console.log("");
+          const choice = await select({
+            message: "What would you like to do?",
+            choices: [
+              { name: "Run setup wizard (installs plugin + configures backend)", value: "setup" },
+              { name: "Install plugin only", value: "install" },
+              { name: "Open TUI dashboard", value: "tui" },
+              { name: "Exit", value: "exit" }
+            ]
+          });
+          if (choice === "setup") {
+            await setup();
+            return 0;
+          }
+          if (choice === "install") {
+            installAction({ claude: true, force: true });
+            return 0;
+          }
+          if (choice === "tui") {
+            const { renderTui: renderTui3 } = await init_render2().then(() => render_exports);
+            return await renderTui3();
+          }
+          return 0;
+        }
+        const { renderTui: renderTui2 } = await init_render2().then(() => render_exports);
+        return await renderTui2();
+      }
+      if (isFirstRun) {
+        console.log("");
+        console.log(banner("AI coding agent relay"));
+        console.log("");
+        console.log(`  ${theme.warning("No backends configured yet.")}`);
+        console.log(`  Run ${theme.bold("phone-a-friend setup")} to get started.`);
+        console.log("");
+        console.log(`  ${theme.hint("Or jump straight in (requires codex in PATH):")}`);
+        console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
+        console.log("");
+        return 0;
+      }
     }
-    if (isFirstRun) {
-      console.log("");
-      console.log(banner("AI coding agent relay"));
-      console.log("");
-      console.log(`  ${theme.warning("No backends configured yet.")}`);
-      console.log(`  Run ${theme.bold("phone-a-friend setup")} to get started.`);
-      console.log("");
-      console.log(`  ${theme.hint("Or jump straight in (requires codex in PATH):")}`);
-      console.log(`    ${theme.info('phone-a-friend --to codex --prompt "What does this project do?"')}`);
-      console.log("");
-      return 0;
-    }
-  }
-  const program2 = new Command().name("phone-a-friend").version(`phone-a-friend ${getVersion()}`, "-v, --version").description("CLI relay for AI coding agent collaboration").addHelpText("before", `
+    const program2 = new Command().name("phone-a-friend").version(`phone-a-friend ${getVersion()}`, "-v, --version").description("CLI relay for AI coding agent collaboration").addHelpText("before", `
 ${banner("AI coding agent relay")}
 `).configureOutput({
-    writeOut: (str) => console.log(str.trimEnd()),
-    writeErr: (str) => console.error(str.trimEnd())
-  }).exitOverride();
-  program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
-    const isReview = opts.review || opts.base !== void 0;
-    if (!opts.prompt && !isReview) {
-      console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
-      exitCode = 1;
-      return;
-    }
-    const streamExplicit = command.getOptionValueSource("stream") === "cli";
-    const resolved = resolveConfig({
-      to: opts.to,
-      sandbox: opts.sandbox,
-      timeout: opts.timeout,
-      includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
-      stream: streamExplicit ? String(opts.stream) : void 0,
-      model: opts.model,
-      base: opts.base
-    });
-    const backendName = resolved.backend;
-    if (isReview) {
-      const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
-      const spinner = ora({
-        text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
-        spinner: "dots",
-        color: "cyan",
-        stream: process.stderr
-      }).start();
-      try {
-        const feedback = await reviewRelay({
-          repoPath: opts.repo,
-          backend: backendName,
-          base: opts.base ?? resolved.reviewBase,
-          prompt: opts.prompt,
-          timeoutSeconds: resolved.timeout,
-          model: resolved.model ?? null,
-          sandbox: resolved.sandbox,
-          schema: opts.schema ?? null,
-          fast: Boolean(opts.fast)
-        });
-        spinner.succeed(`${theme.bold(backendName)} reviewed`);
-        process.stdout.write(feedback + "\n");
-      } catch (err) {
-        spinner.fail(`${theme.bold(backendName)} review failed`);
-        throw err;
-      }
-      return;
-    }
-    const relayOpts = {
-      prompt: opts.prompt,
-      repoPath: opts.repo,
-      backend: backendName,
-      contextFile: opts.contextFile ?? null,
-      contextText: opts.contextText ?? null,
-      includeDiff: resolved.includeDiff,
-      timeoutSeconds: resolved.timeout,
-      model: resolved.model ?? null,
-      sandbox: resolved.sandbox,
-      schema: opts.schema ?? null,
-      session: opts.session ?? null,
-      backendSession: opts.backendSession ?? null,
-      fast: Boolean(opts.fast)
-    };
-    const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
-    if (opts.quiet) {
-      const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
-      const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
-      const manager = new JobManager2();
-      const { job, promise } = relayBackground2({ ...relayOpts, jobManager: manager });
-      console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
-      console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
-      console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
-      try {
-        await promise;
-      } catch {
-      }
-      const completed = manager.get(job.id);
-      if (completed?.status === "completed") {
-        console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);
-        if (opts.session) {
-          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
-`);
-        }
-      } else {
-        console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
+      writeOut: (str) => console.log(str.trimEnd()),
+      writeErr: (str) => console.error(str.trimEnd())
+    }).exitOverride();
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --bare for Claude)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+      const isReview = opts.review || opts.base !== void 0;
+      if (!opts.prompt && !isReview) {
+        console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
         exitCode = 1;
+        return;
       }
-      return;
-    }
-    if (shouldStream) {
-      const spinner = ora({
-        text: `Relaying to ${theme.bold(backendName)}...`,
-        spinner: "dots",
-        color: "cyan",
-        stream: process.stderr
-      }).start();
-      let firstChunk = true;
-      let hasOutput = false;
-      try {
-        for await (const chunk of relayStream(relayOpts)) {
-          if (firstChunk) {
-            spinner.stop();
-            firstChunk = false;
+      const streamExplicit = command.getOptionValueSource("stream") === "cli";
+      const resolved = resolveConfig({
+        to: opts.to,
+        sandbox: opts.sandbox,
+        timeout: opts.timeout,
+        includeDiff: opts.includeDiff !== void 0 ? String(opts.includeDiff) : void 0,
+        stream: streamExplicit ? String(opts.stream) : void 0,
+        model: opts.model,
+        base: opts.base
+      });
+      const backendName = resolved.backend;
+      if (isReview) {
+        const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
+        const spinner = ora({
+          text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+          spinner: "dots",
+          color: "cyan",
+          stream: process.stderr
+        }).start();
+        try {
+          const feedback = await reviewRelay({
+            repoPath: opts.repo,
+            backend: backendName,
+            base: opts.base ?? resolved.reviewBase,
+            prompt: opts.prompt,
+            timeoutSeconds: resolved.timeout,
+            model: resolved.model ?? null,
+            sandbox: resolved.sandbox,
+            schema: opts.schema ?? null,
+            fast: Boolean(opts.fast)
+          });
+          spinner.succeed(`${theme.bold(backendName)} reviewed`);
+          process.stdout.write(feedback + "\n");
+        } catch (err) {
+          spinner.fail(`${theme.bold(backendName)} review failed`);
+          throw err;
+        }
+        return;
+      }
+      const relayOpts = {
+        prompt: opts.prompt,
+        repoPath: opts.repo,
+        backend: backendName,
+        contextFile: opts.contextFile ?? null,
+        contextText: opts.contextText ?? null,
+        includeDiff: resolved.includeDiff,
+        timeoutSeconds: resolved.timeout,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox,
+        schema: opts.schema ?? null,
+        session: opts.session ?? null,
+        backendSession: opts.backendSession ?? null,
+        fast: Boolean(opts.fast)
+      };
+      const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
+      if (opts.quiet) {
+        const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
+        const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+        const manager = new JobManager2();
+        const { job, promise } = relayBackground2({ ...relayOpts, jobManager: manager });
+        console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
+        console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
+        console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
+        try {
+          await promise;
+        } catch {
+        }
+        const completed = manager.get(job.id);
+        if (completed?.status === "completed") {
+          console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+`);
           }
-          process.stdout.write(chunk);
-          hasOutput = true;
-        }
-        if (hasOutput) {
-          process.stdout.write("\n");
-        }
-        process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
-`);
-        if (opts.session) {
-          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
-`);
-        }
-      } catch (err) {
-        if (firstChunk) {
-          spinner.fail(`${theme.bold(backendName)} failed`);
         } else {
-          process.stderr.write(`
+          console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
+          exitCode = 1;
+        }
+        return;
+      }
+      if (shouldStream) {
+        const spinner = ora({
+          text: `Relaying to ${theme.bold(backendName)}...`,
+          spinner: "dots",
+          color: "cyan",
+          stream: process.stderr
+        }).start();
+        let firstChunk = true;
+        let hasOutput = false;
+        try {
+          for await (const chunk of relayStream(relayOpts)) {
+            if (firstChunk) {
+              spinner.stop();
+              firstChunk = false;
+            }
+            process.stdout.write(chunk);
+            hasOutput = true;
+          }
+          if (hasOutput) {
+            process.stdout.write("\n");
+          }
+          process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
+`);
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+`);
+          }
+        } catch (err) {
+          if (firstChunk) {
+            spinner.fail(`${theme.bold(backendName)} failed`);
+          } else {
+            process.stderr.write(`
   ${theme.crossmark} ${theme.error(`${backendName} stream error`)}
 `);
+          }
+          throw err;
         }
-        throw err;
-      }
-    } else {
-      const spinner = ora({
-        text: `Relaying to ${theme.bold(backendName)}...`,
-        spinner: "dots",
-        color: "cyan",
-        stream: process.stderr
-      }).start();
-      try {
-        const feedback = await relay(relayOpts);
-        spinner.succeed(`${theme.bold(backendName)} responded`);
-        process.stdout.write(feedback + "\n");
-        if (opts.session) {
-          process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
+      } else {
+        const spinner = ora({
+          text: `Relaying to ${theme.bold(backendName)}...`,
+          spinner: "dots",
+          color: "cyan",
+          stream: process.stderr
+        }).start();
+        try {
+          const feedback = await relay(relayOpts);
+          spinner.succeed(`${theme.bold(backendName)} responded`);
+          process.stdout.write(feedback + "\n");
+          if (opts.session) {
+            process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
+          }
+        } catch (err) {
+          spinner.fail(`${theme.bold(backendName)} failed`);
+          throw err;
         }
-      } catch (err) {
-        spinner.fail(`${theme.bold(backendName)} failed`);
-        throw err;
       }
-    }
-  });
-  program2.command("setup").description("Interactive setup wizard").action(async () => {
-    await setup();
-  });
-  program2.command("doctor").description("Health check all backends").option("--json", "Output structured JSON", false).action(async (opts) => {
-    const result = await doctor({ json: opts.json, repoRoot: process.cwd() });
-    console.log(result.output);
-    exitCode = result.exitCode;
-  });
-  const configCmd = program2.command("config").description("Manage configuration");
-  configCmd.command("init").description("Create default config file").option("--force", "Overwrite existing config", false).action((opts) => {
-    const paths = configPaths(process.cwd());
-    configInit(paths.user, opts.force);
-    console.log(`Config created at ${paths.user}`);
-  });
-  configCmd.command("show").description("Show resolved configuration").option("--sources", "Show which file each value comes from", false).action((opts) => {
-    const config = loadConfig(process.cwd());
-    if (opts.sources) {
+    });
+    program2.command("setup").description("Interactive setup wizard").action(async () => {
+      await setup();
+    });
+    program2.command("doctor").description("Health check all backends").option("--json", "Output structured JSON", false).action(async (opts) => {
+      const result = await doctor({ json: opts.json, repoRoot: process.cwd() });
+      console.log(result.output);
+      exitCode = result.exitCode;
+    });
+    const configCmd = program2.command("config").description("Manage configuration");
+    configCmd.command("init").description("Create default config file").option("--force", "Overwrite existing config", false).action((opts) => {
       const paths = configPaths(process.cwd());
-      console.log(`User config: ${paths.user}`);
-      if (paths.repo) console.log(`Repo config: ${paths.repo}`);
-      console.log("");
-    }
-    console.log(JSON.stringify(config, null, 2));
-  });
-  configCmd.command("paths").description("Print all config file paths").action(() => {
-    const paths = configPaths(process.cwd());
-    console.log(`User: ${paths.user}`);
-    if (paths.repo) {
-      console.log(`Repo: ${paths.repo}`);
-    } else {
-      console.log("Repo: (none)");
-    }
-  });
-  configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
-    const paths = configPaths(process.cwd());
-    const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync12(paths.user)) {
-      configInit(paths.user, true);
-    }
-    const parts = editorEnv.split(/\s+/);
-    spawnSync2(parts[0], [...parts.slice(1), paths.user], { stdio: "inherit" });
-  });
-  configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
-    const paths = configPaths(process.cwd());
-    if (!existsSync12(paths.user)) {
-      configInit(paths.user, true);
-    }
-    configSet(key, value, paths.user);
-    console.log(`Set ${key} = ${value}`);
-  });
-  configCmd.command("get <key>").description("Get a config value").action((key) => {
-    const config = loadConfig(process.cwd());
-    const value = configGet(key, config);
-    if (value === void 0) {
-      console.log(`(not set)`);
-    } else {
-      console.log(String(value));
-    }
-  });
-  const pluginCmd = program2.command("plugin").description("Manage host integrations");
-  addInstallOptions(
-    pluginCmd.command("install").description("Install as Claude Code plugin")
-  ).action((opts) => installAction(opts));
-  addUpdateOptions(
-    pluginCmd.command("update").description("Update Claude plugin")
-  ).action((opts) => updateAction(opts));
-  addUninstallOptions(
-    pluginCmd.command("uninstall").description("Uninstall Claude plugin")
-  ).action((opts) => uninstallAction(opts));
-  const agenticCmd = program2.command("agentic").description("Multi-agent sessions with persistent agent-to-agent communication");
-  agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").option("--dashboard-url <url>", "Dashboard URL for live event streaming", "http://127.0.0.1:7777/api/ingest").action(async (opts) => {
-    const { Orchestrator: Orchestrator2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
-    const { DashboardEventSink: DashboardEventSink2 } = await Promise.resolve().then(() => (init_event_sink(), event_sink_exports));
-    const agents = parseAgentList(opts.agents);
-    if (agents.length === 0) {
-      console.error(`  ${theme.crossmark} ${theme.error("No agents specified. Use --agents role:backend,role:backend")}`);
-      exitCode = 1;
-      return;
-    }
-    const orchestrator = new Orchestrator2();
-    const sink = new DashboardEventSink2(opts.dashboardUrl);
-    orchestrator.onEvent((event) => sink.push(event));
-    try {
-      const events = await orchestrator.run({
-        agents,
-        prompt: opts.prompt,
-        maxTurns: parseInt(opts.maxTurns, 10),
-        timeoutSeconds: parseInt(opts.timeout, 10),
-        repoPath: opts.repo,
-        sandbox: opts.sandbox
-      });
-      await formatAgenticEvents(events);
-    } finally {
-      await sink.close();
-      await orchestrator.close();
-    }
-  });
-  agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
-    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
-    const bus = new TranscriptBus2();
-    try {
-      if (opts.session) {
-        const transcript = bus.getTranscript(opts.session);
+      configInit(paths.user, opts.force);
+      console.log(`Config created at ${paths.user}`);
+    });
+    configCmd.command("show").description("Show resolved configuration").option("--sources", "Show which file each value comes from", false).action((opts) => {
+      const config = loadConfig(process.cwd());
+      if (opts.sources) {
+        const paths = configPaths(process.cwd());
+        console.log(`User config: ${paths.user}`);
+        if (paths.repo) console.log(`Repo config: ${paths.repo}`);
+        console.log("");
+      }
+      console.log(JSON.stringify(config, null, 2));
+    });
+    configCmd.command("paths").description("Print all config file paths").action(() => {
+      const paths = configPaths(process.cwd());
+      console.log(`User: ${paths.user}`);
+      if (paths.repo) {
+        console.log(`Repo: ${paths.repo}`);
+      } else {
+        console.log("Repo: (none)");
+      }
+    });
+    configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
+      const paths = configPaths(process.cwd());
+      const editorEnv = process.env.EDITOR ?? "vi";
+      if (!existsSync13(paths.user)) {
+        configInit(paths.user, true);
+      }
+      const parts = editorEnv.split(/\s+/);
+      spawnSync2(parts[0], [...parts.slice(1), paths.user], { stdio: "inherit" });
+    });
+    configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
+      const paths = configPaths(process.cwd());
+      if (!existsSync13(paths.user)) {
+        configInit(paths.user, true);
+      }
+      configSet(key, value, paths.user);
+      console.log(`Set ${key} = ${value}`);
+    });
+    configCmd.command("get <key>").description("Get a config value").action((key) => {
+      const config = loadConfig(process.cwd());
+      const value = configGet(key, config);
+      if (value === void 0) {
+        console.log(`(not set)`);
+      } else {
+        console.log(String(value));
+      }
+    });
+    const pluginCmd = program2.command("plugin").description("Manage host integrations");
+    addInstallOptions(
+      pluginCmd.command("install").description("Install as Claude Code plugin")
+    ).action((opts) => installAction(opts));
+    addUpdateOptions(
+      pluginCmd.command("update").description("Update Claude plugin")
+    ).action((opts) => updateAction(opts));
+    addUninstallOptions(
+      pluginCmd.command("uninstall").description("Uninstall Claude plugin")
+    ).action((opts) => uninstallAction(opts));
+    const agenticCmd = program2.command("agentic").description("Multi-agent sessions with persistent agent-to-agent communication");
+    agenticCmd.command("run", { isDefault: true }).description("Start an agentic session").requiredOption("--agents <list>", "Agent definitions: role:backend,... (e.g. security:claude,perf:claude)").requiredOption("--prompt <text>", "Task prompt for the agents").option("--max-turns <n>", "Maximum turns before forced stop", "20").option("--timeout <seconds>", "Session timeout in seconds", "900").option("--repo <path>", "Repository path", process.cwd()).option("--sandbox <mode>", "Sandbox mode", "read-only").option("--dashboard-url <url>", "Dashboard URL for live event streaming", "http://127.0.0.1:7777/api/ingest").action(async (opts) => {
+      const { Orchestrator: Orchestrator2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+      const { DashboardEventSink: DashboardEventSink2 } = await Promise.resolve().then(() => (init_event_sink(), event_sink_exports));
+      const agents = parseAgentList(opts.agents);
+      if (agents.length === 0) {
+        console.error(`  ${theme.crossmark} ${theme.error("No agents specified. Use --agents role:backend,role:backend")}`);
+        exitCode = 1;
+        return;
+      }
+      const orchestrator = new Orchestrator2();
+      const sink = new DashboardEventSink2(opts.dashboardUrl);
+      orchestrator.onEvent((event) => sink.push(event));
+      try {
+        const events = await orchestrator.run({
+          agents,
+          prompt: opts.prompt,
+          maxTurns: parseInt(opts.maxTurns, 10),
+          timeoutSeconds: parseInt(opts.timeout, 10),
+          repoPath: opts.repo,
+          sandbox: opts.sandbox
+        });
+        await formatAgenticEvents(events);
+      } finally {
+        await sink.close();
+        await orchestrator.close();
+      }
+    });
+    agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
+      const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+      const bus = new TranscriptBus2();
+      try {
+        if (opts.session) {
+          const transcript = bus.getTranscript(opts.session);
+          const session = bus.getSession(opts.session);
+          if (!session) {
+            console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+            exitCode = 1;
+            return;
+          }
+          console.log(`
+  ${theme.heading("Session")} ${theme.info(session.id)}`);
+          console.log(`  ${theme.label("Prompt:")} ${session.prompt}`);
+          console.log(`  ${theme.label("Status:")} ${session.status}`);
+          console.log(`  ${theme.label("Agents:")} ${session.agents.map((a) => `${a.name}(${a.backend})`).join(", ")}`);
+          console.log(`  ${theme.label("Messages:")} ${transcript.length}`);
+          console.log("");
+          for (const msg of transcript) {
+            const time = msg.timestamp.toLocaleTimeString();
+            const arrow = theme.hint("\u2192");
+            console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
+            console.log(`    ${msg.content.split("\n")[0].slice(0, 120)}`);
+          }
+          console.log("");
+        } else {
+          const sessions = bus.listSessions();
+          if (sessions.length === 0) {
+            console.log(`
+  ${theme.hint("No agentic sessions found.")}
+`);
+            return;
+          }
+          console.log(`
+  ${theme.heading("Agentic Sessions")}
+`);
+          for (const s of sessions) {
+            const status = s.status === "completed" ? theme.success("\u2713") : s.status === "active" ? theme.info("\u25CF") : s.status === "failed" ? theme.error("\u2717") : theme.warning("\u25A0");
+            const agents = s.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
+            const time = s.createdAt.toLocaleString();
+            console.log(`  ${status} ${theme.bold(s.id)}  ${theme.hint(time)}`);
+            console.log(`    ${theme.hint(s.prompt.slice(0, 100))}`);
+            console.log(`    ${theme.hint(`Agents: ${agents}  |  Turns: ${s.turn}`)}`);
+            console.log("");
+          }
+        }
+      } finally {
+        bus.close();
+      }
+    });
+    agenticCmd.command("replay").description("Replay a session transcript").requiredOption("--session <id>", "Session ID to replay").action(async (opts) => {
+      const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
+      const bus = new TranscriptBus2();
+      try {
         const session = bus.getSession(opts.session);
         if (!session) {
           console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
           exitCode = 1;
           return;
         }
+        const transcript = bus.getTranscript(opts.session);
         console.log(`
-  ${theme.heading("Session")} ${theme.info(session.id)}`);
-        console.log(`  ${theme.label("Prompt:")} ${session.prompt}`);
-        console.log(`  ${theme.label("Status:")} ${session.status}`);
-        console.log(`  ${theme.label("Agents:")} ${session.agents.map((a) => `${a.name}(${a.backend})`).join(", ")}`);
-        console.log(`  ${theme.label("Messages:")} ${transcript.length}`);
-        console.log("");
+  ${theme.heading("Replay:")} ${theme.info(session.id)}`);
+        console.log(`  ${theme.label("Prompt:")} ${session.prompt}
+`);
+        let lastTurn = -1;
         for (const msg of transcript) {
+          if (msg.turn !== lastTurn) {
+            console.log(`  ${theme.heading(`\u2500\u2500 Turn ${msg.turn} \u2500\u2500`)}`);
+            lastTurn = msg.turn;
+          }
           const time = msg.timestamp.toLocaleTimeString();
           const arrow = theme.hint("\u2192");
           console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
-          console.log(`    ${msg.content.split("\n")[0].slice(0, 120)}`);
-        }
-        console.log("");
-      } else {
-        const sessions = bus.listSessions();
-        if (sessions.length === 0) {
-          console.log(`
-  ${theme.hint("No agentic sessions found.")}
-`);
-          return;
-        }
-        console.log(`
-  ${theme.heading("Agentic Sessions")}
-`);
-        for (const s of sessions) {
-          const status = s.status === "completed" ? theme.success("\u2713") : s.status === "active" ? theme.info("\u25CF") : s.status === "failed" ? theme.error("\u2717") : theme.warning("\u25A0");
-          const agents = s.agents.map((a) => `${a.name}(${a.backend})`).join(", ");
-          const time = s.createdAt.toLocaleString();
-          console.log(`  ${status} ${theme.bold(s.id)}  ${theme.hint(time)}`);
-          console.log(`    ${theme.hint(s.prompt.slice(0, 100))}`);
-          console.log(`    ${theme.hint(`Agents: ${agents}  |  Turns: ${s.turn}`)}`);
+          for (const line of msg.content.split("\n")) {
+            console.log(`    ${line}`);
+          }
           console.log("");
         }
+        console.log(`  ${theme.label("Status:")} ${session.status}  |  ${theme.label("Turns:")} ${session.turn}
+`);
+      } finally {
+        bus.close();
       }
-    } finally {
-      bus.close();
-    }
-  });
-  agenticCmd.command("replay").description("Replay a session transcript").requiredOption("--session <id>", "Session ID to replay").action(async (opts) => {
-    const { TranscriptBus: TranscriptBus2 } = await Promise.resolve().then(() => (init_agentic(), agentic_exports));
-    const bus = new TranscriptBus2();
-    try {
-      const session = bus.getSession(opts.session);
-      if (!session) {
-        console.error(`  ${theme.crossmark} Session ${opts.session} not found`);
+    });
+    agenticCmd.command("dashboard").description("Launch web dashboard for session visibility").option("--port <number>", "Port to listen on", "7777").action(async (opts) => {
+      const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_web(), web_exports));
+      const port = parseInt(opts.port, 10);
+      try {
+        const dashboard = await startDashboard2({ port });
+        console.log(`
+  ${theme.heading("Agentic Dashboard")}`);
+        console.log(`  ${theme.success("\u2713")} Running at ${theme.info(dashboard.url)}`);
+        console.log(`  ${theme.hint("Press Ctrl+C to stop")}
+`);
+        const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+        spawnSync2(openCmd, [dashboard.url], { stdio: "ignore" });
+        await new Promise((resolve5) => {
+          process.on("SIGINT", () => {
+            console.log(`
+  ${theme.hint("Shutting down dashboard...")}`);
+            dashboard.close().then(resolve5);
+          });
+          process.on("SIGTERM", () => {
+            dashboard.close().then(resolve5);
+          });
+        });
+      } catch (err) {
+        console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
+        exitCode = 1;
+      }
+    });
+    const jobCmd = program2.command("job").description("Manage background jobs");
+    jobCmd.command("status").description("List background jobs").option("--json", "Output as JSON", false).action(async (opts) => {
+      const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+      const manager = new JobManager2();
+      const jobs = manager.list();
+      if (opts.json) {
+        console.log(JSON.stringify(jobs, null, 2));
+        return;
+      }
+      if (jobs.length === 0) {
+        console.log(`
+  ${theme.hint("No background jobs.")}
+`);
+        return;
+      }
+      console.log(`
+  ${theme.heading("Background Jobs")}
+`);
+      for (const job of [...jobs].reverse()) {
+        const icon = job.status === "completed" ? theme.success("done") : job.status === "running" ? theme.info("running") : job.status === "failed" ? theme.error("failed") : job.status === "cancelled" ? theme.warning("cancelled") : theme.hint("pending");
+        const age = timeSince(job.createdAt);
+        console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
+        console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? "..." : ""}`);
+        if (job.progress) {
+          console.log(`    ${theme.hint(`Progress: ${job.progress}`)}`);
+        }
+      }
+      console.log("");
+    });
+    jobCmd.command("result <id>").description("Show result of a completed job").action(async (id) => {
+      const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+      const manager = new JobManager2();
+      const job = manager.get(id);
+      if (!job) {
+        console.error(`  ${theme.crossmark} Job ${id} not found`);
         exitCode = 1;
         return;
       }
-      const transcript = bus.getTranscript(opts.session);
-      console.log(`
-  ${theme.heading("Replay:")} ${theme.info(session.id)}`);
-      console.log(`  ${theme.label("Prompt:")} ${session.prompt}
-`);
-      let lastTurn = -1;
-      for (const msg of transcript) {
-        if (msg.turn !== lastTurn) {
-          console.log(`  ${theme.heading(`\u2500\u2500 Turn ${msg.turn} \u2500\u2500`)}`);
-          lastTurn = msg.turn;
+      if (job.status === "completed" && job.result) {
+        process.stdout.write(job.result + "\n");
+      } else if (job.status === "failed") {
+        console.error(`  ${theme.crossmark} Job failed: ${job.error ?? "unknown error"}`);
+        exitCode = 1;
+      } else {
+        console.log(`  ${theme.hint(`Job ${id} is ${job.status}. No result yet.`)}`);
+      }
+    });
+    jobCmd.command("cancel <id>").description("Cancel a running job").action(async (id) => {
+      const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
+      const manager = new JobManager2();
+      const job = manager.get(id);
+      if (!job) {
+        console.error(`  ${theme.crossmark} Job ${id} not found`);
+        exitCode = 1;
+        return;
+      }
+      if (job.status !== "running" && job.status !== "pending") {
+        console.log(`  ${theme.hint(`Job ${id} is already ${job.status}.`)}`);
+        return;
+      }
+      if (job.pid) {
+        try {
+          process.kill(job.pid, "SIGTERM");
+        } catch {
         }
-        const time = msg.timestamp.toLocaleTimeString();
-        const arrow = theme.hint("\u2192");
-        console.log(`  ${theme.hint(time)}  ${theme.bold(msg.from)} ${arrow} ${theme.bold(msg.to)}`);
-        for (const line of msg.content.split("\n")) {
-          console.log(`    ${line}`);
-        }
-        console.log("");
       }
-      console.log(`  ${theme.label("Status:")} ${session.status}  |  ${theme.label("Turns:")} ${session.turn}
-`);
-    } finally {
-      bus.close();
-    }
-  });
-  agenticCmd.command("dashboard").description("Launch web dashboard for session visibility").option("--port <number>", "Port to listen on", "7777").action(async (opts) => {
-    const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_web(), web_exports));
-    const port = parseInt(opts.port, 10);
-    try {
-      const dashboard = await startDashboard2({ port });
-      console.log(`
-  ${theme.heading("Agentic Dashboard")}`);
-      console.log(`  ${theme.success("\u2713")} Running at ${theme.info(dashboard.url)}`);
-      console.log(`  ${theme.hint("Press Ctrl+C to stop")}
-`);
-      const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      spawnSync2(openCmd, [dashboard.url], { stdio: "ignore" });
-      await new Promise((resolve5) => {
-        process.on("SIGINT", () => {
-          console.log(`
-  ${theme.hint("Shutting down dashboard...")}`);
-          dashboard.close().then(resolve5);
-        });
-        process.on("SIGTERM", () => {
-          dashboard.close().then(resolve5);
-        });
-      });
-    } catch (err) {
-      console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
-      exitCode = 1;
-    }
-  });
-  const jobCmd = program2.command("job").description("Manage background jobs");
-  jobCmd.command("status").description("List background jobs").option("--json", "Output as JSON", false).action(async (opts) => {
-    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
-    const manager = new JobManager2();
-    const jobs = manager.list();
-    if (opts.json) {
-      console.log(JSON.stringify(jobs, null, 2));
-      return;
-    }
-    if (jobs.length === 0) {
-      console.log(`
-  ${theme.hint("No background jobs.")}
-`);
-      return;
-    }
-    console.log(`
-  ${theme.heading("Background Jobs")}
-`);
-    for (const job of [...jobs].reverse()) {
-      const icon = job.status === "completed" ? theme.success("done") : job.status === "running" ? theme.info("running") : job.status === "failed" ? theme.error("failed") : job.status === "cancelled" ? theme.warning("cancelled") : theme.hint("pending");
-      const age = timeSince(job.createdAt);
-      console.log(`  ${theme.bold(job.id)}  ${icon}  ${theme.hint(age)}  ${theme.hint(job.backend)}`);
-      console.log(`    ${job.prompt.slice(0, 80)}${job.prompt.length > 80 ? "..." : ""}`);
-      if (job.progress) {
-        console.log(`    ${theme.hint(`Progress: ${job.progress}`)}`);
+      manager.update(id, { status: "cancelled" });
+      console.log(`  ${theme.success("\u2713")} Cancelled job ${theme.bold(id)}`);
+    });
+    const sessionCmd = program2.command("session").description("Manage persisted relay sessions");
+    sessionCmd.command("list").description("List persisted relay sessions").option("--json", "Output as JSON", false).action(async (opts) => {
+      const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+      const store = new SessionStore2();
+      const sessions = store.list();
+      if (opts.json) {
+        console.log(JSON.stringify(sessions, null, 2));
+        return;
       }
-    }
-    console.log("");
-  });
-  jobCmd.command("result <id>").description("Show result of a completed job").action(async (id) => {
-    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
-    const manager = new JobManager2();
-    const job = manager.get(id);
-    if (!job) {
-      console.error(`  ${theme.crossmark} Job ${id} not found`);
-      exitCode = 1;
-      return;
-    }
-    if (job.status === "completed" && job.result) {
-      process.stdout.write(job.result + "\n");
-    } else if (job.status === "failed") {
-      console.error(`  ${theme.crossmark} Job failed: ${job.error ?? "unknown error"}`);
-      exitCode = 1;
-    } else {
-      console.log(`  ${theme.hint(`Job ${id} is ${job.status}. No result yet.`)}`);
-    }
-  });
-  jobCmd.command("cancel <id>").description("Cancel a running job").action(async (id) => {
-    const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
-    const manager = new JobManager2();
-    const job = manager.get(id);
-    if (!job) {
-      console.error(`  ${theme.crossmark} Job ${id} not found`);
-      exitCode = 1;
-      return;
-    }
-    if (job.status !== "running" && job.status !== "pending") {
-      console.log(`  ${theme.hint(`Job ${id} is already ${job.status}.`)}`);
-      return;
-    }
-    if (job.pid) {
-      try {
-        process.kill(job.pid, "SIGTERM");
-      } catch {
-      }
-    }
-    manager.update(id, { status: "cancelled" });
-    console.log(`  ${theme.success("\u2713")} Cancelled job ${theme.bold(id)}`);
-  });
-  const sessionCmd = program2.command("session").description("Manage persisted relay sessions");
-  sessionCmd.command("list").description("List persisted relay sessions").option("--json", "Output as JSON", false).action(async (opts) => {
-    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
-    const store = new SessionStore2();
-    const sessions = store.list();
-    if (opts.json) {
-      console.log(JSON.stringify(sessions, null, 2));
-      return;
-    }
-    if (sessions.length === 0) {
-      console.log(`
+      if (sessions.length === 0) {
+        console.log(`
   ${theme.hint("No persisted sessions.")}
 `);
-      return;
-    }
-    console.log(`
+        return;
+      }
+      console.log(`
   ${theme.heading("Persisted Sessions")} ${theme.hint(`(${sessions.length})`)}
 `);
-    const sorted = [...sessions].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
-    for (const session of sorted) {
-      const age = timeSince(session.lastUsedAt);
-      const backendSid = session.backendSessionId ?? theme.hint("(none)");
-      console.log(`  ${theme.bold(session.id)}  ${theme.info(session.backend)}  ${theme.hint(age)}`);
-      console.log(`    ${theme.hint("backend session:")} ${backendSid}`);
-      console.log(`    ${theme.hint("repo:")} ${session.repoPath}`);
-      console.log(`    ${theme.hint("history:")} ${session.history.length} entries`);
-    }
-    console.log("");
-  });
-  sessionCmd.command("delete <label>").description("Remove a persisted session by label").action(async (label) => {
-    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
-    const store = new SessionStore2();
-    const removed = store.delete(label);
-    if (!removed) {
-      console.error(`  ${theme.crossmark} Session ${theme.bold(label)} not found`);
-      exitCode = 1;
-      return;
-    }
-    console.log(`  ${theme.success("\u2713")} Deleted session ${theme.bold(label)}`);
-  });
-  sessionCmd.command("prune").description("Remove old sessions (default: older than 30 days)").option("--older-than <days>", "Drop sessions whose lastUsedAt is older than N days", "30").option("--all", "Drop every session", false).action(async (opts) => {
-    const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
-    const store = new SessionStore2();
-    if (opts.all) {
-      const count = store.clear();
-      console.log(`  ${theme.success("\u2713")} Removed ${theme.bold(String(count))} session${count === 1 ? "" : "s"}`);
-      return;
-    }
-    const days = Number(opts.olderThan);
-    if (!Number.isFinite(days) || days <= 0) {
-      console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
-      exitCode = 1;
-      return;
-    }
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1e3);
-    const removed = store.pruneOlderThan(cutoff);
-    if (removed.length === 0) {
-      console.log(`  ${theme.hint(`No sessions older than ${days} day${days === 1 ? "" : "s"}.`)}`);
-      return;
-    }
-    console.log(`  ${theme.success("\u2713")} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}`);
-    for (const id of removed) {
-      console.log(`    ${theme.hint("-")} ${id}`);
-    }
-  });
-  addInstallOptions(
-    program2.command("install").description("Install Claude plugin (alias for: plugin install)")
-  ).action((opts) => installAction(opts));
-  addUpdateOptions(
-    program2.command("update").description("Update Claude plugin (alias for: plugin update)")
-  ).action((opts) => updateAction(opts));
-  addUninstallOptions(
-    program2.command("uninstall").description("Uninstall Claude plugin (alias for: plugin uninstall)")
-  ).action((opts) => uninstallAction(opts));
-  try {
-    await program2.parseAsync(normalized, { from: "user" });
-  } catch (err) {
-    if (err instanceof RelayError || err instanceof InstallerError) {
-      console.error("");
-      console.error(`  ${theme.crossmark} ${theme.error(err.message)}`);
-      if (err.message.includes("too large")) {
-        console.error(`  ${theme.hint("Try reducing the size of your input or context.")}`);
+      const sorted = [...sessions].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+      for (const session of sorted) {
+        const age = timeSince(session.lastUsedAt);
+        const backendSid = session.backendSessionId ?? theme.hint("(none)");
+        console.log(`  ${theme.bold(session.id)}  ${theme.info(session.backend)}  ${theme.hint(age)}`);
+        console.log(`    ${theme.hint("backend session:")} ${backendSid}`);
+        console.log(`    ${theme.hint("repo:")} ${session.repoPath}`);
+        console.log(`    ${theme.hint("history:")} ${session.history.length} entries`);
       }
-      if (err.message.includes("depth limit")) {
-        console.error(`  ${theme.hint("Agents are calling each other recursively.")}`);
+      console.log("");
+    });
+    sessionCmd.command("delete <label>").description("Remove a persisted session by label").action(async (label) => {
+      const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+      const store = new SessionStore2();
+      const removed = store.delete(label);
+      if (!removed) {
+        console.error(`  ${theme.crossmark} Session ${theme.bold(label)} not found`);
+        exitCode = 1;
+        return;
       }
-      console.error("");
-      return 1;
+      console.log(`  ${theme.success("\u2713")} Deleted session ${theme.bold(label)}`);
+    });
+    sessionCmd.command("prune").description("Remove old sessions (default: older than 30 days)").option("--older-than <days>", "Drop sessions whose lastUsedAt is older than N days", "30").option("--all", "Drop every session", false).action(async (opts) => {
+      const { SessionStore: SessionStore2 } = await Promise.resolve().then(() => (init_sessions(), sessions_exports));
+      const store = new SessionStore2();
+      if (opts.all) {
+        const count = store.clear();
+        console.log(`  ${theme.success("\u2713")} Removed ${theme.bold(String(count))} session${count === 1 ? "" : "s"}`);
+        return;
+      }
+      const days = Number(opts.olderThan);
+      if (!Number.isFinite(days) || days <= 0) {
+        console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
+        exitCode = 1;
+        return;
+      }
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1e3);
+      const removed = store.pruneOlderThan(cutoff);
+      if (removed.length === 0) {
+        console.log(`  ${theme.hint(`No sessions older than ${days} day${days === 1 ? "" : "s"}.`)}`);
+        return;
+      }
+      console.log(`  ${theme.success("\u2713")} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}`);
+      for (const id of removed) {
+        console.log(`    ${theme.hint("-")} ${id}`);
+      }
+    });
+    program2.command("__update-check <action>", { hidden: true }).description("(internal) refresh update-check cache").action(async (action) => {
+      if (action === "refresh") {
+        try {
+          await runRefresh({
+            cachePath: defaultCachePath(),
+            currentVersion: getVersion()
+          });
+        } catch {
+        }
+      }
+    });
+    addInstallOptions(
+      program2.command("install").description("Install Claude plugin (alias for: plugin install)")
+    ).action((opts) => installAction(opts));
+    addUpdateOptions(
+      program2.command("update").description("Update Claude plugin (alias for: plugin update)")
+    ).action((opts) => updateAction(opts));
+    addUninstallOptions(
+      program2.command("uninstall").description("Uninstall Claude plugin (alias for: plugin uninstall)")
+    ).action((opts) => uninstallAction(opts));
+    try {
+      await program2.parseAsync(normalized2, { from: "user" });
+    } catch (err) {
+      if (err instanceof RelayError || err instanceof InstallerError) {
+        console.error("");
+        console.error(`  ${theme.crossmark} ${theme.error(err.message)}`);
+        if (err.message.includes("too large")) {
+          console.error(`  ${theme.hint("Try reducing the size of your input or context.")}`);
+        }
+        if (err.message.includes("depth limit")) {
+          console.error(`  ${theme.hint("Agents are calling each other recursively.")}`);
+        }
+        console.error("");
+        return 1;
+      }
+      if (err && typeof err === "object" && "exitCode" in err) {
+        return err.exitCode;
+      }
+      if (err instanceof Error) {
+        console.error(err.message);
+        return 1;
+      }
+      throw err;
     }
-    if (err && typeof err === "object" && "exitCode" in err) {
-      return err.exitCode;
-    }
-    if (err instanceof Error) {
-      console.error(err.message);
-      return 1;
-    }
-    throw err;
+    return exitCode;
   }
-  return exitCode;
+}
+function setupUpdateCheck(argv) {
+  if (process.env.PHONE_A_FRIEND_UPDATE_REFRESH === "1") return null;
+  if (argv[0] === "__update-check") return null;
+  const currentVersion = getVersion();
+  if (currentVersion === "unknown") return null;
+  let configEnabled = true;
+  try {
+    const cfg = loadConfig(process.cwd());
+    configEnabled = cfg.defaults?.update_check !== false;
+  } catch {
+  }
+  const ctx = buildSuppressionContext(argv, configEnabled);
+  if (ctx.envOptedOut || !ctx.configEnabled || ctx.isCi) {
+    return null;
+  }
+  const cachePath = defaultCachePath();
+  const snapshot = readSnapshot(cachePath, currentVersion);
+  kickoffBackgroundRefresh({ cachePath, currentVersion, snapshot });
+  const decision = decideBanner(snapshot, currentVersion, ctx, Date.now());
+  return { cachePath, currentVersion, snapshot, decision };
+}
+function maybeShowUpdateBanner(state) {
+  if (!state.decision.show) return;
+  const { currentVersion: cur, latestVersion: latest } = state.decision;
+  process.stderr.write(formatBanner(cur, latest));
+  recordNotified({
+    cachePath: state.cachePath,
+    snapshot: state.snapshot,
+    notifiedVersion: latest
+  });
 }
 function parseAgentList(input) {
   return input.split(",").map((pair) => {

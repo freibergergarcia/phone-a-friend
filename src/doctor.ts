@@ -12,6 +12,7 @@ import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './confi
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
+import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,7 @@ function formatHumanReadable(
   config: PafConfig,
   paths: { user: string; repo: string | null },
   advisories: string[] = [],
+  updateCheck: UpdateCheckState | null = null,
 ): string {
   const lines: string[] = [];
 
@@ -44,6 +46,22 @@ function formatHumanReadable(
   lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
   lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push('');
+
+  if (updateCheck) {
+    lines.push(`  ${theme.label('Update check:')}`);
+    lines.push(`    ${theme.hint('cache:')} ${updateCheck.cachePath}`);
+    lines.push(`    ${theme.hint('current:')} ${updateCheck.currentVersion}`);
+    lines.push(
+      `    ${theme.hint('latest known:')} ${updateCheck.latestVersion ?? '(not yet fetched)'}`,
+    );
+    lines.push(
+      `    ${theme.hint('last checked:')} ${updateCheck.lastCheckedAt ?? '(never)'}`,
+    );
+    lines.push(
+      `    ${theme.hint('config opt-in:')} ${updateCheck.configEnabled ? 'enabled' : 'disabled'}`,
+    );
+    lines.push('');
+  }
 
   // Relay Backends
   lines.push(`  ${theme.label('Relay Backends:')}`);
@@ -121,6 +139,7 @@ function formatJson(
   config: PafConfig,
   exitCode: number,
   advisories: string[] = [],
+  updateCheck: UpdateCheckState | null = null,
 ): string {
   const allRelay = [...report.cli, ...report.local];
   const available = allRelay.filter(b => b.available).length;
@@ -139,8 +158,34 @@ function formatJson(
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
+    updateCheck: updateCheck ?? undefined,
     exitCode,
   }, null, 2);
+}
+
+interface UpdateCheckState {
+  cachePath: string;
+  currentVersion: string;
+  latestVersion: string | null;
+  lastCheckedAt: string | null;
+  lastNotifiedVersion: string | null;
+  lastNotifiedAt: string | null;
+  configEnabled: boolean;
+}
+
+function collectUpdateCheckState(config: PafConfig): UpdateCheckState {
+  const cachePath = defaultCachePath();
+  const currentVersion = getVersion();
+  const snapshot: UpdateCheckSnapshot = readSnapshot(cachePath, currentVersion);
+  return {
+    cachePath,
+    currentVersion,
+    latestVersion: snapshot.latestVersion,
+    lastCheckedAt: snapshot.lastCheckedAt,
+    lastNotifiedVersion: snapshot.lastNotifiedVersion,
+    lastNotifiedAt: snapshot.lastNotifiedAt,
+    configEnabled: config.defaults?.update_check !== false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -216,16 +261,17 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
   const advisories = await collectAdvisories(report);
+  const updateCheck = collectUpdateCheckState(config);
 
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, advisories),
+      output: formatJson(report, config, exitCode, advisories, updateCheck),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, advisories),
+    output: formatHumanReadable(report, config, paths, advisories, updateCheck),
   };
 }

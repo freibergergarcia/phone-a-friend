@@ -185,6 +185,40 @@ phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
+### Update notifications
+
+phone-a-friend checks the npm registry for newer stable releases at most once
+every 24 hours and prints a one-time stderr banner the next time it runs in an
+interactive terminal. The current invocation is never slowed down: the registry
+fetch happens in the background, with results applied on the next run.
+
+Sample banner:
+
+```
+  ↑ phone-a-friend 2.4.0 available (current: 2.1.0)
+    Run: npm install -g @freibergergarcia/phone-a-friend@latest
+```
+
+The banner is suppressed automatically when:
+- stdout or stderr is not a TTY (piped or redirected output)
+- `CI` is set, or `TERM=dumb`
+- the command uses `--quiet`, `--schema`, or any subcommand-level `--json` flag
+- the same version was already shown within the last 7 days
+
+To disable update checks entirely:
+
+```bash
+# One-off
+PHONE_A_FRIEND_UPDATE_CHECK=false phone-a-friend ...
+
+# Permanent
+phone-a-friend config set defaults.update_check false
+```
+
+The cache lives at `~/.config/phone-a-friend/update-check.json` (or under
+`$XDG_CONFIG_HOME` if set). Run `phone-a-friend doctor` to inspect the current
+state.
+
 ## Backends
 
 | Backend | Type | Streaming | How it works |

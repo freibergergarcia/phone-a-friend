@@ -39,6 +39,17 @@ import {
   DEFAULT_CONFIG,
 } from './config.js';
 import { getVersion, getPackageRoot } from './version.js';
+import {
+  buildSuppressionContext,
+  decideBanner,
+  defaultCachePath,
+  formatBanner,
+  kickoffBackgroundRefresh,
+  readSnapshot,
+  recordNotified,
+  runRefresh,
+  type BannerDecision,
+} from './updates.js';
 
 // ---------------------------------------------------------------------------
 // Repo root default
@@ -52,7 +63,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session', '__update-check'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);
@@ -210,6 +221,17 @@ export async function run(argv: string[]): Promise<number> {
   const normalized = normalizeArgv(argv);
   let exitCode = 0;
 
+  // Update-check: read cache, decide banner, kick off background refresh.
+  // The banner (if any) is printed via the try/finally wrapping the main flow.
+  const updateState = setupUpdateCheck(normalized);
+
+  try {
+    return await runMain(normalized);
+  } finally {
+    if (updateState) maybeShowUpdateBanner(updateState);
+  }
+
+  async function runMain(normalized: string[]): Promise<number> {
   // Smart no-args behavior
   if (normalized.length === 0) {
     const paths = configPaths();
@@ -998,6 +1020,25 @@ export async function run(argv: string[]): Promise<number> {
       }
     });
 
+  // --- Internal: detached update-check refresh ---
+  // Hidden subcommand spawned by the parent process to fetch the npm registry's
+  // dist-tags.latest and update the local cache. Not user-facing.
+  program
+    .command('__update-check <action>', { hidden: true })
+    .description('(internal) refresh update-check cache')
+    .action(async (action: string) => {
+      if (action === 'refresh') {
+        try {
+          await runRefresh({
+            cachePath: defaultCachePath(),
+            currentVersion: getVersion(),
+          });
+        } catch {
+          // Detached child: never throw, never log to user terminal.
+        }
+      }
+    });
+
   // --- Backward compat aliases ---
   addInstallOptions(
     program
@@ -1044,6 +1085,78 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   return exitCode;
+  } // end of runMain
+}
+
+// ---------------------------------------------------------------------------
+// Update-check helpers (notification only, npm registry dist-tags.latest)
+// ---------------------------------------------------------------------------
+
+interface UpdateCheckState {
+  cachePath: string;
+  currentVersion: string;
+  snapshot: ReturnType<typeof readSnapshot>;
+  decision: BannerDecision;
+}
+
+function setupUpdateCheck(argv: string[]): UpdateCheckState | null {
+  // Recursion guard: the detached child process is invoked with this env var
+  // set so it skips its own update-check setup. Without this, we'd fork-bomb.
+  if (process.env.PHONE_A_FRIEND_UPDATE_REFRESH === '1') return null;
+
+  // Skip for the internal subcommand itself.
+  if (argv[0] === '__update-check') return null;
+
+  const currentVersion = getVersion();
+  if (currentVersion === 'unknown') return null;
+
+  // Cheap config read — keeps this synchronous so we can stay out of run()'s async path.
+  // Pass cwd so repo-level `.phone-a-friend.toml` can disable update_check
+  // alongside (or in place of) the user-level config.
+  let configEnabled = true;
+  try {
+    const cfg = loadConfig(process.cwd());
+    configEnabled = cfg.defaults?.update_check !== false;
+  } catch {
+    // Config errors should never block the user's command. Fall back to enabled.
+  }
+
+  const ctx = buildSuppressionContext(argv, configEnabled);
+
+  // Hard skip: never touch disk or network when the user has explicitly opted
+  // out, or in CI environments where banners are useless and registry traffic
+  // is wasteful (CI runs frequently).
+  if (ctx.envOptedOut || !ctx.configEnabled || ctx.isCi) {
+    return null;
+  }
+
+  const cachePath = defaultCachePath();
+  const snapshot = readSnapshot(cachePath, currentVersion);
+
+  // Kick off the background refresh regardless of whether we'll display a
+  // banner this run — the cache update powers the *next* interactive run, even
+  // when this invocation is piped or scripted.
+  kickoffBackgroundRefresh({ cachePath, currentVersion, snapshot });
+
+  // The banner gates (TTY, machine-readable flags, dumb term, cooldown) live
+  // inside decideBanner. Keep the rest of setup unconditional so the cache
+  // gets populated.
+  const decision = decideBanner(snapshot, currentVersion, ctx, Date.now());
+
+  return { cachePath, currentVersion, snapshot, decision };
+}
+
+function maybeShowUpdateBanner(state: UpdateCheckState): void {
+  if (!state.decision.show) return;
+  const { currentVersion: cur, latestVersion: latest } = state.decision;
+  // Stderr only — never contaminate stdout (already gated by hasMachineFlag /
+  // TTY checks, but defense in depth).
+  process.stderr.write(formatBanner(cur, latest));
+  recordNotified({
+    cachePath: state.cachePath,
+    snapshot: state.snapshot,
+    notifiedVersion: latest,
+  });
 }
 
 // ---------------------------------------------------------------------------
