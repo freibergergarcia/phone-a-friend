@@ -68,7 +68,7 @@ src/
       KeyHint.tsx            Footer keyboard hints
       ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
-commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini priority, etc.)
+commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini model selection, etc.)
 skills/<name>/SKILL.md         Canonical Agent Skills — primary OpenCode entry point, also auto-discovered by Claude Code as plugin-namespaced skills
 skills/<name>/COMMAND.opencode.md  Thin OpenCode command shim (overlay). Installer prefers this over commands/<name>.md when present, so OpenCode users get a small shim that delegates into SKILL.md while Claude users get the rich commands/<name>.md inline.
 dist/                Built bundle (committed, self-contained)

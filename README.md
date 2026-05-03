@@ -218,7 +218,7 @@ Ollama configuration via environment variables:
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
 - `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard (set automatically by the OpenCode shims).
-- `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries; see Gemini section).
+- `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
 
 OpenCode configuration via TOML:
 ```toml
