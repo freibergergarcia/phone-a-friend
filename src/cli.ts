@@ -111,18 +111,16 @@ function installAction(opts: {
   claudeCliSync?: boolean;
   github?: boolean;
   forceMarketplaceSync?: boolean;
-}): void {
+}): number {
   if (opts.github) {
     // Reject flags that don't apply to marketplace install
     if (opts.mode && opts.mode !== 'symlink') {
       console.error('Error: --mode is not compatible with --github');
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.repoRoot) {
       console.error('Error: --repo-root is not compatible with --github');
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.opencode || opts.all) {
       console.error(
@@ -130,15 +128,14 @@ function installAction(opts: {
           'Run `phone-a-friend plugin install --github` for Claude, then ' +
           '`phone-a-friend plugin install --opencode` separately.',
       );
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     // GitHub marketplace flow
     const lines = ['phone-a-friend installer (GitHub marketplace)'];
     lines.push(...installFromGitHubMarketplace());
     for (const line of lines) console.log(line);
     printBackendAvailability();
-    return;
+    return 0;
   }
   // Existing local install flow
   const target = opts.all
@@ -158,6 +155,7 @@ function installAction(opts: {
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
+  return 0;
 }
 
 function updateAction(opts: {
@@ -332,7 +330,7 @@ export async function run(argv: string[]): Promise<number> {
           return 0;
         }
         if (choice === 'install') {
-          installAction({ claude: true, force: true });
+          exitCode = installAction({ claude: true, force: true });
           return 0;
         }
         if (choice === 'tui') {
@@ -671,7 +669,9 @@ export async function run(argv: string[]): Promise<number> {
     pluginCmd
       .command('install')
       .description('Install as Claude Code plugin')
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
 
   addUpdateOptions(
     pluginCmd
@@ -1053,7 +1053,9 @@ export async function run(argv: string[]): Promise<number> {
     program
       .command('install')
       .description('Install Claude plugin (alias for: plugin install)')
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
 
   addUpdateOptions(
     program

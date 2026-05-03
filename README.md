@@ -116,7 +116,7 @@ Delegate a task to any backend and get the result back:
 
 ```bash
 phone-a-friend --to codex --prompt "Review this code"
-phone-a-friend --to gemini --prompt "Analyze the architecture" --model gemini-2.5-flash
+phone-a-friend --to gemini --prompt "Analyze the architecture"
 phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
 phone-a-friend --to opencode --prompt "Audit this repo" --model qwen3-coder  # Local agentic (OpenCode + Ollama)
@@ -218,6 +218,7 @@ Ollama configuration via environment variables:
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
 - `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard (set automatically by the OpenCode shims).
+- `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
 
 OpenCode configuration via TOML:
 ```toml

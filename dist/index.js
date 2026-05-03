@@ -1054,14 +1054,14 @@ var init_dist = __esm({
 });
 
 // src/config.ts
-import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync } from "fs";
-import { homedir } from "os";
-import { join as join2, dirname } from "path";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
+import { homedir as homedir2 } from "os";
+import { join as join3, dirname as dirname2 } from "path";
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join2(homeDir ?? homedir(), ".config");
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? homedir2(), ".config");
   return {
-    user: join2(configBase, "phone-a-friend", "config.toml"),
-    repo: repoRoot ? join2(repoRoot, ".phone-a-friend.toml") : null
+    user: join3(configBase, "phone-a-friend", "config.toml"),
+    repo: repoRoot ? join3(repoRoot, ".phone-a-friend.toml") : null
   };
 }
 function deepMerge(target, source) {
@@ -1078,11 +1078,11 @@ function deepMerge(target, source) {
   return result;
 }
 function loadConfigFromFile(filePath) {
-  if (!existsSync2(filePath)) {
+  if (!existsSync3(filePath)) {
     return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   }
   try {
-    const content = readFileSync2(filePath, "utf-8");
+    const content = readFileSync3(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge(
       { defaults: { ...DEFAULT_CONFIG.defaults } },
@@ -1097,19 +1097,19 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
   let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
   config = loadConfigFromFile(paths.user);
-  if (paths.repo && existsSync2(paths.repo)) {
-    const repoConfig = parse(readFileSync2(paths.repo, "utf-8"));
+  if (paths.repo && existsSync3(paths.repo)) {
+    const repoConfig = parse(readFileSync3(paths.repo, "utf-8"));
     config = deepMerge(config, repoConfig);
   }
   return config;
 }
 function saveConfig(cfg, filePath) {
-  mkdirSync(dirname(filePath), { recursive: true });
+  mkdirSync2(dirname2(filePath), { recursive: true });
   const content = stringify(cfg);
-  writeFileSync2(filePath, content, "utf-8");
+  writeFileSync3(filePath, content, "utf-8");
 }
 function configInit(filePath, force = false) {
-  if (!force && existsSync2(filePath)) {
+  if (!force && existsSync3(filePath)) {
     throw new Error(`Config already exists at ${filePath}. Use --force to overwrite.`);
   }
   saveConfig(DEFAULT_CONFIG, filePath);
@@ -1127,8 +1127,8 @@ function configGet(key, cfg) {
 }
 function configSet(key, rawValue, filePath) {
   let cfg;
-  if (existsSync2(filePath)) {
-    const content = readFileSync2(filePath, "utf-8");
+  if (existsSync3(filePath)) {
+    const content = readFileSync3(filePath, "utf-8");
     cfg = parse(content);
   } else {
     cfg = { defaults: { ...DEFAULT_CONFIG.defaults } };
@@ -5643,9 +5643,9 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
-import { dirname as dirname2, join as join3 } from "path";
-import { homedir as homedir2 } from "os";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "fs";
+import { dirname as dirname3, join as join4 } from "path";
+import { homedir as homedir3 } from "os";
 import { randomUUID } from "crypto";
 var MAX_JOBS, JobManager;
 var init_jobs = __esm({
@@ -5655,23 +5655,23 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join3(
-          process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config"),
+        this.filePath = filePath ?? join4(
+          process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
       }
       load() {
-        if (!existsSync3(this.filePath)) return [];
+        if (!existsSync4(this.filePath)) return [];
         try {
-          return JSON.parse(readFileSync3(this.filePath, "utf-8"));
+          return JSON.parse(readFileSync4(this.filePath, "utf-8"));
         } catch {
           return [];
         }
       }
       save(jobs) {
-        mkdirSync2(dirname2(this.filePath), { recursive: true });
-        writeFileSync3(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
+        mkdirSync3(dirname3(this.filePath), { recursive: true });
+        writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
         const jobs = this.load();
@@ -5725,18 +5725,18 @@ __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
 import {
-  readFileSync as readFileSync4,
-  writeFileSync as writeFileSync4,
-  existsSync as existsSync4,
-  mkdirSync as mkdirSync3,
-  openSync,
-  closeSync,
-  fsyncSync,
-  renameSync,
-  unlinkSync
+  readFileSync as readFileSync5,
+  writeFileSync as writeFileSync5,
+  existsSync as existsSync5,
+  mkdirSync as mkdirSync4,
+  openSync as openSync2,
+  closeSync as closeSync2,
+  fsyncSync as fsyncSync2,
+  renameSync as renameSync2,
+  unlinkSync as unlinkSync2
 } from "fs";
-import { dirname as dirname3, join as join4 } from "path";
-import { homedir as homedir3 } from "os";
+import { dirname as dirname4, join as join5 } from "path";
+import { homedir as homedir4 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
   "src/sessions.ts"() {
@@ -5745,17 +5745,17 @@ var init_sessions = __esm({
     SessionStore = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join4(
-          process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config"),
+        this.filePath = filePath ?? join5(
+          process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
       }
       load() {
-        if (!existsSync4(this.filePath)) return [];
+        if (!existsSync5(this.filePath)) return [];
         let raw;
         try {
-          raw = readFileSync4(this.filePath, "utf-8");
+          raw = readFileSync5(this.filePath, "utf-8");
         } catch (err) {
           console.error(`[phone-a-friend] Failed to read session store ${this.filePath}: ${err.message}`);
           return [];
@@ -5770,7 +5770,7 @@ var init_sessions = __esm({
           const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
           const rotated = `${this.filePath}.corrupt-${ts}`;
           try {
-            renameSync(this.filePath, rotated);
+            renameSync2(this.filePath, rotated);
             console.error(
               `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${err.message}). Rotated to ${rotated}. Starting with an empty store.`
             );
@@ -5783,32 +5783,32 @@ var init_sessions = __esm({
         }
       }
       save(sessions) {
-        const dir = dirname3(this.filePath);
-        mkdirSync3(dir, { recursive: true });
+        const dir = dirname4(this.filePath);
+        mkdirSync4(dir, { recursive: true });
         const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
         const payload = JSON.stringify(sessions, null, 2);
-        const tmpFd = openSync(tmpPath, "w");
+        const tmpFd = openSync2(tmpPath, "w");
         try {
           try {
-            writeFileSync4(tmpFd, payload, "utf-8");
-            fsyncSync(tmpFd);
+            writeFileSync5(tmpFd, payload, "utf-8");
+            fsyncSync2(tmpFd);
           } finally {
-            closeSync(tmpFd);
+            closeSync2(tmpFd);
           }
-          renameSync(tmpPath, this.filePath);
+          renameSync2(tmpPath, this.filePath);
         } catch (err) {
           try {
-            unlinkSync(tmpPath);
+            unlinkSync2(tmpPath);
           } catch {
           }
           throw err;
         }
         try {
-          const dirFd = openSync(dir, "r");
+          const dirFd = openSync2(dir, "r");
           try {
-            fsyncSync(dirFd);
+            fsyncSync2(dirFd);
           } finally {
-            closeSync(dirFd);
+            closeSync2(dirFd);
           }
         } catch {
         }
@@ -5909,7 +5909,7 @@ __export(relay_exports, {
 });
 import { execFileSync as execFileSync2 } from "child_process";
 import { randomUUID as randomUUID2 } from "crypto";
-import { readFileSync as readFileSync5, existsSync as existsSync5, statSync } from "fs";
+import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
 import { resolve } from "path";
 function sizeBytes(text) {
   return Buffer.byteLength(text, "utf-8");
@@ -5923,7 +5923,7 @@ function ensureSizeLimit(label, text, maxBytes) {
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
   const resolved = resolve(contextFile);
-  if (!existsSync5(resolved)) {
+  if (!existsSync6(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
   }
   const stat = statSync(resolved);
@@ -5931,7 +5931,7 @@ function readContextFile(contextFile) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync5(resolved, "utf-8").trim();
+    const contents = readFileSync6(resolved, "utf-8").trim();
     ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
     return contents;
   } catch (err) {
@@ -6059,7 +6059,7 @@ function prepareRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync5(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync6(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -6323,7 +6323,7 @@ async function reviewRelay(opts) {
     throw new RelayError("Timeout must be greater than zero");
   }
   const resolvedRepo = resolve(repoPath);
-  if (!existsSync5(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  if (!existsSync6(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -6430,17 +6430,17 @@ var init_relay = __esm({
 });
 
 // src/version.ts
-import { readFileSync as readFileSync6 } from "fs";
-import { resolve as resolve2, dirname as dirname4 } from "path";
+import { readFileSync as readFileSync7 } from "fs";
+import { resolve as resolve2, dirname as dirname5 } from "path";
 import { fileURLToPath } from "url";
 function getPackageRoot() {
-  const thisDir = dirname4(fileURLToPath(import.meta.url));
+  const thisDir = dirname5(fileURLToPath(import.meta.url));
   return resolve2(thisDir, "..");
 }
 function getVersion() {
   const pkgPath = resolve2(getPackageRoot(), "package.json");
   try {
-    const pkg = JSON.parse(readFileSync6(pkgPath, "utf-8"));
+    const pkg = JSON.parse(readFileSync7(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
@@ -6455,21 +6455,21 @@ var init_version = __esm({
 // src/installer.ts
 import { execFileSync as execFileSync3 } from "child_process";
 import {
-  existsSync as existsSync6,
+  existsSync as existsSync7,
   lstatSync,
-  mkdirSync as mkdirSync4,
-  readFileSync as readFileSync7,
+  mkdirSync as mkdirSync5,
+  readFileSync as readFileSync8,
   readlinkSync,
   realpathSync,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
-  unlinkSync as unlinkSync2
+  unlinkSync as unlinkSync3
 } from "fs";
-import { resolve as resolve3, join as join5, dirname as dirname5, isAbsolute, sep } from "path";
-import { homedir as homedir4 } from "os";
+import { resolve as resolve3, join as join6, dirname as dirname6, isAbsolute, sep } from "path";
+import { homedir as homedir5 } from "os";
 function ensureParent(filePath) {
-  mkdirSync4(dirname5(filePath), { recursive: true });
+  mkdirSync5(dirname6(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -6480,13 +6480,13 @@ function removePath(filePath) {
     throw err;
   }
   if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync2(filePath);
+    unlinkSync3(filePath);
   } else if (stat.isDirectory()) {
     rmSync2(filePath, { recursive: true, force: true });
   }
 }
 function installPath(src, dst, mode, force) {
-  const dstExists = existsSync6(dst) || isSymlink(dst);
+  const dstExists = existsSync7(dst) || isSymlink(dst);
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
@@ -6631,24 +6631,24 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join5(homedir4(), ".claude");
-  return join5(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join6(homedir5(), ".claude");
+  return join6(base, "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config");
-  return join5(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config");
+  return join6(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join5(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join6(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join5(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join6(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join5(repoRoot, "skills", name, "COMMAND.opencode.md");
-  if (existsSync6(overlay)) return overlay;
-  return join5(repoRoot, "commands", `${name}.md`);
+  const overlay = join6(repoRoot, "skills", name, "COMMAND.opencode.md");
+  if (existsSync7(overlay)) return overlay;
+  return join6(repoRoot, "commands", `${name}.md`);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
@@ -6664,14 +6664,14 @@ function isStalePafSymlink(target, repoRoot) {
   } catch {
     try {
       const link2 = readlinkSync(target);
-      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname5(target), link2);
+      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname6(target), link2);
       let probe = absLink;
-      while (probe !== dirname5(probe)) {
-        if (existsSync6(probe)) {
+      while (probe !== dirname6(probe)) {
+        if (existsSync7(probe)) {
           const realProbe = realpathSync(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
-        probe = dirname5(probe);
+        probe = dirname6(probe);
       }
       return false;
     } catch {
@@ -6683,20 +6683,20 @@ function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
     const resolved = realpathSync(target);
-    if (existsSync6(resolved)) return true;
+    if (existsSync7(resolved)) return true;
   } catch {
   }
-  if (existsSync6(target)) return true;
-  const home = claudeHome ?? join5(homedir4(), ".claude");
-  const cacheBase = join5(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  if (existsSync7(target)) return true;
+  const home = claudeHome ?? join6(homedir5(), ".claude");
+  const cacheBase = join6(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
-    return existsSync6(cacheBase);
+    return existsSync7(cacheBase);
   } catch {
     return false;
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync6(join5(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync6(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join6(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function installClaude(repoRoot, mode, force, claudeHome) {
   const target = claudeTarget(claudeHome);
@@ -6711,23 +6711,23 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     if (isStalePafSymlink(skillTarget, repoRoot)) {
       removePath(skillTarget);
       lines.push(`- opencode_skill:${name}: removed (legacy, no longer supported in OpenCode)`);
-    } else if (existsSync6(skillTarget)) {
+    } else if (existsSync7(skillTarget)) {
       lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
     if (isStalePafSymlink(commandTarget, repoRoot)) {
       removePath(commandTarget);
       lines.push(`- opencode_command:${name}: removed (legacy, no longer supported in OpenCode)`);
-    } else if (existsSync6(commandTarget)) {
+    } else if (existsSync7(commandTarget)) {
       lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join5(repoRoot, "skills", name);
+    const skillSource = join6(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync6(join5(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join5(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join6(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join6(skillSource, "SKILL.md")}`);
     }
-    if (!existsSync6(commandSource)) {
+    if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
     }
     const skillTarget = opencodeSkillTarget(name, opencodeHome);
@@ -6742,7 +6742,7 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
   return lines;
 }
 function uninstallPath(filePath) {
-  if (existsSync6(filePath) || isSymlink(filePath)) {
+  if (existsSync7(filePath) || isSymlink(filePath)) {
     removePath(filePath);
     return "removed";
   }
@@ -6765,7 +6765,7 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
     if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
       removePath(skillTarget);
       lines.push(`- opencode_skill:${name}: removed (legacy)`);
-    } else if (existsSync6(skillTarget) || isSymlink(skillTarget)) {
+    } else if (existsSync7(skillTarget) || isSymlink(skillTarget)) {
       lines.push(`- opencode_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     } else {
       lines.push(`- opencode_skill:${name}: not-installed`);
@@ -6774,7 +6774,7 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
     if (repoRoot && isStalePafSymlink(commandTarget, repoRoot)) {
       removePath(commandTarget);
       lines.push(`- opencode_command:${name}: removed (legacy)`);
-    } else if (existsSync6(commandTarget) || isSymlink(commandTarget)) {
+    } else if (existsSync7(commandTarget) || isSymlink(commandTarget)) {
       lines.push(`- opencode_command:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
     } else {
       lines.push(`- opencode_command:${name}: not-installed`);
@@ -6783,13 +6783,13 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync6(join5(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join6(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join5(homedir4(), ".claude");
-  const registryPath = join5(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join6(homedir5(), ".claude");
+  const registryPath = join6(home, "plugins", "known_marketplaces.json");
   try {
-    const data = JSON.parse(readFileSync7(registryPath, "utf-8"));
+    const data = JSON.parse(readFileSync8(registryPath, "utf-8"));
     const entry = data[marketplaceName];
     if (!entry?.source?.source) return null;
     const sourceType = entry.source.source;
@@ -18197,7 +18197,7 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { readFileSync as readFileSync8, unlinkSync as unlinkSync3, writeFileSync as writeFileSync5 } from "fs";
+import { readFileSync as readFileSync9, unlinkSync as unlinkSync4, writeFileSync as writeFileSync6 } from "fs";
 import path2 from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
@@ -18272,7 +18272,7 @@ var init_dist8 = __esm({
         if (!this.tempFile)
           return;
         try {
-          unlinkSync3(this.tempFile);
+          unlinkSync4(this.tempFile);
           this.tempFile = "";
         } catch (removeFileError) {
           throw new RemoveFileError(removeFileError);
@@ -18295,14 +18295,14 @@ var init_dist8 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync5(this.tempFile, this.text, opt);
+          writeFileSync6(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync8(this.tempFile);
+          const tempFileBuffer = readFileSync9(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -73960,7 +73960,7 @@ var init_ListSelect = __esm({
 });
 
 // src/tui/BackendsPanel.tsx
-import { existsSync as existsSync8 } from "fs";
+import { existsSync as existsSync9 } from "fs";
 function badgeStatus(b) {
   if (b.planned) return "planned";
   if (b.available) return "available";
@@ -74110,7 +74110,7 @@ function BackendsPanel({ report, onEditingChange }) {
     try {
       const paths = configPaths();
       const userPath = paths.user;
-      if (!existsSync8(userPath)) {
+      if (!existsSync9(userPath)) {
         configInit(userPath, true);
       }
       configSet(`backends.${backendName}.model`, modelName, userPath);
@@ -74208,7 +74208,7 @@ var init_BackendsPanel = __esm({
 });
 
 // src/tui/ConfigPanel.tsx
-import { existsSync as existsSync9 } from "fs";
+import { existsSync as existsSync10 } from "fs";
 function buildRows(config) {
   const rows = [];
   const backendOptions = Object.keys(INSTALL_HINTS).sort();
@@ -74245,7 +74245,7 @@ function ConfigPanel({ onEditingChange } = {}) {
   const save = (0, import_react36.useCallback)((dotKey, value) => {
     try {
       const userPath = paths.user;
-      if (!existsSync9(userPath)) {
+      if (!existsSync10(userPath)) {
         configInit(userPath, true);
       }
       configSet(dotKey, value, userPath);
@@ -74394,8 +74394,8 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn as spawn4 } from "child_process";
-import { mkdirSync as mkdirSync5, existsSync as existsSync10 } from "fs";
-import { dirname as dirname6 } from "path";
+import { mkdirSync as mkdirSync6, existsSync as existsSync11 } from "fs";
+import { dirname as dirname7 } from "path";
 function buildActions(report, onRefresh, processRef) {
   return [
     {
@@ -74526,8 +74526,8 @@ function buildActions(report, onRefresh, processRef) {
       description: "Open config in $EDITOR",
       run: async () => {
         const paths = configPaths();
-        if (!existsSync10(paths.user)) {
-          mkdirSync5(dirname6(paths.user), { recursive: true });
+        if (!existsSync11(paths.user)) {
+          mkdirSync6(dirname7(paths.user), { recursive: true });
           configInit(paths.user, true);
         }
         const editorEnv = process.env.EDITOR ?? "vi";
@@ -75006,9 +75006,9 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join6 } from "path";
-import { mkdirSync as mkdirSync6 } from "fs";
-import { homedir as homedir5 } from "os";
+import { join as join7 } from "path";
+import { mkdirSync as mkdirSync7 } from "fs";
+import { homedir as homedir6 } from "os";
 function getDatabase() {
   if (!_Database) {
     _Database = __require("better-sqlite3");
@@ -75016,10 +75016,10 @@ function getDatabase() {
   return _Database;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config");
-  const dir = join6(configBase, "phone-a-friend");
-  mkdirSync6(dir, { recursive: true });
-  return join6(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join7(homedir6(), ".config");
+  const dir = join7(configBase, "phone-a-friend");
+  mkdirSync7(dir, { recursive: true });
+  return join7(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -76731,18 +76731,18 @@ var init_routes = __esm({
 
 // src/web/server.ts
 import { createServer } from "http";
-import { join as join7, extname, resolve as resolve4, relative, sep as sep2 } from "path";
+import { join as join8, extname, resolve as resolve4, relative, sep as sep2 } from "path";
 import { readFile } from "fs/promises";
-import { existsSync as existsSync11 } from "fs";
+import { existsSync as existsSync12 } from "fs";
 import { fileURLToPath as fileURLToPath2 } from "url";
 function resolvePublicDir() {
   const thisDir = typeof __dirname !== "undefined" ? __dirname : fileURLToPath2(new URL(".", import.meta.url));
-  const distPath = join7(thisDir, "public");
-  if (existsSync11(distPath)) return distPath;
-  const devPath = join7(thisDir, "..", "..", "src", "web", "public");
-  if (existsSync11(devPath)) return devPath;
-  const cwdPath = join7(process.cwd(), "src", "web", "public");
-  if (existsSync11(cwdPath)) return cwdPath;
+  const distPath = join8(thisDir, "public");
+  if (existsSync12(distPath)) return distPath;
+  const devPath = join8(thisDir, "..", "..", "src", "web", "public");
+  if (existsSync12(devPath)) return devPath;
+  const cwdPath = join8(process.cwd(), "src", "web", "public");
+  if (existsSync12(cwdPath)) return cwdPath;
   return distPath;
 }
 async function startDashboard(opts = {}) {
@@ -76757,7 +76757,7 @@ async function startDashboard(opts = {}) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path3 === "/" ? join7(publicDir, "index.html") : join7(publicDir, path3);
+    const filePath = path3 === "/" ? join8(publicDir, "index.html") : join8(publicDir, path3);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep2)) {
@@ -76774,7 +76774,7 @@ async function startDashboard(opts = {}) {
     } catch {
       if (!extname(path3)) {
         try {
-          const index = await readFile(join7(publicDir, "index.html"));
+          const index = await readFile(join8(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
           res.end(index);
         } catch {
@@ -77059,6 +77059,259 @@ registerBackend(CODEX_BACKEND);
 
 // src/backends/gemini.ts
 init_backends();
+
+// src/gemini-models.ts
+import {
+  readFileSync as readFileSync2,
+  writeFileSync as writeFileSync2,
+  existsSync as existsSync2,
+  mkdirSync,
+  openSync,
+  closeSync,
+  fsyncSync,
+  renameSync,
+  unlinkSync
+} from "fs";
+import { dirname, join as join2 } from "path";
+import { homedir } from "os";
+var CACHE_SCHEMA_VERSION = 1;
+var DEAD_MODEL_TTL_MS = 24 * 60 * 60 * 1e3;
+function emptyCache() {
+  return {
+    schemaVersion: CACHE_SCHEMA_VERSION,
+    updatedAt: (/* @__PURE__ */ new Date(0)).toISOString(),
+    models: {}
+  };
+}
+var GeminiModelCache = class {
+  filePath;
+  constructor(filePath) {
+    this.filePath = filePath ?? defaultCachePath();
+  }
+  load() {
+    if (!existsSync2(this.filePath)) return emptyCache();
+    let raw;
+    try {
+      raw = readFileSync2(this.filePath, "utf-8");
+    } catch (err) {
+      process.stderr.write(
+        `[phone-a-friend] Failed to read gemini-models cache ${this.filePath}: ${err.message}
+`
+      );
+      return emptyCache();
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed !== "object" || parsed === null || typeof parsed.schemaVersion !== "number" || typeof parsed.models !== "object" || parsed.models === null) {
+        throw new Error("gemini-models cache shape is invalid");
+      }
+      if (parsed.schemaVersion !== CACHE_SCHEMA_VERSION) {
+        process.stderr.write(
+          `[phone-a-friend] gemini-models cache schemaVersion ${parsed.schemaVersion} does not match expected ${CACHE_SCHEMA_VERSION}; ignoring.
+`
+        );
+        return emptyCache();
+      }
+      return {
+        schemaVersion: parsed.schemaVersion,
+        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : (/* @__PURE__ */ new Date(0)).toISOString(),
+        models: parsed.models
+      };
+    } catch (err) {
+      const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+      const rotated = `${this.filePath}.corrupt-${ts}`;
+      try {
+        renameSync(this.filePath, rotated);
+        process.stderr.write(
+          `[phone-a-friend] gemini-models cache at ${this.filePath} could not be parsed (${err.message}). Rotated to ${rotated}. Starting empty.
+`
+        );
+      } catch {
+        process.stderr.write(
+          `[phone-a-friend] gemini-models cache at ${this.filePath} could not be parsed (${err.message}) and could not be rotated. Starting empty.
+`
+        );
+      }
+      return emptyCache();
+    }
+  }
+  save(cache3) {
+    const dir = dirname(this.filePath);
+    mkdirSync(dir, { recursive: true });
+    const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
+    const payload = JSON.stringify(cache3, null, 2);
+    const tmpFd = openSync(tmpPath, "w");
+    try {
+      writeFileSync2(tmpFd, payload, "utf-8");
+      fsyncSync(tmpFd);
+    } finally {
+      closeSync(tmpFd);
+    }
+    try {
+      renameSync(tmpPath, this.filePath);
+    } catch (err) {
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+      }
+      throw err;
+    }
+    try {
+      const dirFd = openSync(dir, "r");
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    } catch {
+    }
+  }
+  isDead(model, now = Date.now()) {
+    const cache3 = this.load();
+    return isModelDead(cache3, model, now);
+  }
+  /**
+   * Return the cached dead-model entry if one exists and is still within TTL.
+   * Returns `undefined` for unknown or expired entries. Used by the backend
+   * to construct a fail-fast error message that includes the cached
+   * `expiresAt`, `httpStatus`, and `message`.
+   */
+  getDeadEntry(model, now = Date.now()) {
+    const cache3 = this.load();
+    const entry = cache3.models[model];
+    if (!entry) return void 0;
+    const expires = Date.parse(entry.expiresAt);
+    if (Number.isNaN(expires) || expires <= now) return void 0;
+    return entry;
+  }
+  /**
+   * Return the absolute path to the cache file (XDG_CONFIG_HOME aware).
+   * Used in error messages so callers can locate / delete the cache.
+   */
+  getCachePath() {
+    return this.filePath;
+  }
+  markDead(model, info2, now = /* @__PURE__ */ new Date()) {
+    const cache3 = this.load();
+    const updated = markModelDead(cache3, model, info2, now);
+    this.save(updated);
+  }
+  prune(now = Date.now()) {
+    const cache3 = this.load();
+    const pruned = pruneExpired(cache3, now);
+    if (pruned !== cache3) {
+      this.save(pruned);
+    }
+  }
+};
+function defaultCachePath() {
+  return join2(
+    process.env.XDG_CONFIG_HOME ?? join2(homedir(), ".config"),
+    "phone-a-friend",
+    "gemini-models.json"
+  );
+}
+function isModelDead(cache3, model, now = Date.now()) {
+  const entry = cache3.models[model];
+  if (!entry) return false;
+  const expires = Date.parse(entry.expiresAt);
+  if (Number.isNaN(expires)) return false;
+  return expires > now;
+}
+function markModelDead(cache3, model, info2, now = /* @__PURE__ */ new Date()) {
+  const nowIso = now.toISOString();
+  const expires = new Date(now.getTime() + DEAD_MODEL_TTL_MS).toISOString();
+  const existing = cache3.models[model];
+  const entry = {
+    status: "unavailable",
+    reason: "not_found",
+    httpStatus: info2.httpStatus,
+    firstSeenAt: existing?.firstSeenAt ?? nowIso,
+    lastSeenAt: nowIso,
+    expiresAt: expires,
+    source: info2.source,
+    message: info2.message
+  };
+  return {
+    schemaVersion: CACHE_SCHEMA_VERSION,
+    updatedAt: nowIso,
+    models: { ...cache3.models, [model]: entry }
+  };
+}
+function pruneExpired(cache3, now = Date.now()) {
+  const next = {};
+  let changed = false;
+  for (const [model, entry] of Object.entries(cache3.models)) {
+    const expires = Date.parse(entry.expiresAt);
+    if (!Number.isNaN(expires) && expires > now) {
+      next[model] = entry;
+    } else {
+      changed = true;
+    }
+  }
+  if (!changed) return cache3;
+  return {
+    schemaVersion: CACHE_SCHEMA_VERSION,
+    updatedAt: new Date(now).toISOString(),
+    models: next
+  };
+}
+function classifyGeminiError(input) {
+  const haystack = [
+    input.stderr ?? "",
+    input.stdout ?? "",
+    input.message ?? ""
+  ].join("\n");
+  const lower = haystack.toLowerCase();
+  if (/modelnotfounderror/i.test(haystack)) {
+    return {
+      kind: "model-not-found",
+      message: extractErrorMessage(haystack) ?? "Gemini model not found (404)",
+      httpStatus: 404,
+      cacheable: true
+    };
+  }
+  if (/requested entity was not found/i.test(haystack) || /\bcode:\s*404\b/.test(haystack) || /"code"\s*:\s*404/.test(haystack)) {
+    return {
+      kind: "model-not-found",
+      message: extractErrorMessage(haystack) ?? "Gemini reported a 404, possibly model-related",
+      httpStatus: 404,
+      cacheable: false
+    };
+  }
+  if (/resource_exhausted/i.test(haystack) || /\b429\b/.test(haystack) || /rate.?limit/.test(lower) || /quota/.test(lower) || /capacity/.test(lower)) {
+    return {
+      kind: "rate-limit",
+      message: extractErrorMessage(haystack) ?? "Gemini reported capacity or rate-limit pressure",
+      httpStatus: 429
+    };
+  }
+  if (/authentication.?failed/i.test(haystack) || /\b401\b/.test(haystack) || /permission denied/i.test(lower) || /api key/i.test(lower)) {
+    return {
+      kind: "auth",
+      message: extractErrorMessage(haystack) ?? "Gemini reported an authentication problem",
+      httpStatus: 401
+    };
+  }
+  return {
+    kind: "other",
+    message: extractErrorMessage(haystack) ?? "unknown Gemini error"
+  };
+}
+function extractErrorMessage(text) {
+  const jsonMatch = text.match(/"message"\s*:\s*"([^"]+)"/);
+  if (jsonMatch) return jsonMatch[1];
+  const errMatch = text.match(/Error:\s*([^\n]+)/);
+  if (errMatch) return errMatch[1].trim();
+  return void 0;
+}
+function isDeadCacheDisabled(env3 = process.env) {
+  const value = env3.PHONE_A_FRIEND_GEMINI_DEAD_CACHE;
+  if (!value) return false;
+  return /^(0|false|no|off)$/i.test(value.trim());
+}
+
+// src/backends/gemini.ts
 var GeminiBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -77089,6 +77342,63 @@ var GeminiBackend = class {
         `gemini CLI not found in PATH. Install it: ${INSTALL_HINTS.gemini}`
       );
     }
+    const envForOpts = opts.env && Object.keys(opts.env).length > 0 ? opts.env : process.env;
+    const cacheEligible = Boolean(opts.model) && !opts.resumeSession && !isDeadCacheDisabled(envForOpts);
+    let cache3 = null;
+    if (cacheEligible) {
+      cache3 = new GeminiModelCache();
+      cache3.prune();
+      const requestedModel = opts.model;
+      const deadEntry = cache3.getDeadEntry(requestedModel);
+      if (deadEntry) {
+        throw new GeminiBackendError(
+          formatDeadModelError(requestedModel, deadEntry, cache3.getCachePath())
+        );
+      }
+    }
+    try {
+      return await this.runOnce(opts, opts.model ?? null);
+    } catch (err) {
+      if (cacheEligible && cache3) {
+        const cls = classifyAttemptError(err);
+        if (cls.kind === "model-not-found" && cls.cacheable) {
+          const requestedModel = opts.model;
+          try {
+            cache3.markDead(requestedModel, {
+              httpStatus: cls.httpStatus ?? 404,
+              message: cls.message,
+              source: "relay-failure"
+            });
+            const writtenEntry = cache3.getDeadEntry(requestedModel);
+            if (writtenEntry) {
+              throw new GeminiBackendError(
+                formatDeadModelError(
+                  requestedModel,
+                  writtenEntry,
+                  cache3.getCachePath()
+                )
+              );
+            }
+          } catch (cacheErr) {
+            if (cacheErr instanceof GeminiBackendError) throw cacheErr;
+            process.stderr.write(
+              `[phone-a-friend] Failed to persist Gemini model cache: ${cacheErr.message}
+`
+            );
+            throw new GeminiBackendError(
+              `Model \`${requestedModel}\` returned 404 from Gemini (ModelNotFoundError). Cache could not be persisted at ${cache3.getCachePath()}. Run without \`--model\` to use Gemini's auto-routing, or set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to skip the cache check.`
+            );
+          }
+        }
+      }
+      if (err instanceof GeminiBackendError) throw err;
+      if (err instanceof BackendError) {
+        throw new GeminiBackendError(err.message);
+      }
+      throw err;
+    }
+  }
+  async runOnce(opts, model) {
     const args = [];
     const useJsonOutput = Boolean(opts.schema);
     const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
@@ -77101,8 +77411,8 @@ var GeminiBackend = class {
     if (opts.resumeSession && opts.sessionId) {
       args.push("--resume", opts.sessionId);
     }
-    if (opts.model) {
-      args.push("-m", opts.model);
+    if (model) {
+      args.push("-m", model);
     }
     args.push("--prompt", prompt);
     try {
@@ -77132,14 +77442,30 @@ var GeminiBackend = class {
         }
         throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
       }
-      if (err instanceof GeminiBackendError) throw err;
-      if (err instanceof BackendError) {
-        throw new GeminiBackendError(err.message);
-      }
       throw err;
     }
   }
 };
+function formatDeadModelError(model, entry, cachePath) {
+  return `Model \`${model}\` returned 404 from Gemini (ModelNotFoundError). Cached as unavailable until ${entry.expiresAt} at ${cachePath}. Run without \`--model\` to use Gemini's auto-routing, set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to bypass the cache, or delete the cache file to clear it.`;
+}
+function classifyAttemptError(err) {
+  if (err instanceof SpawnCliError) {
+    return classifyGeminiError({
+      exitCode: err.exitCode ?? void 0,
+      stderr: err.stderr,
+      stdout: err.stdout,
+      message: err.message
+    });
+  }
+  if (err instanceof GeminiBackendError) {
+    return classifyGeminiError({ message: err.message });
+  }
+  if (err instanceof Error) {
+    return classifyGeminiError({ message: err.message });
+  }
+  return classifyGeminiError({ message: String(err) });
+}
 function injectSchemaPrompt(prompt, schema) {
   return `${prompt}
 
@@ -77936,7 +78262,7 @@ var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
 
 // src/cli.ts
-import { existsSync as existsSync12 } from "fs";
+import { existsSync as existsSync13 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/esm.mjs
@@ -80876,26 +81202,23 @@ function installAction(opts) {
   if (opts.github) {
     if (opts.mode && opts.mode !== "symlink") {
       console.error("Error: --mode is not compatible with --github");
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.repoRoot) {
       console.error("Error: --repo-root is not compatible with --github");
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     if (opts.opencode || opts.all) {
       console.error(
         "Error: --github only applies to Claude Code; OpenCode has no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` separately."
       );
-      process.exitCode = 1;
-      return;
+      return 1;
     }
     const lines2 = ["phone-a-friend installer (GitHub marketplace)"];
     lines2.push(...installFromGitHubMarketplace());
     for (const line of lines2) console.log(line);
     printBackendAvailability();
-    return;
+    return 0;
   }
   const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
   const lines = installHosts({
@@ -80908,6 +81231,7 @@ function installAction(opts) {
   });
   for (const line of lines) console.log(line);
   printBackendAvailability();
+  return 0;
 }
 function updateAction(opts) {
   const target = opts.all ? "all" : opts.opencode && opts.claude ? "all" : opts.opencode ? "opencode" : "claude";
@@ -80945,7 +81269,7 @@ async function run(argv) {
   let exitCode = 0;
   if (normalized.length === 0) {
     const paths = configPaths();
-    const isFirstRun = !existsSync12(paths.user);
+    const isFirstRun = !existsSync13(paths.user);
     const isTTY = process.stdout.isTTY && process.env.TERM !== "dumb";
     if (isTTY && isFirstRun) {
       const { select } = await Promise.resolve().then(() => (init_dist18(), dist_exports));
@@ -81012,7 +81336,7 @@ async function run(argv) {
           return 0;
         }
         if (choice === "install") {
-          installAction({ claude: true, force: true });
+          exitCode = installAction({ claude: true, force: true });
           return 0;
         }
         if (choice === "tui") {
@@ -81229,7 +81553,7 @@ ${banner("AI coding agent relay")}
   configCmd.command("edit").description("Open user config in $EDITOR").action(() => {
     const paths = configPaths(process.cwd());
     const editorEnv = process.env.EDITOR ?? "vi";
-    if (!existsSync12(paths.user)) {
+    if (!existsSync13(paths.user)) {
       configInit(paths.user, true);
     }
     const parts = editorEnv.split(/\s+/);
@@ -81237,7 +81561,7 @@ ${banner("AI coding agent relay")}
   });
   configCmd.command("set <key> <value>").description("Set a config value (dot-notation)").action((key, value) => {
     const paths = configPaths(process.cwd());
-    if (!existsSync12(paths.user)) {
+    if (!existsSync13(paths.user)) {
       configInit(paths.user, true);
     }
     configSet(key, value, paths.user);
@@ -81255,7 +81579,9 @@ ${banner("AI coding agent relay")}
   const pluginCmd = program2.command("plugin").description("Manage host integrations");
   addInstallOptions(
     pluginCmd.command("install").description("Install as Claude Code plugin")
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
   addUpdateOptions(
     pluginCmd.command("update").description("Update Claude plugin")
   ).action((opts) => updateAction(opts));
@@ -81539,7 +81865,9 @@ ${banner("AI coding agent relay")}
   });
   addInstallOptions(
     program2.command("install").description("Install Claude plugin (alias for: plugin install)")
-  ).action((opts) => installAction(opts));
+  ).action((opts) => {
+    exitCode = installAction(opts);
+  });
   addUpdateOptions(
     program2.command("update").description("Update Claude plugin (alias for: plugin update)")
   ).action((opts) => updateAction(opts));

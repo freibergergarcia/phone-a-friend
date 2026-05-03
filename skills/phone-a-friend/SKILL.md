@@ -200,9 +200,9 @@ I'm working on this task and got the above response. Please review it and return
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
    phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast] [--session <id>]
-   # For gemini, always include --model (see "Gemini Model Priority" below).
+   # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" --model <model> $PAF_NO_DIFF [--fast]
+   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast]
    ```
 
    `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. Swap
@@ -217,8 +217,8 @@ I'm working on this task and got the above response. Please review it and return
    ```bash
    # Codex:
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>" < /dev/null
-   # Gemini (always include -m, see "Gemini Model Priority" below):
-   gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
+   # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
+   gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "<combined-prompt>"
    ```
 
    In direct mode, build `<combined-prompt>` using the template from the
@@ -315,51 +315,55 @@ This is rarely the right move from inside a Claude Code conversation — the
 common case is `--session <label>` with a fresh label. Only use
 `--backend-session` when the user supplied a specific backend thread ID.
 
-## Gemini Model Priority
+## Gemini model selection
 
-When using `--to gemini`, **always** pass `--model` using the first model from
-this priority list. Never use aliases (`auto`, `pro`, `flash`) — use concrete
-model names only:
+By default, **omit `--model`** for `--to gemini` and let Gemini CLI's
+auto-routing pick the model. This mirrors how `--to codex` and `--to claude`
+work in this skill — the CLI's own default is the right default. Pinning
+`--model` ages docs poorly; auto-routing tracks deployed models for you.
 
-### Why we bypass auto-routing
+### When to pin `--model` explicitly
 
-Gemini CLI has built-in model fallback via auto mode, but it does NOT work in
-headless/non-interactive mode. `--yolo` (and `--approval-mode yolo`) only
-auto-approve tool calls, not model switch prompts. When Gemini hits a capacity
-error in headless mode, it tries to prompt for consent and fails
-(`google-gemini/gemini-cli#13561`). By passing `--model` explicitly, we bypass
-this broken behavior and handle retry/fallback ourselves.
+Set `--model` when you need:
 
-### Priority rationale
+- **Reproducibility** — pinning produces deterministic behavior across runs.
+- **Capability** — choosing a more capable model for a specific task (e.g.,
+  `--model gemini-2.5-pro` for a hard review, accepting more 429s).
+- **Debugging** — isolating model behavior from auto-routing changes.
 
-As of 2026-02-22, `gemini-3.1-pro-preview-*` models return 404 (not yet
-deployed) and `gemini-2.5-pro` is perpetually at capacity (429). Based on
-empirical testing across 10+ relay sessions, `gemini-2.5-flash` is the only
-model that reliably works. Lead with what works; fall forward to newer models
-as they become available.
+When you do pin and the model returns a strong 404 (`ModelNotFoundError`),
+PaF caches the model as unavailable for 24h at
+`~/.config/phone-a-friend/gemini-models.json` and surfaces a clear error
+that includes the cache path, expiry timestamp, and bypass instructions.
+PaF does **not** auto-substitute another model — explicit pins surface
+explicit failures so the caller decides whether to retry, switch model,
+or omit `--model` and rely on auto-routing.
 
-1. `gemini-2.5-flash` — reliable, fast, confirmed working
-2. `gemini-2.5-pro` — higher capability but frequently at capacity (429)
-3. `gemini-2.5-flash-lite` — last resort
-4. `gemini-3.1-pro-preview-customtools` — not yet deployed (404 as of 2026-02-22)
-5. `gemini-3.1-pro-preview` — not yet deployed (404 as of 2026-02-22)
+To bypass the cache (debugging stale entries or testing recovery):
 
-### Fallback rule
+```bash
+PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false phone-a-friend --to gemini --model X --prompt "..."
+```
 
-On Gemini relay failure, retry with the next model **only** for transient or
-capacity errors:
+Or delete `~/.config/phone-a-friend/gemini-models.json` to clear it.
 
-- **Retry with next model**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED;
-  "high demand"; model not found; transient/timeout errors
-- **Do NOT retry**: authentication failures, invalid arguments, prompt errors,
-  permission errors
-- **Default**: if an error cannot be confidently classified as transient, do
-  NOT model-fallback — report the error immediately
+### Cache scope
 
-After exhausting all models, stop and report the error with the list of
-attempted models.
+- **Cached** (24h): strong 404 (`ModelNotFoundError` from gemini-cli's own classifier).
+- **Not cached**: ambiguous 404s (could be a missing project / file, not the model), 429 / RESOURCE_EXHAUSTED, authentication failures, any other error class.
+- **Not consulted**: when `--model` is unset (auto-routing), or during session resume (`--resume`).
 
-This does NOT apply to `--to codex`.
+### Direct Gemini CLI mode (without `phone-a-friend --to gemini`)
+
+When the orchestrator is calling `gemini` directly (no PaF wrapper), the
+dead-model cache does NOT apply — the orchestrator is responsible for any
+retry. In direct mode, retry rules:
+
+- **Retry**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED; transient/timeout errors.
+- **Do NOT retry**: authentication failures, invalid arguments, permission errors, model-not-found.
+- **Default**: if an error cannot be confidently classified as transient, surface it immediately.
+
+This does NOT apply to `--to codex` or `--to claude`.
 
 ## Notes
 
