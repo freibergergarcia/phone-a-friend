@@ -326,6 +326,14 @@ npm test                 # Run tests (vitest)
 npm run typecheck        # Type check (tsc --noEmit)
 ```
 
+## Privacy
+
+Phone a Friend does not collect, transmit, or store any data on servers operated by this project. There is no telemetry and no analytics.
+
+Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, and OpenCode CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
+
+Local state (config, sessions, jobs, agentic transcripts, and the web dashboard event log) is written only to `~/.config/phone-a-friend/` on your machine. The web dashboard is served on `localhost` and is not exposed to the network.
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
