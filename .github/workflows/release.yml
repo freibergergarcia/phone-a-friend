@@ -12,10 +12,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
@@ -57,17 +58,31 @@ jobs:
           npm run build
           npm test
           npm run typecheck
+      - name: Create release app token
+        if: steps.check.outputs.exists == 'false'
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
       - name: Create tag
         if: steps.check.outputs.exists == 'false'
         env:
+          RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           git tag "v$VERSION"
-          git push origin "v$VERSION"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer ${RELEASE_TOKEN}" \
+            push https://github.com/${{ github.repository }}.git "v$VERSION"
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          generate_release_notes: true
-          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          args=(--generate-notes)
+          if [[ "$VERSION" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "v$VERSION" "${args[@]}"
