@@ -336,7 +336,7 @@ command:
      - `name`: a creative human first name
      - `team_name`: the TEAM_NAME from step 1
      - `subagent_type: "general-purpose"`
-     - `mode: "bypassPermissions"`
+     - `mode: "default"`
    - **Both backends**: Spawn 2 teammates **in parallel**, each with a
      unique human first name (same params as above).
 
@@ -350,7 +350,7 @@ command:
 
    Run this now:
 
-   phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
+   phone-a-friend --to <backend> --repo "$PWD" --prompt '<prompt>' \
      [--context-text "<context>"] $PAF_NO_DIFF \
      [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
 
@@ -430,9 +430,9 @@ command:
 
 ### Fallback
 
-If `TEAM_ACTIVE=false` (team creation or spawning failed), all relay calls
-in Step 4 run directly via Bash in the current session. The loop behavior
-is identical — only the execution mechanism changes.
+If `TEAM_ACTIVE=false` (team creation or spawning failed), stop and ask the
+user whether they want to continue with direct relay commands in the current
+session. Do not execute direct Bash relay commands automatically.
 
 ## Step 4 — Iterative Loop (Max MAX_ROUNDS Rounds)
 
@@ -487,7 +487,7 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt '<prompt>' [--context-text '<context>'] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
   Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
@@ -646,14 +646,13 @@ alongside the feedback in every round.
 
 ## Step 6 — Sandbox Policy
 
-Relay calls default to `--sandbox read-only`, but MUST escalate when the
-task requires writes.
+Relay calls default to `--sandbox read-only`.
 
 **Rules:**
 - If the task asks to **create or modify files** (e.g., "create .md files
   under /architecture", "refactor the backend", "apply these changes"),
-  the relay call MUST use `--sandbox workspace-write` so the backend writes
-  the files directly.
+  pause and ask for explicit user confirmation before switching to
+  `--sandbox workspace-write`.
 - The lead should only review and synthesize — not re-create what the
   backend already produced. The backend does the writing; the lead does
   the reviewing.
@@ -765,9 +764,8 @@ happened and whether the result is complete.
   session. This command is not re-entrant.
 - **One team per session.** Only one team can be active. Do not attempt to
   create multiple teams.
-- **Teammates use bypassPermissions.** All spawned teammates MUST use
-  `mode: "bypassPermissions"` to avoid blocking the user with permission
-  prompts.
+- **Teammates MUST keep approvals enabled.** All spawned teammates MUST use
+  `mode: "default"` so permission prompts are enforced by the host.
 - **Context size limits.** Respect the relay limits: 200 KB context, 300 KB
   diff, 500 KB prompt. Use the context budget rules in Step 5.
 - **No changes to phone-a-friend internals.** This command uses
