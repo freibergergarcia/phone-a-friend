@@ -52,7 +52,7 @@ describe('GeminiBackend', () => {
 
   it('has correct name and allowed sandboxes', () => {
     expect(GEMINI_BACKEND.name).toBe('gemini');
-    expect(GEMINI_BACKEND.allowedSandboxes.has('read-only')).toBe(true);
+    expect(GEMINI_BACKEND.allowedSandboxes.has('read-only')).toBe(false);
     expect(GEMINI_BACKEND.allowedSandboxes.has('workspace-write')).toBe(true);
     expect(GEMINI_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
   });
@@ -84,7 +84,7 @@ describe('GeminiBackend', () => {
       prompt: 'Review implementation.',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only' as SandboxMode,
+      sandbox: 'workspace-write' as SandboxMode,
       model: null,
       env: {},
     });
@@ -132,28 +132,17 @@ describe('GeminiBackend', () => {
     expect(capturedArgs).toContain('--yolo');
   });
 
-  it('passes --sandbox for read-only', async () => {
-    mockExecFileSync.mockImplementation((cmd: string) => {
-      if (cmd === 'which') return '/usr/local/bin/gemini';
-      throw new Error(`unexpected execFileSync call: ${cmd}`);
-    });
-
-    let capturedArgs: string[] = [];
-    mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
-      capturedArgs = args;
-      return fakeChild(0, 'ok');
-    });
-
-    await GEMINI_BACKEND.run({
-      prompt: 'x',
-      repoPath: '/tmp/repo',
-      timeoutSeconds: 60,
-      sandbox: 'read-only' as SandboxMode,
-      model: null,
-      env: {},
-    });
-
-    expect(capturedArgs).toContain('--sandbox');
+  it('rejects read-only sandbox', async () => {
+    await expect(
+      GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only' as SandboxMode,
+        model: null,
+        env: {},
+      }),
+    ).rejects.toThrow(/does not support read-only sandbox/);
   });
 
   it('passes --sandbox for workspace-write', async () => {
@@ -196,7 +185,7 @@ describe('GeminiBackend', () => {
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only' as SandboxMode,
+      sandbox: 'workspace-write' as SandboxMode,
       model: 'gemini-2.5-flash',
       env: {},
     });
@@ -222,7 +211,7 @@ describe('GeminiBackend', () => {
       prompt: 'Review',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only' as SandboxMode,
+      sandbox: 'workspace-write' as SandboxMode,
       model: null,
       env: {},
     });
@@ -241,7 +230,7 @@ describe('GeminiBackend', () => {
         prompt: 'Review',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only' as SandboxMode,
+        sandbox: 'workspace-write' as SandboxMode,
         model: null,
         env: {},
       }),
@@ -274,7 +263,7 @@ describe('GeminiBackend', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 0.01,
-        sandbox: 'read-only' as SandboxMode,
+        sandbox: 'workspace-write' as SandboxMode,
         model: null,
         env: {},
       }),
@@ -294,7 +283,7 @@ describe('GeminiBackend', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only' as SandboxMode,
+        sandbox: 'workspace-write' as SandboxMode,
         model: null,
         env: {},
       }),
@@ -314,7 +303,7 @@ describe('GeminiBackend', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only' as SandboxMode,
+        sandbox: 'workspace-write' as SandboxMode,
         model: null,
         env: {},
       }),
@@ -328,7 +317,7 @@ describe('GeminiBackend', () => {
     });
 
     // Test with both sandbox modes to confirm --yolo is always present
-    for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
+    for (const sandbox of ['workspace-write', 'danger-full-access'] as SandboxMode[]) {
       let capturedArgs: string[] = [];
       mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
         capturedArgs = args;
@@ -395,7 +384,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-stale-preview',
         env: {},
       }),
@@ -436,7 +425,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-pinned-dead',
         env: {},
       }),
@@ -458,7 +447,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-pinned-fail',
         env: {},
       });
@@ -491,7 +480,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-ambiguous',
         env: {},
       }),
@@ -516,7 +505,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-busy',
         env: {},
       }),
@@ -540,7 +529,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-2.5-flash',
         env: {},
       }),
@@ -575,7 +564,7 @@ describe('GeminiBackend dead-model cache', () => {
         prompt: 'x',
         repoPath: '/tmp/repo',
         timeoutSeconds: 60,
-        sandbox: 'read-only',
+        sandbox: 'workspace-write',
         model: 'gemini-pinned-dead',
         env: {},
       }),
@@ -604,7 +593,7 @@ describe('GeminiBackend dead-model cache', () => {
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only',
+      sandbox: 'workspace-write',
       model: 'gemini-pinned-dead',
       env: { PHONE_A_FRIEND_GEMINI_DEAD_CACHE: 'false' },
     });
@@ -625,7 +614,7 @@ describe('GeminiBackend dead-model cache', () => {
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only',
+      sandbox: 'workspace-write',
       model: null,
       env: {},
     });
@@ -654,7 +643,7 @@ describe('GeminiBackend dead-model cache', () => {
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only',
+      sandbox: 'workspace-write',
       model: 'gemini-2.5-flash',
       env: {},
       resumeSession: true,
@@ -676,7 +665,7 @@ describe('GeminiBackend dead-model cache', () => {
       prompt: 'x',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only',
+      sandbox: 'workspace-write',
       model: 'gemini-2.5-flash',
       env: {},
     });

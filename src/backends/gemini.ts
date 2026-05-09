@@ -6,7 +6,7 @@
  * The Gemini CLI uses a different interface from Codex:
  * - Non-interactive mode: gemini --prompt "<prompt>"
  * - Repo context: --include-directories <dir> (cwd also set)
- * - Sandbox: --sandbox (boolean flag — on for read-only/workspace-write, off for full access)
+ * - Sandbox: --sandbox (boolean flag — on for workspace-write, off for full access)
  * - Output: captured from stdout (--output-format text)
  * - Model: -m <model>
  * - Auto-approve: --yolo enables tool use in headless mode
@@ -42,7 +42,6 @@ export class GeminiBackend implements Backend {
   readonly name = 'gemini';
   readonly localFileAccess = true;
   readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
-    'read-only',
     'workspace-write',
     'danger-full-access',
   ]);
@@ -58,6 +57,12 @@ export class GeminiBackend implements Backend {
   };
 
   async run(opts: BackendRunOptions): Promise<string> {
+    if (opts.sandbox === 'read-only') {
+      throw new GeminiBackendError(
+        'Gemini backend does not support read-only sandbox: Gemini CLI only exposes a boolean --sandbox and PaF cannot enforce true read-only tool access. Use --sandbox workspace-write or choose another backend for read-only.',
+      );
+    }
+
     if (!isInPath('gemini')) {
       throw new GeminiBackendError(
         `gemini CLI not found in PATH. Install it: ${INSTALL_HINTS.gemini}`,
