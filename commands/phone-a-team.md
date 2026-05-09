@@ -466,18 +466,23 @@ is identical — only the execution mechanism changes.
 Execute a do-review-decide loop. Maximum MAX_ROUNDS rounds. Stop early if
 converged.
 
-### Telemetry ledger
+### Convergence trace
 
-Before the loop starts, initialize an in-memory `TELEMETRY` array. After the
-REVIEW phase of each round, append a verdict envelope (the same shape used
-by `phone-a-friend --verdict-json`):
+Before the loop starts, initialize an in-memory `CONVERGENCE_TRACE` array.
+This trace is local to the current command run; it is not analytics, tracking,
+or persisted product telemetry.
+
+After the REVIEW phase of each round, append a verdict envelope (the exact
+same shape used by `phone-a-friend --verdict-json`). The array index is the
+round number minus one, so do not add a separate `round` property to the
+envelope:
 
 ```
-TELEMETRY = []  # index = round - 1
+CONVERGENCE_TRACE = []  # index = round - 1
 
-# Each entry:
+# Each entry is a verdict envelope:
 {
-  "round": <int, starting at 1>,
+  "schema_version": 1,
   "verdict": "ship" | "iterate" | "abstain",
   "summary": "<one-sentence synthesis>",
   "findings": [
@@ -510,7 +515,7 @@ Two ways to source the verdict envelope per round:
    access can spot regressions the lead might miss. Cap at one
    verdict-json relay call per round.
 
-Both sources produce the same envelope shape, so TELEMETRY is uniform
+Both sources produce the same envelope shape, so CONVERGENCE_TRACE is uniform
 either way.
 
 ### Timing Expectations
@@ -650,11 +655,11 @@ round 1" on tasks that deserve iteration.
   the better output, note the disagreement and rationale for selection.
 - If one backend fails → continue with the successful one, note the failure.
 
-#### Phase 2.5: Telemetry snapshot
+#### Phase 2.5: Convergence trace snapshot
 
-After REVIEW, append the verdict envelope for this round to `TELEMETRY`
-(see "Telemetry ledger" above). Display a one-line summary to the user
-before moving to DECIDE:
+After REVIEW, append the verdict envelope for this round to
+`CONVERGENCE_TRACE` (see "Convergence trace" above). Display a one-line
+summary to the user before moving to DECIDE:
 
 ```
 Round N: verdict=<ship|iterate|abstain> | catches: B blocker, I important, X nits
@@ -678,7 +683,7 @@ the next-round feedback.
 
 #### Phase 3: DECIDE
 
-Based on TELEMETRY[round-1].verdict and the review:
+Based on CONVERGENCE_TRACE[round-1].verdict and the review:
 
 - **Converged** (verdict = `ship`): Stop the loop. Execute Step 8
   (Cleanup), then Step 9 (Final Synthesis). Do not iterate further — no
@@ -872,9 +877,10 @@ a clear synthesis to the user. Include ALL of the following:
      convergence.
 5. **Sandbox note**: If `--sandbox workspace-write` was used at any point,
    note it here.
-6. **Convergence retrospective** (from `TELEMETRY`):
-   - Find the first round whose verdict is `ship`. Call that index `K`.
-   - If `K` exists and `K < MAX_ROUNDS_REQUESTED`, append:
+6. **Convergence retrospective** (from `CONVERGENCE_TRACE`):
+   - Find the first round whose verdict is `ship`. Call that one-based round
+     number `K` (`CONVERGENCE_TRACE` array index + 1).
+   - If `K` exists and `K < MAX_ROUNDS`, append:
      `Hint: this run reached "ship" at round K. Try --max-rounds K next time for a similar task.`
    - If `K` does not exist (no ship-verdict in any round), append:
      `Hint: no round reached "ship" — task may need decomposition, more context, or out-of-band work before re-running.`
