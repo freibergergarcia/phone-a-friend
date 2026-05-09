@@ -35,6 +35,9 @@ into the current conversation.
   subcommands (e.g. `phone-a-friend phone-a-team`).
 - `--backend` is a `/phone-a-team` skill argument, not a PaF CLI flag. Do
   not pass `--backend` to `phone-a-friend`.
+- When materializing relay commands, write dynamic prompt/context text into
+  temp files using single-quoted heredocs. Do not splice user text, prior
+  model output, or conversation context into double-quoted shell arguments.
 - Do NOT dump repo files or git output into `--context-file` or
   `--context-text`. Repo-aware backends read files via `--repo "$PWD"`
   using their own tools. See "Context hygiene" below.
@@ -61,11 +64,11 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
-| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>" < /dev/null` |
-| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
+| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 
-In direct mode, combine prompt + context into a single string using this
-template:
+In direct mode, build `PROMPT_FILE` from prompt + context using this
+template and the quoted-heredoc rule:
 
 ```
 You are helping another coding agent by reviewing or advising on work in a local repository.
@@ -168,11 +171,28 @@ I'm working on this task and got the above response. Please review it and return
 
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
-   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast] [--session <id>]
+   RELAY_BIN="$(command -v phone-a-friend)"
+   PROMPT_FILE="$(mktemp)"
+   CONTEXT_FILE="$(mktemp)"
+   trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+   cat > "$PROMPT_FILE" <<'PAF_PROMPT_EOF'
+<relay-prompt>
+PAF_PROMPT_EOF
+
+   cat > "$CONTEXT_FILE" <<'PAF_CONTEXT_EOF'
+<context-payload>
+PAF_CONTEXT_EOF
+
+   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast]
+   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast]
    ```
+
+   Use delimiter names that do not appear in the payload. The quoted heredoc
+   marker (`<<'PAF_PROMPT_EOF'`) is intentional: it makes shell treat the
+   body as data, not executable text.
 
    `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. It
    resolves to `--no-include-diff` on new binaries and an empty string on
@@ -185,14 +205,14 @@ I'm working on this task and got the above response. Please review it and return
    **Direct mode** (`RELAY_MODE = direct`):
    ```bash
    # Codex:
-   codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<combined-prompt>" < /dev/null
+   codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
-   gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "<combined-prompt>"
+   gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
    ```
 
-   In direct mode, build `<combined-prompt>` using the template from the
-   "Direct call reference" section, substituting `<relay-prompt>` and
-   `<context-payload>` into the template.
+   In direct mode, build `PROMPT_FILE` from the template in the "Direct call
+   reference" section using the same quoted-heredoc rule, substituting
+   `<relay-prompt>` and `<context-payload>` into the file body.
 
    Note: `--fast`, `--session`, and `--no-include-diff` are PaF CLI flags
    only available in binary mode. Do not append them to direct-mode

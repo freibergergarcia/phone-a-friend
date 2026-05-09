@@ -21,6 +21,9 @@ OpenCode-specific execution rules:
 - The host model running this skill (the OpenCode model) is the
   orchestrator that serves the opening question. Do NOT call
   `phone-a-friend --to claude` to generate the opening question.
+- When constructing relay commands from the canonical skill, write prompt
+  text to temp files with single-quoted heredocs. Do not inline dynamic
+  topic, question, or transcript text inside double-quoted shell arguments.
 
 Defer to the canonical `curiosity-engine` skill for parsing, round
 orchestration, schema enforcement, and Gemini model selection. The skill is

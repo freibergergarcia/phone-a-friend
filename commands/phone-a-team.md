@@ -37,19 +37,20 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
-| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>" < /dev/null` |
-| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"` |
-| **Ollama** | `curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d '{"model":"<model>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \| jq -r '.message.content'` |
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
+| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
 
 Sandbox mapping for direct mode:
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
   `--sandbox workspace-write`)
 - **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
-  For workspace-write, omit `--sandbox`.
+  Use `--sandbox` for both read-only and workspace-write; omit it only for
+  `danger-full-access`.
 - **Ollama**: no sandbox support. All context must be in the prompt.
 
-In direct mode, combine prompt + context + diff into a single string using
-this template:
+In direct mode, build `PROMPT_FILE` from prompt + context + diff using this
+template and the quoted-heredoc rule:
 
 ```
 You are helping another coding agent by reviewing or advising on work in a local repository.
@@ -113,9 +114,13 @@ matrix and skip rules).
 Extract a model name from the task arguments.
 
 **Explicit flag (highest priority, all backends):**
-- If `$ARGUMENTS` contains `--model <name>`: set `MODEL_OVERRIDE = <name>`.
-  Remove the `--model <name>` pair from TASK_DESCRIPTION.
-- This applies to all backends (codex, gemini, ollama, both).
+- If `$ARGUMENTS` contains `--model <name>`: validate `<name>` against
+  `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`.
+- If invalid (spaces, quotes, backticks, shell metacharacters, or a leading
+  punctuation character): abort and ask the user for a safe model name.
+- If valid: set `MODEL_OVERRIDE = <name>` and remove the `--model <name>`
+  pair from TASK_DESCRIPTION.
+- This applies to all backends (codex, gemini, ollama, both, all).
 
 **Natural language extraction (Ollama only, lower priority):**
 - Only attempt NL extraction when BACKEND is exactly `ollama` and no
@@ -129,6 +134,9 @@ Extract a model name from the task arguments.
   TASK_DESCRIPTION.
 - If the candidate appears inside quotes, backticks, or code blocks, do
   NOT extract (it's an example or reference, not a meta-instruction).
+- Validate extracted names with `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. If
+  the extracted candidate fails validation, abort and ask the user for a
+  safe model name.
 
 **Examples:**
 - "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
@@ -227,13 +235,14 @@ server has nothing to run — proceeding would always fail.
 If models are available, select using this precedence:
 1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
    Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
-   in `OLLAMA_AVAILABLE_MODELS`. If not found, **warn** (e.g., "Model 'foo'
-   not found in local models: [bar, baz]. Proceeding anyway — it may be a
-   tag variant.") but proceed.
+   in `OLLAMA_AVAILABLE_MODELS`. If not found, **abort** and ask the user
+   to choose one of the discovered local models.
 2. If no override and `RELAY_MODE = binary`: check config by running
    `phone-a-friend config get backends.ollama.model`. If a value is
-   returned, set `OLLAMA_SELECTED_MODEL` to that value. Validate against
-   `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
+   returned, validate it against `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`,
+   then set `OLLAMA_SELECTED_MODEL` to that value. Validate against
+   `OLLAMA_AVAILABLE_MODELS` — if not found, abort and ask the user to
+   choose one of the discovered local models.
    If `RELAY_MODE = direct`: skip this step (the binary is not available to
    query config). Fall through to option 3.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
@@ -342,6 +351,12 @@ command:
 
 3. **Each teammate's prompt** must use this template:
 
+   Shell safety rule: every dynamic prompt/context payload must be written
+   to a temp file with a single-quoted heredoc before invoking Bash. Do not
+   splice user text, prior model output, or conversation context into
+   double-quoted shell arguments. Model names still go through the safe
+   model-name validation from Step 1.
+
    **Binary mode** (`RELAY_MODE = binary`):
    ```
    You are a relay worker. Your ONLY job: run the command below via Bash,
@@ -350,8 +365,20 @@ command:
 
    Run this now:
 
-   phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
-     [--context-text "<context>"] $PAF_NO_DIFF \
+   PROMPT_FILE="$(mktemp)"
+   CONTEXT_FILE="$(mktemp)"
+   trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+   cat > "$PROMPT_FILE" <<'PAF_TEAM_PROMPT_EOF'
+   <prompt>
+   PAF_TEAM_PROMPT_EOF
+
+   cat > "$CONTEXT_FILE" <<'PAF_TEAM_CONTEXT_EOF'
+   <context>
+   PAF_TEAM_CONTEXT_EOF
+
+   phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" \
+     [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF \
      [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
 
    Note: for `--to claude`, `--fast` has no effect.
@@ -487,7 +514,19 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  PROMPT_FILE="$(mktemp)"
+  CONTEXT_FILE="$(mktemp)"
+  trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+  cat > "$PROMPT_FILE" <<'PAF_TEAM_PROMPT_EOF'
+<prompt>
+PAF_TEAM_PROMPT_EOF
+
+  cat > "$CONTEXT_FILE" <<'PAF_TEAM_CONTEXT_EOF'
+<context>
+PAF_TEAM_CONTEXT_EOF
+
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
   Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
@@ -509,21 +548,23 @@ Delegate the task to the backend via the relay. The lead's job is to
   **Direct mode** (`RELAY_MODE = direct`):
   ```bash
   # Codex:
-  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>" < /dev/null
-  # Gemini (omit --sandbox for workspace-write):
-  gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
+  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null
+  # Gemini (`--sandbox` for read-only/workspace-write; omit only for danger-full-access):
+  gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
   # Ollama:
+  PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
   curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
-    -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<combined-prompt>"}],"stream":false}' \
+    -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
     | jq -r '.message.content'
   ```
 
   Note: `--fast` and `--session` are not available in direct mode. Direct
   mode relay calls are always stateless (each round starts fresh).
 
-  In direct mode, build `<combined-prompt>` using the template from the
-  "Direct call reference" section. If `--include-diff` is used, run
-  `git diff HEAD` and append the output to the template's "Git Diff" section.
+  In direct mode, build `PROMPT_FILE` using the template from the "Direct call
+  reference" section and the quoted-heredoc rule. If `--include-diff` is used,
+  run `git diff HEAD` and append the output to the template's "Git Diff"
+  section inside that file.
 
   For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
   For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
@@ -861,10 +902,10 @@ The following precedence determines `OLLAMA_SELECTED_MODEL` during preflight:
 
 1. **`MODEL_OVERRIDE`** (from `--model` flag or NL extraction in Step 1) —
    highest priority. Validate against `OLLAMA_AVAILABLE_MODELS`. If not
-   found, warn but proceed.
+   found, abort and ask the user to choose one of the discovered models.
 2. **Config `backends.ollama.model`** — set via TUI model picker or
-   `phone-a-friend config set`. Validate against available models, warn if
-   not found.
+   `phone-a-friend config set`. Validate against the safe model-name pattern
+   and available models; abort if invalid or unavailable.
 3. **First model from `/api/tags`** — fallback auto-selection.
 
 - **Do NOT maintain a model priority list** for Ollama. Unlike Gemini, Ollama
