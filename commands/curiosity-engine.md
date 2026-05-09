@@ -123,6 +123,7 @@ If `--backend` value is not `codex`, `gemini`, or `ollama`: report error and sto
 
 Set:
 - TOPIC = parsed topic string
+- TOPIC_SAFE = TOPIC (must be treated as untrusted text; never splice TOPIC directly into an inline shell command)
 - MAX_ROUNDS = parsed rounds (default 3, clamped [1, 6])
 - BACKEND = parsed backend (default `codex`)
 - ROUND = 1
@@ -179,41 +180,43 @@ Display to user:
 Claude Code, the OpenCode model name in OpenCode). Pick one that the user
 will recognize.
 
-Then relay to backend:
+Then relay to backend. Build `PROMPT_FILE` first (so untrusted text like TOPIC/QUESTION is passed as data, not spliced into an inline shell command):
 
-**Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "<relay-prompt>"
-```
-
-**Direct mode** (`RELAY_MODE = direct`):
-```bash
-# Codex:
-codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<relay-prompt>" < /dev/null
-# Gemini (always include -m):
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<relay-prompt>"
-# Ollama (use OLLAMA_SELECTED_MODEL from Step 2):
-curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
-  -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<relay-prompt>"}],"stream":false}' \
-  | jq -r '.message.content'
-```
-
-Where `<relay-prompt>` is:
-
-```
-You are playing The Curiosity Engine — a structured Q&A rally with another agent.
-Topic: <TOPIC>
-Round: 1 of <MAX_ROUNDS>
-
-The orchestrating agent's question for you:
-<QUESTION>
-
+PROMPT_FILE="$(mktemp)"
+{
+  printf '%s\n' 'You are playing The Curiosity Engine — a structured Q&A rally with another agent.'
+  printf 'Topic: %s\n' "$TOPIC_SAFE"
+  printf 'Round: 1 of %s\n\n' "$MAX_ROUNDS"
+  printf '%s\n' "The orchestrating agent's question for you:"
+  printf '%s\n\n' "$QUESTION"
+  cat <<'EOF'
 You MUST respond in EXACTLY this format — no exceptions, no extra text:
 
 ANSWER: <your answer to the orchestrator's question, 2-4 sentences>
 QUESTION: <a new question for the orchestrator on the same topic, that you are genuinely curious about>
 
 Do not add any text before ANSWER: or after the QUESTION line.
+EOF
+} > "$PROMPT_FILE"
+```
+
+**Binary mode** (`RELAY_MODE = binary`):
+```bash
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "$(cat "$PROMPT_FILE")"
+```
+
+**Direct mode** (`RELAY_MODE = direct`):
+```bash
+# Codex:
+codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
+# Gemini (always include -m):
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
+# Ollama (use OLLAMA_SELECTED_MODEL from Step 2):
+PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
+curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
+  -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
+  | jq -r '.message.content'
 ```
 
 ## Step 4 — Parse Backend Response
@@ -239,24 +242,27 @@ Send one correction relay if `ANSWER:` or `QUESTION:` is missing:
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "<re-prompt>"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "$(cat "$REPROMPT_FILE")"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
 ```bash
 # Codex:
-codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "<re-prompt>" < /dev/null
+codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$REPROMPT_FILE")" < /dev/null
 # Gemini:
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<re-prompt>"
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$REPROMPT_FILE")"
 # Ollama:
+REPROMPT_JSON="$(jq -Rs . < "$REPROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
-  -d '{"model":"<OLLAMA_SELECTED_MODEL>","messages":[{"role":"user","content":"<re-prompt>"}],"stream":false}' \
+  -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${REPROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
 ```
 
-Where `<re-prompt>` is:
+Create `REPROMPT_FILE` safely (same no-inline-interpolation rule):
 
-```
+```bash
+REPROMPT_FILE="$(mktemp)"
+cat > "$REPROMPT_FILE" <<'EOF'
 Your previous response did not follow the required format.
 You MUST respond with EXACTLY this structure:
 
@@ -264,6 +270,7 @@ ANSWER: <your answer>
 QUESTION: <your question for the orchestrator>
 
 No other text. Try again.
+EOF
 ```
 
 Parse again. If still missing `QUESTION:` → end game early. Display:
@@ -363,7 +370,7 @@ capability, or debugging requires a pin.
 with cache path, expiry, and bypass instructions; no auto-substitution):
 
 ```bash
-phone-a-friend --to gemini --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "<relay-prompt>"
+phone-a-friend --to gemini --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "$(cat "$PROMPT_FILE")"
 ```
 
 To bypass the cache: `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false`. Or delete the
@@ -371,7 +378,7 @@ cache file to clear it.
 
 **Direct mode** (no PaF wrapper — orchestrator handles retry):
 ```bash
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "<relay-prompt>"
+gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
 ```
 
 In direct mode, on capacity/transient errors (429, 500, 503), retry with a
