@@ -6,7 +6,9 @@
  * provides agentic capabilities: tool calling, native file access via --dir,
  * and SQLite-backed session persistence.
  *
- * Sandbox is a no-op — OpenCode manages its own tool permissions internally.
+ * OpenCode currently does not expose a PaF-controlled sandbox switch. To avoid
+ * silently violating PaF's read-only/workspace-write contract, this backend
+ * only advertises danger-full-access.
  */
 
 import { spawn } from 'node:child_process';
@@ -148,8 +150,6 @@ export class OpenCodeBackend implements Backend {
   readonly name = 'opencode';
   readonly localFileAccess = true;
   readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
-    'read-only',
-    'workspace-write',
     'danger-full-access',
   ]);
   readonly capabilities: BackendCapabilities = {

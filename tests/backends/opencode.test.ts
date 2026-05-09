@@ -19,6 +19,10 @@ function makeOpts(overrides: Record<string, unknown> = {}) {
 }
 
 describe('OpenCode backend', () => {
+  it('only advertises danger-full-access sandbox support', () => {
+    expect([...OPENCODE_BACKEND.allowedSandboxes]).toEqual(['danger-full-access']);
+  });
+
   it('builds basic opencode run args', () => {
     expect(buildOpenCodeArgs({
       prompt: 'hi',

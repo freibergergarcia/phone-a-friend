@@ -78043,8 +78043,6 @@ function assertNotOpenCodeHost(env3) {
   );
 }
 function buildOpenCodeArgs(opts) {
-  const args = ["run", "--format", "json", "--dir", opts.repoPath];
-  const model = normalizeOpenCodeModel(opts.model, opts.provider);
   if (model) args.push("--model", model);
   if (opts.fast) args.push("--pure");
   if (opts.resumeSession && opts.sessionId) {
