@@ -5912,7 +5912,7 @@ function parseVerdict(raw) {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new VerdictParseError("verdict response must be a JSON object", raw);
   }
-  const obj = parsed;
+  const obj = unwrapStructuredOutput(parsed);
   if (obj.schema_version !== VERDICT_SCHEMA_VERSION) {
     throw new VerdictParseError(
       `verdict schema_version mismatch: expected ${VERDICT_SCHEMA_VERSION}, got ${JSON.stringify(obj.schema_version)}`,
@@ -6003,6 +6003,14 @@ function stripJsonFence(text) {
   const fence = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
   if (fence) return fence[1].trim();
   return text;
+}
+function unwrapStructuredOutput(obj) {
+  if (obj.schema_version === VERDICT_SCHEMA_VERSION) return obj;
+  const structuredOutput = obj.structured_output;
+  if (typeof structuredOutput === "object" && structuredOutput !== null && !Array.isArray(structuredOutput)) {
+    return structuredOutput;
+  }
+  return obj;
 }
 function serializeVerdict(envelope) {
   return JSON.stringify(envelope);

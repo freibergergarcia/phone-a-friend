@@ -114,6 +114,25 @@ describe('parseVerdict', () => {
     expect(env.verdict).toBe('ship');
   });
 
+  it('unwraps Claude Code structured_output result envelopes', () => {
+    const wrapped = JSON.stringify({
+      type: 'result',
+      result: '',
+      structured_output: {
+        schema_version: 1,
+        verdict: 'ship',
+        summary: 'Looks good.',
+        findings: [],
+      },
+    });
+
+    const env = parseVerdict(wrapped);
+
+    expect(env.verdict).toBe('ship');
+    expect(env.summary).toBe('Looks good.');
+    expect(env.findings).toEqual([]);
+  });
+
   it('overrides ship when a blocker is present (model lied)', () => {
     const malformed = JSON.stringify({
       schema_version: 1,
