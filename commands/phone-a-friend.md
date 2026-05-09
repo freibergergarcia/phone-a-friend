@@ -168,10 +168,18 @@ I'm working on this task and got the above response. Please review it and return
 
    **Binary mode** (`RELAY_MODE = binary`):
    ```bash
-   phone-a-friend --to codex --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast] [--session <id>]
+   RELAY_BIN="$(command -v phone-a-friend)"
+   PROMPT_FILE="$(mktemp)"
+   CONTEXT_FILE="$(mktemp)"
+   trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+   printf '%s' "<relay-prompt>" > "$PROMPT_FILE"
+   printf '%s' "<context-payload>" > "$CONTEXT_FILE"
+
+   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   phone-a-friend --to gemini --repo "$PWD" --prompt "<relay-prompt>" --context-text "<context-payload>" $PAF_NO_DIFF [--fast]
+   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast]
    ```
 
    `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. It
