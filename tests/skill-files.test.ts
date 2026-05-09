@@ -327,6 +327,78 @@ describe('OpenCode command overlays (skills/<name>/COMMAND.opencode.md)', () => 
   }
 });
 
+describe('Shell materialization hardening', () => {
+  for (const rel of ['commands/phone-a-friend.md', 'skills/phone-a-friend/SKILL.md']) {
+    describe(rel, () => {
+      const file = readFile(rel);
+
+      it('uses temp files and quoted heredocs for prompt/context payloads', () => {
+        expect(file).toContain('PROMPT_FILE="$(mktemp)"');
+        expect(file).toContain('CONTEXT_FILE="$(mktemp)"');
+        expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_PROMPT_EOF'");
+        expect(file).toContain("cat > \"$CONTEXT_FILE\" <<'PAF_CONTEXT_EOF'");
+        expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
+        expect(file).toContain('--context-file "$CONTEXT_FILE"');
+      });
+    });
+  }
+
+  for (const rel of ['commands/curiosity-engine.md', 'skills/curiosity-engine/SKILL.md']) {
+    describe(rel, () => {
+      const file = readFile(rel);
+
+      it('does not inline topic/question prompts into shell arguments', () => {
+        expect(file).toContain('TOPIC_SAFE = TOPIC');
+        expect(file).toContain('PROMPT_FILE="$(mktemp)"');
+        expect(file).toContain("cat <<'PAF_CURIOSITY_PROMPT_EOF'");
+        expect(file).toContain('REPROMPT_FILE="$(mktemp)"');
+        expect(file).toContain("cat > \"$REPROMPT_FILE\" <<'PAF_CURIOSITY_REPROMPT_EOF'");
+        expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
+        expect(file).toContain('--prompt "$(cat "$REPROMPT_FILE")"');
+        expect(file).toContain('jq -Rs . < "$PROMPT_FILE"');
+      });
+    });
+  }
+
+  describe('commands/phone-a-team.md', () => {
+    const file = readFile('commands/phone-a-team.md');
+
+    it('validates model names before shell materialization', () => {
+      expect(file).toContain('^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$');
+      expect(file).toContain('abort and ask the user for a safe model name');
+    });
+
+    it('uses prompt/context files for dynamic relay payloads', () => {
+      expect(file).toContain('Shell safety rule');
+      expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_TEAM_PROMPT_EOF'");
+      expect(file).toContain("cat > \"$CONTEXT_FILE\" <<'PAF_TEAM_CONTEXT_EOF'");
+      expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
+      expect(file).toContain('--context-file "$CONTEXT_FILE"');
+    });
+
+    it('documents the corrected Gemini direct sandbox mapping', () => {
+      expect(file).toContain('Use `--sandbox` for both read-only and workspace-write');
+      expect(file).toMatch(/omit it only for\s+`danger-full-access`/);
+      expect(file).not.toContain('For workspace-write, omit `--sandbox`');
+    });
+  });
+
+  describe('OpenCode overlays', () => {
+    it('keeps the phone-a-friend overlay on the same temp-file prompt pattern', () => {
+      const file = readFile('skills/phone-a-friend/COMMAND.opencode.md');
+      expect(file).toContain('PROMPT_FILE="$(mktemp)"');
+      expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_PROMPT_EOF'");
+      expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
+    });
+
+    it('tells curiosity-engine OpenCode users not to inline dynamic prompt text', () => {
+      const file = readFile('skills/curiosity-engine/COMMAND.opencode.md');
+      expect(file).toContain('single-quoted heredocs');
+      expect(file).toContain('Do not inline dynamic');
+    });
+  });
+});
+
 describe('Curiosity-engine is host-neutral about the orchestrator', () => {
   // The skill ships in OpenCode now, so the orchestrator is "Claude in
   // Claude Code" but "the OpenCode model in OpenCode". Smoke testing

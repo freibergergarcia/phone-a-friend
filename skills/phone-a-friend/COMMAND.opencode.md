@@ -21,13 +21,22 @@ OpenCode-specific execution rules:
 - Preserve the user's request in `--prompt`. Do not run a bare
   `phone-a-friend --to <backend> --review` unless the user explicitly asked
   to review the current diff or branch changes.
+- For relay prompts built from user text or model output, write the prompt
+  to a temp file with a single-quoted heredoc first; do not inline dynamic
+  text inside double-quoted shell arguments.
 
 Example (sanity-review prompt mode):
 
 ```bash
+PROMPT_FILE="$(mktemp)"
+trap 'rm -f "$PROMPT_FILE"' EXIT
+cat > "$PROMPT_FILE" <<'PAF_PROMPT_EOF'
+$ARGUMENTS
+PAF_PROMPT_EOF
+
 PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
   phone-a-friend --to codex --repo "$PWD" \
-  --prompt "$ARGUMENTS" --timeout 300 --no-stream --fast
+  --prompt "$(cat "$PROMPT_FILE")" --timeout 300 --no-stream --fast
 ```
 
 Defer to the canonical `phone-a-friend` skill for workflow details, Gemini
