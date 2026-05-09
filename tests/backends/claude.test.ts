@@ -145,11 +145,11 @@ describe('ClaudeBackend', () => {
 
     // Tools (read-only)
     expect(args).toContain('--tools');
-    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS,WebFetch,WebSearch');
+    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS');
 
     // AllowedTools (auto-approve, same as tools)
     expect(args).toContain('--allowedTools');
-    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob,LS,WebFetch,WebSearch');
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob,LS');
 
     // Depth guard
     expect(args).toContain('--disable-slash-commands');
@@ -179,9 +179,9 @@ describe('ClaudeBackend', () => {
     const args = mockSpawn.mock.calls[0][1] as string[];
 
     expect(args).toContain('--tools');
-    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch');
+    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS,Edit,Write');
     expect(args).toContain('--allowedTools');
-    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch');
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob,LS,Edit,Write');
 
     // No Bash in workspace-write
     expect(args[args.indexOf('--tools') + 1]).not.toContain('Bash');

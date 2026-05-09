@@ -28,8 +28,8 @@ import { parseClaudeStreamJSON } from '../stream-parsers.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS,WebFetch,WebSearch';
-const WORKSPACE_WRITE_TOOLS = 'Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch';
+const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS';
+const WORKSPACE_WRITE_TOOLS = 'Read,Grep,Glob,LS,Edit,Write';
 
 /** Env vars that trigger Claude's nested-session guard. Strip before spawning. */
 const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'] as const;
