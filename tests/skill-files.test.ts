@@ -335,6 +335,7 @@ describe('Shell materialization hardening', () => {
       it('uses temp files and quoted heredocs for prompt/context payloads', () => {
         expect(file).toContain('PROMPT_FILE="$(mktemp)"');
         expect(file).toContain('CONTEXT_FILE="$(mktemp)"');
+        expect(file).toContain('trap \'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"\' EXIT');
         expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_PROMPT_EOF'");
         expect(file).toContain("cat > \"$CONTEXT_FILE\" <<'PAF_CONTEXT_EOF'");
         expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
@@ -350,6 +351,7 @@ describe('Shell materialization hardening', () => {
       it('does not inline topic/question prompts into shell arguments', () => {
         expect(file).toContain('TOPIC_SAFE = TOPIC');
         expect(file).toContain('PROMPT_FILE="$(mktemp)"');
+        expect(file).toContain('trap \'rm -f "$PROMPT_FILE" "${REPROMPT_FILE:-}"\' EXIT');
         expect(file).toContain("cat <<'PAF_CURIOSITY_PROMPT_EOF'");
         expect(file).toContain('REPROMPT_FILE="$(mktemp)"');
         expect(file).toContain("cat > \"$REPROMPT_FILE\" <<'PAF_CURIOSITY_REPROMPT_EOF'");
@@ -370,6 +372,7 @@ describe('Shell materialization hardening', () => {
 
     it('uses prompt/context files for dynamic relay payloads', () => {
       expect(file).toContain('Shell safety rule');
+      expect(file).toContain('trap \'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"\' EXIT');
       expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_TEAM_PROMPT_EOF'");
       expect(file).toContain("cat > \"$CONTEXT_FILE\" <<'PAF_TEAM_CONTEXT_EOF'");
       expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
@@ -387,6 +390,7 @@ describe('Shell materialization hardening', () => {
     it('keeps the phone-a-friend overlay on the same temp-file prompt pattern', () => {
       const file = readFile('skills/phone-a-friend/COMMAND.opencode.md');
       expect(file).toContain('PROMPT_FILE="$(mktemp)"');
+      expect(file).toContain('trap \'rm -f "$PROMPT_FILE"\' EXIT');
       expect(file).toContain("cat > \"$PROMPT_FILE\" <<'PAF_PROMPT_EOF'");
       expect(file).toContain('--prompt "$(cat "$PROMPT_FILE")"');
     });
