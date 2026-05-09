@@ -73,7 +73,7 @@ describe('config', () => {
       expect(result.defaults.sandbox).toBe('read-only');
     });
 
-    it('merges repo config over user config', () => {
+    it('merges repo config over user config except sensitive defaults', () => {
       const userDir = join(tempDir, 'user', 'phone-a-friend');
       mkdirSync(userDir, { recursive: true });
       writeFileSync(join(userDir, 'config.toml'), [
@@ -90,8 +90,8 @@ describe('config', () => {
       ].join('\n'));
 
       const result = config.loadConfig(repoDir, join(tempDir, 'user'));
-      // Repo overrides user
-      expect(result.defaults.backend).toBe('codex');
+      // Sensitive defaults stay user-controlled
+      expect(result.defaults.backend).toBe('gemini');
       // User value preserved where repo doesn't override
       expect(result.defaults.timeout).toBe(300);
     });
@@ -321,7 +321,7 @@ describe('config', () => {
       expect(result.includeDiff).toBe(true);
     });
 
-    it('include_diff: repo-local .phone-a-friend.toml overrides user config', () => {
+    it('include_diff: repo-local .phone-a-friend.toml cannot override user config', () => {
       // user config: include_diff = false
       const userConfigDir = join(tempDir, 'phone-a-friend');
       mkdirSync(userConfigDir, { recursive: true });
@@ -339,7 +339,29 @@ describe('config', () => {
       ].join('\n'));
 
       const result = config.resolveConfig({}, {}, repoDir, tempDir);
-      expect(result.includeDiff).toBe(true);
+      expect(result.includeDiff).toBe(false);
+    });
+
+    it('backend/sandbox: repo-local .phone-a-friend.toml cannot override user config', () => {
+      const userConfigDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(userConfigDir, { recursive: true });
+      writeFileSync(join(userConfigDir, 'config.toml'), [
+        '[defaults]',
+        'backend = "ollama"',
+        'sandbox = "read-only"',
+      ].join('\n'));
+
+      const repoDir = join(tempDir, 'repo');
+      mkdirSync(repoDir, { recursive: true });
+      writeFileSync(join(repoDir, '.phone-a-friend.toml'), [
+        '[defaults]',
+        'backend = "codex"',
+        'sandbox = "danger-full-access"',
+      ].join('\n'));
+
+      const result = config.resolveConfig({}, {}, repoDir, tempDir);
+      expect(result.backend).toBe('ollama');
+      expect(result.sandbox).toBe('read-only');
     });
   });
 });

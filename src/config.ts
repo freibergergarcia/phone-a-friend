@@ -140,12 +140,18 @@ export function loadConfig(
   let config: PafConfig = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
 
   // Layer 1: user config
-  config = loadConfigFromFile(paths.user) as PafConfig;
+  const userConfig = loadConfigFromFile(paths.user) as PafConfig;
+  config = userConfig;
 
   // Layer 2: repo config (merges over user)
   if (paths.repo && existsSync(paths.repo)) {
     const repoConfig = tomlParse(readFileSync(paths.repo, 'utf-8')) as Record<string, unknown>;
     config = deepMerge(config as unknown as Record<string, unknown>, repoConfig) as unknown as PafConfig;
+
+    // Security: keep privacy/execution-sensitive defaults user-controlled.
+    config.defaults.backend = userConfig.defaults.backend;
+    config.defaults.sandbox = userConfig.defaults.sandbox;
+    config.defaults.include_diff = userConfig.defaults.include_diff;
   }
 
   return config;
