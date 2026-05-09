@@ -77896,7 +77896,7 @@ var OllamaBackend = class {
       stream: false
     };
     if (model) body.model = model;
-    if (opts.schema) body.format = "json";
+    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
     const url = `${host}/api/chat`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
@@ -77956,7 +77956,7 @@ var OllamaBackend = class {
       stream: true
     };
     if (model) body.model = model;
-    if (opts.schema) body.format = "json";
+    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
     const url = `${host}/api/chat`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
@@ -78031,6 +78031,17 @@ function injectSchemaPrompt2(prompt, schema) {
 
 Respond with JSON only. The response must match this JSON Schema exactly:
 ${schema}`;
+}
+function ollamaFormatForSchema(schema) {
+  try {
+    const parsed = JSON.parse(schema);
+    if (isJsonObject(parsed)) return parsed;
+  } catch {
+  }
+  return "json";
+}
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 var OLLAMA_BACKEND = new OllamaBackend();
 registerBackend(OLLAMA_BACKEND);

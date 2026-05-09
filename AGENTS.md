@@ -370,8 +370,8 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 - Claude: native enforcement via `--output-format json --json-schema`
 - Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
 - Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
-- Ollama: `format: "json"` in HTTP body with schema injected into prompt (best-effort)
-- OpenCode: schema injected into prompt (best-effort, not validated; matches Gemini/Ollama path)
+- Ollama: native enforcement via JSON Schema object in the HTTP `format` field, with the schema also injected into the prompt for grounding
+- OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
 - Streaming is disabled when `--schema` is active (structured output requires batch mode)
 - When a `--schema` is set in review mode, native `review()` is bypassed and the generic `run()` path is used so the schema is honored uniformly across backends.
 

@@ -46,9 +46,11 @@ export interface VerdictEnvelope {
  *     to express optionality, not omission from `required`)
  *   - no `minLength` or other format constraints (strict mode rejects them)
  *
- * Backends that fall back to prompt injection (Gemini, Ollama, OpenCode)
- * still send this schema verbatim in the prompt, then parseVerdict()
- * validates the response and derives the verdict from severities.
+ * Backends that fall back to prompt injection (Gemini, OpenCode) still send
+ * this schema verbatim in the prompt. Ollama sends the parsed schema through
+ * its native HTTP `format` field and also includes it in the prompt for
+ * grounding. parseVerdict() validates the response and derives the verdict
+ * from severities.
  */
 export const VERDICT_SCHEMA: object = {
   type: 'object',
