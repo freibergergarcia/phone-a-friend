@@ -363,7 +363,7 @@ describe('CodexBackend', () => {
     const baseReviewOpts: ReviewOptions = {
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
-      sandbox: 'read-only' as SandboxModeType,
+      sandbox: 'danger-full-access' as SandboxModeType,
       model: null,
       env: {},
       base: 'main',
@@ -492,6 +492,17 @@ describe('CodexBackend', () => {
       await expect(
         CODEX_BACKEND.review!(baseReviewOpts),
       ).rejects.toThrow(/codex CLI not found/);
+    });
+
+    it('fails closed when sandbox is not danger-full-access', async () => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        return '';
+      });
+
+      await expect(
+        CODEX_BACKEND.review!({ ...baseReviewOpts, sandbox: 'read-only' }),
+      ).rejects.toThrow(/cannot enforce sandbox modes other than danger-full-access/);
     });
 
     it('does not include prompt arg when prompt is undefined', async () => {

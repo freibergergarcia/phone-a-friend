@@ -53,6 +53,12 @@ export class CodexBackend implements Backend {
     const schemaPath = opts.schema ? join(tmpDir, 'codex-output-schema.json') : null;
 
     try {
+      if (opts.resumeSession && opts.sessionId && opts.sandbox !== 'danger-full-access') {
+        throw new CodexBackendError(
+          'codex exec resume cannot enforce sandbox modes other than danger-full-access; refusing to continue',
+        );
+      }
+
       const args = buildCodexExecArgs({
         prompt: opts.prompt,
         repoPath: opts.repoPath,
@@ -74,6 +80,7 @@ export class CodexBackend implements Backend {
         const result = await spawnCli('codex', args, {
           timeoutMs: opts.timeoutSeconds * 1000,
           env: opts.env,
+          cwd: opts.repoPath,
           label: 'codex exec',
         });
         stdout = result.stdout;
@@ -126,6 +133,12 @@ export class CodexBackend implements Backend {
     const outputPath = join(tmpDir, 'codex-last-message.txt');
 
     try {
+      if (opts.sandbox !== 'danger-full-access') {
+        throw new CodexBackendError(
+          'codex exec review cannot enforce sandbox modes other than danger-full-access; use generic review/run path instead',
+        );
+      }
+
       // codex exec review does not accept -C or --sandbox; use cwd instead
       const args = [
         'exec',
