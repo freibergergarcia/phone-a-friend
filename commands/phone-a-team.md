@@ -113,9 +113,14 @@ matrix and skip rules).
 Extract a model name from the task arguments.
 
 **Explicit flag (highest priority, all backends):**
-- If `$ARGUMENTS` contains `--model <name>`: set `MODEL_OVERRIDE = <name>`.
-  Remove the `--model <name>` pair from TASK_DESCRIPTION.
-- This applies to all backends (codex, gemini, ollama, both).
+- If `$ARGUMENTS` contains `--model <name>`: validate `<name>` against the
+  safe model-name pattern `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`.
+- If invalid (contains spaces or shell metacharacters like `$`, `;`, `&`,
+  `|`, `(`, `)`, `<`, `>`, backticks, quotes, or backslashes): **Abort** with
+  an error telling the user to provide a safe model name.
+- If valid: set `MODEL_OVERRIDE = <name>` and remove the `--model <name>` pair
+  from TASK_DESCRIPTION.
+- This applies to all backends (codex, gemini, ollama, both, all).
 
 **Natural language extraction (Ollama only, lower priority):**
 - Only attempt NL extraction when BACKEND is exactly `ollama` and no
@@ -129,6 +134,8 @@ Extract a model name from the task arguments.
   TASK_DESCRIPTION.
 - If the candidate appears inside quotes, backticks, or code blocks, do
   NOT extract (it's an example or reference, not a meta-instruction).
+- Validate extracted names with `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. If the
+  extracted candidate fails validation, **Abort** with an unsafe-model error.
 
 **Examples:**
 - "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
@@ -227,13 +234,14 @@ server has nothing to run — proceeding would always fail.
 If models are available, select using this precedence:
 1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
    Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
-   in `OLLAMA_AVAILABLE_MODELS`. If not found, **warn** (e.g., "Model 'foo'
-   not found in local models: [bar, baz]. Proceeding anyway — it may be a
-   tag variant.") but proceed.
+   in `OLLAMA_AVAILABLE_MODELS`. If not found, **Abort** and ask the user to
+   choose one from the discovered local models (no best-guess fallback).
 2. If no override and `RELAY_MODE = binary`: check config by running
    `phone-a-friend config get backends.ollama.model`. If a value is
-   returned, set `OLLAMA_SELECTED_MODEL` to that value. Validate against
-   `OLLAMA_AVAILABLE_MODELS` — warn if not found but proceed.
+   returned, first validate it with `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`,
+   then set `OLLAMA_SELECTED_MODEL` to that value. Validate against
+   `OLLAMA_AVAILABLE_MODELS` — if not found, abort and ask the user to pick
+   one of the discovered models.
    If `RELAY_MODE = direct`: skip this step (the binary is not available to
    query config). Fall through to option 3.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
@@ -342,6 +350,12 @@ command:
 
 3. **Each teammate's prompt** must use this template:
 
+
+Shell safety rule: every dynamic argument (`<backend>`, `<prompt>`, `<context>`,
+`<mode>`, `<model>`, `<SESSION_ID>`) must be single-quoted when materializing
+a Bash command. If a value contains a single quote, escape it as `'\''` before
+substitution. Never emit unquoted dynamic values.
+
    **Binary mode** (`RELAY_MODE = binary`):
    ```
    You are a relay worker. Your ONLY job: run the command below via Bash,
@@ -350,9 +364,9 @@ command:
 
    Run this now:
 
-   phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" \
-     [--context-text "<context>"] $PAF_NO_DIFF \
-     [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+   phone-a-friend --to '<backend>' --repo "$PWD" --prompt '<prompt>' \
+     [--context-text '<context>'] $PAF_NO_DIFF \
+     [--sandbox '<mode>'] [--model '<model>'] --fast [--session '<SESSION_ID>']
 
    Note: for `--to claude`, `--fast` has no effect.
 
@@ -487,7 +501,7 @@ Delegate the task to the backend via the relay. The lead's job is to
 
   **Binary mode** (`RELAY_MODE = binary`):
   ```bash
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "<prompt>" [--context-text "<context>"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  phone-a-friend --to '<backend>' --repo "$PWD" --prompt '<prompt>' [--context-text '<context>'] $PAF_NO_DIFF [--sandbox '<mode>'] [--model '<model>'] --fast [--session '<SESSION_ID>']
   ```
 
   Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
