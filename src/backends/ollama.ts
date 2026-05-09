@@ -52,7 +52,7 @@ export class OllamaBackend implements Backend {
       stream: false,
     };
     if (model) body.model = model;
-    if (opts.schema) body.format = 'json';
+    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
@@ -121,7 +121,7 @@ export class OllamaBackend implements Backend {
       stream: true,
     };
     if (model) body.model = model;
-    if (opts.schema) body.format = 'json';
+    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
@@ -214,6 +214,20 @@ export class OllamaBackend implements Backend {
 
 function injectSchemaPrompt(prompt: string, schema: string): string {
   return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
+}
+
+function ollamaFormatForSchema(schema: string): Record<string, unknown> | 'json' {
+  try {
+    const parsed = JSON.parse(schema) as unknown;
+    if (isJsonObject(parsed)) return parsed;
+  } catch {
+    // Fall through to JSON mode so callers still get the previous best-effort behavior.
+  }
+  return 'json';
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export const OLLAMA_BACKEND = new OllamaBackend();

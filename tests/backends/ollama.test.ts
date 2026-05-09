@@ -102,6 +102,20 @@ describe('OllamaBackend', () => {
     expect(body.model).toBe('qwen3');
   });
 
+  it('sends parsed JSON Schema as native Ollama format when schema is provided', async () => {
+    const schema = '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}';
+    mockFetch.mockResolvedValueOnce(mockResponse({
+      message: { content: '{"answer":"ok"}' },
+    }));
+
+    await backend.run(makeOpts({ schema }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.format).toEqual(JSON.parse(schema));
+    expect(body.messages[0].content).toContain('Respond with JSON only');
+    expect(body.messages[0].content).toContain(schema);
+  });
+
   it('uses OLLAMA_HOST from env', async () => {
     mockFetch.mockResolvedValueOnce(mockResponse({
       message: { content: 'response' },
@@ -276,6 +290,22 @@ describe('OllamaBackend.runStream', () => {
     await collectStream(backend.runStream(makeOpts()));
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.stream).toBe(true);
+  });
+
+  it('sends parsed JSON Schema as native Ollama format for streaming requests', async () => {
+    const schema = '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}';
+    const lines = [
+      { message: { content: '{"answer":"ok"}' }, done: false },
+      { done: true },
+    ];
+    mockFetch.mockResolvedValueOnce(mockStreamResponse(lines));
+
+    await collectStream(backend.runStream(makeOpts({ schema })));
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.stream).toBe(true);
+    expect(body.format).toEqual(JSON.parse(schema));
+    expect(body.messages[0].content).toContain(schema);
   });
 
   it('throws on HTTP error', async () => {

@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { getBackend, BackendError, type Backend, type SandboxMode } from './backends/index.js';
 import { JobManager, type Job } from './jobs.js';
 import { SessionStore } from './sessions.js';
+import { VERDICT_SCHEMA_JSON, buildVerdictPrompt } from './verdict.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -209,6 +210,14 @@ export interface ReviewRelayOptions {
   sandbox?: SandboxMode;
   schema?: string | null;
   fast?: boolean;
+  /**
+   * Request a verdict JSON envelope (see src/verdict.ts). When true, the
+   * caller's prompt is replaced with the canonical verdict prompt, the
+   * schema is replaced with VERDICT_SCHEMA_JSON, and the native review()
+   * path is bypassed so schema enforcement is consistent across backends.
+   * The raw response should be passed to parseVerdict() by the caller.
+   */
+  verdictJson?: boolean;
 }
 
 export interface RelayOptions {
@@ -587,16 +596,25 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
 }
 
 export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
+  const verdictJson = Boolean(opts.verdictJson);
+  // For verdict mode, compose the caller's review request with the envelope
+  // instructions instead of replacing the request outright. The caller's
+  // intent (e.g. "focus on the auth module") must survive structured output.
+  const effectivePrompt = verdictJson
+    ? buildVerdictPrompt(opts.prompt ?? null)
+    : opts.prompt;
+  const effectiveSchema = verdictJson ? VERDICT_SCHEMA_JSON : (opts.schema ?? null);
+
   const {
     repoPath,
     backend = DEFAULT_BACKEND,
-    prompt,
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
     sandbox = DEFAULT_SANDBOX,
-    schema = null,
     fast = false,
   } = opts;
+  const prompt = effectivePrompt;
+  const schema = effectiveSchema;
 
   if (timeoutSeconds <= 0) {
     throw new RelayError('Timeout must be greater than zero');
@@ -625,10 +643,14 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const env = nextRelayEnv();
 
   // If backend supports review(), use it directly.
-  // Skip native review when a custom prompt is provided — Codex exec review
-  // cannot combine --base with a positional prompt, so the generic run() path
-  // (which includes the prompt alongside the diff) gives better results.
-  if (typeof selectedBackend.review === 'function' && !prompt) {
+  // Skip native review when:
+  //   - a custom prompt is provided — Codex exec review cannot combine
+  //     --base with a positional prompt, so the generic run() path (which
+  //     includes the prompt alongside the diff) gives better results.
+  //   - a schema is set — native review() does not forward schema to the
+  //     backend's structured output enforcement, so the schema would be
+  //     silently dropped. Use the generic run() path which honors schema.
+  if (typeof selectedBackend.review === 'function' && !prompt && !schema) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,

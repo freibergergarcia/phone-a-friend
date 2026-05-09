@@ -175,8 +175,14 @@ export class OpenCodeBackend implements Backend {
     }
 
     const { provider, pure } = this.getConfig();
+    // OpenCode has no native --schema enforcement — fall back to prompt
+    // injection so callers asking for structured output (e.g.
+    // --verdict-json) get a best-effort JSON-only response.
+    const promptWithSchema = opts.schema
+      ? injectSchemaPrompt(opts.prompt, opts.schema)
+      : opts.prompt;
     const args = buildOpenCodeArgs({
-      prompt: opts.prompt,
+      prompt: promptWithSchema,
       repoPath: opts.repoPath,
       model: opts.model,
       provider,
@@ -347,6 +353,10 @@ export class OpenCodeBackend implements Backend {
       throw new OpenCodeBackendError(msg);
     }
   }
+}
+
+function injectSchemaPrompt(prompt: string, schema: string): string {
+  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
 }
 
 export const OPENCODE_BACKEND = new OpenCodeBackend();

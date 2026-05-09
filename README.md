@@ -136,7 +136,7 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
   --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
 ```
 
-Claude and Codex enforce the schema natively. Gemini, Ollama, and OpenCode use prompt injection (best-effort).
+Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Gemini and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
 
 ### Sessions
 
