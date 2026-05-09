@@ -45,7 +45,7 @@ Sandbox mapping for direct mode:
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
   `--sandbox workspace-write`)
 - **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
-  For workspace-write, omit `--sandbox`.
+  Use `--sandbox` for both read-only and workspace-write; omit it only for `danger-full-access`.
 - **Ollama**: no sandbox support. All context must be in the prompt.
 
 In direct mode, combine prompt + context + diff into a single string using
@@ -510,7 +510,7 @@ Delegate the task to the backend via the relay. The lead's job is to
   ```bash
   # Codex:
   codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "<combined-prompt>" < /dev/null
-  # Gemini (omit --sandbox for workspace-write):
+  # Gemini (`--sandbox` for read-only/workspace-write; omit only for danger-full-access):
   gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "<combined-prompt>"
   # Ollama:
   curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
