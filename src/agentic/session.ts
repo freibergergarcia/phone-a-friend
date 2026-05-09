@@ -13,6 +13,7 @@ import type { AgentConfig } from './types.js';
 
 // Env vars that trigger Claude's nested-session guard
 const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'];
+const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,8 +140,8 @@ export class SessionManager {
     }
 
     // Read-only tools for review sessions
-    args.push('--tools', 'Read,Grep,Glob,LS,WebFetch,WebSearch');
-    args.push('--allowedTools', 'Read,Grep,Glob,LS,WebFetch,WebSearch');
+    args.push('--tools', READ_ONLY_TOOLS);
+    args.push('--allowedTools', READ_ONLY_TOOLS);
 
     // Prevent recursion
     args.push('--disable-slash-commands');

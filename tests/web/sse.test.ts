@@ -47,6 +47,15 @@ describe('SSEBroadcaster', () => {
     expect(res.chunks).toContain(': connected\n\n');
   });
 
+  it('does not expose SSE streams with wildcard CORS', () => {
+    const res = mockResponse();
+    sse.addClient(res, null);
+
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.not.objectContaining({
+      'Access-Control-Allow-Origin': expect.any(String),
+    }));
+  });
+
   it('tracks client count', () => {
     expect(sse.clientCount).toBe(0);
 

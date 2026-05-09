@@ -14,7 +14,6 @@ import type { SSEBroadcaster } from './sse.js';
 function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify(data));
 }
@@ -25,6 +24,32 @@ function notFound(res: ServerResponse, msg = 'Not found'): void {
 
 function error(res: ServerResponse, msg: string, status = 500): void {
   json(res, { error: msg }, status);
+}
+
+function isKnownApiPath(path: string): boolean {
+  return (
+    path === '/api/ingest'
+    || path === '/api/sessions'
+    || /^\/api\/sessions\/[^/]+$/.test(path)
+    || path === '/api/events'
+    || path === '/api/stats'
+  );
+}
+
+function getHeaderValue(header: string | string[] | undefined): string | undefined {
+  return Array.isArray(header) ? header[0] : header;
+}
+
+function isSameOrigin(req: IncomingMessage, url: URL): boolean {
+  const origin = getHeaderValue(req.headers.origin);
+  if (!origin) return true;
+
+  const host = getHeaderValue(req.headers.host) ?? 'localhost';
+  try {
+    return new URL(origin).origin === new URL(`${url.protocol}//${host}`).origin;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -43,12 +68,15 @@ export function handleApiRoute(
 
   // CORS preflight
   if (method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+    res.writeHead(405, {
+      'Allow': 'GET, POST, DELETE',
     });
     res.end();
+    return true;
+  }
+
+  if (isKnownApiPath(path) && !isSameOrigin(req, url)) {
+    error(res, 'Cross-origin dashboard requests are not allowed', 403);
     return true;
   }
 

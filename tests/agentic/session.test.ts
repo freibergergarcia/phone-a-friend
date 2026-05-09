@@ -154,7 +154,11 @@ describe('SessionManager', () => {
         await sm.spawn(makeAgent(), 'system', 'hello', '/repo');
         const args = spawnMock.mock.calls[0][1] as string[];
         expect(args).toContain('--tools');
+        expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,LS');
         expect(args).toContain('--allowedTools');
+        expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,Grep,Glob,LS');
+        expect(args[args.indexOf('--allowedTools') + 1]).not.toContain('WebFetch');
+        expect(args[args.indexOf('--allowedTools') + 1]).not.toContain('WebSearch');
       });
 
       it('includes --disable-slash-commands', async () => {

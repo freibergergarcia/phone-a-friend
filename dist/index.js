@@ -75488,12 +75488,13 @@ var init_queue = __esm({
 // src/agentic/session.ts
 import { spawn as spawn5 } from "child_process";
 import { randomUUID as randomUUID4 } from "crypto";
-var NESTED_SESSION_VARS2, SessionManager;
+var NESTED_SESSION_VARS2, READ_ONLY_TOOLS2, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
     "use strict";
     init_backends();
     NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
+    READ_ONLY_TOOLS2 = "Read,Grep,Glob,LS";
     SessionManager = class {
       sessions = /* @__PURE__ */ new Map();
       /**
@@ -75588,8 +75589,8 @@ ${prompt}`,
         if (model) {
           args.push("--model", model);
         }
-        args.push("--tools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
-        args.push("--allowedTools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
+        args.push("--tools", READ_ONLY_TOOLS2);
+        args.push("--allowedTools", READ_ONLY_TOOLS2);
         args.push("--disable-slash-commands");
         args.push("--disallowedTools", "Task");
         return this.execClaude(args, repoPath);
@@ -76540,8 +76541,7 @@ var init_sse = __esm({
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "Access-Control-Allow-Origin": "*"
+          "Connection": "keep-alive"
         });
         res.write(": connected\n\n");
         const client = { res, sessionId };
@@ -76598,8 +76598,7 @@ data: ${data}
 // src/web/routes.ts
 function json(res, data, status = 200) {
   res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*"
+    "Content-Type": "application/json"
   });
   res.end(JSON.stringify(data));
 }
@@ -76609,17 +76608,35 @@ function notFound(res, msg = "Not found") {
 function error2(res, msg, status = 500) {
   json(res, { error: msg }, status);
 }
+function isKnownApiPath(path3) {
+  return path3 === "/api/ingest" || path3 === "/api/sessions" || /^\/api\/sessions\/[^/]+$/.test(path3) || path3 === "/api/events" || path3 === "/api/stats";
+}
+function getHeaderValue(header) {
+  return Array.isArray(header) ? header[0] : header;
+}
+function isSameOrigin(req, url) {
+  const origin = getHeaderValue(req.headers.origin);
+  if (!origin) return true;
+  const host = getHeaderValue(req.headers.host) ?? "localhost";
+  try {
+    return new URL(origin).origin === new URL(`${url.protocol}//${host}`).origin;
+  } catch {
+    return false;
+  }
+}
 function handleApiRoute(req, res, bus, sse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const path3 = url.pathname;
   const method = req.method ?? "GET";
   if (method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+    res.writeHead(405, {
+      "Allow": "GET, POST, DELETE"
     });
     res.end();
+    return true;
+  }
+  if (isKnownApiPath(path3) && !isSameOrigin(req, url)) {
+    error2(res, "Cross-origin dashboard requests are not allowed", 403);
     return true;
   }
   if (path3 === "/api/ingest" && method === "POST") {
@@ -77839,8 +77856,8 @@ registerBackend(OLLAMA_BACKEND);
 // src/backends/claude.ts
 init_backends();
 import { spawn } from "child_process";
-var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
-var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
+var READ_ONLY_TOOLS = "Read,Grep,Glob,LS";
+var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write";
 var NESTED_SESSION_VARS = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
 var ClaudeBackendError = class extends BackendError {
   constructor(message) {

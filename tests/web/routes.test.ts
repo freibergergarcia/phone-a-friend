@@ -27,11 +27,11 @@ type MockRes = EventEmitter & {
   _headers: Record<string, string>;
 };
 
-function makeReq(method: string, url: string): MockReq {
+function makeReq(method: string, url: string, headers: Record<string, string> = {}): MockReq {
   const req = new EventEmitter() as MockReq;
   req.method = method;
   req.url = url;
-  req.headers = { host: 'localhost:7777' };
+  req.headers = { host: 'localhost:7777', ...headers };
   req.destroy = vi.fn();
   return req;
 }
@@ -136,16 +136,17 @@ describe('handleApiRoute', () => {
   // ---- CORS preflight ---------------------------------------------------
 
   describe('CORS preflight (OPTIONS)', () => {
-    it('returns 204 with CORS headers', () => {
+    it('returns 405 without CORS headers', () => {
       const req = makeReq('OPTIONS', '/api/sessions');
       const res = makeRes();
       handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
 
-      expect(res.writeHead).toHaveBeenCalledWith(204, expect.objectContaining({
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      }));
+      expect(res.writeHead).toHaveBeenCalledWith(405, {
+        'Allow': 'GET, POST, DELETE',
+      });
+      expect(res._headers).not.toHaveProperty('Access-Control-Allow-Origin');
+      expect(res._headers).not.toHaveProperty('Access-Control-Allow-Methods');
+      expect(res._headers).not.toHaveProperty('Access-Control-Allow-Headers');
       expect(res.end).toHaveBeenCalled();
     });
 
@@ -217,6 +218,31 @@ describe('handleApiRoute', () => {
       expect(parseResBody(res)).toEqual({ accepted: 0 });
     });
 
+    it('rejects cross-origin ingest before broadcasting events', async () => {
+      const req = makeReq('POST', '/api/ingest', { origin: 'https://evil.example' });
+      const res = makeRes();
+      handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
+
+      sendBody(req, JSON.stringify([{ type: 'message', sessionId: 's1' }]));
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(res.writeHead).toHaveBeenCalledWith(403, expect.any(Object));
+      expect(parseResBody(res)).toEqual({ error: 'Cross-origin dashboard requests are not allowed' });
+      expect((sse as { broadcast: ReturnType<typeof vi.fn> }).broadcast).not.toHaveBeenCalled();
+    });
+
+    it('accepts same-origin ingest with an Origin header', async () => {
+      const req = makeReq('POST', '/api/ingest', { origin: 'http://localhost:7777' });
+      const res = makeRes();
+      handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
+
+      sendBody(req, JSON.stringify([{ type: 'message', sessionId: 's1' }]));
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(parseResBody(res)).toEqual({ accepted: 1 });
+      expect((sse as { broadcast: ReturnType<typeof vi.fn> }).broadcast).toHaveBeenCalledTimes(1);
+    });
+
     it('responds 413 when body exceeds 1 MB limit', async () => {
       const req = makeReq('POST', '/api/ingest');
       const res = makeRes();
@@ -260,13 +286,13 @@ describe('handleApiRoute', () => {
       expect(parseResBody(res)).toEqual(sessions);
     });
 
-    it('includes Access-Control-Allow-Origin header', () => {
+    it('does not include Access-Control-Allow-Origin header', () => {
       const req = makeReq('GET', '/api/sessions');
       const res = makeRes();
       handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
 
-      expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
-        'Access-Control-Allow-Origin': '*',
+      expect(res.writeHead).toHaveBeenCalledWith(200, expect.not.objectContaining({
+        'Access-Control-Allow-Origin': expect.any(String),
       }));
     });
 
