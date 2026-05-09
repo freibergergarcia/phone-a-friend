@@ -14,7 +14,6 @@ import type { SSEBroadcaster } from './sse.js';
 function json(res: ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
   });
   res.end(JSON.stringify(data));
 }
@@ -41,13 +40,9 @@ export function handleApiRoute(
   const path = url.pathname;
   const method = req.method ?? 'GET';
 
-  // CORS preflight
+  // Explicitly reject CORS preflight requests.
   if (method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    });
+    res.writeHead(405, { 'Allow': 'GET, POST, DELETE' });
     res.end();
     return true;
   }

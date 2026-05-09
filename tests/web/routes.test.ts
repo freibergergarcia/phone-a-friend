@@ -133,19 +133,15 @@ describe('handleApiRoute', () => {
     });
   });
 
-  // ---- CORS preflight ---------------------------------------------------
+  // ---- OPTIONS preflight ---------------------------------------------------
 
-  describe('CORS preflight (OPTIONS)', () => {
-    it('returns 204 with CORS headers', () => {
+  describe('OPTIONS preflight', () => {
+    it('returns 405 without CORS headers', () => {
       const req = makeReq('OPTIONS', '/api/sessions');
       const res = makeRes();
       handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
 
-      expect(res.writeHead).toHaveBeenCalledWith(204, expect.objectContaining({
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      }));
+      expect(res.writeHead).toHaveBeenCalledWith(405, { 'Allow': 'GET, POST, DELETE' });
       expect(res.end).toHaveBeenCalled();
     });
 
@@ -260,13 +256,13 @@ describe('handleApiRoute', () => {
       expect(parseResBody(res)).toEqual(sessions);
     });
 
-    it('includes Access-Control-Allow-Origin header', () => {
+    it('does not include Access-Control-Allow-Origin header', () => {
       const req = makeReq('GET', '/api/sessions');
       const res = makeRes();
       handleApiRoute(req as IncomingMessage, res as unknown as ServerResponse, bus, sse);
 
-      expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
-        'Access-Control-Allow-Origin': '*',
+      expect(res.writeHead).toHaveBeenCalledWith(200, expect.not.objectContaining({
+        'Access-Control-Allow-Origin': expect.any(String),
       }));
     });
 
