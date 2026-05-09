@@ -510,10 +510,13 @@ Two ways to source the verdict envelope per round:
 2. **Backend-judged (optional, file-change rounds)**: when the round
    produced file changes that exist as a git diff, the lead MAY also
    run `phone-a-friend --to <backend> --review --verdict-json` for an
-   independent third-party verdict. If used, prefer the backend's
-   envelope when it disagrees with the lead — backends with file
-   access can spot regressions the lead might miss. Cap at one
-   verdict-json relay call per round.
+   independent third-party verdict. If used, merge it conservatively with
+   the lead-judged envelope: any blocker or important finding from either
+   source makes the trace verdict `iterate`, and a backend `ship` verdict
+   MUST NOT erase blocker or important findings the lead already found.
+   Prefer the backend envelope only when it is stricter than the lead, or
+   when the lead abstained and the backend produced a concrete verdict.
+   Cap at one verdict-json relay call per round.
 
 Both sources produce the same envelope shape, so CONVERGENCE_TRACE is uniform
 either way.
