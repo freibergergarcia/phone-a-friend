@@ -222,6 +222,13 @@ describe('relay', () => {
     expect(callArgs.prompt).toContain('This is inline context.');
   });
 
+  it('wraps prompts with the reviewer preamble for all backends', async () => {
+    await relay({ prompt: 'Review the latest implementation.', repoPath: repo });
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('You are helping another coding agent');
+    expect(callArgs.prompt).toContain('Request:');
+  });
+
   it('includes context file in prompt', async () => {
     const contextPath = path.join(repo, 'context.md');
     fs.writeFileSync(contextPath, 'File-based context content');
