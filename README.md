@@ -11,7 +11,6 @@
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
   [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
   ![Node.js 22.13+](https://img.shields.io/badge/node-%E2%89%A522.13-green)
-  [![Website](https://img.shields.io/badge/website-phone--a--friend-blue)](https://freibergergarcia.github.io/phone-a-friend/)
 
 </div>
 
