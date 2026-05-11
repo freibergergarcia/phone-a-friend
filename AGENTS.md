@@ -333,6 +333,21 @@ Environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
 - `PHONE_A_FRIEND_HOST=opencode` — recursion guard marker. OpenCode install shims set this so that `--to opencode` from inside an OpenCode session is blocked deterministically. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
+- `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
+
+## Update notification
+
+`src/updates.ts` polls `dist-tags.latest` for `@freibergergarcia/phone-a-friend` from the npm registry, caches the result at `~/.config/phone-a-friend/update-check.json`, and prints a one-line stderr banner on the next interactive run when a newer stable version exists.
+
+- **Notification only**, no self-update. The CLI never modifies the installed npm package.
+- **Cache-driven**: the running invocation reads the cache to decide whether to print the banner. A background refresh kicks off via `setImmediate(...).unref()` with a 5s `AbortController` timeout, so short commands like `--version` exit promptly.
+- **Cooldowns**: 24h between registry fetches, 7d before re-showing the same version's banner.
+- **Suppression**: stderr-only banner; suppressed for `--quiet`, `--schema`, `--verdict-json`, any `--json` subcommand flag, non-TTY stdout/stderr, `CI=true`, `TERM=dumb`, `defaults.update_check=false`, or `PHONE_A_FRIEND_UPDATE_CHECK=false`.
+- **Atomic cache writes**: temp file + `fsync` + rename + parent-dir `fsync`. Corruption is recovered by rotating the bad file aside and starting fresh, no data loss because the file is regenerable.
+- **First run**: never shows a banner. It records the first registry result so the banner can appear on the second run earliest.
+- **Doctor**: `phone-a-friend doctor` surfaces the current cache path, last checked timestamp, latest known version, and config opt-in state. The same fields appear under `updateCheck` in `doctor --json` output.
+
+The pure decision logic (`decideBanner`) is testable in isolation in `tests/updates.test.ts`; CLI wiring lives in `src/cli.ts` (`setupUpdateCheck` + `maybeShowUpdateBanner`).
 
 ## Marketplace distribution
 

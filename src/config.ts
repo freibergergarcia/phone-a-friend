@@ -32,6 +32,7 @@ export interface PafConfig {
     include_diff: boolean;
     stream?: boolean;
     review_base?: string;
+    update_check?: boolean;
   };
   backends?: Record<string, BackendConfig>;
   [key: string]: unknown;
@@ -60,6 +61,7 @@ export const DEFAULT_CONFIG: PafConfig = {
     timeout: 600,
     include_diff: false,
     stream: true,
+    update_check: true,
   },
 };
 

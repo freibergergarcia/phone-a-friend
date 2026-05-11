@@ -13,6 +13,7 @@ import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
 import { isOpenCodeInstalled, isPluginInstalled } from './installer.js';
+import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
 
 /**
  * Backends that count toward the "X of Y ready" summary and exit code.
@@ -59,6 +60,7 @@ function formatHumanReadable(
   paths: { user: string; repo: string | null },
   hostInstallations: HostInstallations,
   advisories: string[] = [],
+  updateCheck: UpdateCheckState | null = null,
 ): string {
   const lines: string[] = [];
 
@@ -71,6 +73,22 @@ function formatHumanReadable(
   lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
   lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push('');
+
+  if (updateCheck) {
+    lines.push(`  ${theme.label('Update check:')}`);
+    lines.push(`    ${theme.hint('cache:')} ${updateCheck.cachePath}`);
+    lines.push(`    ${theme.hint('current:')} ${updateCheck.currentVersion}`);
+    lines.push(
+      `    ${theme.hint('latest known:')} ${updateCheck.latestVersion ?? '(not yet fetched)'}`,
+    );
+    lines.push(
+      `    ${theme.hint('last checked:')} ${updateCheck.lastCheckedAt ?? '(never)'}`,
+    );
+    lines.push(
+      `    ${theme.hint('config opt-in:')} ${updateCheck.configEnabled ? 'enabled' : 'disabled'}`,
+    );
+    lines.push('');
+  }
 
   // Relay Backends
   lines.push(`  ${theme.label('Relay Backends:')}`);
@@ -155,6 +173,7 @@ function formatJson(
   exitCode: number,
   hostInstallations: HostInstallations,
   advisories: string[] = [],
+  updateCheck: UpdateCheckState | null = null,
 ): string {
   const counted = countableBackends(report);
   const available = counted.filter(b => b.available).length;
@@ -174,8 +193,34 @@ function formatJson(
     default: config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend,
     summary: { available, total },
     advisories,
+    updateCheck: updateCheck ?? undefined,
     exitCode,
   }, null, 2);
+}
+
+interface UpdateCheckState {
+  cachePath: string;
+  currentVersion: string;
+  latestVersion: string | null;
+  lastCheckedAt: string | null;
+  lastNotifiedVersion: string | null;
+  lastNotifiedAt: string | null;
+  configEnabled: boolean;
+}
+
+function collectUpdateCheckState(config: PafConfig): UpdateCheckState {
+  const cachePath = defaultCachePath();
+  const currentVersion = getVersion();
+  const snapshot: UpdateCheckSnapshot = readSnapshot(cachePath, currentVersion);
+  return {
+    cachePath,
+    currentVersion,
+    latestVersion: snapshot.latestVersion,
+    lastCheckedAt: snapshot.lastCheckedAt,
+    lastNotifiedVersion: snapshot.lastNotifiedVersion,
+    lastNotifiedAt: snapshot.lastNotifiedAt,
+    configEnabled: config.defaults?.update_check !== false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -254,16 +299,17 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
   };
+  const updateCheck = collectUpdateCheckState(config);
 
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, hostInstallations, advisories),
+      output: formatJson(report, config, exitCode, hostInstallations, advisories, updateCheck),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, hostInstallations, advisories),
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories, updateCheck),
   };
 }
