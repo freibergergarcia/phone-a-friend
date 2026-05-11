@@ -211,7 +211,7 @@ fetch happens in the background, with results applied on the next run.
 Sample banner:
 
 ```
-  ↑ phone-a-friend 2.5.0 available (current: 2.1.0)
+  ↑ phone-a-friend X.Y.Z available (current: A.B.C)
     Run: npm install -g @freibergergarcia/phone-a-friend@latest
 ```
 
