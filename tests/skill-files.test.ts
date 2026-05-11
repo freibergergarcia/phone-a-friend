@@ -58,6 +58,28 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toContain('$PAF_NO_DIFF');
   });
 
+  it('records convergence trace entries with the verdict-json envelope shape', () => {
+    expect(file).toContain('CONVERGENCE_TRACE = []');
+    expect(file).toContain('"schema_version": 1');
+    expect(file).toContain('same shape used by `phone-a-friend --verdict-json`');
+    expect(file).not.toMatch(/"round":\s*<int/);
+  });
+
+  it('keeps backend-judged verdicts from downgrading lead-found blockers', () => {
+    expect(file).toContain('merge it conservatively with');
+    expect(file).toMatch(
+      /any blocker or important finding from either\s+source makes the trace verdict `iterate`/,
+    );
+    expect(file).toContain('MUST NOT erase blocker or important findings the lead already found');
+  });
+
+  it('uses only defined max-rounds variables in the retrospective', () => {
+    expect(file).toMatch(/one-based round\s+number `K`/);
+    expect(file).toContain('K < MAX_ROUNDS');
+    expect(file).not.toContain('Call that index `K`');
+    expect(file).not.toContain('MAX_ROUNDS_REQUESTED');
+  });
+
   it('forbids invalid CLI shapes', () => {
     expect(file).toContain('phone-a-friend phone-a-team');
     expect(file).toContain('--to codex,gemini');
