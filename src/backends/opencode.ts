@@ -37,6 +37,18 @@ export class OpenCodeBackendError extends BackendError {
   }
 }
 
+// Emitted when opencode closes cleanly but the parser saw zero text parts
+// (typically only step_start events). Root cause lives in opencode's build
+// agent — under --format json it sometimes terminates after the initial
+// step without finalizing a text reply. Affects both batch and streaming
+// callers, so the message lives here and is reused in run() and runStream().
+const OPENCODE_NO_OUTPUT_MESSAGE =
+  'opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. ' +
+  'Try a more direct prompt, or use codex/gemini/claude for one-shot relays.';
+
+const OPENCODE_REVIEW_NO_OUTPUT_MESSAGE =
+  'opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (codex, gemini, claude) for this review.';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -210,7 +222,7 @@ export class OpenCodeBackend implements Backend {
       }
 
       if (!parsed.text) {
-        throw new OpenCodeBackendError('opencode completed without producing output');
+        throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
       }
 
       return parsed.text;
@@ -283,12 +295,23 @@ export class OpenCodeBackend implements Backend {
       });
     });
 
+    let chunkCount = 0;
     try {
-      yield* parseOpenCodeStreamJSON(
+      for await (const chunk of parseOpenCodeStreamJSON(
         child.stdout as Readable,
         { onSessionCreated: opts.onSessionCreated },
-      );
+      )) {
+        chunkCount++;
+        yield chunk;
+      }
       await closePromise;
+      // closePromise resolves only on clean exit (code 0, no signal, no timeout).
+      // If we reach here with zero text chunks, opencode's build agent emitted
+      // only step_start/tool events and exited successfully — the silent-output
+      // case. Surface the same error users see from the batch path.
+      if (chunkCount === 0) {
+        throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
+      }
     } catch (err: unknown) {
       closePromise.catch(() => {});
 
@@ -342,7 +365,9 @@ export class OpenCodeBackend implements Backend {
 
       const parsed = parseOpenCodeTranscript(result.stdout);
       if (parsed.error) throw new OpenCodeBackendError(parsed.error);
-      if (!parsed.text) throw new OpenCodeBackendError('opencode review completed without producing output');
+      if (!parsed.text) {
+        throw new OpenCodeBackendError(OPENCODE_REVIEW_NO_OUTPUT_MESSAGE);
+      }
       return parsed.text;
     } catch (err: unknown) {
       if (err instanceof OpenCodeBackendError) throw err;

@@ -78248,6 +78248,8 @@ var OpenCodeBackendError = class extends BackendError {
     this.name = "OpenCodeBackendError";
   }
 };
+var OPENCODE_NO_OUTPUT_MESSAGE = "opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a more direct prompt, or use codex/gemini/claude for one-shot relays.";
+var OPENCODE_REVIEW_NO_OUTPUT_MESSAGE = "opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (codex, gemini, claude) for this review.";
 function normalizeOpenCodeModel(model, provider = "ollama") {
   if (!model) return null;
   return model.includes("/") ? model : `${provider}/${model}`;
@@ -78349,7 +78351,7 @@ var OpenCodeBackend = class {
         throw new OpenCodeBackendError(parsed.error);
       }
       if (!parsed.text) {
-        throw new OpenCodeBackendError("opencode completed without producing output");
+        throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
       }
       return parsed.text;
     } catch (err) {
@@ -78414,12 +78416,19 @@ var OpenCodeBackend = class {
         }
       });
     });
+    let chunkCount = 0;
     try {
-      yield* parseOpenCodeStreamJSON(
+      for await (const chunk of parseOpenCodeStreamJSON(
         child.stdout,
         { onSessionCreated: opts.onSessionCreated }
-      );
+      )) {
+        chunkCount++;
+        yield chunk;
+      }
       await closePromise;
+      if (chunkCount === 0) {
+        throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
+      }
     } catch (err) {
       closePromise.catch(() => {
       });
@@ -78466,7 +78475,9 @@ var OpenCodeBackend = class {
       });
       const parsed = parseOpenCodeTranscript(result.stdout);
       if (parsed.error) throw new OpenCodeBackendError(parsed.error);
-      if (!parsed.text) throw new OpenCodeBackendError("opencode review completed without producing output");
+      if (!parsed.text) {
+        throw new OpenCodeBackendError(OPENCODE_REVIEW_NO_OUTPUT_MESSAGE);
+      }
       return parsed.text;
     } catch (err) {
       if (err instanceof OpenCodeBackendError) throw err;
