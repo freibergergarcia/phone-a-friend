@@ -38,6 +38,29 @@ export class GeminiBackendError extends BackendError {
   }
 }
 
+/**
+ * Compose a timeout remediation string. Gemini's CLI silently hangs when its
+ * OAuth refresh path is blocked (notably under Codex's workspace-write sandbox
+ * on macOS — Apple Seatbelt blocks the keychain + outbound HTTPS to Google
+ * accounts). The hang manifests as "the subprocess sits there until the
+ * timeout fires." When the caller has PHONE_A_FRIEND_HOST=codex, blame the
+ * sandbox first. Otherwise, suggest verifying the CLI works at the terminal.
+ */
+export function geminiTimeoutRemediation(host: string = process.env.PHONE_A_FRIEND_HOST ?? ''): string {
+  if (host === 'codex') {
+    return (
+      'Gemini timed out under Codex\'s sandbox. Codex\'s default workspace-write ' +
+      'sandbox blocks Gemini\'s OAuth refresh path (keychain + outbound HTTPS). ' +
+      'Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), ' +
+      'or set `GEMINI_API_KEY` so Gemini skips OAuth entirely.'
+    );
+  }
+  return (
+    'Gemini timed out. Verify `gemini -p "test"` works at the terminal. ' +
+    'If it hangs, run `gemini` interactively to refresh OAuth, or set `GEMINI_API_KEY`.'
+  );
+}
+
 export class GeminiBackend implements Backend {
   readonly name = 'gemini';
   readonly localFileAccess = true;
@@ -142,7 +165,16 @@ export class GeminiBackend implements Backend {
       }
       if (err instanceof GeminiBackendError) throw err;
       if (err instanceof BackendError) {
-        throw new GeminiBackendError(err.message);
+        // Timeout errors get a sandbox-aware remediation appended when we're
+        // running from inside Codex. The default workspace-write sandbox
+        // blocks Gemini's OAuth refresh path and causes the subprocess to
+        // hang until our timeout fires — telling the user to bump the
+        // timeout would not help; they need to relax the sandbox.
+        const msg = err.message;
+        if (msg.toLowerCase().includes('timed out')) {
+          throw new GeminiBackendError(`${msg}. ${geminiTimeoutRemediation()}`);
+        }
+        throw new GeminiBackendError(msg);
       }
       throw err;
     }

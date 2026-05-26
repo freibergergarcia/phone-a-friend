@@ -22,6 +22,9 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 - If the user says not to edit files, keep that instruction in `--prompt`.
 - From OpenCode, do not select `opencode` as the friend backend. Choose `codex`,
   `gemini`, `claude`, or `ollama`.
+- From Codex, do not select `codex` as the friend backend. Choose `claude`,
+  `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
+  `PHONE_A_FRIEND_HOST` recursion guard used for OpenCode.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
   only include the diff when the user explicitly asked for a
   diff/branch/staged review.
@@ -46,6 +49,10 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
   probe and inline `--no-include-diff` literally, which fails on stale
   CLIs. The probe-and-gate is reserved for the rich orchestrator path
   (Claude Code / capable orchestrators).
+- When running inside Codex, prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=codex` (recursion guard). Codex ships modern
+  PaF binaries, so the `--no-include-diff` flag works directly; the
+  env-var fallback is also fine if you prefer symmetry with OpenCode.
 - When materializing relay commands, write dynamic prompt/context text into
   temp files using single-quoted heredocs. Do not splice user text, prior
   model output, or conversation context into double-quoted shell arguments.
@@ -68,16 +75,21 @@ PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
 
 ## Host awareness
 
-PaF blocks accidental `OpenCode -> phone-a-friend --to opencode -> OpenCode`
-recursion using the `PHONE_A_FRIEND_HOST=opencode` environment marker.
-When running from OpenCode, **always** set this marker on every relay
-invocation so the recursion guard fires deterministically — the OpenCode
-install shims set it automatically, but be explicit when constructing
-commands by hand. From Claude Code or other hosts, the marker is not
-needed.
+PaF blocks accidental host recursion (e.g.
+`OpenCode -> phone-a-friend --to opencode -> OpenCode`,
+`Codex -> phone-a-friend --to codex -> Codex`) using the
+`PHONE_A_FRIEND_HOST` environment marker.
+
+When running from OpenCode, always set `PHONE_A_FRIEND_HOST=opencode` on
+every relay invocation. From Codex, set `PHONE_A_FRIEND_HOST=codex`. The
+install shims set the marker automatically; be explicit when constructing
+commands by hand. From Claude Code, the marker is not needed.
 
 When running from OpenCode, do not select `opencode` as the friend backend.
 Choose `codex`, `gemini`, `claude`, or `ollama`.
+
+When running from Codex, do not select `codex` as the friend backend. Choose
+`claude`, `gemini`, `opencode`, or `ollama`.
 
 ## Relay mode
 
@@ -89,6 +101,37 @@ command -v phone-a-friend
 - If not found: set `RELAY_MODE = direct`
 
 No hard abort. The skill continues either way.
+
+**Always resolve the binary via `command -v phone-a-friend`.** Never invoke `./phone-a-friend` from the current working directory, even when you are working inside the phone-a-friend repository itself. The repo's `./phone-a-friend` script is a development entry point that may be out of sync with the user's installed version, and assuming it exists will fail every time you are run from anywhere else. Capture the path once and reuse it:
+
+```bash
+RELAY_BIN="$(command -v phone-a-friend)"
+# Then every relay invocation uses "$RELAY_BIN" ... — never plain "phone-a-friend"
+# from PATH lookup and never "./phone-a-friend".
+```
+
+## Codex sandbox awareness (critical when invoked from Codex)
+
+If `PHONE_A_FRIEND_HOST=codex`, you are running inside Codex's shell-tool sandbox. **By default, Codex uses `workspace-write` mode, which blocks subprocess access to the macOS Keychain and most outbound network**, including:
+
+- Claude's OAuth tokens (stored in macOS Keychain under `claude-token-personal` / `claude-token-work`). A relay to Claude under workspace-write returns `Not logged in · Please run /login` even though the user is fully logged in. Reproducer: `codex exec --sandbox workspace-write "claude -p 'hi'"` fails; `codex exec --sandbox danger-full-access "claude -p 'hi'"` succeeds.
+- Gemini's OAuth refresh path. A relay to Gemini under workspace-write hangs (until the relay's `--timeout` fires) because Gemini cannot reach Google accounts to refresh the token.
+
+This is NOT a real auth issue. Telling the user to run `claude /login` is wrong — it would make things worse.
+
+When you detect `Not logged in` from a Claude relay OR a Gemini timeout, and the host is Codex, tell the user **exactly this**:
+
+> Codex is sandboxing the relay. Run Codex with `codex --sandbox danger-full-access` (or `codex --full-auto`) so subprocess CLIs can reach the keychain and refresh OAuth tokens. Your Claude/Gemini auth is fine; the sandbox is intercepting it.
+
+Alternatives the user can take:
+- Export an API key to skip OAuth entirely: `ANTHROPIC_API_KEY` for Claude, `GEMINI_API_KEY` for Gemini, `OPENAI_API_KEY` for Codex.
+- Approve the specific command escalation when Codex prompts (works for one-shots; tedious for multi-backend fan-outs).
+
+For Codex users running PaF regularly, the cleanest setup is to start Codex with `--sandbox danger-full-access` for these workflows.
+
+## When relays do actually fail
+
+If the relay still fails after the sandbox is opened up, the error is real. Surface the raw error to the user along with the remediation the relay itself printed. Do NOT retry on auth-class failures; the user has to act first.
 
 ### Direct call reference
 
@@ -272,6 +315,53 @@ subscription auth.
 Most `/phone-a-friend` relay calls are self-contained reviews where the
 context is already in the prompt. Default to including `--fast` when the
 backend may be OpenCode; it is harmless elsewhere.
+
+## Multi-backend parallel
+
+When the user asks more than one backend in the same request (e.g. "ask claude and gemini X", "what does codex and ollama think about Y"), run all relays **in parallel**, not sequentially. Sequential calls feel slow even when each one is fast, and a single hung backend should not block the others.
+
+**Quick-question default**: for casual, conversational questions (favourite colour, one-line opinion, sanity check) use `--timeout 60`. The relay's default is 600s, which is correct for code review and bad for "what's your fav colour" — a hung backend can stall the whole interaction. For longer tasks (code review, refactor advice) the default 600s is right; do not lower it.
+
+**Bash pattern** (use this exactly when you have two or more backends to query):
+
+```bash
+RELAY_BIN="$(command -v phone-a-friend)"
+PROMPT_FILE="$(mktemp)"
+trap 'rm -f "$PROMPT_FILE" "$OUT_DIR"/*; rmdir "$OUT_DIR" 2>/dev/null || true' EXIT
+OUT_DIR="$(mktemp -d)"
+
+cat > "$PROMPT_FILE" <<'PAF_PROMPT_EOF'
+<relay-prompt>
+PAF_PROMPT_EOF
+
+# Fire each backend in the background, writing stdout to a per-backend file.
+# Apply --no-include-diff for casual questions (no diff payload needed).
+for BACKEND in claude gemini; do
+  PHONE_A_FRIEND_HOST=<your-host> PHONE_A_FRIEND_INCLUDE_DIFF=false \
+    "$RELAY_BIN" --to "$BACKEND" --repo "$PWD" \
+      --prompt "$(cat "$PROMPT_FILE")" \
+      --no-include-diff --timeout 60 --no-stream \
+      > "$OUT_DIR/$BACKEND.out" 2> "$OUT_DIR/$BACKEND.err" &
+done
+wait
+```
+
+After `wait` returns, every backend has either produced output or timed out at 60s. Read each `$OUT_DIR/<backend>.out` (or `.err` if the backend exited non-zero) and **present the results as a compact markdown table**:
+
+```
+| Backend | Answer |
+|---|---|
+| Claude | Blue. |
+| Gemini | Electric cyan. |
+```
+
+If a backend failed or timed out, surface the error in the table cell so the user sees what happened ("(timed out after 60s)", "(not logged in)") rather than silently dropping that backend.
+
+**Host-specific notes**:
+- From Codex: set `PHONE_A_FRIEND_HOST=codex` on every backgrounded call.
+- From OpenCode: same with `opencode`.
+- From Claude: no host marker required, but the parallel-then-table pattern is the same.
+- Never select `--to codex` from Codex or `--to opencode` from OpenCode (the recursion guard refuses).
 
 ## Session continuity
 

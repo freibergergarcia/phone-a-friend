@@ -226,12 +226,16 @@ phone-a-friend config edit                  # Open in $EDITOR
 # Plugin management
 phone-a-friend plugin install --claude      # Install as Claude plugin
 phone-a-friend plugin install --opencode    # Install OpenCode commands and skills
+phone-a-friend plugin install --codex       # Install Codex plugin (skills + marketplace registration)
+phone-a-friend plugin install --codex --no-codex-cli-sync  # Skip the codex plugin marketplace shell-out (loose-file install only)
 phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
 phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
+phone-a-friend plugin update --codex        # Update Codex plugin
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 phone-a-friend plugin uninstall --opencode  # Uninstall OpenCode commands and skills
+phone-a-friend plugin uninstall --codex     # Uninstall Codex plugin (removes plugin registration + skills, plus any stale paf-* subagent symlinks)
 
 # Job management
 phone-a-friend job status                  # List all tracked jobs
@@ -331,7 +335,7 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 
 Environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
-- `PHONE_A_FRIEND_HOST=opencode` — recursion guard marker. OpenCode install shims set this so that `--to opencode` from inside an OpenCode session is blocked deterministically. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
+- `PHONE_A_FRIEND_HOST=opencode|codex` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
 
@@ -367,6 +371,30 @@ still need `npm install -g @freibergergarcia/phone-a-friend`.
 OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is Claude-only.
 
 The OpenCode command source uses **overlay inversion**: `installer.ts` `opencodeCommandSource()` prefers `skills/<name>/COMMAND.opencode.md` (the OpenCode-tuned thin shim, env-var-only diff suppression, `PHONE_A_FRIEND_HOST=opencode` prefix) when it exists, and falls back to the rich `commands/<name>.md` only when no overlay is shipped for that skill. This keeps the rich content host-neutral for Claude consumption while letting OpenCode ship a host-tuned shim per skill. Today both shared skills (`phone-a-friend`, `curiosity-engine`) ship overlays.
+
+Codex is shipped as a real Codex plugin (the marketplace + manifest live in the repo) AND via loose-file install for content delivery.
+
+`phone-a-friend plugin install --codex` does two things:
+
+1. **Loose-file skill install (canonical content path).** Copies or symlinks the three Codex skills (`phone-a-friend`, `curiosity-engine`, `phone-a-team`) into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). Codex auto-discovers SKILL.md files from this path. Earlier versions also installed `paf-*.toml` subagent personas under `$CODEX_HOME/agents/`; that design was dropped (see "Why no subagents" below) and the install path cleans up any stale paf-* symlinks left over from prior PaF versions.
+2. **Marketplace registration (discoverability).** When `codex` is in PATH, shells out to `codex plugin marketplace add <repo>` followed by `codex plugin add phone-a-friend@phone-a-friend-marketplace`. This registers PaF in Codex's `/plugins` UI and `codex plugin list`. Pass `--no-codex-cli-sync` to skip this step. Codex's marketplace cache currently mirrors only the per-plugin `plugin.json` (not skills content, because Codex does not follow symlinks or up-paths during cache population), so the loose-file install in step 1 is what actually delivers the runnable content. The marketplace registration is the parity surface with Claude's marketplace.
+
+Manifest layout:
+
+| File | Purpose |
+|---|---|
+| `.codex-plugin/plugin.json` | Root per-plugin manifest, symmetric with `.claude-plugin/plugin.json` |
+| `plugins/phone-a-friend/.codex-plugin/plugin.json` | Subdir per-plugin manifest consumed by Codex's marketplace install (Codex requires plugins to live in a subdir of the marketplace, not at root) |
+| `.agents/plugins/marketplace.json` | Codex marketplace manifest listing PaF with `source: { source: "local", path: "./plugins/phone-a-friend" }` |
+| `skills/phone-a-team/.codex/SKILL.md` | Codex-tuned `/phone-a-team` orchestration (Bash-driven round loop, no subagent spawn) |
+
+All three plugin manifests (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `plugins/phone-a-friend/.codex-plugin/plugin.json`) must share `version` with `package.json`. The test `tests/codex-plugin-manifests.test.ts` enforces this in CI.
+
+Codex uses a parallel overlay convention: `installer.ts` `codexSkillSource()` prefers `skills/<name>/.codex/SKILL.md` (Codex-tuned variant in a dotfile subdirectory so it doesn't appear in other hosts' skill scans) when present, and falls back to `skills/<name>/SKILL.md` otherwise. Today `phone-a-team` ships only the `.codex/` overlay (no host-neutral SKILL.md) so OpenCode does not pick it up. `phone-a-friend` and `curiosity-engine` ship a single host-neutral SKILL.md used by both OpenCode and Codex.
+
+### Why no subagents
+
+An earlier draft of this work shipped paf-reviewer / paf-critic / paf-synthesizer as Codex subagents (TOML personas under `agents/codex/`) so each role would show up as a separate thread in `/agent`. The official Codex docs say subagents only spawn on explicit natural-language request ("spawn one agent per role..."), which means casual prompts like "ask claude and gemini X" never triggered them. The Bash-orchestrated `/phone-a-team` is simpler, faster to invoke, and matches how Codex actually behaves with shell tool calls. The orphaned TOML files under `agents/codex/` remain in the tree until explicitly deleted; they are not installed.
 
 ## Job tracking
 

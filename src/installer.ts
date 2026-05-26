@@ -34,9 +34,47 @@ const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 /** GitHub repository for marketplace distribution. */
 export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
-const INSTALL_TARGETS = new Set(['claude', 'opencode', 'all']);
+const INSTALL_TARGETS = new Set(['claude', 'opencode', 'codex', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
 const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+
+/**
+ * Skills installed for Codex. Codex auto-discovers skills at
+ * `$CODEX_HOME/skills/<name>/SKILL.md` (defaulting to `~/.codex/skills/`),
+ * so the source folder is dropped in directly. No separate command-shim
+ * file is needed because Codex treats skills as first-class slash
+ * invocations.
+ *
+ * `phone-a-team` is shipped via the `.codex/` overlay
+ * (`skills/phone-a-team/.codex/SKILL.md`). On Codex, /phone-a-team
+ * orchestrates the bundled subagent personas (paf-reviewer, paf-critic,
+ * paf-synthesizer) which shell out to phone-a-friend per round.
+ */
+const CODEX_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
+
+/**
+ * Codex no longer ships subagent personas. The earlier paf-reviewer /
+ * paf-critic / paf-synthesizer design was dropped because Codex subagents
+ * only spawn on explicit natural-language request (per the official
+ * subagents docs), which made them a poor fit for the everyday relay
+ * surface. /phone-a-team for Codex is now a pure Bash-orchestrated skill
+ * that loops rounds itself and lets Codex's own model synthesize between
+ * rounds. Skills install path remains unchanged; the agents/ install
+ * path was removed.
+ *
+ * The orphaned `agents/codex/paf-*.toml` files in the repo are kept until
+ * the user authorizes deletion per the global "never delete without
+ * permission" rule.
+ */
+
+/**
+ * Codex marketplace registration uses Codex's own plugin CLI surface
+ * (`codex plugin marketplace add` + `codex plugin add`). Verified against
+ * codex-cli 0.133.0: subcommands are `add`/`list`/`remove` (no separate
+ * install/enable/disable verbs). Marketplace name matches the `name`
+ * field in `.agents/plugins/marketplace.json`.
+ */
+const CODEX_MARKETPLACE_NAME = 'phone-a-friend-marketplace';
 
 /**
  * Skills/commands that PaF previously installed for OpenCode but no longer
@@ -52,7 +90,14 @@ const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
  */
 const OPENCODE_LEGACY_SKILLS = ['phone-a-team'] as const;
 
-type InstallTarget = 'claude' | 'opencode' | 'all';
+/**
+ * Same rationale as OPENCODE_LEGACY_SKILLS but for Codex. PaF never shipped
+ * a Codex `phone-a-team` skill, but the legacy slot exists symmetrically
+ * so future deprecations have an obvious home.
+ */
+const CODEX_LEGACY_SKILLS = [] as const;
+
+type InstallTarget = 'claude' | 'opencode' | 'codex' | 'all';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -312,6 +357,38 @@ export function opencodeCommandSource(repoRoot: string, name: string): string {
 }
 
 /**
+ * Resolve the Codex config root. Honors `$CODEX_HOME` first (Codex's own
+ * convention), then falls back to `~/.codex`.
+ */
+export function codexConfigRoot(codexHome?: string): string {
+  if (codexHome) return codexHome;
+  if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
+  return join(homedir(), '.codex');
+}
+
+export function codexSkillTarget(name: string, codexHome?: string): string {
+  return join(codexConfigRoot(codexHome), 'skills', name);
+}
+
+
+/**
+ * Resolve the Codex skill source folder.
+ *
+ * Per-skill overlay at `skills/<name>/.codex/` wins when present, otherwise
+ * we install `skills/<name>/` directly. The overlay lets a skill ship a
+ * Codex-tuned variant (different host marker, different defaults) without
+ * polluting the host-neutral folder Claude consumes.
+ *
+ * The overlay convention places the variant in a dotfile subdirectory so it
+ * doesn't get picked up by other hosts that scan `skills/<name>/`.
+ */
+export function codexSkillSource(repoRoot: string, name: string): string {
+  const overlay = join(repoRoot, 'skills', name, '.codex');
+  if (existsSync(join(overlay, 'SKILL.md'))) return overlay;
+  return join(repoRoot, 'skills', name);
+}
+
+/**
  * True when `target` is a symlink pointing somewhere inside this PaF repo.
  * Used to auto-replace stale PaF-owned symlinks when source paths change
  * (e.g. moving the OpenCode command shim from commands/ to skills/<name>/).
@@ -384,6 +461,118 @@ export function isOpenCodeInstalled(opencodeHome?: string): boolean {
   ));
 }
 
+export function isCodexInstalled(codexHome?: string): boolean {
+  return CODEX_SKILLS.every((name) =>
+    existsSync(join(codexSkillTarget(name, codexHome), 'SKILL.md')),
+  );
+}
+
+function runCodexCommand(args: string[]): { code: number; output: string } {
+  try {
+    const result = execFileSync(args[0], args.slice(1), {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { code: 0, output: result.trim() };
+  } catch (err: unknown) {
+    const execErr = err as NodeJS.ErrnoException & {
+      status?: number;
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+    const stdout = execErr.stdout?.toString() ?? '';
+    const stderr = execErr.stderr?.toString() ?? '';
+    return {
+      code: execErr.status ?? 1,
+      output: (stdout + stderr).trim(),
+    };
+  }
+}
+
+function looksLikeCodexAlready(output: string): boolean {
+  const text = output.toLowerCase();
+  return [
+    'already added',
+    'already installed',
+    'already enabled',
+    'already registered',
+  ].some((token) => text.includes(token));
+}
+
+/**
+ * Register PaF as a Codex plugin via the `codex` CLI.
+ *
+ * The marketplace+plugin manifests at `.agents/plugins/marketplace.json` and
+ * `plugins/phone-a-friend/.codex-plugin/plugin.json` make PaF visible in
+ * `codex plugin list` and Codex's `/plugins` surface. Codex's marketplace
+ * cache only mirrors the per-plugin `.codex-plugin/plugin.json` itself, not
+ * skills/agents content (Codex does not follow symlinks or up-paths during
+ * cache population). The actual skill + agent files still ship via the
+ * loose-file install (`$CODEX_HOME/skills/` + `$CODEX_HOME/agents/`); this
+ * sync is for discoverability + the eventual upstream cache improvement.
+ */
+function syncCodexPluginRegistration(source: string): string[] {
+  const lines: string[] = [];
+
+  try {
+    execFileSync('which', ['codex'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch {
+    lines.push('- codex_cli: skipped (codex binary not found)');
+    return lines;
+  }
+
+  const commands: [string[], string][] = [
+    [['codex', 'plugin', 'marketplace', 'add', source], 'marketplace_add'],
+    [['codex', 'plugin', 'add', `${PLUGIN_NAME}@${CODEX_MARKETPLACE_NAME}`], 'plugin_add'],
+  ];
+
+  for (const [cmd, label] of commands) {
+    const { code, output } = runCodexCommand(cmd);
+    if (code === 0 || looksLikeCodexAlready(output)) {
+      lines.push(`- codex_cli_${label}: ok`);
+    } else {
+      lines.push(`- codex_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+
+  return lines;
+}
+
+function unsyncCodexPluginRegistration(): string[] {
+  const lines: string[] = [];
+
+  try {
+    execFileSync('which', ['codex'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch {
+    lines.push('- codex_cli: skipped (codex binary not found)');
+    return lines;
+  }
+
+  // `codex plugin remove` only removes the plugin; the marketplace is removed
+  // separately. Order matters: remove the plugin first, then the marketplace.
+  const commands: [string[], string][] = [
+    [['codex', 'plugin', 'remove', `${PLUGIN_NAME}@${CODEX_MARKETPLACE_NAME}`], 'plugin_remove'],
+    [['codex', 'plugin', 'marketplace', 'remove', CODEX_MARKETPLACE_NAME], 'marketplace_remove'],
+  ];
+
+  for (const [cmd, label] of commands) {
+    const { code, output } = runCodexCommand(cmd);
+    if (code === 0 || looksLikeCodexAlready(output)) {
+      lines.push(`- codex_cli_${label}: ok`);
+    } else {
+      lines.push(`- codex_cli_${label}: failed`);
+      if (output) {
+        lines.push(`  output: ${output}`);
+      }
+    }
+  }
+
+  return lines;
+}
+
 function installClaude(
   repoRoot: string,
   mode: string,
@@ -449,6 +638,86 @@ function installOpenCode(
     lines.push(`- opencode_command:${name}: ${commandStatus} -> ${commandTarget}`);
   }
 
+  return lines;
+}
+
+function installCodex(
+  repoRoot: string,
+  mode: string,
+  force: boolean,
+  codexHome?: string,
+): string[] {
+  const lines: string[] = [];
+
+  // Reserved for symmetric legacy cleanup (none today). If a future PaF
+  // version drops a Codex skill, list it in CODEX_LEGACY_SKILLS and the
+  // same OpenCode-style ownership-checked removal applies.
+  for (const name of CODEX_LEGACY_SKILLS) {
+    const skillTarget = codexSkillTarget(name, codexHome);
+    if (isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- codex_skill:${name}: removed (legacy, no longer supported in Codex)`);
+    } else if (existsSync(skillTarget)) {
+      lines.push(`- codex_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    }
+  }
+
+  for (const name of CODEX_SKILLS) {
+    const skillSource = codexSkillSource(repoRoot, name);
+
+    if (!existsSync(join(skillSource, 'SKILL.md'))) {
+      throw new InstallerError(`Missing Codex skill source: ${join(skillSource, 'SKILL.md')}`);
+    }
+
+    const skillTarget = codexSkillTarget(name, codexHome);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+
+  // Best-effort cleanup of any previously-installed paf-* subagent symlinks
+  // from the earlier (now-dropped) subagent design. Only removes PaF-owned
+  // symlinks pointing back into this repo; never touches user-authored
+  // agents at $CODEX_HOME/agents/.
+  const legacyAgentsDir = join(codexConfigRoot(codexHome), 'agents');
+  for (const legacy of ['paf-reviewer', 'paf-critic', 'paf-synthesizer']) {
+    const legacyTarget = join(legacyAgentsDir, `${legacy}.toml`);
+    if (isStalePafSymlink(legacyTarget, repoRoot)) {
+      removePath(legacyTarget);
+      lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
+    }
+  }
+
+  return lines;
+}
+
+function uninstallCodex(codexHome?: string, repoRoot?: string): string[] {
+  const lines: string[] = [];
+  for (const name of CODEX_SKILLS) {
+    const skillTarget = codexSkillTarget(name, codexHome);
+    lines.push(`- codex_skill:${name}: ${uninstallPath(skillTarget)}`);
+  }
+  for (const name of CODEX_LEGACY_SKILLS) {
+    const skillTarget = codexSkillTarget(name, codexHome);
+    if (repoRoot && isStalePafSymlink(skillTarget, repoRoot)) {
+      removePath(skillTarget);
+      lines.push(`- codex_skill:${name}: removed (legacy)`);
+    } else if (existsSync(skillTarget) || isSymlink(skillTarget)) {
+      lines.push(`- codex_skill:${name}: kept (user-authored, not PaF-owned; remove manually if desired)`);
+    } else {
+      lines.push(`- codex_skill:${name}: not-installed`);
+    }
+  }
+  // Clean up legacy paf-* subagent symlinks from the earlier subagent
+  // design. Best-effort; do not error if they are not present.
+  const legacyAgentsDir = join(codexConfigRoot(codexHome), 'agents');
+  for (const legacy of ['paf-reviewer', 'paf-critic', 'paf-synthesizer']) {
+    const legacyTarget = join(legacyAgentsDir, `${legacy}.toml`);
+    if (existsSync(legacyTarget) || isSymlink(legacyTarget)) {
+      removePath(legacyTarget);
+      lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
+    }
+  }
   return lines;
 }
 
@@ -557,7 +826,15 @@ export interface InstallOptions {
   force?: boolean;
   claudeHome?: string;
   opencodeHome?: string;
+  codexHome?: string;
   syncClaudeCli?: boolean;
+  /**
+   * Whether to register the plugin via `codex plugin marketplace add` +
+   * `codex plugin add`. Default true; set false to skip the shell-out for CI
+   * or sandboxed environments. Loose-file install of skills + agents always
+   * runs regardless of this flag.
+   */
+  syncCodexCli?: boolean;
   /** Force overwrite of a remote marketplace source with local path. */
   forceMarketplaceSync?: boolean;
 }
@@ -570,7 +847,9 @@ export function installHosts(opts: InstallOptions): string[] {
     force = false,
     claudeHome,
     opencodeHome,
+    codexHome,
     syncClaudeCli = true,
+    syncCodexCli = true,
     forceMarketplaceSync = false,
   } = opts;
 
@@ -594,6 +873,7 @@ export function installHosts(opts: InstallOptions): string[] {
 
   const shouldInstallClaude = target === 'claude' || target === 'all';
   const shouldInstallOpenCode = target === 'opencode' || target === 'all';
+  const shouldInstallCodex = target === 'codex' || target === 'all';
 
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
@@ -602,6 +882,10 @@ export function installHosts(opts: InstallOptions): string[] {
 
   if (shouldInstallOpenCode) {
     lines.push(...installOpenCode(resolvedRepo, mode, force, opencodeHome));
+  }
+
+  if (shouldInstallCodex) {
+    lines.push(...installCodex(resolvedRepo, mode, force, codexHome));
   }
 
   if (shouldInstallClaude && syncClaudeCli) {
@@ -616,6 +900,10 @@ export function installHosts(opts: InstallOptions): string[] {
     }
   }
 
+  if (shouldInstallCodex && syncCodexCli) {
+    lines.push(...syncCodexPluginRegistration(resolvedRepo));
+  }
+
   return lines;
 }
 
@@ -623,6 +911,7 @@ export interface UninstallOptions {
   target: InstallTarget;
   claudeHome?: string;
   opencodeHome?: string;
+  codexHome?: string;
   /**
    * Repo root for PaF-ownership checks during legacy-skill cleanup. Optional;
    * if absent, legacy artifacts at the user's path are preserved (safer
@@ -637,10 +926,25 @@ export interface UninstallOptions {
    * - 'never': never unsync (used internally when re-registering immediately after).
    */
   claudeCliUnsync?: 'auto' | 'always' | 'never';
+  /**
+   * Controls whether Codex plugin + marketplace registration is removed.
+   * - 'auto' (default): proceed when `codex` is in PATH; no-op otherwise.
+   * - 'always': proceed; if `codex` missing, surface a skipped log line.
+   * - 'never': skip the codex-side shell-out entirely.
+   */
+  codexCliUnsync?: 'auto' | 'always' | 'never';
 }
 
 export function uninstallHosts(opts: UninstallOptions): string[] {
-  const { target, claudeHome, opencodeHome, repoRoot, claudeCliUnsync = 'auto' } = opts;
+  const {
+    target,
+    claudeHome,
+    opencodeHome,
+    codexHome,
+    repoRoot,
+    claudeCliUnsync = 'auto',
+    codexCliUnsync = 'auto',
+  } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -650,6 +954,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   const shouldUninstallClaude = target === 'claude' || target === 'all';
   const shouldUninstallOpenCode = target === 'opencode' || target === 'all';
+  const shouldUninstallCodex = target === 'codex' || target === 'all';
 
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
@@ -658,6 +963,15 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   if (shouldUninstallOpenCode) {
     lines.push(...uninstallOpenCode(opencodeHome, repoRoot));
+  }
+
+  if (shouldUninstallCodex) {
+    lines.push(...uninstallCodex(codexHome, repoRoot));
+    if (codexCliUnsync !== 'never') {
+      lines.push(...unsyncCodexPluginRegistration());
+    } else {
+      lines.push('- codex_cli_unsync: skipped');
+    }
   }
 
   if (!shouldUninstallClaude) {

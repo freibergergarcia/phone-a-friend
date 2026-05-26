@@ -1,5 +1,15 @@
 /**
- * Tests for ActionsPanel — action list with async execution.
+ * Tests for ActionsPanel — grouped-by-host layout with async execution.
+ *
+ * Layout (top to bottom):
+ *   Diagnostics → [Check Backends, Open Config]
+ *   Claude Code → [Reinstall|Install, Uninstall]
+ *   OpenCode    → [Reinstall|Install, Uninstall]
+ *   Codex       → [Reinstall|Install, Uninstall]
+ *
+ * Action label is "Reinstall" or "Install" depending on isHostInstalled().
+ * The test mocks all three host-install probes to false so labels are
+ * deterministic.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -13,6 +23,7 @@ vi.mock('../../src/detection.js', () => ({
     host: [],
     environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } },
   }),
+  decorateOpenCodeModels: vi.fn(),
 }));
 
 vi.mock('../../src/config.js', () => ({
@@ -23,7 +34,13 @@ vi.mock('../../src/config.js', () => ({
   configInit: vi.fn(),
 }));
 
-// Mock child_process.spawn so we can control Uninstall Plugin's subprocess
+vi.mock('../../src/installer.js', () => ({
+  isPluginInstalled: vi.fn().mockReturnValue(false),
+  isOpenCodeInstalled: vi.fn().mockReturnValue(false),
+  isCodexInstalled: vi.fn().mockReturnValue(false),
+}));
+
+// Mock child_process.spawn so we can control subprocess actions
 const mockSpawn = vi.fn();
 vi.mock('node:child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
@@ -41,7 +58,6 @@ function makeFakeProc(exitCode = 0) {
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
   proc.kill = vi.fn();
-  // Emit close asynchronously so the caller can attach listeners
   setTimeout(() => proc.emit('close', exitCode), 20);
   return proc;
 }
@@ -54,68 +70,75 @@ const MOCK_REPORT: DetectionReport = {
 };
 
 describe('ActionsPanel', () => {
-  it('shows action list', () => {
+  it('shows all four group headers', () => {
+    const { lastFrame } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Diagnostics');
+    expect(frame).toContain('Claude Code');
+    expect(frame).toContain('OpenCode');
+    expect(frame).toContain('Codex');
+  });
+
+  it('shows install-status badge per host group (not installed in this mock)', () => {
+    const { lastFrame } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
+    );
+    const frame = lastFrame()!;
+    // All three hosts are mocked as not installed → 'not installed' badge appears
+    expect(frame).toContain('not installed');
+  });
+
+  it('shows Diagnostics actions', () => {
     const { lastFrame } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Check Backends');
-    expect(frame).toContain('Reinstall Plugin');
-    expect(frame).toContain('Install OpenCode Commands');
+    expect(frame).toContain('Open Config');
   });
 
-  it('shows action descriptions', () => {
+  it('shows Install + Uninstall actions per host', () => {
     const { lastFrame } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
     const frame = lastFrame()!;
-    expect(frame).toContain('Re-scan');
+    // When isPluginInstalled returns false, label is "Install" (not "Reinstall")
+    expect(frame).toContain('Install');
+    expect(frame).toContain('Uninstall');
   });
 
-  it('highlights first action by default', () => {
+  it('highlights first action (Check Backends) by default', () => {
     const { lastFrame } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
-    // The pointer indicator should be visible
-    expect(lastFrame()).toContain('\u25b8');
+    expect(lastFrame()).toContain('▸');
   });
 
   it('navigates with arrow keys', async () => {
     const { lastFrame, stdin } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
-    // Move down
-    stdin.write('\u001B[B');
+    // Down: from Check Backends → Open Config
+    stdin.write('[B');
     await tick();
-    // Second action should now have the pointer
-    const frame = lastFrame()!;
-    expect(frame).toContain('Reinstall Plugin');
-  });
-
-  it('shows Open Config action', () => {
-    const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
-    );
     expect(lastFrame()).toContain('Open Config');
   });
 
-  it('shows Uninstall Plugin action', () => {
-    const { lastFrame } = render(
-      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
-    );
-    expect(lastFrame()).toContain('Uninstall Plugin');
-  });
-
-  it('shows confirmation prompt for Uninstall Plugin', async () => {
+  it('shows confirmation prompt when Enter is pressed on Uninstall action', async () => {
     const { lastFrame, stdin } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
-    // Navigate to Uninstall Plugin (3rd item: Check Backends, Reinstall, Uninstall)
-    stdin.write('\u001B[B'); // down
-    await tick();
-    stdin.write('\u001B[B'); // down
-    await tick();
-    // Press Enter — should show confirmation, not run immediately
+    // Flat action order:
+    //   0: Diagnostics > Check Backends
+    //   1: Diagnostics > Open Config
+    //   2: Claude Code > Install
+    //   3: Claude Code > Uninstall  ← target
+    for (let i = 0; i < 3; i++) {
+      stdin.write('[B');
+      await tick();
+    }
     stdin.write('\r');
     await tick();
     expect(lastFrame()).toContain('y/n');
@@ -125,65 +148,56 @@ describe('ActionsPanel', () => {
     const { lastFrame, stdin } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
     );
-    // Navigate to Uninstall
-    stdin.write('\u001B[B');
-    await tick();
-    stdin.write('\u001B[B');
-    await tick();
+    for (let i = 0; i < 3; i++) {
+      stdin.write('[B');
+      await tick();
+    }
     stdin.write('\r');
     await tick();
     expect(lastFrame()).toContain('y/n');
-    // Press n to cancel
     stdin.write('n');
     await tick();
     expect(lastFrame()).not.toContain('y/n');
     expect(lastFrame()).toContain('Enter to run');
   });
 
-  it('confirming y on Uninstall Plugin runs action and calls onExit', async () => {
+  it('confirming y on Claude Uninstall runs action and calls onExit (exitAfter)', async () => {
     const onExit = vi.fn();
     mockSpawn.mockImplementation(() => makeFakeProc(0));
 
     const { lastFrame, stdin } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={onExit} />
     );
-    // Navigate to Uninstall Plugin (index 2)
-    stdin.write('\u001B[B');
-    await tick();
-    stdin.write('\u001B[B');
-    await tick();
+    for (let i = 0; i < 3; i++) {
+      stdin.write('[B');
+      await tick();
+    }
     stdin.write('\r');
     await tick();
     expect(lastFrame()).toContain('y/n');
-    // Confirm
     stdin.write('y');
     await tick();
-    // Should show Running state
     expect(lastFrame()).toContain('Running');
-    // Wait for spawn to close + 800ms exit delay
     await tick(1000);
     expect(onExit).toHaveBeenCalled();
   });
 
-  it('does not call onExit when Uninstall Plugin fails', async () => {
+  it('does not call onExit when Claude Uninstall fails', async () => {
     const onExit = vi.fn();
     mockSpawn.mockImplementation(() => makeFakeProc(1));
 
     const { lastFrame, stdin } = render(
       <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={onExit} />
     );
-    // Navigate to Uninstall Plugin (index 2)
-    stdin.write('\u001B[B');
-    await tick();
-    stdin.write('\u001B[B');
-    await tick();
+    for (let i = 0; i < 3; i++) {
+      stdin.write('[B');
+      await tick();
+    }
     stdin.write('\r');
     await tick();
     stdin.write('y');
     await tick(200);
-    // Should show error indicator
-    expect(lastFrame()).toContain('\u2717');
-    // onExit should NOT have been called
+    expect(lastFrame()).toContain('✗');
     expect(onExit).not.toHaveBeenCalled();
   });
 });

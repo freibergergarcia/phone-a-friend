@@ -1,7 +1,7 @@
 ---
 name: curiosity-engine
-description: Structured Q&A rally between the host orchestrating model and a backend model. Both sides must always reply with ANSWER: and QUESTION:. Seeded by topic, runs for N rounds.
-argument-hint: --topic "<topic>" [--rounds N] [--backend codex|gemini|ollama]
+description: "Structured Q&A rally between the host orchestrating model and a backend model. Both sides must always reply with ANSWER and QUESTION prefixes. Seeded by topic, runs for N rounds."
+argument-hint: '--topic "<topic>" [--rounds N] [--backend codex|gemini|ollama]'
 ---
 
 # /curiosity-engine
@@ -27,6 +27,9 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   `--backend` to `phone-a-friend`.
 - Inside OpenCode, prefix relay invocations with
   `PHONE_A_FRIEND_HOST=opencode` so PaF detects the host deterministically.
+- Inside Codex, prefix relay invocations with `PHONE_A_FRIEND_HOST=codex`
+  for the same reason. Do not select `codex` as the friend backend from
+  Codex; PaF will refuse with a recursion-guard error.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.

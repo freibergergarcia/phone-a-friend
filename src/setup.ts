@@ -169,6 +169,30 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     }
   }
 
+  const codexAvailable = report.host.some(h => h.name === 'codex' && h.available);
+  if (codexAvailable) {
+    console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('Codex integration')}`);
+    const installCodex = await confirm({
+      message: 'Install Codex plugin (skills + marketplace registration)?',
+      default: true,
+    });
+    if (installCodex) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: 'codex',
+          mode: 'symlink',
+          force: true,
+          syncClaudeCli: false,
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  Codex install failed: ${(err as Error).message}`));
+      }
+    }
+  }
+
   // Save config — merge into existing to preserve user's backend settings
   const existing = loadConfig(opts?.repoRoot);
   const cfg: PafConfig = {
@@ -223,11 +247,15 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log(`    ${theme.info('phone-a-friend agentic run --agents reviewer:claude --prompt "Review auth"')}`);
   console.log('');
   console.log(`  ${theme.hint('Marketplace:')}`);
-  console.log(`    You can also install the Claude Code plugin via the marketplace:`);
+  console.log(`    Claude Code:`);
   console.log(`    ${theme.info('/plugin marketplace add freibergergarcia/phone-a-friend')}`);
   console.log(`    ${theme.info('/plugin install phone-a-friend@phone-a-friend-marketplace')}`);
   console.log('');
-  console.log(`    ${theme.hint('Note: Marketplace install provides Claude Code commands and skills only.')}`);
+  console.log(`    Codex:`);
+  console.log(`    ${theme.info('codex plugin marketplace add freibergergarcia/phone-a-friend')}`);
+  console.log(`    ${theme.info('codex plugin add phone-a-friend@phone-a-friend-marketplace')}`);
+  console.log('');
+  console.log(`    ${theme.hint('Note: Marketplace install provides commands and skills only.')}`);
   console.log(`    ${theme.hint('The full CLI (agentic mode, TUI, web dashboard) requires the global npm install.')}`);
   console.log('');
   console.log(`  ${theme.hint('OpenCode:')}`);

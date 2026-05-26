@@ -45,6 +45,60 @@ export class ClaudeBackendError extends BackendError {
   }
 }
 
+/**
+ * Specialization of ClaudeBackendError for the "Not logged in" case.
+ * Surfaces a clear remediation step so callers (skills, doctor, agents)
+ * know exactly what the user needs to do.
+ *
+ * The remediation text is context-aware: when the relay is invoked from
+ * inside Codex (PHONE_A_FRIEND_HOST=codex), the "Not logged in" error is
+ * almost certainly Codex's workspace-write sandbox blocking subprocess
+ * keychain access — NOT a genuine auth issue. Reproduce: a `claude -p`
+ * subprocess that succeeds at the terminal will fail with "Not logged in"
+ * when run inside `codex exec --sandbox workspace-write`. The fix is to
+ * relax the sandbox, not to re-authenticate.
+ */
+export class ClaudeAuthError extends ClaudeBackendError {
+  /** Human-readable remediation instruction. */
+  readonly remediation: string;
+  constructor(remediation?: string) {
+    super('Claude CLI is not authenticated.');
+    this.name = 'ClaudeAuthError';
+    this.remediation = remediation ?? defaultClaudeRemediation();
+  }
+}
+
+/**
+ * Compose the right remediation string based on the calling host.
+ * - From Codex: blame the sandbox first (the most common cause).
+ * - From other hosts or unknown: blame the auth state.
+ */
+export function defaultClaudeRemediation(host: string = process.env.PHONE_A_FRIEND_HOST ?? ''): string {
+  if (host === 'codex') {
+    return (
+      'Codex is running with a sandbox that blocks Claude\'s keychain access. ' +
+      'Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), ' +
+      'or escalate this specific command via the approval prompt. ' +
+      'This is NOT a Claude login problem — `claude -p` works fine outside the Codex sandbox.'
+    );
+  }
+  return 'Run `claude` interactively, then `/login` to authenticate. Or export ANTHROPIC_API_KEY.';
+}
+
+/**
+ * Detect the well-known "Not logged in" stderr / stdout markers Claude CLI
+ * emits when no OAuth session is available. Used to convert raw subprocess
+ * errors into a structured auth error.
+ */
+export function isClaudeAuthError(msg: string): boolean {
+  // Claude CLI prints variations like:
+  //   "Not logged in · Please run /login"
+  //   "Please run /login"
+  //   "You are not logged in."
+  const text = msg.toLowerCase();
+  return text.includes('not logged in') || text.includes('please run /login');
+}
+
 // ---------------------------------------------------------------------------
 // Backend
 // ---------------------------------------------------------------------------
@@ -181,10 +235,13 @@ export class ClaudeBackend implements Backend {
       throw new ClaudeBackendError('claude completed without producing output');
     } catch (err: unknown) {
       if (err instanceof ClaudeBackendError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isClaudeAuthError(msg)) {
+        throw new ClaudeAuthError();
+      }
       if (err instanceof BackendError) {
         throw new ClaudeBackendError(err.message);
       }
-      const msg = err instanceof Error ? err.message : String(err);
       throw new ClaudeBackendError(msg);
     }
   }
@@ -239,9 +296,12 @@ export class ClaudeBackend implements Backend {
           ));
         } else if (code !== 0 && code !== null) {
           const stderr = Buffer.concat(stderrChunks).toString().trim();
-          reject(new ClaudeBackendError(
-            stderr || `claude exited with code ${code}`,
-          ));
+          const errMsg = stderr || `claude exited with code ${code}`;
+          if (isClaudeAuthError(errMsg)) {
+            reject(new ClaudeAuthError());
+          } else {
+            reject(new ClaudeBackendError(errMsg));
+          }
         } else {
           resolve();
         }

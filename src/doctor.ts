@@ -12,7 +12,7 @@ import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './confi
 import { getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
-import { isOpenCodeInstalled, isPluginInstalled } from './installer.js';
+import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from './installer.js';
 import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
 
 /**
@@ -52,6 +52,7 @@ export interface DoctorResult {
 export interface HostInstallations {
   claude: boolean;
   opencode: boolean;
+  codex: boolean;
 }
 
 function formatHumanReadable(
@@ -124,6 +125,7 @@ function formatHumanReadable(
   lines.push(`  ${theme.label('Host Install Status:')}`);
   lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning('!')} Claude plugin ${hostInstallations.claude ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning('!')} OpenCode commands/skills ${hostInstallations.opencode ? theme.success('installed') : theme.warning('not installed')}`);
+  lines.push(`    ${hostInstallations.codex ? theme.checkmark : theme.warning('!')} Codex skills ${hostInstallations.codex ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push('');
 
   // Default
@@ -298,6 +300,7 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const hostInstallations = {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
+    codex: isCodexInstalled(),
   };
   const updateCheck = collectUpdateCheckState(config);
 

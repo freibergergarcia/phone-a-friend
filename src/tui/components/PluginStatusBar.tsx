@@ -27,6 +27,8 @@ export function PluginStatusBar({ installed = false, hosts }: PluginStatusBarPro
         <HostLabel label="Claude" installed={hosts.claude} />
         <Text dimColor>·</Text>
         <HostLabel label="OpenCode" installed={hosts.opencode} />
+        <Text dimColor>·</Text>
+        <HostLabel label="Codex" installed={hosts.codex} />
       </Box>
     );
   }

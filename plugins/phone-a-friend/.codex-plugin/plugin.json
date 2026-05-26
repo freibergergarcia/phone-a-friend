@@ -1,0 +1,25 @@
+{
+  "name": "phone-a-friend",
+  "version": "2.6.3",
+  "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
+  "author": {
+    "name": "Bruno Freiberger"
+  },
+  "license": "GPL-2.0-only",
+  "repository": "https://github.com/freibergergarcia/phone-a-friend",
+  "interface": {
+    "displayName": "Phone a Friend",
+    "shortDescription": "Relay prompts to other AI coding backends",
+    "longDescription": "Phone a Friend is a relay CLI that lets AI coding agents collaborate. From inside Codex, ask Claude, Gemini, OpenCode, or Ollama for second opinions, code reviews, and iterative refinement. The phone-a-team workflow spawns multi-model reviewer/critic/synthesizer subagents that share cross-host sessions across rounds. Install the CLI separately with `npm install -g @freibergergarcia/phone-a-friend`, then run `phone-a-friend plugin install --codex` to drop skills and subagent personas under ~/.codex.",
+    "developerName": "Bruno Freiberger",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Ask Claude through phone-a-friend for a sanity review of this repo",
+      "Spin up reviewers across Claude and Gemini to debate this change",
+      "Iterate this implementation with phone-a-team across multiple backends"
+    ]
+  }
+}

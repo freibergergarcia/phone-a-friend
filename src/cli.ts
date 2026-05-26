@@ -113,14 +113,30 @@ function printBackendAvailability(): void {
 // Install/update/uninstall action factories (shared by plugin + backward compat)
 // ---------------------------------------------------------------------------
 
+function resolveHostTarget(opts: {
+  claude?: boolean;
+  opencode?: boolean;
+  codex?: boolean;
+  all?: boolean;
+}): 'claude' | 'opencode' | 'codex' | 'all' {
+  if (opts.all) return 'all';
+  const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
+  if (selected > 1) return 'all';
+  if (opts.opencode) return 'opencode';
+  if (opts.codex) return 'codex';
+  return 'claude';
+}
+
 function installAction(opts: {
   claude?: boolean;
   opencode?: boolean;
+  codex?: boolean;
   all?: boolean;
   mode?: string;
   force?: boolean;
   repoRoot?: string;
   claudeCliSync?: boolean;
+  codexCliSync?: boolean;
   github?: boolean;
   forceMarketplaceSync?: boolean;
 }): number {
@@ -134,11 +150,11 @@ function installAction(opts: {
       console.error('Error: --repo-root is not compatible with --github');
       return 1;
     }
-    if (opts.opencode || opts.all) {
+    if (opts.opencode || opts.codex || opts.all) {
       console.error(
-        'Error: --github only applies to Claude Code; OpenCode has no marketplace. ' +
+        'Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace. ' +
           'Run `phone-a-friend plugin install --github` for Claude, then ' +
-          '`phone-a-friend plugin install --opencode` separately.',
+          '`phone-a-friend plugin install --opencode` and/or `--codex` separately.',
       );
       return 1;
     }
@@ -150,19 +166,14 @@ function installAction(opts: {
     return 0;
   }
   // Existing local install flow
-  const target = opts.all
-    ? 'all'
-    : opts.opencode && opts.claude
-      ? 'all'
-      : opts.opencode
-        ? 'opencode'
-        : 'claude';
+  const target = resolveHostTarget(opts);
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: target as 'claude' | 'opencode' | 'all',
+    target,
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: opts.force ?? false,
     syncClaudeCli: opts.claudeCliSync !== false,
+    syncCodexCli: opts.codexCliSync !== false,
     forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
@@ -173,25 +184,22 @@ function installAction(opts: {
 function updateAction(opts: {
   claude?: boolean;
   opencode?: boolean;
+  codex?: boolean;
   all?: boolean;
   mode?: string;
   repoRoot?: string;
   claudeCliSync?: boolean;
+  codexCliSync?: boolean;
   forceMarketplaceSync?: boolean;
 }): void {
-  const target = opts.all
-    ? 'all'
-    : opts.opencode && opts.claude
-      ? 'all'
-      : opts.opencode
-        ? 'opencode'
-        : 'claude';
+  const target = resolveHostTarget(opts);
   const lines = installHosts({
     repoRoot: opts.repoRoot ?? repoRootDefault(),
-    target: target as 'claude' | 'opencode' | 'all',
+    target,
     mode: (opts.mode ?? 'symlink') as 'symlink' | 'copy',
     force: true,
     syncClaudeCli: opts.claudeCliSync !== false,
+    syncCodexCli: opts.codexCliSync !== false,
     forceMarketplaceSync: opts.forceMarketplaceSync ?? false,
   });
   for (const line of lines) console.log(line);
@@ -201,20 +209,17 @@ function updateAction(opts: {
 function uninstallAction(opts: {
   claude?: boolean;
   opencode?: boolean;
+  codex?: boolean;
   all?: boolean;
   purgeMarketplace?: boolean;
+  codexCliSync?: boolean;
 }): void {
-  const target = opts.all
-    ? 'all'
-    : opts.opencode && opts.claude
-      ? 'all'
-      : opts.opencode
-        ? 'opencode'
-        : 'claude';
+  const target = resolveHostTarget(opts);
   const lines = uninstallHosts({
-    target: target as 'claude' | 'opencode' | 'all',
+    target,
     repoRoot: repoRootDefault(),
     claudeCliUnsync: opts.purgeMarketplace ? 'always' : 'auto',
+    codexCliUnsync: opts.codexCliSync === false ? 'never' : 'auto',
   });
   for (const line of lines) console.log(line);
 }
@@ -227,11 +232,13 @@ function addInstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Install for Claude', false)
     .option('--opencode', 'Install for OpenCode', false)
+    .option('--codex', 'Install for Codex (skills + subagents under $CODEX_HOME, default ~/.codex/)', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
+    .option('--no-codex-cli-sync', 'Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)')
     .option('--github', 'Use GitHub marketplace (npm source) instead of local symlink')
     .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
@@ -240,10 +247,12 @@ function addUpdateOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Install for Claude', false)
     .option('--opencode', 'Install for OpenCode', false)
+    .option('--codex', 'Install for Codex', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
+    .option('--no-codex-cli-sync', 'Skip Codex CLI sync')
     .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
 }
 
@@ -251,8 +260,10 @@ function addUninstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Uninstall for Claude', false)
     .option('--opencode', 'Uninstall for OpenCode', false)
+    .option('--codex', 'Uninstall for Codex', false)
     .option('--all', 'Uninstall for all supported hosts', false)
-    .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)');
+    .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)')
+    .option('--no-codex-cli-sync', 'Skip codex plugin remove / marketplace remove during uninstall');
 }
 
 // ---------------------------------------------------------------------------

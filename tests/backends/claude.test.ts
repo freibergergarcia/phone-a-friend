@@ -21,7 +21,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
 });
 
-import { CLAUDE_BACKEND, ClaudeBackendError } from '../../src/backends/claude.js';
+import { CLAUDE_BACKEND, ClaudeBackendError, ClaudeAuthError, isClaudeAuthError } from '../../src/backends/claude.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -505,6 +505,31 @@ describe('ClaudeBackend', () => {
       await expect(async () => {
         for await (const _ of gen) { /* consume */ }
       }).rejects.toThrow(/killed by signal SIGKILL/);
+    });
+  });
+
+  describe('auth error detection', () => {
+    it('isClaudeAuthError matches the canonical "Not logged in" message', () => {
+      expect(isClaudeAuthError('Not logged in · Please run /login')).toBe(true);
+      expect(isClaudeAuthError('Please run /login')).toBe(true);
+      expect(isClaudeAuthError('You are not logged in.')).toBe(true);
+    });
+
+    it('isClaudeAuthError is case-insensitive', () => {
+      expect(isClaudeAuthError('NOT LOGGED IN')).toBe(true);
+    });
+
+    it('isClaudeAuthError returns false for unrelated errors', () => {
+      expect(isClaudeAuthError('Rate limit exceeded')).toBe(false);
+      expect(isClaudeAuthError('Connection refused')).toBe(false);
+      expect(isClaudeAuthError('')).toBe(false);
+    });
+
+    it('ClaudeAuthError carries a remediation field', () => {
+      const err = new ClaudeAuthError();
+      expect(err).toBeInstanceOf(ClaudeBackendError);
+      expect(err.name).toBe('ClaudeAuthError');
+      expect(err.remediation).toContain('/login');
     });
   });
 });
