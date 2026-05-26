@@ -376,17 +376,20 @@ Codex is shipped as a real Codex plugin (the marketplace + manifest live in the 
 
 `phone-a-friend plugin install --codex` does two things:
 
-1. **Loose-file skill install (canonical content path).** Copies or symlinks the three Codex skills (`phone-a-friend`, `curiosity-engine`, `phone-a-team`) into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). Codex auto-discovers SKILL.md files from this path. Earlier versions also installed `paf-*.toml` subagent personas under `$CODEX_HOME/agents/`; that design was dropped (see "Why no subagents" below) and the install path cleans up any stale paf-* symlinks left over from prior PaF versions.
-2. **Marketplace registration (discoverability).** When `codex` is in PATH, shells out to `codex plugin marketplace add <repo>` followed by `codex plugin add phone-a-friend@phone-a-friend-marketplace`. This registers PaF in Codex's `/plugins` UI and `codex plugin list`. Pass `--no-codex-cli-sync` to skip this step. Codex's marketplace cache currently mirrors only the per-plugin `plugin.json` (not skills content, because Codex does not follow symlinks or up-paths during cache population), so the loose-file install in step 1 is what actually delivers the runnable content. The marketplace registration is the parity surface with Claude's marketplace.
+1. **Loose-file skill install.** Copies or symlinks the three Codex skills (`phone-a-friend`, `curiosity-engine`, `phone-a-team`) into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). Codex auto-discovers SKILL.md files from this path. Earlier versions also installed `paf-*.toml` subagent personas under `$CODEX_HOME/agents/`; that design was dropped (see "Why no subagents" below) and the install path cleans up any stale paf-* symlinks left over from prior PaF versions.
+2. **Marketplace registration.** When `codex` is in PATH, shells out to `codex plugin marketplace add <repo>` followed by `codex plugin add phone-a-friend@phone-a-friend-marketplace`. This registers PaF in Codex's `/plugins` UI and `codex plugin list`. Pass `--no-codex-cli-sync` to skip this step.
+
+Either path delivers the skills on its own. Codex marketplace install fetches the full plugin tree at the `source.path` (`./plugins/phone-a-friend/`) into `~/.codex/plugins/cache/...` and auto-discovers SKILL.md files under the directory declared by `skills:` in the per-plugin `plugin.json`. The loose-file install is the no-marketplace fallback for users on stale Codex CLI versions or who skip CLI sync with `--no-codex-cli-sync`.
 
 Manifest layout:
 
 | File | Purpose |
 |---|---|
 | `.codex-plugin/plugin.json` | Root per-plugin manifest, symmetric with `.claude-plugin/plugin.json` |
-| `plugins/phone-a-friend/.codex-plugin/plugin.json` | Subdir per-plugin manifest consumed by Codex's marketplace install (Codex requires plugins to live in a subdir of the marketplace, not at root) |
+| `plugins/phone-a-friend/.codex-plugin/plugin.json` | Subdir per-plugin manifest consumed by Codex's marketplace install (Codex requires plugins to live in a subdir of the marketplace, not at root). Declares `"skills": "./skills/"`. |
+| `plugins/phone-a-friend/skills/<name>/SKILL.md` | Skill content shipped via marketplace install. Synced from `skills/<name>/{,.codex/}SKILL.md` by `scripts/sync-codex-plugin.mjs` (runs on `npm run build`; CI test enforces no drift). |
 | `.agents/plugins/marketplace.json` | Codex marketplace manifest listing PaF with `source: { source: "local", path: "./plugins/phone-a-friend" }` |
-| `skills/phone-a-team/.codex/SKILL.md` | Codex-tuned `/phone-a-team` orchestration (Bash-driven round loop, no subagent spawn) |
+| `skills/phone-a-team/.codex/SKILL.md` | Codex-tuned `/phone-a-team` orchestration (Bash-driven round loop, no subagent spawn). Source of truth, mirrored into `plugins/phone-a-friend/skills/phone-a-team/SKILL.md` by the sync script. |
 
 All three plugin manifests (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `plugins/phone-a-friend/.codex-plugin/plugin.json`) must share `version` with `package.json`. The test `tests/codex-plugin-manifests.test.ts` enforces this in CI.
 

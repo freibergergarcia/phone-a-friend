@@ -157,3 +157,44 @@ describe('claude-plugin and codex-plugin manifest version sync', () => {
     expect(codexSubdir.version).toBe(packageVersion);
   });
 });
+
+describe('Codex marketplace plugin ships skills under plugins/phone-a-friend/skills/', () => {
+  // Codex caches whatever lives at the marketplace source path (see
+  // .agents/plugins/marketplace.json -> ./plugins/phone-a-friend/) and
+  // auto-discovers SKILL.md files under the directory declared by `skills:`
+  // in the per-plugin plugin.json. Without these files committed, marketplace
+  // install would register the plugin in /plugins but deliver no usable
+  // skills. The sync script `scripts/sync-codex-plugin.mjs` keeps these
+  // files mirrored from skills/<name>/{,.codex/}SKILL.md.
+
+  const SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
+
+  it('subdir manifest declares skills: "./skills/"', () => {
+    const manifest = readJson('plugins/phone-a-friend/.codex-plugin/plugin.json') as {
+      skills?: string;
+    };
+    expect(manifest.skills).toBe('./skills/');
+  });
+
+  for (const name of SKILLS) {
+    it(`ships plugins/phone-a-friend/skills/${name}/SKILL.md`, () => {
+      expect(existsSync(join(REPO, 'plugins/phone-a-friend/skills', name, 'SKILL.md'))).toBe(true);
+    });
+  }
+
+  it('synced files match their source (no drift since last sync run)', () => {
+    function sourceFor(name: string): string {
+      const overlay = join(REPO, 'skills', name, '.codex/SKILL.md');
+      if (existsSync(overlay)) return overlay;
+      return join(REPO, 'skills', name, 'SKILL.md');
+    }
+    for (const name of SKILLS) {
+      const src = readFileSync(sourceFor(name), 'utf-8');
+      const dest = readFileSync(
+        join(REPO, 'plugins/phone-a-friend/skills', name, 'SKILL.md'),
+        'utf-8',
+      );
+      expect(dest, `drift in ${name}: run \`node scripts/sync-codex-plugin.mjs\``).toBe(src);
+    }
+  });
+});
