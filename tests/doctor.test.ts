@@ -8,9 +8,10 @@ const { mockDetectAll, mockLoadConfig, mockConfigPaths } = vi.hoisted(() => ({
   mockConfigPaths: vi.fn(),
 }));
 
-const { mockIsPluginInstalled, mockIsOpenCodeInstalled } = vi.hoisted(() => ({
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled } = vi.hoisted(() => ({
   mockIsPluginInstalled: vi.fn(),
   mockIsOpenCodeInstalled: vi.fn(),
+  mockIsCodexInstalled: vi.fn(),
 }));
 
 vi.mock('../src/detection.js', () => ({
@@ -29,6 +30,7 @@ vi.mock('../src/config.js', () => ({
 vi.mock('../src/installer.js', () => ({
   isPluginInstalled: mockIsPluginInstalled,
   isOpenCodeInstalled: mockIsOpenCodeInstalled,
+  isCodexInstalled: mockIsCodexInstalled,
 }));
 
 // Helper: build a detection report
@@ -66,6 +68,7 @@ describe('doctor', () => {
     });
     mockIsPluginInstalled.mockReturnValue(true);
     mockIsOpenCodeInstalled.mockReturnValue(false);
+    mockIsCodexInstalled.mockReturnValue(false);
     doctor = await import('../src/doctor.js');
   });
 
@@ -249,7 +252,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
-      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false });
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });

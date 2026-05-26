@@ -25,16 +25,33 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 ### Host parity
 
-| Feature | Claude Code | OpenCode |
-|---|:---:|:---:|
-| `/phone-a-friend` (single-backend relay) | ✓ | ✓ |
-| `/curiosity-engine` (Q&A rally) | ✓ | ✓ |
-| `/phone-a-team` (iterative multi-model team) | ✓ | — |
-| Plugin marketplace install | ✓ | — |
-| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ |
-| Skill auto-discovery | ✓ | ✓ |
+| Feature | Claude Code | OpenCode | Codex |
+|---|:---:|:---:|:---:|
+| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ |
+| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ |
+| Plugin marketplace install | ✓ | — | ✓ |
+| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ |
+| Skill auto-discovery | ✓ | ✓ | ✓ |
+| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ |
 
-OpenCode users can replicate `/phone-a-team` by running repeated `/phone-a-friend` calls and synthesizing manually.
+Claude `/phone-a-team` orchestrates rounds via the Agent Teams primitive (TeamCreate + Task + SendMessage). Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
+
+> [!IMPORTANT]
+> **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Gemini hangs until the timeout. Two workarounds today, both with tradeoffs:
+>
+> **Option A — Lower the sandbox.** Per-session (preferred): launch Codex with `codex --sandbox danger-full-access`. Persistent (convenient but removes sandbox protections from every Codex session, not just PaF relays): add an alias to `~/.zshrc` or `~/.bashrc`:
+> ```bash
+> alias codex='codex --sandbox danger-full-access'
+> ```
+>
+> **Option B — Use API keys.** Skips OAuth entirely, works in any sandbox:
+> ```bash
+> export ANTHROPIC_API_KEY=...
+> export GEMINI_API_KEY=...
+> ```
+>
+> A portable-auth path via `claude setup-token` is planned for the Claude side. Gemini OAuth refresh inside the sandbox is a separate open issue with no planned fix yet — until then, Option B is the only Gemini-safe path that keeps the sandbox intact.
 
 ## Quick Start
 
@@ -79,6 +96,36 @@ This installs to `~/.config/opencode/skills/` and `~/.config/opencode/commands/`
 
 ```
 Ask Codex through phone-a-friend for a short sanity review of this repo; do not edit files.
+```
+
+**Codex plugin (skills + marketplace registration):**
+
+If you use [Codex CLI](https://developers.openai.com/codex/quickstart/), install the Phone-a-Friend plugin two ways:
+
+Via the Codex marketplace (visible in `/plugins` like Claude):
+
+```
+codex plugin marketplace add freibergergarcia/phone-a-friend
+codex plugin add phone-a-friend@phone-a-friend-marketplace
+```
+
+Or via the PaF CLI (does both the marketplace registration AND drops skills into `~/.codex/`):
+
+```bash
+phone-a-friend plugin install --codex
+```
+
+This installs `phone-a-friend`, `curiosity-engine`, and `phone-a-team` skills into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). All three are orchestrated through pure Bash from the skill bodies — no Codex subagent primitive is required.
+
+> [!NOTE]
+> Unlike Claude's marketplace, Codex marketplace install ships the skills directly — `codex plugin marketplace add` + `codex plugin add` is sufficient to use `/phone-a-friend`, `/curiosity-engine`, and `/phone-a-team` from inside Codex. For the full CLI (TUI, agentic mode, web dashboard), install via `npm install -g @freibergergarcia/phone-a-friend`. Running `phone-a-friend plugin install --codex` after the npm install additionally drops loose-file skills under `~/.codex/skills/` as a no-marketplace fallback.
+
+From Codex, ask naturally:
+
+```
+Ask Claude and Gemini through phone-a-friend what they think of this code.
+
+Use phone-a-team across Claude and Gemini to converge on a fix for this auth bug. Three rounds max.
 ```
 
 **From source:**
@@ -194,11 +241,12 @@ phone-a-friend setup           # Guided setup wizard
 phone-a-friend doctor          # Health check all backends + host install status
 phone-a-friend plugin install --claude    # Install Claude Code plugin
 phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
+phone-a-friend plugin install --codex     # Install Codex skills
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
-`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode plugin install state), and a summary count. The OpenCode CLI is treated as optional: if you only use Claude Code and don't have OpenCode installed, doctor will not flag that as a degraded state.
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. The OpenCode CLI is treated as optional: if you only use Claude Code and don't have OpenCode installed, doctor will not flag that as a degraded state.
 
 ### Update notifications
 
@@ -250,7 +298,8 @@ Ollama configuration via environment variables:
 
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
-- `PHONE_A_FRIEND_HOST=opencode` -- mark the calling process as OpenCode for the recursion guard (set automatically by the OpenCode shims).
+- `PHONE_A_FRIEND_HOST=opencode|codex` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Set automatically by the install shims.
+- `CODEX_HOME` -- override the Codex config root (default: `~/.codex`). Honored by the Codex skill installer.
 - `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
 
 OpenCode configuration via TOML:
@@ -279,7 +328,8 @@ Agentic mode spawns multiple Claude agents that communicate via `@mentions` with
 
 Each agent accumulates context through persistent CLI sessions — later responses build on earlier ones, so agents develop genuine understanding of the problem as the session progresses.
 
-**Currently supports Claude agents only.** See [AGENTS.md](AGENTS.md) for full architecture details.
+> [!IMPORTANT]
+> **Agentic mode currently supports Claude agents only.** Codex, Gemini, OpenCode, and Ollama agents are not yet wired into the orchestrator. If you need multi-host adversarial review today, use `/phone-a-team` instead — it does parallel multi-backend rounds with the same iterate-or-ship pattern, just without the persistent session graph and live web dashboard. See [AGENTS.md](AGENTS.md) for the agentic architecture.
 
 ```bash
 # Start an agentic session
@@ -319,7 +369,10 @@ Full usage guide, examples, CLI reference, and configuration details:
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+
+> [!WARNING]
+> `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.
 
 **Claude Code marketplace:**
 

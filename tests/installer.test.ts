@@ -18,11 +18,14 @@ import {
   uninstallHosts,
   verifyBackends,
   isOpenCodeInstalled,
+  isCodexInstalled,
   isPluginInstalled,
   installFromGitHubMarketplace,
   getMarketplaceSourceType,
   opencodeCommandTarget,
   opencodeSkillTarget,
+  codexConfigRoot,
+  codexSkillTarget,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
@@ -60,11 +63,28 @@ function makeRepo(): string {
       '---\ndescription: test command\n---\n',
     );
   }
-  // phone-a-team is Claude-only — has a command file but no OpenCode skill.
+  // phone-a-team has a Claude command file at commands/phone-a-team.md and
+  // a Codex-only overlay at skills/phone-a-team/.codex/SKILL.md (no
+  // host-neutral SKILL.md, so OpenCode does not install it).
   fs.writeFileSync(
     path.join(commandsDir, 'phone-a-team.md'),
     '---\nname: phone-a-team\ndescription: test claude command\n---\n',
   );
+  const phoneATeamCodexDir = path.join(repo, 'skills', 'phone-a-team', '.codex');
+  fs.mkdirSync(phoneATeamCodexDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(phoneATeamCodexDir, 'SKILL.md'),
+    '---\nname: phone-a-team\ndescription: test codex overlay\n---\n',
+  );
+  // Codex subagent personas (Codex installer reads agents/codex/paf-*.toml).
+  const codexAgentsDir = path.join(repo, 'agents', 'codex');
+  fs.mkdirSync(codexAgentsDir, { recursive: true });
+  for (const name of ['paf-reviewer', 'paf-critic', 'paf-synthesizer']) {
+    fs.writeFileSync(
+      path.join(codexAgentsDir, `${name}.toml`),
+      `name = "${name}"\ndescription = "test ${name}"\ndeveloper_instructions = "test instructions"\n`,
+    );
+  }
   return repo;
 }
 
@@ -110,6 +130,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     const target = path.join(claudeHome, 'plugins', 'phone-a-friend');
@@ -127,6 +148,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     const target = path.join(claudeHome, 'plugins', 'phone-a-friend');
@@ -148,6 +170,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     // Second install — same symlink target
@@ -158,6 +181,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
       expect(lines.some(l => l.includes('already-installed'))).toBe(true);
@@ -171,6 +195,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
 
       const skillTarget = opencodeSkillTarget('phone-a-friend', opencodeHome);
@@ -203,6 +228,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
 
       const phoneAFriendCmd = opencodeCommandTarget('phone-a-friend', opencodeHome);
@@ -225,6 +251,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
       const cmdTarget = opencodeCommandTarget('phone-a-friend', opencodeHome);
       expect(fs.realpathSync(cmdTarget)).toBe(
@@ -243,6 +270,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
 
       expect(fs.realpathSync(cmdTarget)).toBe(fs.realpathSync(overlayPath));
@@ -269,6 +297,7 @@ describe('installer constants', () => {
             force: false,
             opencodeHome,
             syncClaudeCli: false,
+      syncCodexCli: false,
           }),
         ).toThrow(/already exists/);
       } finally {
@@ -306,6 +335,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
 
       // Symlinks themselves should be gone (even though their targets were
@@ -334,6 +364,7 @@ describe('installer constants', () => {
         force: false,
         opencodeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       });
 
       // Files survive untouched.
@@ -353,6 +384,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     // Second install with different mode — should fail without force
@@ -364,6 +396,7 @@ describe('installer constants', () => {
         force: false,
         claudeHome,
         syncClaudeCli: false,
+      syncCodexCli: false,
       }),
     ).toThrow(/already exists/);
   });
@@ -385,6 +418,7 @@ describe('installer constants', () => {
       force: true,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
@@ -401,6 +435,7 @@ describe('installer constants', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     // Force re-install via symlink
@@ -411,6 +446,7 @@ describe('installer constants', () => {
       force: true,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     const target = path.join(claudeHome, 'plugins', 'phone-a-friend');
@@ -426,6 +462,7 @@ describe('installer constants', () => {
         repoRoot: invalidRepo,
         target: 'claude',
         syncClaudeCli: false,
+      syncCodexCli: false,
       }),
     ).toThrow(/Invalid repo root/);
 
@@ -438,6 +475,7 @@ describe('installer constants', () => {
         repoRoot: repo,
         target: 'invalid' as 'claude',
         syncClaudeCli: false,
+      syncCodexCli: false,
       }),
     ).toThrow(/Invalid target/);
   });
@@ -449,6 +487,7 @@ describe('installer constants', () => {
         target: 'claude',
         mode: 'invalid' as 'symlink',
         syncClaudeCli: false,
+      syncCodexCli: false,
       }),
     ).toThrow(/Invalid mode/);
   });
@@ -523,6 +562,7 @@ describe('uninstallHosts', () => {
       force: false,
       claudeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     const lines = uninstallHosts({ target: 'claude', claudeHome });
@@ -687,6 +727,7 @@ describe('isOpenCodeInstalled', () => {
       force: false,
       opencodeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     expect(isOpenCodeInstalled(opencodeHome)).toBe(true);
@@ -705,6 +746,7 @@ describe('isOpenCodeInstalled', () => {
       force: false,
       opencodeHome,
       syncClaudeCli: false,
+      syncCodexCli: false,
     });
 
     fs.rmSync(opencodeCommandTarget('phone-a-friend', opencodeHome), { force: true });
@@ -712,6 +754,479 @@ describe('isOpenCodeInstalled', () => {
 
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(opencodeHome, { recursive: true, force: true });
+  });
+});
+
+describe('Codex host integration', () => {
+  let repo: string;
+  let codexHome: string;
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    repo = makeRepo();
+    codexHome = makeHome();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(codexHome, { recursive: true, force: true }); } catch {}
+  });
+
+  it('installs Codex skills via symlink', () => {
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    const skillTarget = codexSkillTarget('phone-a-friend', codexHome);
+    expect(fs.lstatSync(skillTarget).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(skillTarget)).toBe(
+      fs.realpathSync(path.join(repo, 'skills', 'phone-a-friend')),
+    );
+
+    const curiosityTarget = codexSkillTarget('curiosity-engine', codexHome);
+    expect(fs.lstatSync(curiosityTarget).isSymbolicLink()).toBe(true);
+
+    expect(lines.some(l => l.includes('codex_skill:phone-a-friend'))).toBe(true);
+    expect(lines.some(l => l.includes('codex_skill:curiosity-engine'))).toBe(true);
+    // phone-a-team is installed for Codex via the .codex/ overlay
+    // (Codex-tuned Bash-orchestrated iterative refinement, no subagent spawn).
+    expect(fs.existsSync(codexSkillTarget('phone-a-team', codexHome))).toBe(true);
+    expect(lines.some(l => l.includes('codex_skill:phone-a-team'))).toBe(true);
+    // No claude artifacts created.
+    expect(lines.some(l => l.startsWith('- claude:'))).toBe(false);
+  });
+
+  it('uses skills/<name>/.codex/ as the Codex skill source when present', () => {
+    // Author a Codex-tuned overlay.
+    const overlayDir = path.join(repo, 'skills', 'phone-a-friend', '.codex');
+    fs.mkdirSync(overlayDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(overlayDir, 'SKILL.md'),
+      '---\nname: phone-a-friend\ndescription: codex overlay\n---\n',
+    );
+
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    const skillTarget = codexSkillTarget('phone-a-friend', codexHome);
+    expect(fs.realpathSync(skillTarget)).toBe(fs.realpathSync(overlayDir));
+
+    // curiosity-engine (no overlay) still uses skills/<name>/.
+    const curiosityTarget = codexSkillTarget('curiosity-engine', codexHome);
+    expect(fs.realpathSync(curiosityTarget)).toBe(
+      fs.realpathSync(path.join(repo, 'skills', 'curiosity-engine')),
+    );
+  });
+
+  it('installs via copy', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'copy',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    const skillTarget = codexSkillTarget('phone-a-friend', codexHome);
+    const stat = fs.lstatSync(skillTarget);
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(stat.isDirectory()).toBe(true);
+    expect(fs.existsSync(path.join(skillTarget, 'SKILL.md'))).toBe(true);
+  });
+
+  it('does not install Codex skills when target=claude', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'claude',
+      mode: 'symlink',
+      force: false,
+      claudeHome: makeHome(),
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(false);
+  });
+
+  it('target=all installs all three hosts', () => {
+    const claudeHome = makeHome();
+    const opencodeHome = makeHome();
+    try {
+      const lines = installHosts({
+        repoRoot: repo,
+        target: 'all',
+        mode: 'symlink',
+        force: false,
+        claudeHome,
+        opencodeHome,
+        codexHome,
+        syncClaudeCli: false,
+      syncCodexCli: false,
+      });
+
+      expect(fs.existsSync(path.join(claudeHome, 'plugins', 'phone-a-friend'))).toBe(true);
+      expect(fs.existsSync(opencodeSkillTarget('phone-a-friend', opencodeHome))).toBe(true);
+      expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(true);
+      expect(lines.some(l => l.includes('codex_skill:phone-a-friend'))).toBe(true);
+    } finally {
+      try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('uninstall removes Codex skills', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+    expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(true);
+
+    const lines = uninstallHosts({
+      target: 'codex',
+      codexHome,
+      repoRoot: repo,
+    });
+
+    expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(false);
+    expect(fs.existsSync(codexSkillTarget('curiosity-engine', codexHome))).toBe(false);
+    expect(lines.some(l => l.includes('codex_skill:phone-a-friend') && l.includes('removed'))).toBe(true);
+  });
+
+  it('isCodexInstalled reflects skill presence', () => {
+    expect(isCodexInstalled(codexHome)).toBe(false);
+
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+    expect(isCodexInstalled(codexHome)).toBe(true);
+
+    fs.rmSync(codexSkillTarget('phone-a-friend', codexHome), { recursive: true, force: true });
+    expect(isCodexInstalled(codexHome)).toBe(false);
+  });
+
+  it('isCodexInstalled detects marketplace-only installs in the plugin cache', () => {
+    // Simulate `codex plugin marketplace add` + `codex plugin add` having
+    // populated the cache without anything in $CODEX_HOME/skills/. PaF's
+    // doctor/TUI must still report installed because the skills ARE
+    // callable inside Codex.
+    expect(isCodexInstalled(codexHome)).toBe(false);
+
+    const cacheRoot = path.join(
+      codexHome,
+      'plugins',
+      'cache',
+      'phone-a-friend-marketplace',
+      'phone-a-friend',
+      '2.6.3',
+      'skills',
+    );
+    for (const name of ['phone-a-friend', 'curiosity-engine', 'phone-a-team']) {
+      fs.mkdirSync(path.join(cacheRoot, name), { recursive: true });
+      fs.writeFileSync(path.join(cacheRoot, name, 'SKILL.md'), '# stub');
+    }
+    expect(isCodexInstalled(codexHome)).toBe(true);
+
+    // Removing one skill from the marketplace cache should make us fall
+    // back to "not installed" (no loose-file install present either).
+    fs.rmSync(path.join(cacheRoot, 'phone-a-friend', 'SKILL.md'));
+    expect(isCodexInstalled(codexHome)).toBe(false);
+  });
+
+  it('honors CODEX_HOME env var when codexHome not passed', () => {
+    const envHome = makeHome();
+    const prev = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = envHome;
+    try {
+      expect(codexConfigRoot()).toBe(envHome);
+      installHosts({
+        repoRoot: repo,
+        target: 'codex',
+        mode: 'symlink',
+        force: false,
+        syncClaudeCli: false,
+      syncCodexCli: false,
+      });
+      expect(fs.existsSync(path.join(envHome, 'skills', 'phone-a-friend', 'SKILL.md'))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = prev;
+      try { fs.rmSync(envHome, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('reinstall is idempotent (already-installed)', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    expect(lines.some(l => l.includes('already-installed'))).toBe(true);
+  });
+
+  it('install does NOT ship paf-* subagent personas (legacy design dropped)', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    for (const name of ['paf-reviewer', 'paf-critic', 'paf-synthesizer']) {
+      const target = path.join(codexHome, 'agents', `${name}.toml`);
+      expect(fs.existsSync(target)).toBe(false);
+    }
+  });
+
+  it('install cleans up legacy paf-* symlinks from a prior subagent install', () => {
+    // Simulate a stale install: drop paf-* symlinks pointing back into the
+    // current repo, as the prior installer version would have done.
+    const agentsDir = path.join(codexHome, 'agents');
+    fs.mkdirSync(agentsDir, { recursive: true });
+    // The current repo doesn't actually have agents/codex/paf-*.toml source
+    // files anymore (they were removed conceptually; physically the files
+    // still exist for now, so the symlink points at a real file). What
+    // matters for the cleanup logic is that the symlink resolves into the
+    // repo, which marks it PaF-owned.
+    const fakeSource = path.join(repo, 'agents', 'codex', 'paf-reviewer.toml');
+    fs.symlinkSync(fakeSource, path.join(agentsDir, 'paf-reviewer.toml'));
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    expect(fs.existsSync(path.join(agentsDir, 'paf-reviewer.toml'))).toBe(false);
+    expect(lines.some(l => l.includes('paf-reviewer') && l.includes('removed'))).toBe(true);
+  });
+
+  it('isCodexInstalled tracks skills only (no longer requires agents)', () => {
+    expect(isCodexInstalled(codexHome)).toBe(false);
+
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+    expect(isCodexInstalled(codexHome)).toBe(true);
+
+    // Even with a non-existent legacy agents dir, install state is true
+    // because we no longer install paf-*.toml files.
+    expect(fs.existsSync(path.join(codexHome, 'agents'))).toBe(false);
+    expect(isCodexInstalled(codexHome)).toBe(true);
+  });
+
+  it('--no-codex-cli-sync skips the codex shell-out (no marketplace_add line)', () => {
+    // Mock `which codex` as success so the gate is the syncCodexCli flag,
+    // not binary presence. If syncCodexCli=false suppresses correctly, we
+    // should see no codex_cli_marketplace_add line.
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
+      // Anything else: treat as the real exec (shouldn't be called)
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    expect(lines.some(l => l.includes('codex_cli_marketplace_add'))).toBe(false);
+    expect(lines.some(l => l.includes('codex_cli_plugin_add'))).toBe(false);
+  });
+
+  it('syncCodexCli=true issues marketplace_add + plugin_add when codex binary present', () => {
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
+      if (cmd === 'codex') return 'ok';
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      // syncCodexCli defaults to true
+    });
+
+    expect(lines.some(l => l.includes('codex_cli_marketplace_add: ok'))).toBe(true);
+    expect(lines.some(l => l.includes('codex_cli_plugin_add: ok'))).toBe(true);
+
+    // Verify the actual shell-out commands issued
+    const codexCalls = mockExecFileSync.mock.calls
+      .filter((call: unknown[]) => call[0] === 'codex')
+      .map((call: unknown[]) => (call[1] as string[]).join(' '));
+    expect(codexCalls.some((s: string) => s.startsWith('plugin marketplace add '))).toBe(true);
+    expect(codexCalls.some((s: string) => s === 'plugin add phone-a-friend@phone-a-friend-marketplace')).toBe(true);
+  });
+
+  it('syncCodexCli=true reports skipped when codex binary not in PATH', () => {
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'codex') {
+        const err = new Error('not found') as NodeJS.ErrnoException & { status?: number };
+        err.status = 1;
+        throw err;
+      }
+      return '';
+    });
+
+    const lines = installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+    });
+
+    expect(lines.some(l => l.includes('codex_cli: skipped'))).toBe(true);
+  });
+
+  it('codexCliUnsync=never skips the codex remove shell-out on uninstall', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'codex',
+      codexHome,
+      repoRoot: repo,
+      codexCliUnsync: 'never',
+    });
+
+    expect(lines.some(l => l.includes('codex_cli_unsync: skipped'))).toBe(true);
+    expect(lines.some(l => l.includes('codex_cli_plugin_remove'))).toBe(false);
+  });
+
+  it('uninstall fires codex plugin remove + marketplace remove when codex present', () => {
+    installHosts({
+      repoRoot: repo,
+      target: 'codex',
+      mode: 'symlink',
+      force: false,
+      codexHome,
+      syncClaudeCli: false,
+      syncCodexCli: false,
+    });
+
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
+      if (cmd === 'codex') return 'removed';
+      return '';
+    });
+
+    const lines = uninstallHosts({
+      target: 'codex',
+      codexHome,
+      repoRoot: repo,
+    });
+
+    expect(lines.some(l => l.includes('codex_cli_plugin_remove: ok'))).toBe(true);
+    expect(lines.some(l => l.includes('codex_cli_marketplace_remove: ok'))).toBe(true);
+  });
+
+  it('--all target installs Claude + OpenCode + Codex (with codex agents)', () => {
+    const claudeHome = makeHome();
+    const opencodeHome = makeHome();
+    try {
+      const lines = installHosts({
+        repoRoot: repo,
+        target: 'all',
+        mode: 'symlink',
+        force: false,
+        claudeHome,
+        opencodeHome,
+        codexHome,
+        syncClaudeCli: false,
+        syncCodexCli: false,
+      });
+
+      // Claude plugin dir
+      expect(fs.existsSync(path.join(claudeHome, 'plugins', 'phone-a-friend'))).toBe(true);
+      // OpenCode skills + commands
+      expect(fs.existsSync(opencodeSkillTarget('phone-a-friend', opencodeHome))).toBe(true);
+      // Codex skills (no subagents — paf-* design was dropped)
+      expect(fs.existsSync(codexSkillTarget('phone-a-team', codexHome))).toBe(true);
+      expect(fs.existsSync(path.join(codexHome, 'agents'))).toBe(false);
+
+      expect(lines.some(l => l.includes('codex_skill:phone-a-team'))).toBe(true);
+    } finally {
+      try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+    }
   });
 });
 

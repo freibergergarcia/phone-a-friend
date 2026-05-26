@@ -28,6 +28,27 @@ export class CodexBackendError extends BackendError {
   }
 }
 
+/**
+ * Detect when the current PaF invocation is running inside Codex. The Codex
+ * skill shims set `PHONE_A_FRIEND_HOST=codex` (mirroring the OpenCode
+ * convention) so PaF can refuse to recurse into Codex as a backend.
+ *
+ * We do NOT match generic `CODEX_*` env vars: users frequently export
+ * `CODEX_HOME` or similar in their shell rc, and that should not block a
+ * legitimate `phone-a-friend --to codex` from a regular terminal.
+ */
+export function isCodexHostEnv(env: Record<string, string | undefined>): boolean {
+  return env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'codex';
+}
+
+function assertNotCodexHost(env: Record<string, string>): void {
+  if (!isCodexHostEnv(env)) return;
+  throw new CodexBackendError(
+    'Codex is already the host for this Phone-a-Friend invocation. ' +
+      'Choose another friend backend such as claude, gemini, opencode, or ollama.',
+  );
+}
+
 export class CodexBackend implements Backend {
   readonly name = 'codex';
   readonly localFileAccess = true;
@@ -42,6 +63,7 @@ export class CodexBackend implements Backend {
   };
 
   async run(opts: BackendRunOptions): Promise<string> {
+    assertNotCodexHost(opts.env);
     if (!isInPath('codex')) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`,
@@ -116,6 +138,7 @@ export class CodexBackend implements Backend {
   }
 
   async review(opts: ReviewOptions): Promise<string> {
+    assertNotCodexHost(opts.env);
     if (!isInPath('codex')) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`,

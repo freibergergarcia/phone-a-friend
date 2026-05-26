@@ -22,7 +22,7 @@
     "phone-a-friend": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup && rm -rf dist/public && cp -r src/web/public dist/public",
+    "build": "tsup && rm -rf dist/public && cp -r src/web/public dist/public && node scripts/sync-codex-plugin.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "tsup src/index.ts --format esm --watch",
@@ -34,6 +34,9 @@
   "files": [
     "dist/",
     ".claude-plugin/",
+    ".codex-plugin/",
+    ".agents/",
+    "plugins/",
     "skills/",
     "commands/",
     "README.md",
@@ -60,9 +63,11 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "ink-testing-library": "^4.0.0",
+    "js-yaml": "^4.1.1",
     "tsup": "^8.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.4"

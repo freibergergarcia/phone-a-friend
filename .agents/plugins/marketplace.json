@@ -1,0 +1,12 @@
+{
+  "name": "phone-a-friend-marketplace",
+  "interface": { "displayName": "Phone a Friend" },
+  "plugins": [
+    {
+      "name": "phone-a-friend",
+      "source": { "source": "local", "path": "./plugins/phone-a-friend" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

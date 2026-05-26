@@ -318,10 +318,23 @@ command:
   collisions across runs and repos. One session ID per session-capable
   backend. Used in relay calls so the backend remembers previous rounds.
 
-  **Generate session IDs only for `codex` and `ollama`.** Do NOT generate
-  one for `gemini` — the Gemini backend declares `resumeStrategy:
-  unsupported`, and PaF will reject `--session` for Gemini with a
-  RelayError. For `--backend both`, generate a session ID for codex only.
+  **Generate session IDs for every backend that supports session resume.**
+  PaF declares a resume strategy per backend (`native-session` for
+  codex, claude, opencode; `transcript-replay` for ollama; `unsupported`
+  for gemini). Generate a session ID for any backend whose strategy is
+  NOT `unsupported`:
+
+  | Backend | resumeStrategy | Generate SESSION_ID? |
+  |---|---|---|
+  | codex | native-session | yes |
+  | claude | native-session | yes |
+  | opencode | native-session | yes |
+  | ollama | transcript-replay | yes |
+  | gemini | unsupported | NO, omit `--session` entirely |
+
+  For `--backend both` (codex + gemini), generate a SESSION_ID for codex
+  only. For `--backend all`, generate SESSION_IDs for codex, claude,
+  opencode, ollama (every backend that runs), but never gemini.
 
 ### Algorithm
 
@@ -390,9 +403,10 @@ command:
    Swap `$PAF_NO_DIFF` for `--include-diff` only when the user explicitly
    asked for a diff/branch/staged review.
 
-   Include `--session <SESSION_ID>` ONLY when <backend> is `codex` or
-   `ollama`. For `gemini`, omit `--session` entirely (PaF rejects it for
-   Gemini with a RelayError).
+   Include `--session <SESSION_ID>` for every session-capable backend
+   (`codex`, `claude`, `opencode`, `ollama`). Omit `--session` only for
+   `gemini` because PaF rejects it (Gemini's resume strategy is
+   `unsupported`).
 
    On the FIRST relay under a new session label, PaF prints an
    informational stderr line: `[phone-a-friend] Session label "..." not
@@ -590,10 +604,11 @@ PAF_TEAM_CONTEXT_EOF
   only when the user explicitly asked for a diff/branch/staged review.
 
   Always include `--fast` (relay prompts are self-contained). For
-  `--to claude`, `--fast` has no effect. Include `--session` ONLY when
-  `<backend>` is `codex` or `ollama` — pass the backend-specific ID from
-  `SESSION_IDS`. For `gemini`, omit `--session` entirely; PaF rejects
-  `--session` against Gemini (resume strategy declared `unsupported`).
+  `--to claude`, `--fast` has no effect. Include `--session` for every
+  session-capable backend: `codex`, `claude`, `opencode`, `ollama`. Pass
+  the backend-specific ID from `SESSION_IDS`. For `gemini`, omit
+  `--session` entirely; PaF rejects `--session` against Gemini (resume
+  strategy declared `unsupported`).
 
   When `--session` is used, the session lets the backend remember
   previous rounds, so follow-up prompts can focus on feedback deltas
@@ -747,8 +762,9 @@ codebase. Read at most 2-3 files for preflight context. The backend has
 not to become an expert on the codebase before delegating.
 
 **Per-round relay rules (binary mode with `--session`)**:
-When `--session` is active, session-capable backends (Codex) remember
-previous rounds natively. Each relay call only needs to send:
+When `--session` is active, session-capable backends (Codex, Claude,
+OpenCode) remember previous rounds natively. Each relay call only needs
+to send:
   - The specific feedback or revision request for this round
   - Any new context (e.g., updated diff after changes)
 Do NOT re-send the full task description, prior outputs, or summaries.

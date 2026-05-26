@@ -16,7 +16,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 // Import AFTER mock is set up
-import { CODEX_BACKEND, CodexBackendError } from '../../src/backends/codex.js';
+import { CODEX_BACKEND, CodexBackendError, isCodexHostEnv } from '../../src/backends/codex.js';
 import type { ReviewOptions, SandboxMode as SandboxModeType } from '../../src/backends/index.js';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,42 @@ describe('CodexBackend', () => {
     expect(CODEX_BACKEND.allowedSandboxes.has('read-only')).toBe(true);
     expect(CODEX_BACKEND.allowedSandboxes.has('workspace-write')).toBe(true);
     expect(CODEX_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
+  });
+
+  it('detects Codex host marker env', () => {
+    expect(isCodexHostEnv({ PHONE_A_FRIEND_HOST: 'codex' })).toBe(true);
+    expect(isCodexHostEnv({ PHONE_A_FRIEND_HOST: 'opencode' })).toBe(false);
+    expect(isCodexHostEnv({ PHONE_A_FRIEND_HOST: 'claude' })).toBe(false);
+    expect(isCodexHostEnv({})).toBe(false);
+  });
+
+  it('does not block on bare CODEX_* env vars (false-positive vector)', () => {
+    // CODEX_HOME and friends are user-shell exports; only PHONE_A_FRIEND_HOST
+    // should trigger the recursion guard.
+    expect(isCodexHostEnv({ CODEX_HOME: '/tmp/codex' })).toBe(false);
+    expect(isCodexHostEnv({ CODEX_API_KEY: 'sk-xyz' })).toBe(false);
+  });
+
+  it('blocks recursive Codex backend calls when Codex is the host', async () => {
+    await expect(CODEX_BACKEND.run({
+      prompt: 'hi',
+      repoPath: '/tmp/repo',
+      timeoutSeconds: 30,
+      sandbox: 'read-only' as SandboxModeType,
+      model: null,
+      env: { PHONE_A_FRIEND_HOST: 'codex' },
+    })).rejects.toThrow(/Codex is already the host/);
+  });
+
+  it('blocks recursive Codex review calls when Codex is the host', async () => {
+    await expect(CODEX_BACKEND.review!({
+      repoPath: '/tmp/repo',
+      timeoutSeconds: 30,
+      sandbox: 'read-only' as SandboxModeType,
+      model: null,
+      env: { PHONE_A_FRIEND_HOST: 'codex' },
+      base: 'main',
+    } as ReviewOptions)).rejects.toThrow(/Codex is already the host/);
   });
 
   it('builds correct codex exec args', async () => {

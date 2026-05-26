@@ -600,7 +600,17 @@ describe('CLI', () => {
     });
     expect(result).toBe(1);
     expect(stderr).toContain('--github only applies to Claude Code');
-    expect(stderr).toContain('OpenCode has no marketplace');
+    expect(stderr).toMatch(/no marketplace/i);
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --codex (no marketplace for Codex)', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--codex']);
+    });
+    expect(result).toBe(1);
+    expect(stderr).toContain('--github only applies to Claude Code');
     expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
     expect(mockInstallHosts).not.toHaveBeenCalled();
   });

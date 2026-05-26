@@ -36,6 +36,21 @@ export class RelayError extends Error {
   }
 }
 
+/**
+ * Translate a backend-layer error into a RelayError, preserving any
+ * remediation guidance the backend attached. Without this, the CLI's
+ * top-level catch sees only the bare message and the user loses the
+ * context-aware fix (e.g. Claude's sandbox-blocked remediation when
+ * called from inside Codex).
+ */
+function backendErrorToRelayError(err: BackendError): RelayError {
+  const remediation = (err as { remediation?: unknown }).remediation;
+  if (typeof remediation === 'string' && remediation.trim().length > 0) {
+    return new RelayError(`${err.message}\n\n${remediation}`);
+  }
+  return new RelayError(err.message);
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -490,7 +505,7 @@ export async function relay(opts: RelayOptions): Promise<string> {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }
@@ -589,7 +604,7 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }
@@ -698,7 +713,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }

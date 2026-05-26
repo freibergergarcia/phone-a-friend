@@ -483,6 +483,34 @@ describe('relay', () => {
     await expect(relay({ prompt: 'Review', repoPath: repo })).rejects.toThrow('codex exploded');
   });
 
+  it('preserves remediation field from BackendError subclasses (e.g. ClaudeAuthError)', async () => {
+    // Regression test: ClaudeAuthError attaches sandbox-aware remediation
+    // guidance on err.remediation. Before this fix, the relay catch block
+    // built RelayError(err.message) and silently dropped the field, so
+    // users running PaF from inside Codex saw "Claude CLI is not
+    // authenticated." with no hint about the sandbox.
+    class FakeAuthError extends BackendError {
+      readonly remediation: string;
+      constructor(remediation: string) {
+        super('Claude CLI is not authenticated.');
+        this.remediation = remediation;
+      }
+    }
+    const failingBackend = makeMockBackend('claude');
+    (failingBackend.run as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new FakeAuthError('Codex sandbox is blocking keychain — relax with --sandbox danger-full-access'),
+    );
+    _resetRegistry();
+    registerBackend(failingBackend);
+
+    await expect(relay({ prompt: 'Review', repoPath: repo, backend: 'claude' })).rejects.toThrow(
+      /Codex sandbox is blocking keychain/,
+    );
+    await expect(relay({ prompt: 'Review', repoPath: repo, backend: 'claude' })).rejects.toThrow(
+      /Claude CLI is not authenticated/,
+    );
+  });
+
   it('lets unexpected (non-BackendError) errors propagate unwrapped', async () => {
     const failingBackend = makeMockBackend('codex');
     (failingBackend.run as ReturnType<typeof vi.fn>).mockRejectedValue(

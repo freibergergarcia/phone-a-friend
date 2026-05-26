@@ -12,11 +12,18 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import yaml from 'js-yaml';
 
 const REPO = join(__dirname, '..');
 
 function readFile(rel: string): string {
   return readFileSync(join(REPO, rel), 'utf-8');
+}
+
+function parseFrontmatter(raw: string): unknown {
+  const match = raw.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) throw new Error('no frontmatter');
+  return yaml.load(match[1]);
 }
 
 /**
@@ -172,7 +179,8 @@ describe('Claude /curiosity-engine rich command (commands/curiosity-engine.md)',
 
   it('declares curiosity-engine in frontmatter with argument-hint', () => {
     expect(file).toMatch(/^---\nname: curiosity-engine\n/);
-    expect(file).toMatch(/argument-hint:\s*--topic/);
+    // Quoted to keep Codex's strict YAML parser happy; tolerate optional quotes.
+    expect(file).toMatch(/argument-hint:\s*['"]?--topic/);
   });
 
   it('contains the full Q&A protocol (not a thin shim)', () => {
@@ -217,22 +225,24 @@ describe('Claude /curiosity-engine rich command (commands/curiosity-engine.md)',
   });
 });
 
-describe('OpenCode does not ship a phone-a-team skill', () => {
-  // /phone-a-team is Claude-only. It depends on Claude Agent Teams primitives
-  // (TeamCreate, Task, SendMessage, TeamDelete) that have no OpenCode
-  // equivalent. Any portable shim in skills/phone-a-team/ would re-introduce
-  // the regression we just fixed; lock that out at the file-tree level.
+describe('phone-a-team skill is Claude+Codex only (not OpenCode)', () => {
+  // /phone-a-team is supported on Claude (via commands/phone-a-team.md +
+  // TeamCreate/Task/SendMessage) and Codex (via the .codex/ overlay that
+  // spawns paf-* subagents). OpenCode has no Agent Teams primitive and no
+  // subagent primitive comparable to Codex's, so we deliberately do NOT
+  // ship a host-neutral skills/phone-a-team/SKILL.md or a COMMAND.opencode.md
+  // overlay. Lock that out at the file-tree level.
 
-  it('has no skills/phone-a-team directory', () => {
-    expect(existsSync(join(REPO, 'skills/phone-a-team'))).toBe(false);
-  });
-
-  it('has no skills/phone-a-team/SKILL.md', () => {
+  it('has no host-neutral skills/phone-a-team/SKILL.md', () => {
     expect(existsSync(join(REPO, 'skills/phone-a-team/SKILL.md'))).toBe(false);
   });
 
   it('has no skills/phone-a-team/COMMAND.opencode.md overlay', () => {
     expect(existsSync(join(REPO, 'skills/phone-a-team/COMMAND.opencode.md'))).toBe(false);
+  });
+
+  it('does ship the Codex overlay at skills/phone-a-team/.codex/SKILL.md', () => {
+    expect(existsSync(join(REPO, 'skills/phone-a-team/.codex/SKILL.md'))).toBe(true);
   });
 });
 
@@ -558,6 +568,41 @@ describe('Probe pattern uses subcommand help, not top-level help', () => {
       for (const line of probeLines) {
         expect(line).toContain('relay --help');
       }
+    });
+  }
+});
+
+/**
+ * YAML frontmatter must parse cleanly with a strict parser.
+ *
+ * Codex CLI uses a stricter YAML loader than Claude Code or OpenCode. If a
+ * description contains `: ` (colon-space) inside an unquoted plain scalar,
+ * Codex rejects it as "mapping values are not allowed in this context",
+ * silently skips the skill, and surfaces a startup warning. Claude/OpenCode
+ * are permissive enough that the bug goes unnoticed until a Codex user
+ * loads the skill. This test pins the contract: every shipped frontmatter
+ * MUST round-trip through a strict YAML parser.
+ */
+describe('shipped skill and command frontmatter parses as strict YAML', () => {
+  const files = [
+    'commands/phone-a-friend.md',
+    'commands/phone-a-team.md',
+    'commands/curiosity-engine.md',
+    'skills/phone-a-friend/SKILL.md',
+    'skills/phone-a-friend/COMMAND.opencode.md',
+    'skills/curiosity-engine/SKILL.md',
+    'skills/curiosity-engine/COMMAND.opencode.md',
+    'skills/phone-a-team/.codex/SKILL.md',
+  ];
+
+  for (const rel of files) {
+    it(`${rel} has valid YAML frontmatter`, () => {
+      const raw = readFile(rel);
+      // parseFrontmatter throws on YAML errors; the assertion is the absence
+      // of a throw plus the result being an object (sanity check).
+      const parsed = parseFrontmatter(raw);
+      expect(parsed).toBeTypeOf('object');
+      expect(parsed).not.toBeNull();
     });
   }
 });
