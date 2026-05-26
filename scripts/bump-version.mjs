@@ -40,12 +40,23 @@ function updateJsonFile(filePath, newVersion) {
 }
 
 const pkgPath = resolve(root, "package.json");
-const pluginPath = resolve(root, ".claude-plugin/plugin.json");
+
+// All manifests that must share `version` with package.json. The
+// codex-plugin-manifests test (tests/codex-plugin-manifests.test.ts)
+// enforces sync across these files; adding a manifest without listing
+// it here will pass the bump step but break CI on the next minor/patch.
+const VERSIONED_MANIFESTS = [
+  ".claude-plugin/plugin.json",
+  ".codex-plugin/plugin.json",
+  "plugins/phone-a-friend/.codex-plugin/plugin.json",
+];
 
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 const newVersion = bumpSemver(pkg.version, LEVEL);
 
 updateJsonFile(pkgPath, newVersion);
-updateJsonFile(pluginPath, newVersion);
+for (const rel of VERSIONED_MANIFESTS) {
+  updateJsonFile(resolve(root, rel), newVersion);
+}
 
 console.log(newVersion);
