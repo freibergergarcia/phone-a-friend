@@ -709,13 +709,18 @@ function uninstallCodex(codexHome?: string, repoRoot?: string): string[] {
     }
   }
   // Clean up legacy paf-* subagent symlinks from the earlier subagent
-  // design. Best-effort; do not error if they are not present.
+  // design, but only when they are PaF-owned symlinks. Don't touch
+  // user-authored TOML files at the same path; the names are distinctive
+  // but not reserved, and clobbering a real file during uninstall would be
+  // a destructive surprise.
   const legacyAgentsDir = join(codexConfigRoot(codexHome), 'agents');
   for (const legacy of ['paf-reviewer', 'paf-critic', 'paf-synthesizer']) {
     const legacyTarget = join(legacyAgentsDir, `${legacy}.toml`);
-    if (existsSync(legacyTarget) || isSymlink(legacyTarget)) {
+    if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
+    } else if (existsSync(legacyTarget) || isSymlink(legacyTarget)) {
+      lines.push(`- codex_agent:${legacy}: kept (not PaF-owned; remove manually if desired)`);
     }
   }
   return lines;

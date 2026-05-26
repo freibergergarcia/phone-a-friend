@@ -7094,9 +7094,11 @@ function uninstallCodex(codexHome, repoRoot) {
   const legacyAgentsDir = join6(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
     const legacyTarget = join6(legacyAgentsDir, `${legacy}.toml`);
-    if (existsSync7(legacyTarget) || isSymlink(legacyTarget)) {
+    if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
+    } else if (existsSync7(legacyTarget) || isSymlink(legacyTarget)) {
+      lines.push(`- codex_agent:${legacy}: kept (not PaF-owned; remove manually if desired)`);
     }
   }
   return lines;
@@ -82107,7 +82109,11 @@ function printBackendAvailability() {
 function resolveHostTarget(opts) {
   if (opts.all) return "all";
   const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
-  if (selected > 1) return "all";
+  if (selected > 1) {
+    throw new InstallerError(
+      "Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag."
+    );
+  }
   if (opts.opencode) return "opencode";
   if (opts.codex) return "codex";
   return "claude";

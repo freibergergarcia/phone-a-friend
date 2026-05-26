@@ -121,7 +121,11 @@ function resolveHostTarget(opts: {
 }): 'claude' | 'opencode' | 'codex' | 'all' {
   if (opts.all) return 'all';
   const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
-  if (selected > 1) return 'all';
+  if (selected > 1) {
+    throw new InstallerError(
+      'Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag.',
+    );
+  }
   if (opts.opencode) return 'opencode';
   if (opts.codex) return 'codex';
   return 'claude';

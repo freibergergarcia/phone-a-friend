@@ -5,8 +5,8 @@
   "author": {
     "name": "Bruno Freiberger"
   },
-  "license": "GPL-2.0-only",
-  "repository": "https://github.com/freibergergarcia/freibergergarcia/phone-a-friend",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/freibergergarcia/phone-a-friend",
   "skills": "./skills/",
   "interface": {
     "displayName": "Phone a Friend",
