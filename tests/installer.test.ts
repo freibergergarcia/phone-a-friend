@@ -932,6 +932,34 @@ describe('Codex host integration', () => {
     expect(isCodexInstalled(codexHome)).toBe(false);
   });
 
+  it('isCodexInstalled detects marketplace-only installs in the plugin cache', () => {
+    // Simulate `codex plugin marketplace add` + `codex plugin add` having
+    // populated the cache without anything in $CODEX_HOME/skills/. PaF's
+    // doctor/TUI must still report installed because the skills ARE
+    // callable inside Codex.
+    expect(isCodexInstalled(codexHome)).toBe(false);
+
+    const cacheRoot = path.join(
+      codexHome,
+      'plugins',
+      'cache',
+      'phone-a-friend-marketplace',
+      'phone-a-friend',
+      '2.6.3',
+      'skills',
+    );
+    for (const name of ['phone-a-friend', 'curiosity-engine', 'phone-a-team']) {
+      fs.mkdirSync(path.join(cacheRoot, name), { recursive: true });
+      fs.writeFileSync(path.join(cacheRoot, name, 'SKILL.md'), '# stub');
+    }
+    expect(isCodexInstalled(codexHome)).toBe(true);
+
+    // Removing one skill from the marketplace cache should make us fall
+    // back to "not installed" (no loose-file install present either).
+    fs.rmSync(path.join(cacheRoot, 'phone-a-friend', 'SKILL.md'));
+    expect(isCodexInstalled(codexHome)).toBe(false);
+  });
+
   it('honors CODEX_HOME env var when codexHome not passed', () => {
     const envHome = makeHome();
     const prev = process.env.CODEX_HOME;

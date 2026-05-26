@@ -9,6 +9,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -461,10 +462,43 @@ export function isOpenCodeInstalled(opencodeHome?: string): boolean {
   ));
 }
 
+/**
+ * True when the Codex integration is usable, via either install path.
+ *
+ * Path 1 — loose-file install (`phone-a-friend plugin install --codex`):
+ *   $CODEX_HOME/skills/<name>/SKILL.md
+ *
+ * Path 2 — marketplace install (`codex plugin marketplace add` + `codex plugin add`):
+ *   $CODEX_HOME/plugins/cache/phone-a-friend-marketplace/phone-a-friend/<version>/skills/<name>/SKILL.md
+ *
+ * Either path counts. Without this, doctor + TUI would report "not installed"
+ * for marketplace-only installs even though Codex itself shows the plugin
+ * enabled in `codex plugin list` and the skills are callable inside Codex.
+ */
 export function isCodexInstalled(codexHome?: string): boolean {
-  return CODEX_SKILLS.every((name) =>
+  const looseFileOk = CODEX_SKILLS.every((name) =>
     existsSync(join(codexSkillTarget(name, codexHome), 'SKILL.md')),
   );
+  if (looseFileOk) return true;
+
+  const cacheRoot = join(
+    codexConfigRoot(codexHome),
+    'plugins',
+    'cache',
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+  );
+  if (!existsSync(cacheRoot)) return false;
+  try {
+    const versions = readdirSync(cacheRoot);
+    return versions.some((ver) =>
+      CODEX_SKILLS.every((name) =>
+        existsSync(join(cacheRoot, ver, 'skills', name, 'SKILL.md')),
+      ),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function runCodexCommand(args: string[]): { code: number; output: string } {

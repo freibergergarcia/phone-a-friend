@@ -6115,6 +6115,15 @@ import { execFileSync as execFileSync2 } from "child_process";
 import { randomUUID as randomUUID2 } from "crypto";
 import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
 import { resolve } from "path";
+function backendErrorToRelayError(err) {
+  const remediation = err.remediation;
+  if (typeof remediation === "string" && remediation.trim().length > 0) {
+    return new RelayError(`${err.message}
+
+${remediation}`);
+  }
+  return new RelayError(err.message);
+}
 function sizeBytes(text) {
   return Buffer.byteLength(text, "utf-8");
 }
@@ -6439,7 +6448,7 @@ async function relay(opts) {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }
@@ -6507,7 +6516,7 @@ async function* relayStream(opts) {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }
@@ -6589,7 +6598,7 @@ async function reviewRelay(opts) {
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
-      throw new RelayError(err.message);
+      throw backendErrorToRelayError(err);
     }
     throw err;
   }
@@ -6666,6 +6675,7 @@ import {
   existsSync as existsSync7,
   lstatSync,
   mkdirSync as mkdirSync5,
+  readdirSync,
   readFileSync as readFileSync8,
   readlinkSync,
   realpathSync,
@@ -6920,9 +6930,28 @@ function isOpenCodeInstalled(opencodeHome) {
   return OPENCODE_SKILLS.every((name) => existsSync7(join6(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
-  return CODEX_SKILLS.every(
+  const looseFileOk = CODEX_SKILLS.every(
     (name) => existsSync7(join6(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
+  if (looseFileOk) return true;
+  const cacheRoot = join6(
+    codexConfigRoot(codexHome),
+    "plugins",
+    "cache",
+    MARKETPLACE_NAME,
+    PLUGIN_NAME
+  );
+  if (!existsSync7(cacheRoot)) return false;
+  try {
+    const versions = readdirSync(cacheRoot);
+    return versions.some(
+      (ver) => CODEX_SKILLS.every(
+        (name) => existsSync7(join6(cacheRoot, ver, "skills", name, "SKILL.md"))
+      )
+    );
+  } catch {
+    return false;
+  }
 }
 function runCodexCommand(args) {
   try {
