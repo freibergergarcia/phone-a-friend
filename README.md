@@ -37,6 +37,22 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 Claude `/phone-a-team` orchestrates rounds via the Agent Teams primitive (TeamCreate + Task + SendMessage). Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
+> [!IMPORTANT]
+> **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Gemini hangs until the timeout. Two workarounds today, both with tradeoffs:
+>
+> **Option A — Lower the sandbox.** Per-session (preferred): launch Codex with `codex --sandbox danger-full-access`. Persistent (convenient but removes sandbox protections from every Codex session, not just PaF relays): add an alias to `~/.zshrc` or `~/.bashrc`:
+> ```bash
+> alias codex='codex --sandbox danger-full-access'
+> ```
+>
+> **Option B — Use API keys.** Skips OAuth entirely, works in any sandbox:
+> ```bash
+> export ANTHROPIC_API_KEY=...
+> export GEMINI_API_KEY=...
+> ```
+>
+> A portable-auth path via `claude setup-token` is planned for the Claude side. Gemini OAuth refresh inside the sandbox is a separate open issue with no planned fix yet — until then, Option B is the only Gemini-safe path that keeps the sandbox intact.
+
 ## Quick Start
 
 **Prerequisites:** Node.js 22.13+ and at least one backend:
@@ -100,6 +116,9 @@ phone-a-friend plugin install --codex
 ```
 
 This installs `phone-a-friend`, `curiosity-engine`, and `phone-a-team` skills into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). All three are orchestrated through pure Bash from the skill bodies — no Codex subagent primitive is required.
+
+> [!NOTE]
+> Unlike Claude's marketplace, Codex marketplace install ships the skills directly — `codex plugin marketplace add` + `codex plugin add` is sufficient to use `/phone-a-friend`, `/curiosity-engine`, and `/phone-a-team` from inside Codex. For the full CLI (TUI, agentic mode, web dashboard), install via `npm install -g @freibergergarcia/phone-a-friend`. Running `phone-a-friend plugin install --codex` after the npm install additionally drops loose-file skills under `~/.codex/skills/` as a no-marketplace fallback.
 
 From Codex, ask naturally:
 
@@ -309,7 +328,8 @@ Agentic mode spawns multiple Claude agents that communicate via `@mentions` with
 
 Each agent accumulates context through persistent CLI sessions — later responses build on earlier ones, so agents develop genuine understanding of the problem as the session progresses.
 
-**Currently supports Claude agents only.** See [AGENTS.md](AGENTS.md) for full architecture details.
+> [!IMPORTANT]
+> **Agentic mode currently supports Claude agents only.** Codex, Gemini, OpenCode, and Ollama agents are not yet wired into the orchestrator. If you need multi-host adversarial review today, use `/phone-a-team` instead — it does parallel multi-backend rounds with the same iterate-or-ship pattern, just without the persistent session graph and live web dashboard. See [AGENTS.md](AGENTS.md) for the agentic architecture.
 
 ```bash
 # Start an agentic session
@@ -350,6 +370,9 @@ npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
 Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+
+> [!WARNING]
+> `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.
 
 **Claude Code marketplace:**
 
