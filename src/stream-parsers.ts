@@ -210,12 +210,41 @@ import type { Readable } from 'node:stream';
 // session.created event exists.
 // ---------------------------------------------------------------------------
 
+/**
+ * Pull a human-readable message out of an OpenCode `type:"error"` event.
+ * Shape (verified against opencode 1.x `--format json`):
+ *   {"type":"error","error":{"name":"UnknownError","data":{"message":"..."}}}
+ * Prefers error.data.message, then error.name, then a JSON dump of error.
+ */
+export function extractOpenCodeErrorMessage(event: Record<string, unknown>): string {
+  const error = event.error as Record<string, unknown> | undefined;
+  if (error && typeof error === 'object') {
+    const data = error.data as Record<string, unknown> | undefined;
+    if (data && typeof data.message === 'string' && data.message.trim()) {
+      return data.message;
+    }
+    if (typeof error.name === 'string' && error.name.trim()) {
+      return error.name;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      // fall through
+    }
+  }
+  return 'opencode reported an error';
+}
+
 export async function* parseOpenCodeStreamJSON(
   stdout: Readable,
-  opts?: { onSessionCreated?: (sessionId: string) => void },
+  opts?: {
+    onSessionCreated?: (sessionId: string) => void;
+    onError?: (message: string) => void;
+  },
 ): AsyncGenerator<string> {
   let buffer = '';
   let sessionReported = false;
+  let errorReported = false;
 
   function* processLines(lines: string[]): Generator<string> {
     for (const line of lines) {
@@ -237,6 +266,17 @@ export async function* parseOpenCodeStreamJSON(
       ) {
         opts.onSessionCreated(parsed.sessionID as string);
         sessionReported = true;
+      }
+
+      // Capture the first error event. OpenCode emits errors as JSON on
+      // stdout (not stderr), shaped like:
+      //   {"type":"error","error":{"name":"UnknownError",
+      //    "data":{"message":"Model not found: ..."}}}
+      // The backend surfaces this on a non-zero exit; without it the user
+      // only sees a generic "opencode exited with code 1".
+      if (!errorReported && parsed.type === 'error' && opts?.onError) {
+        opts.onError(extractOpenCodeErrorMessage(parsed));
+        errorReported = true;
       }
 
       // Only yield text from 'text' events

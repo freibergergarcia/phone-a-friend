@@ -274,47 +274,63 @@ export class OpenCodeBackend implements Backend {
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-    const closePromise = new Promise<void>((resolve, reject) => {
-      child.on('close', (code, signal) => {
-        if (timedOut) {
-          reject(new OpenCodeBackendError(
-            `opencode timed out after ${opts.timeoutSeconds}s`,
-          ));
-        } else if (signal) {
-          reject(new OpenCodeBackendError(
-            `opencode killed by signal ${signal}`,
-          ));
-        } else if (code !== 0 && code !== null) {
-          const stderr = Buffer.concat(stderrChunks).toString().trim();
-          reject(new OpenCodeBackendError(
-            stderr || `opencode exited with code ${code}`,
-          ));
-        } else {
-          resolve();
-        }
-      });
-    });
+    // OpenCode emits errors as JSON on stdout, not stderr. The parser hands
+    // us the first such error via onError; we surface it on a non-zero exit
+    // (or even a clean exit) so users see the real cause instead of a generic
+    // "exited with code 1".
+    let streamError: string | null = null;
+
+    // The close handler only reports the raw exit status. The final error is
+    // derived AFTER stdout is fully parsed, so streamError (parsed from stdout)
+    // is available — building the message inside the handler would race past
+    // the stdout error event and ignore it.
+    const closePromise = new Promise<{ code: number | null; signal: string | null }>(
+      (resolve) => {
+        child.on('close', (code, signal) => resolve({ code, signal: signal as string | null }));
+      },
+    );
 
     let chunkCount = 0;
     try {
       for await (const chunk of parseOpenCodeStreamJSON(
         child.stdout as Readable,
-        { onSessionCreated: opts.onSessionCreated },
+        {
+          onSessionCreated: opts.onSessionCreated,
+          onError: (msg) => { if (streamError === null) streamError = msg; },
+        },
       )) {
         chunkCount++;
         yield chunk;
       }
-      await closePromise;
-      // closePromise resolves only on clean exit (code 0, no signal, no timeout).
-      // If we reach here with zero text chunks, opencode's build agent emitted
-      // only step_start/tool events and exited successfully — the silent-output
-      // case. Surface the same error users see from the batch path.
+
+      const { code, signal } = await closePromise;
+
+      if (timedOut) {
+        throw new OpenCodeBackendError(
+          `opencode timed out after ${opts.timeoutSeconds}s`,
+        );
+      }
+      if (signal) {
+        throw new OpenCodeBackendError(`opencode killed by signal ${signal}`);
+      }
+      if (code !== 0 && code !== null) {
+        const stderr = Buffer.concat(stderrChunks).toString().trim();
+        throw new OpenCodeBackendError(
+          stderr || streamError || `opencode exited with code ${code}`,
+        );
+      }
+      // Clean exit. An error event on a clean exit must still surface, and
+      // must be checked BEFORE the silent-output guard so it is not masked.
+      if (streamError) {
+        throw new OpenCodeBackendError(streamError);
+      }
+      // Zero text chunks on a clean exit: opencode emitted only
+      // step_start/tool events — the silent-output case. Surface the same
+      // error users see from the batch path.
       if (chunkCount === 0) {
         throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
       }
     } catch (err: unknown) {
-      closePromise.catch(() => {});
-
       if (err instanceof OpenCodeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (timedOut) {
