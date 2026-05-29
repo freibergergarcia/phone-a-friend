@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
-import { parseSSEStream, parseNDJSONStream, parseClaudeStreamJSON } from '../src/stream-parsers.js';
+import {
+  parseSSEStream,
+  parseNDJSONStream,
+  parseClaudeStreamJSON,
+  parseOpenCodeStreamJSON,
+  extractOpenCodeErrorMessage,
+} from '../src/stream-parsers.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -424,5 +430,55 @@ describe('parseClaudeStreamJSON', () => {
     const stream = Readable.from([full.slice(0, mid), full.slice(mid)]);
     const chunks = await collect(parseClaudeStreamJSON(stream));
     expect(chunks.join('')).toBe('chunk test');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode stream-json parser
+// ---------------------------------------------------------------------------
+
+describe('extractOpenCodeErrorMessage', () => {
+  it('prefers error.data.message', () => {
+    expect(extractOpenCodeErrorMessage({
+      type: 'error',
+      error: { name: 'UnknownError', data: { message: 'Model not found: x' } },
+    })).toBe('Model not found: x');
+  });
+
+  it('falls back to error.name when no data.message', () => {
+    expect(extractOpenCodeErrorMessage({
+      type: 'error',
+      error: { name: 'AuthError' },
+    })).toBe('AuthError');
+  });
+
+  it('returns a generic message when the error shape is unrecognized', () => {
+    expect(extractOpenCodeErrorMessage({ type: 'error' })).toBe('opencode reported an error');
+  });
+});
+
+describe('parseOpenCodeStreamJSON', () => {
+  it('invokes onError with the extracted message for a type:error event', async () => {
+    const errorEvent =
+      '{"type":"error","sessionID":"ses_z","error":{"name":"UnknownError",' +
+      '"data":{"message":"Model not found: ollama/bogus."}}}\n';
+    const stream = Readable.from([errorEvent]);
+
+    let captured: string | null = null;
+    const chunks = await collect(
+      parseOpenCodeStreamJSON(stream, { onError: (m) => { captured = m; } }),
+    );
+
+    expect(chunks).toEqual([]); // error events are not yielded as text
+    expect(captured).toBe('Model not found: ollama/bogus.');
+  });
+
+  it('yields text parts and ignores non-text events', async () => {
+    const jsonl =
+      '{"type":"step_start","sessionID":"ses_z","part":{}}\n' +
+      '{"type":"text","sessionID":"ses_z","part":{"text":"hi"}}\n';
+    const stream = Readable.from([jsonl]);
+    const chunks = await collect(parseOpenCodeStreamJSON(stream));
+    expect(chunks.join('')).toBe('hi');
   });
 });

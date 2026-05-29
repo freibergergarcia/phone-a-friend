@@ -545,6 +545,28 @@ function looksLikeCodexAlready(output: string): boolean {
  * loose-file install (`$CODEX_HOME/skills/` + `$CODEX_HOME/agents/`); this
  * sync is for discoverability + the eventual upstream cache improvement.
  */
+/**
+ * Choose the source argument for `codex plugin marketplace add`.
+ *
+ * Codex parses the marketplace source as `owner/repo[@ref]` (a local path, an
+ * `owner/repo[@ref]` slug, or a Git URL). A local filesystem path that
+ * contains `@` — notably an npm-scoped global install at
+ * `.../@freibergergarcia/phone-a-friend` — is misread: the `@` is taken as a
+ * git ref delimiter and Codex rejects it with
+ * `--ref is only supported for git marketplace sources`. Claude's marketplace
+ * grammar has no `@ref` form, so only Codex is affected (verified: Claude
+ * registers the same scoped path as a `directory` source without error).
+ *
+ * For `@`-containing paths we fall back to the GitHub slug, which Codex
+ * resolves as a Git marketplace source (verified working against
+ * github.com/freibergergarcia/phone-a-friend). Clean local paths — the common
+ * local-dev `mode: symlink` case — are passed through unchanged so developers
+ * register their working tree rather than GitHub main.
+ */
+export function codexMarketplaceSource(resolvedRepo: string): string {
+  return resolvedRepo.includes('@') ? GITHUB_REPO : resolvedRepo;
+}
+
 function syncCodexPluginRegistration(source: string): string[] {
   const lines: string[] = [];
 
@@ -940,7 +962,7 @@ export function installHosts(opts: InstallOptions): string[] {
   }
 
   if (shouldInstallCodex && syncCodexCli) {
-    lines.push(...syncCodexPluginRegistration(resolvedRepo));
+    lines.push(...syncCodexPluginRegistration(codexMarketplaceSource(resolvedRepo)));
   }
 
   return lines;

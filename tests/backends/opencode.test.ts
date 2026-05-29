@@ -170,4 +170,46 @@ describe('OpenCode backend', () => {
       expect(chunks.join('')).toBe('hello');
     });
   });
+
+  describe('runStream() — error surfacing', () => {
+    // OpenCode emits errors as JSON on stdout (verified shape), not stderr.
+    const errorEvent =
+      '{"type":"error","timestamp":1,"sessionID":"ses_e","error":' +
+      '{"name":"UnknownError","data":{"message":"Model not found: ollama/bogus-model."}}}\n';
+
+    async function collectError(gen: AsyncGenerator<string>): Promise<Error | null> {
+      try {
+        for await (const _chunk of gen) {
+          // drain
+        }
+        return null;
+      } catch (e) {
+        return e as Error;
+      }
+    }
+
+    it('surfaces the stdout JSON error detail on a non-zero exit (not the generic message)', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 1));
+
+      const err = await collectError(OPENCODE_BACKEND.runStream!(makeOpts()));
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err?.message).toMatch(/Model not found: ollama\/bogus-model/);
+      expect(err?.message).not.toMatch(/exited with code 1/);
+    });
+
+    it('prefers a stdout error event over the silent-output guard on a clean exit', async () => {
+      // Error event with zero text parts and a clean (0) exit: the error must
+      // win over the "produced no text output" guard so the real cause shows.
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 0));
+
+      const err = await collectError(OPENCODE_BACKEND.runStream!(makeOpts()));
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err?.message).toMatch(/Model not found: ollama\/bogus-model/);
+      expect(err?.message).not.toMatch(/produced no text output/);
+    });
+  });
 });

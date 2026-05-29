@@ -6979,6 +6979,9 @@ function looksLikeCodexAlready(output) {
     "already registered"
   ].some((token) => text.includes(token));
 }
+function codexMarketplaceSource(resolvedRepo) {
+  return resolvedRepo.includes("@") ? GITHUB_REPO : resolvedRepo;
+}
 function syncCodexPluginRegistration(source) {
   const lines = [];
   try {
@@ -7248,7 +7251,7 @@ function installHosts(opts) {
     }
   }
   if (shouldInstallCodex && syncCodexCli) {
-    lines.push(...syncCodexPluginRegistration(resolvedRepo));
+    lines.push(...syncCodexPluginRegistration(codexMarketplaceSource(resolvedRepo)));
   }
   return lines;
 }
@@ -78071,9 +78074,27 @@ async function* parseNDJSONStream(body, signal) {
     throw new Error("Stream ended unexpectedly");
   }
 }
+function extractOpenCodeErrorMessage(event) {
+  const error3 = event.error;
+  if (error3 && typeof error3 === "object") {
+    const data = error3.data;
+    if (data && typeof data.message === "string" && data.message.trim()) {
+      return data.message;
+    }
+    if (typeof error3.name === "string" && error3.name.trim()) {
+      return error3.name;
+    }
+    try {
+      return JSON.stringify(error3);
+    } catch {
+    }
+  }
+  return "opencode reported an error";
+}
 async function* parseOpenCodeStreamJSON(stdout, opts) {
   let buffer = "";
   let sessionReported = false;
+  let errorReported = false;
   function* processLines(lines) {
     for (const line of lines) {
       const trimmed = line.trim();
@@ -78087,6 +78108,10 @@ async function* parseOpenCodeStreamJSON(stdout, opts) {
       if (!sessionReported && typeof parsed.sessionID === "string" && opts?.onSessionCreated) {
         opts.onSessionCreated(parsed.sessionID);
         sessionReported = true;
+      }
+      if (!errorReported && parsed.type === "error" && opts?.onError) {
+        opts.onError(extractOpenCodeErrorMessage(parsed));
+        errorReported = true;
       }
       if (parsed.type === "text") {
         const part = parsed.part;
@@ -78381,6 +78406,18 @@ function isClaudeAuthError(msg) {
   const text = msg.toLowerCase();
   return text.includes("not logged in") || text.includes("please run /login");
 }
+function extractClaudeSchemaOutput(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return stdout;
+  }
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && Object.prototype.hasOwnProperty.call(parsed, "structured_output")) {
+    return JSON.stringify(parsed.structured_output);
+  }
+  return stdout;
+}
 var ClaudeBackend = class {
   name = "claude";
   localFileAccess = true;
@@ -78466,7 +78503,7 @@ var ClaudeBackend = class {
         label: "claude"
       });
       if (result.stdout) {
-        return result.stdout;
+        return opts.schema ? extractClaudeSchemaOutput(result.stdout) : result.stdout;
       }
       throw new ClaudeBackendError("claude completed without producing output");
     } catch (err) {
@@ -78716,42 +78753,48 @@ var OpenCodeBackend = class {
     process.on("SIGINT", onSigint);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve5, reject) => {
-      child.on("close", (code, signal) => {
-        if (timedOut) {
-          reject(new OpenCodeBackendError(
-            `opencode timed out after ${opts.timeoutSeconds}s`
-          ));
-        } else if (signal) {
-          reject(new OpenCodeBackendError(
-            `opencode killed by signal ${signal}`
-          ));
-        } else if (code !== 0 && code !== null) {
-          const stderr = Buffer.concat(stderrChunks).toString().trim();
-          reject(new OpenCodeBackendError(
-            stderr || `opencode exited with code ${code}`
-          ));
-        } else {
-          resolve5();
-        }
-      });
-    });
+    let streamError = null;
+    const closePromise = new Promise(
+      (resolve5) => {
+        child.on("close", (code, signal) => resolve5({ code, signal }));
+      }
+    );
     let chunkCount = 0;
     try {
       for await (const chunk of parseOpenCodeStreamJSON(
         child.stdout,
-        { onSessionCreated: opts.onSessionCreated }
+        {
+          onSessionCreated: opts.onSessionCreated,
+          onError: (msg) => {
+            if (streamError === null) streamError = msg;
+          }
+        }
       )) {
         chunkCount++;
         yield chunk;
       }
-      await closePromise;
+      const { code, signal } = await closePromise;
+      if (timedOut) {
+        throw new OpenCodeBackendError(
+          `opencode timed out after ${opts.timeoutSeconds}s`
+        );
+      }
+      if (signal) {
+        throw new OpenCodeBackendError(`opencode killed by signal ${signal}`);
+      }
+      if (code !== 0 && code !== null) {
+        const stderr = Buffer.concat(stderrChunks).toString().trim();
+        throw new OpenCodeBackendError(
+          stderr || streamError || `opencode exited with code ${code}`
+        );
+      }
+      if (streamError) {
+        throw new OpenCodeBackendError(streamError);
+      }
       if (chunkCount === 0) {
         throw new OpenCodeBackendError(OPENCODE_NO_OUTPUT_MESSAGE);
       }
     } catch (err) {
-      closePromise.catch(() => {
-      });
       if (err instanceof OpenCodeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (timedOut) {
