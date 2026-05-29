@@ -26,6 +26,7 @@ import {
   opencodeSkillTarget,
   codexConfigRoot,
   codexSkillTarget,
+  codexMarketplaceSource,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
@@ -40,8 +41,8 @@ function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function makeRepo(): string {
-  const repo = makeTempDir('phone-a-friend-repo-');
+function makeRepo(prefix = 'phone-a-friend-repo-'): string {
+  const repo = makeTempDir(prefix);
   const pluginDir = path.join(repo, '.claude-plugin');
   fs.mkdirSync(pluginDir, { recursive: true });
     fs.writeFileSync(
@@ -1593,5 +1594,70 @@ describe('installHosts marketplace sync guard', () => {
     });
 
     expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
+  });
+});
+
+describe('codexMarketplaceSource', () => {
+  it('passes a clean local path through unchanged (local-dev symlink case)', () => {
+    const local = '/Users/dev/code/phone-a-friend';
+    expect(codexMarketplaceSource(local)).toBe(local);
+  });
+
+  it('falls back to the GitHub slug for an npm-scoped path containing @', () => {
+    // Codex parses the source as owner/repo[@ref], so the @ in an npm scope
+    // (e.g. a global install) is misread as a git ref delimiter and rejected.
+    const scoped = '/opt/homebrew/lib/node_modules/@freibergergarcia/phone-a-friend';
+    expect(codexMarketplaceSource(scoped)).toBe(GITHUB_REPO);
+  });
+
+  it('uses the slug for any @-containing path, regardless of scope name', () => {
+    expect(codexMarketplaceSource('/some/@anyscope/pkg')).toBe(GITHUB_REPO);
+  });
+});
+
+describe('codex marketplace_add source selection (npm-scoped install)', () => {
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('never passes an @-containing path to codex plugin marketplace add', () => {
+    // Build a structurally-valid repo at a path containing @, mimicking an
+    // npm-scoped global install (.../@freibergergarcia/phone-a-friend).
+    const scopedRepo = makeRepo('phone-a-friend-@freibergergarcia-');
+    const codexHome = makeTempDir('paf-codexhome-');
+    try {
+      mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
+        if (cmd === 'codex') return 'ok';
+        return '';
+      });
+
+      installHosts({
+        repoRoot: scopedRepo,
+        target: 'codex',
+        mode: 'symlink',
+        force: false,
+        codexHome,
+        syncClaudeCli: false,
+      });
+
+      const marketplaceAddCall = mockExecFileSync.mock.calls.find(
+        (c: unknown[]) =>
+          c[0] === 'codex' &&
+          (c[1] as string[]).includes('marketplace') &&
+          (c[1] as string[]).includes('add'),
+      );
+      expect(marketplaceAddCall).toBeDefined();
+      const source = (marketplaceAddCall![1] as string[]).at(-1) as string;
+      expect(source.includes('@')).toBe(false);
+      expect(source).toBe(GITHUB_REPO);
+    } finally {
+      try { fs.rmSync(scopedRepo, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(codexHome, { recursive: true, force: true }); } catch {}
+    }
   });
 });
