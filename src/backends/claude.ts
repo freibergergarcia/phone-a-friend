@@ -99,6 +99,41 @@ export function isClaudeAuthError(msg: string): boolean {
   return text.includes('not logged in') || text.includes('please run /login');
 }
 
+/**
+ * Extract the schema payload from Claude's `--output-format json` envelope.
+ *
+ * With `--json-schema`, Claude Code returns the full result envelope
+ * (`{type, subtype, result, structured_output, ...}`) on stdout, and the
+ * schema-conforming value lives under `.structured_output`. Returning the raw
+ * envelope leaks the wrapper to callers (e.g. `jq '.ok'` yields null) and is
+ * inconsistent with the Codex backend, which returns the clean value.
+ *
+ * We extract `.structured_output` whenever the parsed envelope owns that key,
+ * serializing whatever value it holds — JSON Schema roots can be objects,
+ * arrays, strings, numbers, booleans, or null, so we must NOT restrict to
+ * object values. If the envelope can't be parsed or has no `structured_output`
+ * key, we fall back to the raw stdout rather than swallowing output.
+ *
+ * Only used in schema mode; plain-text runs return stdout verbatim.
+ */
+export function extractClaudeSchemaOutput(stdout: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return stdout;
+  }
+  if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    !Array.isArray(parsed) &&
+    Object.prototype.hasOwnProperty.call(parsed, 'structured_output')
+  ) {
+    return JSON.stringify((parsed as Record<string, unknown>).structured_output);
+  }
+  return stdout;
+}
+
 // ---------------------------------------------------------------------------
 // Backend
 // ---------------------------------------------------------------------------
@@ -229,7 +264,9 @@ export class ClaudeBackend implements Backend {
       });
 
       if (result.stdout) {
-        return result.stdout;
+        return opts.schema
+          ? extractClaudeSchemaOutput(result.stdout)
+          : result.stdout;
       }
 
       throw new ClaudeBackendError('claude completed without producing output');

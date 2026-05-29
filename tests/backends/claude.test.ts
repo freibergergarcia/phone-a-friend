@@ -227,6 +227,82 @@ describe('ClaudeBackend', () => {
     expect(args[args.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
   });
 
+  it('schema mode: extracts structured_output object from the result envelope', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    // Claude `--output-format json --json-schema` returns the full result
+    // envelope; the schema payload lives under .structured_output.
+    const envelope = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: 'here you go',
+      structured_output: { ok: true },
+    });
+    mockSpawn.mockReturnValue(mockChildProcess(envelope, 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }));
+
+    // Caller must get the clean schema object, not the wrapper.
+    expect(JSON.parse(result)).toEqual({ ok: true });
+    expect(JSON.parse(result).structured_output).toBeUndefined();
+  });
+
+  it('schema mode: extracts array-valued structured_output (non-object root)', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    const envelope = JSON.stringify({
+      type: 'result',
+      structured_output: [1, 2, 3],
+    });
+    mockSpawn.mockReturnValue(mockChildProcess(envelope, 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"array"}' }));
+
+    expect(JSON.parse(result)).toEqual([1, 2, 3]);
+  });
+
+  it('schema mode: extracts primitive structured_output (string root)', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    const envelope = JSON.stringify({
+      type: 'result',
+      structured_output: 'hello',
+    });
+    mockSpawn.mockReturnValue(mockChildProcess(envelope, 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"string"}' }));
+
+    expect(JSON.parse(result)).toBe('hello');
+  });
+
+  it('schema mode: falls back to raw stdout when structured_output is absent', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    // Some envelopes may not carry structured_output; do not swallow output.
+    const raw = JSON.stringify({ type: 'result', result: 'plain text' });
+    mockSpawn.mockReturnValue(mockChildProcess(raw, 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }));
+
+    expect(result).toBe(raw);
+  });
+
+  it('schema mode: falls back to raw stdout when stdout is not valid JSON', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockSpawn.mockReturnValue(mockChildProcess('not json at all', 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }));
+
+    expect(result).toBe('not json at all');
+  });
+
+  it('non-schema mode: returns stdout verbatim (no envelope extraction)', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    // A plain-text run that happens to contain JSON-looking text must not be
+    // unwrapped — only schema mode parses the envelope.
+    mockSpawn.mockReturnValue(mockChildProcess('{"structured_output":{"ok":true}}', 0));
+
+    const result = await CLAUDE_BACKEND.run(makeOpts());
+
+    expect(result).toBe('{"structured_output":{"ok":true}}');
+  });
+
   it('does not pass --bare when fast mode is enabled', async () => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
     mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
