@@ -469,10 +469,11 @@ Implementation notes:
 - `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
+- Gemini: `--session-id <uuid>` on start, `--resume <uuid>` on resume. UUID generated client-side (mirrors Claude). Never `--resume latest`, so a label always maps to one conversation.
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
 - Ollama: stateless replay (full history prepended to each request)
-- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, OpenCode)
-- `--session` errors out for backends with `resumeStrategy: 'unsupported'` (currently Gemini) instead of silently fresh-spawning each call
+- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, Gemini, OpenCode)
+- `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call (no shipped backend is currently `unsupported`; Gemini now resumes natively)
 - An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
 - Streaming is disabled when `--session` or `--backend-session` is active
 
@@ -501,7 +502,7 @@ phone-a-friend session prune --all             # drop everything
 ### Known limitations
 
 - **Codex resume + schema**: `codex exec resume` does not accept `--output-schema`. Schema is enforced on turn 1 only; subsequent turns rely on model conversation context to maintain the format, with no server-side validation.
-- **Gemini sessions**: declared `unsupported`. The Gemini CLI session surface (session ID extraction, `--resume` semantics) was never verified against live output, and `run()` doesn't use `sessionHistory`. `--session` against Gemini errors loudly until the surface is confirmed.
+- **Gemini sessions**: supported via `native-session` resume. PaF generates the session UUID client-side, pins it with `--session-id <uuid>` on the first call, and resumes with `--resume <uuid>` on later calls (same model as Claude). History is not replayed (server-side session state), so `run()` does not use `sessionHistory`. Resume depends on Gemini's session retention (`general.sessionRetention.*`); if retention has pruned the session, `--resume` fails loudly rather than silently starting fresh. A Gemini CLI too old to recognize `--session-id`/`--resume` surfaces an actionable upgrade error.
 - **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the diff inlined.
 - **Streaming + sessions**: `relayStream()` forwards session options to backends but does not implement session lifecycle (validation, history persistence). The CLI gates this combination off; only programmatic callers are affected.
 

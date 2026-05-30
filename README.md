@@ -194,7 +194,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work reliably with Claude, Codex, and OpenCode. Ollama replays history (may hit token limits on long conversations). Gemini sessions are currently unsupported.
+Sessions work reliably with Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations). (Gemini resumes natively via `--session-id`/`--resume`; resume depends on Gemini's session retention.)
 
 ### Job tracking
 

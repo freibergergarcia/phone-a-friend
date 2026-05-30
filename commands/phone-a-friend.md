@@ -186,8 +186,8 @@ PAF_CONTEXT_EOF
 
    "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
-   # Do NOT pass --session to gemini — it will error (see "Session continuity" below):
-   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast]
+   # Gemini supports --session via native resume (see "Session continuity" below):
+   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -264,14 +264,10 @@ Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
 
 **Backend-specific behavior:**
-- **Codex, Claude, OpenCode**: native session resume. Follow-up prompts
-  can send deltas only.
+- **Codex, Claude, Gemini, OpenCode**: native session resume. Follow-up
+  prompts can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt
   size grows with each turn. Keep follow-ups concise.
-- **Gemini**: `--session` is **not supported**. PaF rejects it with a
-  RelayError (`--session is not supported by the gemini backend ...`).
-  Each Gemini relay call must be self-contained. Do not pass `--session`
-  with `--to gemini`.
 
 On the FIRST relay under a new session label, PaF prints an informational
 stderr line: `[phone-a-friend] Session label "..." not found in store.

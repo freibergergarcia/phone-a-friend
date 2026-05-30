@@ -69,15 +69,16 @@ export class GeminiBackend implements Backend {
     'workspace-write',
     'danger-full-access',
   ]);
-  // Session resume is declared 'unsupported' rather than 'transcript-replay':
-  // run() never reads opts.sessionHistory, and the --resume code path below
-  // depends on a session ID that the upstream extractor cannot reliably
-  // produce (see extractGeminiSessionId). Until the Gemini CLI's session
-  // surface is verified, --session against this backend is rejected at the
-  // relay layer instead of silently no-opping.
+  // Session resume mirrors Claude's native-session model: PaF generates the
+  // session UUID client-side (requiresClientSessionId), pins it on the first
+  // call with `--session-id <uuid>`, and resumes later calls with
+  // `--resume <uuid>`. Because the ID is client-generated and deterministic,
+  // PaF never relies on extracting an ID from Gemini's output and never uses
+  // `--resume latest`. History is not replayed (server-side session state),
+  // so opts.sessionHistory is intentionally unused.
   readonly capabilities: BackendCapabilities = {
-    resumeStrategy: 'unsupported',
-    requiresClientSessionId: false,
+    resumeStrategy: 'native-session',
+    requiresClientSessionId: true,
   };
 
   async run(opts: BackendRunOptions): Promise<string> {
@@ -184,31 +185,20 @@ export class GeminiBackend implements Backend {
     opts: BackendRunOptions,
     model: string | null,
   ): Promise<string> {
-    const args: string[] = [];
     const useJsonOutput = Boolean(opts.schema);
     const prompt = opts.schema
       ? injectSchemaPrompt(opts.prompt, opts.schema)
       : opts.prompt;
 
-    // Sandbox is boolean: on for read-only/workspace-write, off for full access
-    if (opts.sandbox !== 'danger-full-access') {
-      args.push('--sandbox');
-    }
-
-    // Auto-approve tool actions in headless mode (--sandbox constrains scope)
-    args.push('--yolo');
-    args.push('--include-directories', opts.repoPath);
-    args.push('--output-format', useJsonOutput ? 'json' : 'text');
-
-    if (opts.resumeSession && opts.sessionId) {
-      args.push('--resume', opts.sessionId);
-    }
-
-    if (model) {
-      args.push('-m', model);
-    }
-
-    args.push('--prompt', prompt);
+    const args = buildGeminiArgs({
+      prompt,
+      repoPath: opts.repoPath,
+      sandbox: opts.sandbox,
+      model,
+      useJsonOutput,
+      sessionId: opts.sessionId ?? null,
+      resumeSession: Boolean(opts.resumeSession),
+    });
 
     try {
       const result = await spawnCli('gemini', args, {
@@ -240,10 +230,88 @@ export class GeminiBackend implements Backend {
         }
         throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
       }
+      // A resume/start was requested but the installed Gemini CLI rejects the
+      // session flags. Surface an actionable upgrade hint instead of failing
+      // closed AND silently — and never fall back to a fresh spawn, which
+      // would drop the user's intended conversation.
+      if (
+        err instanceof SpawnCliError &&
+        opts.sessionId &&
+        isUnknownSessionFlagError(err.stderr)
+      ) {
+        const flag = opts.resumeSession ? '--resume' : '--session-id';
+        throw new GeminiBackendError(
+          `The installed Gemini CLI does not support the \`${flag}\` flag required for ` +
+            `--session resume. Upgrade it (\`${INSTALL_HINTS.gemini}\`), or drop --session ` +
+            `to run a one-shot relay.`,
+        );
+      }
       // Re-throw raw so run() can classify and decide whether to cache.
       throw err;
     }
   }
+}
+
+interface GeminiArgsOptions {
+  prompt: string;
+  repoPath: string;
+  sandbox: SandboxMode;
+  model: string | null;
+  useJsonOutput: boolean;
+  sessionId: string | null;
+  resumeSession: boolean;
+}
+
+/**
+ * Build the gemini CLI argument vector. Pure and exported so command
+ * construction (especially session-flag translation) is unit-testable
+ * without spawning a subprocess.
+ *
+ * Session translation mirrors Claude: PaF owns the session UUID, so the first
+ * call pins it with `--session-id <id>` and resumes pin it with
+ * `--resume <id>`. Never `--resume latest` — labels must map deterministically
+ * to one conversation.
+ */
+export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
+  const args: string[] = [];
+
+  // Sandbox is boolean: on for read-only/workspace-write, off for full access
+  if (opts.sandbox !== 'danger-full-access') {
+    args.push('--sandbox');
+  }
+
+  // Auto-approve tool actions in headless mode (--sandbox constrains scope)
+  args.push('--yolo');
+  args.push('--include-directories', opts.repoPath);
+  args.push('--output-format', opts.useJsonOutput ? 'json' : 'text');
+
+  if (opts.sessionId) {
+    if (opts.resumeSession) {
+      args.push('--resume', opts.sessionId);
+    } else {
+      args.push('--session-id', opts.sessionId);
+    }
+  }
+
+  if (opts.model) {
+    args.push('-m', opts.model);
+  }
+
+  args.push('--prompt', opts.prompt);
+  return args;
+}
+
+/**
+ * Detect the stderr a stale Gemini CLI emits when it doesn't recognize the
+ * session flags. yargs-based CLIs print "Unknown argument: <flag>" or
+ * "Unknown arguments:"; older builds may say "unknown option". Gated on a
+ * session having been requested by the caller, so this never masks unrelated
+ * argument errors.
+ */
+function isUnknownSessionFlagError(stderr: string): boolean {
+  const text = stderr.toLowerCase();
+  if (!/unknown argument|unknown option|unrecognized/.test(text)) return false;
+  return text.includes('session-id') || text.includes('resume');
 }
 
 /**
@@ -300,10 +368,14 @@ function maybeEmitGeminiSessionId(
 
 /**
  * Best-effort session ID extraction from Gemini JSON output.
- * The exact field name is unverified against live Gemini CLI output.
- * If no session ID is found, session resume for Gemini will silently
- * not work (new session each time). This is acceptable until the
- * Gemini CLI's JSON output format is confirmed.
+ *
+ * NOT load-bearing for resume: PaF generates the session UUID client-side and
+ * pins it with `--session-id`, so persistence and resume work off that known
+ * ID regardless of what (if anything) Gemini echoes back. This extractor only
+ * runs in JSON-output mode and, when it finds an ID, lets onSessionCreated
+ * record Gemini's canonical value in case it ever differs from the pinned one.
+ * The exact field name is unverified against live Gemini CLI output; a miss is
+ * harmless because the client-side UUID remains authoritative.
  */
 function extractGeminiSessionId(jsonOutput: string): string | undefined {
   try {
