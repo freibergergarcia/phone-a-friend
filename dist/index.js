@@ -77828,15 +77828,16 @@ var GeminiBackend = class {
     "workspace-write",
     "danger-full-access"
   ]);
-  // Session resume is declared 'unsupported' rather than 'transcript-replay':
-  // run() never reads opts.sessionHistory, and the --resume code path below
-  // depends on a session ID that the upstream extractor cannot reliably
-  // produce (see extractGeminiSessionId). Until the Gemini CLI's session
-  // surface is verified, --session against this backend is rejected at the
-  // relay layer instead of silently no-opping.
+  // Session resume mirrors Claude's native-session model: PaF generates the
+  // session UUID client-side (requiresClientSessionId), pins it on the first
+  // call with `--session-id <uuid>`, and resumes later calls with
+  // `--resume <uuid>`. Because the ID is client-generated and deterministic,
+  // PaF never relies on extracting an ID from Gemini's output and never uses
+  // `--resume latest`. History is not replayed (server-side session state),
+  // so opts.sessionHistory is intentionally unused.
   capabilities = {
-    resumeStrategy: "unsupported",
-    requiresClientSessionId: false
+    resumeStrategy: "native-session",
+    requiresClientSessionId: true
   };
   async run(opts) {
     if (!isInPath("gemini")) {
@@ -77905,22 +77906,17 @@ var GeminiBackend = class {
     }
   }
   async runOnce(opts, model) {
-    const args = [];
     const useJsonOutput = Boolean(opts.schema);
     const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
-    if (opts.sandbox !== "danger-full-access") {
-      args.push("--sandbox");
-    }
-    args.push("--yolo");
-    args.push("--include-directories", opts.repoPath);
-    args.push("--output-format", useJsonOutput ? "json" : "text");
-    if (opts.resumeSession && opts.sessionId) {
-      args.push("--resume", opts.sessionId);
-    }
-    if (model) {
-      args.push("-m", model);
-    }
-    args.push("--prompt", prompt);
+    const args = buildGeminiArgs({
+      prompt,
+      repoPath: opts.repoPath,
+      sandbox: opts.sandbox,
+      model,
+      useJsonOutput,
+      sessionId: opts.sessionId ?? null,
+      resumeSession: Boolean(opts.resumeSession)
+    });
     try {
       const result = await spawnCli("gemini", args, {
         timeoutMs: opts.timeoutSeconds * 1e3,
@@ -77948,10 +77944,42 @@ var GeminiBackend = class {
         }
         throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
       }
+      if (err instanceof SpawnCliError && opts.sessionId && isUnknownSessionFlagError(err.stderr)) {
+        const flag = opts.resumeSession ? "--resume" : "--session-id";
+        throw new GeminiBackendError(
+          `The installed Gemini CLI does not support the \`${flag}\` flag required for --session resume. Upgrade it (\`${INSTALL_HINTS.gemini}\`), or drop --session to run a one-shot relay.`
+        );
+      }
       throw err;
     }
   }
 };
+function buildGeminiArgs(opts) {
+  const args = [];
+  if (opts.sandbox !== "danger-full-access") {
+    args.push("--sandbox");
+  }
+  args.push("--yolo");
+  args.push("--include-directories", opts.repoPath);
+  args.push("--output-format", opts.useJsonOutput ? "json" : "text");
+  if (opts.sessionId) {
+    if (opts.resumeSession) {
+      args.push("--resume", opts.sessionId);
+    } else {
+      args.push("--session-id", opts.sessionId);
+    }
+  }
+  if (opts.model) {
+    args.push("-m", opts.model);
+  }
+  args.push("--prompt", opts.prompt);
+  return args;
+}
+function isUnknownSessionFlagError(stderr) {
+  const text = stderr.toLowerCase();
+  if (!/unknown argument|unknown option|unrecognized/.test(text)) return false;
+  return text.includes("session-id") || text.includes("resume");
+}
 function formatDeadModelError(model, entry, cachePath) {
   return `Model \`${model}\` returned 404 from Gemini (ModelNotFoundError). Cached as unavailable until ${entry.expiresAt} at ${cachePath}. Run without \`--model\` to use Gemini's auto-routing, set \`PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false\` to bypass the cache, or delete the cache file to clear it.`;
 }

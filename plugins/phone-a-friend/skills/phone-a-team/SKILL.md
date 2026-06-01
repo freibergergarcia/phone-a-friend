@@ -65,18 +65,14 @@ For each backend in the comma-separated list, the session label is `${TEAM_ID}-<
 | codex | native-session | yes (never used here; recursion guard) |
 | opencode | native-session | yes |
 | ollama | transcript-replay | yes |
-| gemini | unsupported | **no, omit the flag entirely** |
+| gemini | native-session | yes |
 
 Build the relay flag accordingly per backend:
 
 ```bash
 session_flag_for() {
   local b="$1"
-  if [ "$b" = "gemini" ]; then
-    echo ""
-  else
-    echo "--session ${TEAM_ID}-${b}"
-  fi
+  echo "--session ${TEAM_ID}-${b}"
 }
 ```
 

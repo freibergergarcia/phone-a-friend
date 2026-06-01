@@ -320,9 +320,8 @@ command:
 
   **Generate session IDs for every backend that supports session resume.**
   PaF declares a resume strategy per backend (`native-session` for
-  codex, claude, opencode; `transcript-replay` for ollama; `unsupported`
-  for gemini). Generate a session ID for any backend whose strategy is
-  NOT `unsupported`:
+  codex, claude, gemini, opencode; `transcript-replay` for ollama).
+  Generate a session ID for every backend:
 
   | Backend | resumeStrategy | Generate SESSION_ID? |
   |---|---|---|
@@ -330,11 +329,11 @@ command:
   | claude | native-session | yes |
   | opencode | native-session | yes |
   | ollama | transcript-replay | yes |
-  | gemini | unsupported | NO, omit `--session` entirely |
+  | gemini | native-session | YES, generate a SESSION_ID |
 
-  For `--backend both` (codex + gemini), generate a SESSION_ID for codex
-  only. For `--backend all`, generate SESSION_IDs for codex, claude,
-  opencode, ollama (every backend that runs), but never gemini.
+  For `--backend both` (codex + gemini), generate a SESSION_ID for both
+  codex and gemini. For `--backend all`, generate SESSION_IDs for codex,
+  claude, opencode, ollama, and gemini (every backend that runs).
 
 ### Algorithm
 
@@ -404,9 +403,7 @@ command:
    asked for a diff/branch/staged review.
 
    Include `--session <SESSION_ID>` for every session-capable backend
-   (`codex`, `claude`, `opencode`, `ollama`). Omit `--session` only for
-   `gemini` because PaF rejects it (Gemini's resume strategy is
-   `unsupported`).
+   (`codex`, `claude`, `gemini`, `opencode`, `ollama`).
 
    On the FIRST relay under a new session label, PaF prints an
    informational stderr line: `[phone-a-friend] Session label "..." not
@@ -605,15 +602,12 @@ PAF_TEAM_CONTEXT_EOF
 
   Always include `--fast` (relay prompts are self-contained). For
   `--to claude`, `--fast` has no effect. Include `--session` for every
-  session-capable backend: `codex`, `claude`, `opencode`, `ollama`. Pass
-  the backend-specific ID from `SESSION_IDS`. For `gemini`, omit
-  `--session` entirely; PaF rejects `--session` against Gemini (resume
-  strategy declared `unsupported`).
+  session-capable backend: `codex`, `claude`, `gemini`, `opencode`,
+  `ollama`. Pass the backend-specific ID from `SESSION_IDS`.
 
   When `--session` is used, the session lets the backend remember
   previous rounds, so follow-up prompts can focus on feedback deltas
-  rather than re-sending full context. For Gemini (no session), each
-  round is stateless — see "Per-round relay rules" below.
+  rather than re-sending full context.
 
   **Direct mode** (`RELAY_MODE = direct`):
   ```bash
@@ -773,11 +767,6 @@ The backend already has them in its session history.
 **Exception: Ollama with `--session`**: Ollama replays full history each
 call (prompt size grows per turn). Sessions work but follow-up prompts
 must stay concise to avoid hitting size limits.
-
-**Exception: Gemini (no `--session`)**: Gemini runs stateless every round.
-Each Gemini relay call must include enough context for the backend to
-answer independently — include a brief task recap and the latest output
-alongside the feedback in every round.
 
 **Per-round relay rules (direct mode, no session)**:
 - Each relay call sends ONLY:

@@ -57,13 +57,14 @@ describe('GeminiBackend', () => {
     expect(GEMINI_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
   });
 
-  it('declares resumeStrategy as "unsupported"', () => {
-    // Gemini's session surface (session ID extraction, --resume semantics) is
-    // unverified against live CLI output and run() does not use sessionHistory.
-    // The relay layer relies on this flag to reject --session for Gemini
-    // instead of silently fresh-spawning. If this assertion fails, double-check
-    // src/backends/gemini.ts and the unsupported-session guard in src/relay.ts.
-    expect(GEMINI_BACKEND.capabilities.resumeStrategy).toBe('unsupported');
+  it('declares native-session resume with a client-generated session id', () => {
+    // Gemini mirrors Claude: PaF generates the session UUID client-side, pins it
+    // with --session-id on the first call, and resumes with --resume <uuid>.
+    // History is not replayed (server-side session state). If this assertion
+    // changes, re-check buildGeminiArgs in src/backends/gemini.ts and the relay
+    // session wiring in src/relay.ts.
+    expect(GEMINI_BACKEND.capabilities.resumeStrategy).toBe('native-session');
+    expect(GEMINI_BACKEND.capabilities.requiresClientSessionId).toBe(true);
   });
 
   it('builds correct gemini CLI args and reads stdout', async () => {
