@@ -2,6 +2,14 @@
   "name": "@freibergergarcia/phone-a-friend",
   "version": "2.8.0",
   "description": "CLI relay that lets AI coding agents collaborate",
+  "homepage": "https://github.com/freibergergarcia/phone-a-friend#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freibergergarcia/phone-a-friend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/freibergergarcia/phone-a-friend/issues"
+  },
   "keywords": [
     "ai-agent",
     "anthropic",

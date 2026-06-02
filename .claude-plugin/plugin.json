@@ -1,8 +1,23 @@
 {
   "name": "phone-a-friend",
+  "displayName": "Phone a Friend",
   "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
   "version": "2.8.0",
   "author": {
     "name": "Bruno Freiberger"
-  }
+  },
+  "homepage": "https://github.com/freibergergarcia/phone-a-friend#readme",
+  "repository": "https://github.com/freibergergarcia/phone-a-friend",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai-agent",
+    "claude-code",
+    "codex",
+    "gemini",
+    "ollama",
+    "opencode",
+    "code-review",
+    "multi-agent",
+    "cli"
+  ]
 }
