@@ -2,7 +2,7 @@
  * SQLite transcript bus — append-only conversation log for agentic sessions.
  *
  * NOT a runtime queue. The in-memory MessageQueue handles routing.
- * This stores the complete transcript for: logs, replay, web dashboard.
+ * This stores the complete transcript for logs, replay, and TUI browsing.
  */
 
 import { join } from 'node:path';

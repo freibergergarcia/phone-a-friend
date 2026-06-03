@@ -289,6 +289,11 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   async function runMain(normalized: string[]): Promise<number> {
+  if (normalized[0] === 'agentic' && normalized[1] === 'dashboard') {
+    console.error("error: unknown command 'dashboard'");
+    return 1;
+  }
+
   // Smart no-args behavior
   if (normalized.length === 0) {
     const paths = configPaths();
@@ -767,10 +772,8 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Session timeout in seconds', '900')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--sandbox <mode>', 'Sandbox mode', 'read-only')
-    .option('--dashboard-url <url>', 'Dashboard URL for live event streaming', 'http://127.0.0.1:7777/api/ingest')
     .action(async (opts) => {
       const { Orchestrator } = await import('./agentic/index.js');
-      const { DashboardEventSink } = await import('./web/event-sink.js');
       const agents = parseAgentList(opts.agents);
 
       if (agents.length === 0) {
@@ -780,10 +783,6 @@ export async function run(argv: string[]): Promise<number> {
       }
 
       const orchestrator = new Orchestrator();
-      const sink = new DashboardEventSink(opts.dashboardUrl);
-
-      // Bridge orchestrator events to dashboard SSE
-      orchestrator.onEvent((event) => sink.push(event));
 
       try {
         const events = await orchestrator.run({
@@ -797,7 +796,6 @@ export async function run(argv: string[]): Promise<number> {
 
         await formatAgenticEvents(events);
       } finally {
-        await sink.close();
         await orchestrator.close();
       }
     });
@@ -895,42 +893,6 @@ export async function run(argv: string[]): Promise<number> {
         console.log(`  ${theme.label('Status:')} ${session.status}  |  ${theme.label('Turns:')} ${session.turn}\n`);
       } finally {
         bus.close();
-      }
-    });
-
-  agenticCmd
-    .command('dashboard')
-    .description('Launch web dashboard for session visibility')
-    .option('--port <number>', 'Port to listen on', '7777')
-    .action(async (opts) => {
-      const { startDashboard } = await import('./web/index.js');
-      const port = parseInt(opts.port, 10);
-
-      try {
-        const dashboard = await startDashboard({ port });
-        console.log(`\n  ${theme.heading('Agentic Dashboard')}`);
-        console.log(`  ${theme.success('✓')} Running at ${theme.info(dashboard.url)}`);
-        console.log(`  ${theme.hint('Press Ctrl+C to stop')}\n`);
-
-        // Open browser
-        const openCmd = process.platform === 'darwin' ? 'open'
-          : process.platform === 'win32' ? 'start'
-          : 'xdg-open';
-        spawnSync(openCmd, [dashboard.url], { stdio: 'ignore' });
-
-        // Keep alive until Ctrl+C
-        await new Promise<void>((resolve) => {
-          process.on('SIGINT', () => {
-            console.log(`\n  ${theme.hint('Shutting down dashboard...')}`);
-            dashboard.close().then(resolve);
-          });
-          process.on('SIGTERM', () => {
-            dashboard.close().then(resolve);
-          });
-        });
-      } catch (err) {
-        console.error(`  ${theme.crossmark} ${theme.error(err instanceof Error ? err.message : String(err))}`);
-        exitCode = 1;
       }
     });
 

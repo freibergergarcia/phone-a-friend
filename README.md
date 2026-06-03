@@ -15,7 +15,7 @@
 </div>
 
 `phone-a-friend` is a CLI orchestration layer for AI coding agents.
-Relay tasks to any backend, spin up multi-model teams, or run persistent multi-agent sessions with a live web dashboard.
+Relay tasks to any backend, spin up multi-model teams, or run persistent multi-agent sessions.
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
@@ -82,7 +82,7 @@ The setup wizard detects your backends, offers to install detected host integrat
 To update: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin update phone-a-friend@phone-a-friend-marketplace`.
 
 > [!NOTE]
-> Marketplace install ships only the slash commands and skills. For the full CLI (agentic mode, TUI, web dashboard), install via `npm install -g @freibergergarcia/phone-a-friend`.
+> Marketplace install ships only the slash commands and skills. For the full CLI (agentic mode and TUI), install via `npm install -g @freibergergarcia/phone-a-friend`.
 
 **OpenCode commands and skills:**
 
@@ -118,7 +118,7 @@ phone-a-friend plugin install --codex
 This installs `phone-a-friend`, `curiosity-engine`, and `phone-a-team` skills into `$CODEX_HOME/skills/` (defaulting to `~/.codex/skills/`). All three are orchestrated through pure Bash from the skill bodies — no Codex subagent primitive is required.
 
 > [!NOTE]
-> Unlike Claude's marketplace, Codex marketplace install ships the skills directly — `codex plugin marketplace add` + `codex plugin add` is sufficient to use `/phone-a-friend`, `/curiosity-engine`, and `/phone-a-team` from inside Codex. For the full CLI (TUI, agentic mode, web dashboard), install via `npm install -g @freibergergarcia/phone-a-friend`. Running `phone-a-friend plugin install --codex` after the npm install additionally drops loose-file skills under `~/.codex/skills/` as a no-marketplace fallback.
+> Unlike Claude's marketplace, Codex marketplace install ships the skills directly — `codex plugin marketplace add` + `codex plugin add` is sufficient to use `/phone-a-friend`, `/curiosity-engine`, and `/phone-a-team` from inside Codex. For the full CLI (TUI and agentic mode), install via `npm install -g @freibergergarcia/phone-a-friend`. Running `phone-a-friend plugin install --codex` after the npm install additionally drops loose-file skills under `~/.codex/skills/` as a no-marketplace fallback.
 
 From Codex, ask naturally:
 
@@ -230,7 +230,6 @@ Spawn multiple agents that collaborate via @mentions (see [Agentic Mode](#agenti
 phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review this code"
 phone-a-friend agentic logs               # View past sessions
 phone-a-friend agentic replay --session <id>  # Replay transcript
-phone-a-friend agentic dashboard           # Launch web dashboard (localhost:7777)
 ```
 
 ### Ops
@@ -324,12 +323,12 @@ Streaming is enabled by default in the config (`defaults.stream = true`). Disabl
 
 > Let one agent review while another critiques — catching bugs, inconsistencies, and blind spots before you even see the code.
 
-Agentic mode spawns multiple Claude agents that communicate via `@mentions` within a shared session. An orchestrator routes messages between agents, enforces guardrails, and streams every event to a **live web dashboard** where you can watch the collaboration in real time.
+Agentic mode spawns multiple Claude agents that communicate via `@mentions` within a shared session. An orchestrator routes messages between agents, enforces guardrails, and persists the transcript for logs, replay, and TUI browsing.
 
 Each agent accumulates context through persistent CLI sessions — later responses build on earlier ones, so agents develop genuine understanding of the problem as the session progresses.
 
 > [!IMPORTANT]
-> **Agentic mode currently supports Claude agents only.** Codex, Gemini, OpenCode, and Ollama agents are not yet wired into the orchestrator. If you need multi-host adversarial review today, use `/phone-a-team` instead — it does parallel multi-backend rounds with the same iterate-or-ship pattern, just without the persistent session graph and live web dashboard. See [AGENTS.md](AGENTS.md) for the agentic architecture.
+> **Agentic mode currently supports Claude agents only.** Codex, Gemini, OpenCode, and Ollama agents are not yet wired into the orchestrator. If you need multi-host adversarial review today, use `/phone-a-team` instead — it does parallel multi-backend rounds with the same iterate-or-ship pattern, just without the persistent session graph. See [AGENTS.md](AGENTS.md) for the agentic architecture.
 
 ```bash
 # Start an agentic session
@@ -340,15 +339,10 @@ phone-a-friend agentic run \
 # View past sessions and replay transcripts
 phone-a-friend agentic logs
 phone-a-friend agentic replay --session <id>
-
-# Launch web dashboard (real-time session visualization)
-phone-a-friend agentic dashboard              # default: localhost:7777
-phone-a-friend agentic dashboard --port 8080
 ```
 
 **What you get:**
 
-- **Live web dashboard** -- watch agents collaborate in real time at `localhost:7777` (SSE-powered)
 - **Persistent sessions** -- agents accumulate context across turns via UUID-based session resumption
 - **@mention routing** -- agents address each other by name (`@ada.reviewer:`), broadcast with `@all`, or surface findings with `@user`
 - **Guardrails** -- max turns (20), ping-pong detection, session timeout (15 min), turn budget warnings
@@ -418,7 +412,7 @@ Phone a Friend does not collect, transmit, or store any data on servers operated
 
 Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, and OpenCode CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
 
-Local state (config, sessions, jobs, agentic transcripts, and the web dashboard event log) is written only to `~/.config/phone-a-friend/` on your machine. The web dashboard is served on `localhost` and is not exposed to the network.
+Local state (config, sessions, jobs, and agentic transcripts) is written only to `~/.config/phone-a-friend/` on your machine.
 
 ## License
 

@@ -42,13 +42,6 @@ src/
     events.ts        AgenticEvent discriminated union + EventChannel (push/pull bridge)
     parser.ts        @mention extraction + system prompt builder
     names.ts         Creative agent name assignment (e.g., ada.reviewer)
-  web/
-    index.ts         Public API — startDashboard export
-    server.ts        HTTP server (node:http) with static file serving
-    routes.ts        REST API — sessions, stats, SSE events, event ingestion
-    sse.ts           SSE broadcaster with heartbeat and session filtering
-    event-sink.ts    Batched fire-and-forget POST bridge from CLI to dashboard
-    public/          Static dashboard frontend (HTML/CSS/JS)
   tui/
     App.tsx          Root TUI component — tab bar + panel routing
     render.tsx       Ink render entry point
@@ -56,7 +49,7 @@ src/
     BackendsPanel.tsx Per-backend list with detail pane
     ConfigPanel.tsx  Config view + inline editing
     ActionsPanel.tsx Async-wrapped executable actions
-    AgenticPanel.tsx Session browser with list view and dashboard URL hint
+    AgenticPanel.tsx Session browser with list view
     hooks/
       useDetection.ts    Async detection with throttled refresh
       usePluginStatus.ts Host integration install status (sync FS check)
@@ -148,8 +141,7 @@ run(config)
 - **SessionManager** (`src/agentic/session.ts`) wraps CLI subprocesses with UUID-based session IDs for conversation continuity; routes via `BackendCapabilities.resumeStrategy` (`native-session` for Claude, `transcript-replay` fallback for others)
 - **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
-- **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and web dashboard consumers
-- **DashboardEventSink** (`src/web/event-sink.ts`) bridges orchestrator events to the web dashboard via batched fire-and-forget HTTP POST
+- **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and other consumers
 
 ### Agent naming & message routing
 
@@ -170,14 +162,6 @@ All defaults are in `AGENTIC_DEFAULTS` (`src/agentic/types.ts`):
 | `noProgressThreshold` | 2 | Stops session when no meaningful output is produced |
 | `maxMessageSize` | 50 KB | Per-message size limit (not yet enforced) |
 | `maxAgentTurnsPerRound` | 3 | Max turns a single agent gets before yielding (not yet enforced) |
-
-### Web dashboard
-
-- Default port 7777, launched via `phone-a-friend agentic dashboard`
-- HTTP server in `src/web/server.ts` (node:http) with static file serving from `src/web/public/`
-- REST API (`src/web/routes.ts`): `GET /api/sessions`, `GET /api/sessions/:id`, `DELETE /api/sessions/:id`, `GET /api/stats`, `POST /api/ingest`
-- SSE at `GET /api/events` for live session updates (`src/web/sse.ts` — broadcaster with heartbeat and session filtering)
-- Static frontend: HTML/CSS/JS in `src/web/public/` with components for session list, agent cards, message feed, and markdown rendering
 
 ## CLI Contract
 
@@ -249,11 +233,9 @@ phone-a-friend job cancel <id>             # Mark a running/pending job as cance
 phone-a-friend agentic run --agents role:backend,... --prompt "..."
 phone-a-friend agentic run --agents reviewer:claude,critic:claude --prompt "Review auth" --max-turns 15
 phone-a-friend agentic run --agents sec:claude --prompt "Audit" --timeout 600 --sandbox workspace-write
-phone-a-friend agentic run --agents dev:claude --prompt "Build" --dashboard-url http://localhost:8080/api/ingest
 phone-a-friend agentic logs
 phone-a-friend agentic logs --session <id>
 phone-a-friend agentic replay --session <id>
-phone-a-friend agentic dashboard [--port 7777]
 ```
 
 Backward-compatible aliases: `install`, `update`, `uninstall` still work.
@@ -269,7 +251,7 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Backends** — navigable backend list with detail pane
 - **Config** — inline config editing with focus model (nav/edit modes)
 - **Actions** — async-wrapped actions (re-detect, reinstall host integrations, open config)
-- **Agentic** — session browser with list view and dashboard URL hint
+- **Agentic** — session browser with list view
 
 A persistent plugin status bar sits between the tab bar and panel content,
 showing Claude and OpenCode host integration state. It updates instantly after
@@ -365,7 +347,7 @@ package `@freibergergarcia/phone-a-friend`. Claude Code fetches and caches the
 plugin from npm when users install through the marketplace.
 
 Marketplace install provides Claude Code integration only (slash commands and skills).
-For the full CLI (agentic mode, TUI dashboard, web dashboard on localhost), users
+For the full CLI (agentic mode and TUI dashboard), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
 
 OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is Claude-only.
@@ -512,4 +494,4 @@ The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external p
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, web dashboard for session visibility, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

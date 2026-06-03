@@ -2,7 +2,7 @@
  * Event types for agentic mode.
  *
  * The orchestrator emits AgenticEvents through an AsyncIterable stream.
- * Consumers: CLI (formatted text), TUI (React hook), Web dashboard (SSE).
+ * Consumers: CLI formatted output, TUI hooks, and external listeners.
  */
 
 import type { AgentState } from './types.js';

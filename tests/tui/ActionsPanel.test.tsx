@@ -52,6 +52,26 @@ import { EventEmitter } from 'node:events';
 
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
 
+async function waitForFrame(
+  lastFrame: () => string | undefined,
+  predicate: (frame: string) => boolean,
+  timeoutMs = 3000,
+): Promise<string> {
+  const start = Date.now();
+  let frame = lastFrame() ?? '';
+  while (Date.now() - start < timeoutMs) {
+    if (predicate(frame)) {
+      return frame;
+    }
+    await tick(25);
+    frame = lastFrame() ?? '';
+  }
+  if (predicate(frame)) {
+    return frame;
+  }
+  throw new Error(`Timed out waiting for frame. Last frame:\n${frame}`);
+}
+
 /** Creates a fake ChildProcess that emits 'close' with given code after a tick. */
 function makeFakeProc(exitCode = 0) {
   const proc = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn> };
@@ -196,8 +216,8 @@ describe('ActionsPanel', () => {
     stdin.write('\r');
     await tick();
     stdin.write('y');
-    await tick(200);
-    expect(lastFrame()).toContain('✗');
+    const frame = await waitForFrame(lastFrame, (current) => current.includes('✗'));
+    expect(frame).toContain('Exit code 1');
     expect(onExit).not.toHaveBeenCalled();
   });
 });

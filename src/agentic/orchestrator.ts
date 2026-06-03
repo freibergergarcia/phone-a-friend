@@ -34,7 +34,7 @@ export class Orchestrator {
   private turn = 0;
   private startTime = 0;
 
-  // External listeners (SSE, dashboard, etc.)
+  // External listeners for consumers outside the main event stream.
   private listeners: Array<(event: AgenticEvent) => void> = [];
 
   // Guardrail state
@@ -53,7 +53,7 @@ export class Orchestrator {
 
   /**
    * Run an agentic session. Returns an AsyncIterable of events that
-   * consumers (CLI, TUI, web dashboard) can subscribe to.
+   * consumers (CLI, TUI, external listeners) can subscribe to.
    */
   async run(config: AgenticSessionConfig): Promise<AsyncIterable<AgenticEvent>> {
     if (this.runLoopPromise) {

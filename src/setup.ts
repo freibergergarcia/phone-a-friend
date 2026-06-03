@@ -256,7 +256,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   console.log(`    ${theme.info('codex plugin add phone-a-friend@phone-a-friend-marketplace')}`);
   console.log('');
   console.log(`    ${theme.hint('Note: Marketplace install provides commands and skills only.')}`);
-  console.log(`    ${theme.hint('The full CLI (agentic mode, TUI, web dashboard) requires the global npm install.')}`);
+  console.log(`    ${theme.hint('The full CLI (agentic mode, TUI) requires the global npm install.')}`);
   console.log('');
   console.log(`  ${theme.hint('OpenCode:')}`);
   console.log(`    ${theme.info('phone-a-friend plugin install --opencode')}`);
