@@ -800,6 +800,28 @@ describe('CLI', () => {
     expect(mockRelay).not.toHaveBeenCalled();
   });
 
+  it('does not advertise the removed agentic dashboard CLI surface', async () => {
+    const agenticHelp = await captureOutputAsync(async () => {
+      const code = await run(['agentic', '--help']);
+      expect(code).toBe(0);
+    });
+    expect(agenticHelp.stdout).not.toContain('dashboard');
+
+    const runHelp = await captureOutputAsync(async () => {
+      const code = await run(['agentic', 'run', '--help']);
+      expect(code).toBe(0);
+    });
+    expect(runHelp.stdout).not.toContain('dashboard-url');
+  });
+
+  it('rejects the removed agentic dashboard command instead of defaulting to run', async () => {
+    const { stderr } = await captureOutputAsync(async () => {
+      const code = await run(['agentic', 'dashboard']);
+      expect(code).not.toBe(0);
+    });
+    expect(stderr).toContain("unknown command 'dashboard'");
+  });
+
   // --- First-run TTY gate ---
 
   describe('first-run TTY gate', () => {

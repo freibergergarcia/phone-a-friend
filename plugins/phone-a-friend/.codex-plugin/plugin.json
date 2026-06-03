@@ -11,7 +11,7 @@
   "interface": {
     "displayName": "Phone a Friend",
     "shortDescription": "Relay prompts to other AI coding backends",
-    "longDescription": "Phone a Friend is a relay CLI that lets AI coding agents collaborate. From inside Codex, ask Claude, Gemini, OpenCode, or Ollama for second opinions, code reviews, and iterative refinement. The /phone-a-team workflow runs multi-model rounds with Bash-orchestrated synthesis between rounds, no subagent primitive required. Marketplace install ships the skills (/phone-a-friend, /curiosity-engine, /phone-a-team). For the full CLI (TUI, agentic mode, web dashboard) install with `npm install -g @freibergergarcia/phone-a-friend`.",
+    "longDescription": "Phone a Friend is a relay CLI that lets AI coding agents collaborate. From inside Codex, ask Claude, Gemini, OpenCode, or Ollama for second opinions, code reviews, and iterative refinement. The /phone-a-team workflow runs multi-model rounds with Bash-orchestrated synthesis between rounds, no subagent primitive required. Marketplace install ships the skills (/phone-a-friend, /curiosity-engine, /phone-a-team). For the full CLI (TUI and agentic mode) install with `npm install -g @freibergergarcia/phone-a-friend`.",
     "developerName": "Bruno Freiberger",
     "category": "Productivity",
     "capabilities": [
