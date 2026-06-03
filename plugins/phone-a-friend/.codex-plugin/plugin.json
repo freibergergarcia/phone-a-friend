@@ -1,6 +1,6 @@
 {
   "name": "phone-a-friend",
-  "version": "2.9.0",
+  "version": "3.0.0",
   "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
   "author": {
     "name": "Bruno Freiberger"
