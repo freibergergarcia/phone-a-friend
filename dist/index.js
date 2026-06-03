@@ -1189,3439 +1189,6 @@ var init_config = __esm({
   }
 });
 
-// node_modules/commander/lib/error.js
-var require_error = __commonJS({
-  "node_modules/commander/lib/error.js"(exports) {
-    "use strict";
-    var CommanderError2 = class extends Error {
-      /**
-       * Constructs the CommanderError class
-       * @param {number} exitCode suggested exit code which could be used with process.exit
-       * @param {string} code an id string representing the error
-       * @param {string} message human-readable description of the error
-       */
-      constructor(exitCode, code, message) {
-        super(message);
-        Error.captureStackTrace(this, this.constructor);
-        this.name = this.constructor.name;
-        this.code = code;
-        this.exitCode = exitCode;
-        this.nestedError = void 0;
-      }
-    };
-    var InvalidArgumentError2 = class extends CommanderError2 {
-      /**
-       * Constructs the InvalidArgumentError class
-       * @param {string} [message] explanation of why argument is invalid
-       */
-      constructor(message) {
-        super(1, "commander.invalidArgument", message);
-        Error.captureStackTrace(this, this.constructor);
-        this.name = this.constructor.name;
-      }
-    };
-    exports.CommanderError = CommanderError2;
-    exports.InvalidArgumentError = InvalidArgumentError2;
-  }
-});
-
-// node_modules/commander/lib/argument.js
-var require_argument = __commonJS({
-  "node_modules/commander/lib/argument.js"(exports) {
-    "use strict";
-    var { InvalidArgumentError: InvalidArgumentError2 } = require_error();
-    var Argument2 = class {
-      /**
-       * Initialize a new command argument with the given name and description.
-       * The default is that the argument is required, and you can explicitly
-       * indicate this with <> around the name. Put [] around the name for an optional argument.
-       *
-       * @param {string} name
-       * @param {string} [description]
-       */
-      constructor(name, description) {
-        this.description = description || "";
-        this.variadic = false;
-        this.parseArg = void 0;
-        this.defaultValue = void 0;
-        this.defaultValueDescription = void 0;
-        this.argChoices = void 0;
-        switch (name[0]) {
-          case "<":
-            this.required = true;
-            this._name = name.slice(1, -1);
-            break;
-          case "[":
-            this.required = false;
-            this._name = name.slice(1, -1);
-            break;
-          default:
-            this.required = true;
-            this._name = name;
-            break;
-        }
-        if (this._name.endsWith("...")) {
-          this.variadic = true;
-          this._name = this._name.slice(0, -3);
-        }
-      }
-      /**
-       * Return argument name.
-       *
-       * @return {string}
-       */
-      name() {
-        return this._name;
-      }
-      /**
-       * @package
-       */
-      _collectValue(value, previous) {
-        if (previous === this.defaultValue || !Array.isArray(previous)) {
-          return [value];
-        }
-        previous.push(value);
-        return previous;
-      }
-      /**
-       * Set the default value, and optionally supply the description to be displayed in the help.
-       *
-       * @param {*} value
-       * @param {string} [description]
-       * @return {Argument}
-       */
-      default(value, description) {
-        this.defaultValue = value;
-        this.defaultValueDescription = description;
-        return this;
-      }
-      /**
-       * Set the custom handler for processing CLI command arguments into argument values.
-       *
-       * @param {Function} [fn]
-       * @return {Argument}
-       */
-      argParser(fn) {
-        this.parseArg = fn;
-        return this;
-      }
-      /**
-       * Only allow argument value to be one of choices.
-       *
-       * @param {string[]} values
-       * @return {Argument}
-       */
-      choices(values) {
-        this.argChoices = values.slice();
-        this.parseArg = (arg, previous) => {
-          if (!this.argChoices.includes(arg)) {
-            throw new InvalidArgumentError2(
-              `Allowed choices are ${this.argChoices.join(", ")}.`
-            );
-          }
-          if (this.variadic) {
-            return this._collectValue(arg, previous);
-          }
-          return arg;
-        };
-        return this;
-      }
-      /**
-       * Make argument required.
-       *
-       * @returns {Argument}
-       */
-      argRequired() {
-        this.required = true;
-        return this;
-      }
-      /**
-       * Make argument optional.
-       *
-       * @returns {Argument}
-       */
-      argOptional() {
-        this.required = false;
-        return this;
-      }
-    };
-    function humanReadableArgName(arg) {
-      const nameOutput = arg.name() + (arg.variadic === true ? "..." : "");
-      return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
-    }
-    exports.Argument = Argument2;
-    exports.humanReadableArgName = humanReadableArgName;
-  }
-});
-
-// node_modules/commander/lib/help.js
-var require_help = __commonJS({
-  "node_modules/commander/lib/help.js"(exports) {
-    "use strict";
-    var { humanReadableArgName } = require_argument();
-    var Help2 = class {
-      constructor() {
-        this.helpWidth = void 0;
-        this.minWidthToWrap = 40;
-        this.sortSubcommands = false;
-        this.sortOptions = false;
-        this.showGlobalOptions = false;
-      }
-      /**
-       * prepareContext is called by Commander after applying overrides from `Command.configureHelp()`
-       * and just before calling `formatHelp()`.
-       *
-       * Commander just uses the helpWidth and the rest is provided for optional use by more complex subclasses.
-       *
-       * @param {{ error?: boolean, helpWidth?: number, outputHasColors?: boolean }} contextOptions
-       */
-      prepareContext(contextOptions) {
-        this.helpWidth = this.helpWidth ?? contextOptions.helpWidth ?? 80;
-      }
-      /**
-       * Get an array of the visible subcommands. Includes a placeholder for the implicit help command, if there is one.
-       *
-       * @param {Command} cmd
-       * @returns {Command[]}
-       */
-      visibleCommands(cmd) {
-        const visibleCommands = cmd.commands.filter((cmd2) => !cmd2._hidden);
-        const helpCommand = cmd._getHelpCommand();
-        if (helpCommand && !helpCommand._hidden) {
-          visibleCommands.push(helpCommand);
-        }
-        if (this.sortSubcommands) {
-          visibleCommands.sort((a, b) => {
-            return a.name().localeCompare(b.name());
-          });
-        }
-        return visibleCommands;
-      }
-      /**
-       * Compare options for sort.
-       *
-       * @param {Option} a
-       * @param {Option} b
-       * @returns {number}
-       */
-      compareOptions(a, b) {
-        const getSortKey = (option) => {
-          return option.short ? option.short.replace(/^-/, "") : option.long.replace(/^--/, "");
-        };
-        return getSortKey(a).localeCompare(getSortKey(b));
-      }
-      /**
-       * Get an array of the visible options. Includes a placeholder for the implicit help option, if there is one.
-       *
-       * @param {Command} cmd
-       * @returns {Option[]}
-       */
-      visibleOptions(cmd) {
-        const visibleOptions = cmd.options.filter((option) => !option.hidden);
-        const helpOption = cmd._getHelpOption();
-        if (helpOption && !helpOption.hidden) {
-          const removeShort = helpOption.short && cmd._findOption(helpOption.short);
-          const removeLong = helpOption.long && cmd._findOption(helpOption.long);
-          if (!removeShort && !removeLong) {
-            visibleOptions.push(helpOption);
-          } else if (helpOption.long && !removeLong) {
-            visibleOptions.push(
-              cmd.createOption(helpOption.long, helpOption.description)
-            );
-          } else if (helpOption.short && !removeShort) {
-            visibleOptions.push(
-              cmd.createOption(helpOption.short, helpOption.description)
-            );
-          }
-        }
-        if (this.sortOptions) {
-          visibleOptions.sort(this.compareOptions);
-        }
-        return visibleOptions;
-      }
-      /**
-       * Get an array of the visible global options. (Not including help.)
-       *
-       * @param {Command} cmd
-       * @returns {Option[]}
-       */
-      visibleGlobalOptions(cmd) {
-        if (!this.showGlobalOptions) return [];
-        const globalOptions = [];
-        for (let ancestorCmd = cmd.parent; ancestorCmd; ancestorCmd = ancestorCmd.parent) {
-          const visibleOptions = ancestorCmd.options.filter(
-            (option) => !option.hidden
-          );
-          globalOptions.push(...visibleOptions);
-        }
-        if (this.sortOptions) {
-          globalOptions.sort(this.compareOptions);
-        }
-        return globalOptions;
-      }
-      /**
-       * Get an array of the arguments if any have a description.
-       *
-       * @param {Command} cmd
-       * @returns {Argument[]}
-       */
-      visibleArguments(cmd) {
-        if (cmd._argsDescription) {
-          cmd.registeredArguments.forEach((argument) => {
-            argument.description = argument.description || cmd._argsDescription[argument.name()] || "";
-          });
-        }
-        if (cmd.registeredArguments.find((argument) => argument.description)) {
-          return cmd.registeredArguments;
-        }
-        return [];
-      }
-      /**
-       * Get the command term to show in the list of subcommands.
-       *
-       * @param {Command} cmd
-       * @returns {string}
-       */
-      subcommandTerm(cmd) {
-        const args = cmd.registeredArguments.map((arg) => humanReadableArgName(arg)).join(" ");
-        return cmd._name + (cmd._aliases[0] ? "|" + cmd._aliases[0] : "") + (cmd.options.length ? " [options]" : "") + // simplistic check for non-help option
-        (args ? " " + args : "");
-      }
-      /**
-       * Get the option term to show in the list of options.
-       *
-       * @param {Option} option
-       * @returns {string}
-       */
-      optionTerm(option) {
-        return option.flags;
-      }
-      /**
-       * Get the argument term to show in the list of arguments.
-       *
-       * @param {Argument} argument
-       * @returns {string}
-       */
-      argumentTerm(argument) {
-        return argument.name();
-      }
-      /**
-       * Get the longest command term length.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {number}
-       */
-      longestSubcommandTermLength(cmd, helper) {
-        return helper.visibleCommands(cmd).reduce((max, command) => {
-          return Math.max(
-            max,
-            this.displayWidth(
-              helper.styleSubcommandTerm(helper.subcommandTerm(command))
-            )
-          );
-        }, 0);
-      }
-      /**
-       * Get the longest option term length.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {number}
-       */
-      longestOptionTermLength(cmd, helper) {
-        return helper.visibleOptions(cmd).reduce((max, option) => {
-          return Math.max(
-            max,
-            this.displayWidth(helper.styleOptionTerm(helper.optionTerm(option)))
-          );
-        }, 0);
-      }
-      /**
-       * Get the longest global option term length.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {number}
-       */
-      longestGlobalOptionTermLength(cmd, helper) {
-        return helper.visibleGlobalOptions(cmd).reduce((max, option) => {
-          return Math.max(
-            max,
-            this.displayWidth(helper.styleOptionTerm(helper.optionTerm(option)))
-          );
-        }, 0);
-      }
-      /**
-       * Get the longest argument term length.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {number}
-       */
-      longestArgumentTermLength(cmd, helper) {
-        return helper.visibleArguments(cmd).reduce((max, argument) => {
-          return Math.max(
-            max,
-            this.displayWidth(
-              helper.styleArgumentTerm(helper.argumentTerm(argument))
-            )
-          );
-        }, 0);
-      }
-      /**
-       * Get the command usage to be displayed at the top of the built-in help.
-       *
-       * @param {Command} cmd
-       * @returns {string}
-       */
-      commandUsage(cmd) {
-        let cmdName = cmd._name;
-        if (cmd._aliases[0]) {
-          cmdName = cmdName + "|" + cmd._aliases[0];
-        }
-        let ancestorCmdNames = "";
-        for (let ancestorCmd = cmd.parent; ancestorCmd; ancestorCmd = ancestorCmd.parent) {
-          ancestorCmdNames = ancestorCmd.name() + " " + ancestorCmdNames;
-        }
-        return ancestorCmdNames + cmdName + " " + cmd.usage();
-      }
-      /**
-       * Get the description for the command.
-       *
-       * @param {Command} cmd
-       * @returns {string}
-       */
-      commandDescription(cmd) {
-        return cmd.description();
-      }
-      /**
-       * Get the subcommand summary to show in the list of subcommands.
-       * (Fallback to description for backwards compatibility.)
-       *
-       * @param {Command} cmd
-       * @returns {string}
-       */
-      subcommandDescription(cmd) {
-        return cmd.summary() || cmd.description();
-      }
-      /**
-       * Get the option description to show in the list of options.
-       *
-       * @param {Option} option
-       * @return {string}
-       */
-      optionDescription(option) {
-        const extraInfo = [];
-        if (option.argChoices) {
-          extraInfo.push(
-            // use stringify to match the display of the default value
-            `choices: ${option.argChoices.map((choice) => JSON.stringify(choice)).join(", ")}`
-          );
-        }
-        if (option.defaultValue !== void 0) {
-          const showDefault = option.required || option.optional || option.isBoolean() && typeof option.defaultValue === "boolean";
-          if (showDefault) {
-            extraInfo.push(
-              `default: ${option.defaultValueDescription || JSON.stringify(option.defaultValue)}`
-            );
-          }
-        }
-        if (option.presetArg !== void 0 && option.optional) {
-          extraInfo.push(`preset: ${JSON.stringify(option.presetArg)}`);
-        }
-        if (option.envVar !== void 0) {
-          extraInfo.push(`env: ${option.envVar}`);
-        }
-        if (extraInfo.length > 0) {
-          const extraDescription = `(${extraInfo.join(", ")})`;
-          if (option.description) {
-            return `${option.description} ${extraDescription}`;
-          }
-          return extraDescription;
-        }
-        return option.description;
-      }
-      /**
-       * Get the argument description to show in the list of arguments.
-       *
-       * @param {Argument} argument
-       * @return {string}
-       */
-      argumentDescription(argument) {
-        const extraInfo = [];
-        if (argument.argChoices) {
-          extraInfo.push(
-            // use stringify to match the display of the default value
-            `choices: ${argument.argChoices.map((choice) => JSON.stringify(choice)).join(", ")}`
-          );
-        }
-        if (argument.defaultValue !== void 0) {
-          extraInfo.push(
-            `default: ${argument.defaultValueDescription || JSON.stringify(argument.defaultValue)}`
-          );
-        }
-        if (extraInfo.length > 0) {
-          const extraDescription = `(${extraInfo.join(", ")})`;
-          if (argument.description) {
-            return `${argument.description} ${extraDescription}`;
-          }
-          return extraDescription;
-        }
-        return argument.description;
-      }
-      /**
-       * Format a list of items, given a heading and an array of formatted items.
-       *
-       * @param {string} heading
-       * @param {string[]} items
-       * @param {Help} helper
-       * @returns string[]
-       */
-      formatItemList(heading, items, helper) {
-        if (items.length === 0) return [];
-        return [helper.styleTitle(heading), ...items, ""];
-      }
-      /**
-       * Group items by their help group heading.
-       *
-       * @param {Command[] | Option[]} unsortedItems
-       * @param {Command[] | Option[]} visibleItems
-       * @param {Function} getGroup
-       * @returns {Map<string, Command[] | Option[]>}
-       */
-      groupItems(unsortedItems, visibleItems, getGroup) {
-        const result = /* @__PURE__ */ new Map();
-        unsortedItems.forEach((item) => {
-          const group = getGroup(item);
-          if (!result.has(group)) result.set(group, []);
-        });
-        visibleItems.forEach((item) => {
-          const group = getGroup(item);
-          if (!result.has(group)) {
-            result.set(group, []);
-          }
-          result.get(group).push(item);
-        });
-        return result;
-      }
-      /**
-       * Generate the built-in help text.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {string}
-       */
-      formatHelp(cmd, helper) {
-        const termWidth = helper.padWidth(cmd, helper);
-        const helpWidth = helper.helpWidth ?? 80;
-        function callFormatItem(term, description) {
-          return helper.formatItem(term, termWidth, description, helper);
-        }
-        let output = [
-          `${helper.styleTitle("Usage:")} ${helper.styleUsage(helper.commandUsage(cmd))}`,
-          ""
-        ];
-        const commandDescription = helper.commandDescription(cmd);
-        if (commandDescription.length > 0) {
-          output = output.concat([
-            helper.boxWrap(
-              helper.styleCommandDescription(commandDescription),
-              helpWidth
-            ),
-            ""
-          ]);
-        }
-        const argumentList = helper.visibleArguments(cmd).map((argument) => {
-          return callFormatItem(
-            helper.styleArgumentTerm(helper.argumentTerm(argument)),
-            helper.styleArgumentDescription(helper.argumentDescription(argument))
-          );
-        });
-        output = output.concat(
-          this.formatItemList("Arguments:", argumentList, helper)
-        );
-        const optionGroups = this.groupItems(
-          cmd.options,
-          helper.visibleOptions(cmd),
-          (option) => option.helpGroupHeading ?? "Options:"
-        );
-        optionGroups.forEach((options, group) => {
-          const optionList = options.map((option) => {
-            return callFormatItem(
-              helper.styleOptionTerm(helper.optionTerm(option)),
-              helper.styleOptionDescription(helper.optionDescription(option))
-            );
-          });
-          output = output.concat(this.formatItemList(group, optionList, helper));
-        });
-        if (helper.showGlobalOptions) {
-          const globalOptionList = helper.visibleGlobalOptions(cmd).map((option) => {
-            return callFormatItem(
-              helper.styleOptionTerm(helper.optionTerm(option)),
-              helper.styleOptionDescription(helper.optionDescription(option))
-            );
-          });
-          output = output.concat(
-            this.formatItemList("Global Options:", globalOptionList, helper)
-          );
-        }
-        const commandGroups = this.groupItems(
-          cmd.commands,
-          helper.visibleCommands(cmd),
-          (sub) => sub.helpGroup() || "Commands:"
-        );
-        commandGroups.forEach((commands, group) => {
-          const commandList = commands.map((sub) => {
-            return callFormatItem(
-              helper.styleSubcommandTerm(helper.subcommandTerm(sub)),
-              helper.styleSubcommandDescription(helper.subcommandDescription(sub))
-            );
-          });
-          output = output.concat(this.formatItemList(group, commandList, helper));
-        });
-        return output.join("\n");
-      }
-      /**
-       * Return display width of string, ignoring ANSI escape sequences. Used in padding and wrapping calculations.
-       *
-       * @param {string} str
-       * @returns {number}
-       */
-      displayWidth(str) {
-        return stripColor(str).length;
-      }
-      /**
-       * Style the title for displaying in the help. Called with 'Usage:', 'Options:', etc.
-       *
-       * @param {string} str
-       * @returns {string}
-       */
-      styleTitle(str) {
-        return str;
-      }
-      styleUsage(str) {
-        return str.split(" ").map((word) => {
-          if (word === "[options]") return this.styleOptionText(word);
-          if (word === "[command]") return this.styleSubcommandText(word);
-          if (word[0] === "[" || word[0] === "<")
-            return this.styleArgumentText(word);
-          return this.styleCommandText(word);
-        }).join(" ");
-      }
-      styleCommandDescription(str) {
-        return this.styleDescriptionText(str);
-      }
-      styleOptionDescription(str) {
-        return this.styleDescriptionText(str);
-      }
-      styleSubcommandDescription(str) {
-        return this.styleDescriptionText(str);
-      }
-      styleArgumentDescription(str) {
-        return this.styleDescriptionText(str);
-      }
-      styleDescriptionText(str) {
-        return str;
-      }
-      styleOptionTerm(str) {
-        return this.styleOptionText(str);
-      }
-      styleSubcommandTerm(str) {
-        return str.split(" ").map((word) => {
-          if (word === "[options]") return this.styleOptionText(word);
-          if (word[0] === "[" || word[0] === "<")
-            return this.styleArgumentText(word);
-          return this.styleSubcommandText(word);
-        }).join(" ");
-      }
-      styleArgumentTerm(str) {
-        return this.styleArgumentText(str);
-      }
-      styleOptionText(str) {
-        return str;
-      }
-      styleArgumentText(str) {
-        return str;
-      }
-      styleSubcommandText(str) {
-        return str;
-      }
-      styleCommandText(str) {
-        return str;
-      }
-      /**
-       * Calculate the pad width from the maximum term length.
-       *
-       * @param {Command} cmd
-       * @param {Help} helper
-       * @returns {number}
-       */
-      padWidth(cmd, helper) {
-        return Math.max(
-          helper.longestOptionTermLength(cmd, helper),
-          helper.longestGlobalOptionTermLength(cmd, helper),
-          helper.longestSubcommandTermLength(cmd, helper),
-          helper.longestArgumentTermLength(cmd, helper)
-        );
-      }
-      /**
-       * Detect manually wrapped and indented strings by checking for line break followed by whitespace.
-       *
-       * @param {string} str
-       * @returns {boolean}
-       */
-      preformatted(str) {
-        return /\n[^\S\r\n]/.test(str);
-      }
-      /**
-       * Format the "item", which consists of a term and description. Pad the term and wrap the description, indenting the following lines.
-       *
-       * So "TTT", 5, "DDD DDDD DD DDD" might be formatted for this.helpWidth=17 like so:
-       *   TTT  DDD DDDD
-       *        DD DDD
-       *
-       * @param {string} term
-       * @param {number} termWidth
-       * @param {string} description
-       * @param {Help} helper
-       * @returns {string}
-       */
-      formatItem(term, termWidth, description, helper) {
-        const itemIndent = 2;
-        const itemIndentStr = " ".repeat(itemIndent);
-        if (!description) return itemIndentStr + term;
-        const paddedTerm = term.padEnd(
-          termWidth + term.length - helper.displayWidth(term)
-        );
-        const spacerWidth = 2;
-        const helpWidth = this.helpWidth ?? 80;
-        const remainingWidth = helpWidth - termWidth - spacerWidth - itemIndent;
-        let formattedDescription;
-        if (remainingWidth < this.minWidthToWrap || helper.preformatted(description)) {
-          formattedDescription = description;
-        } else {
-          const wrappedDescription = helper.boxWrap(description, remainingWidth);
-          formattedDescription = wrappedDescription.replace(
-            /\n/g,
-            "\n" + " ".repeat(termWidth + spacerWidth)
-          );
-        }
-        return itemIndentStr + paddedTerm + " ".repeat(spacerWidth) + formattedDescription.replace(/\n/g, `
-${itemIndentStr}`);
-      }
-      /**
-       * Wrap a string at whitespace, preserving existing line breaks.
-       * Wrapping is skipped if the width is less than `minWidthToWrap`.
-       *
-       * @param {string} str
-       * @param {number} width
-       * @returns {string}
-       */
-      boxWrap(str, width) {
-        if (width < this.minWidthToWrap) return str;
-        const rawLines = str.split(/\r\n|\n/);
-        const chunkPattern = /[\s]*[^\s]+/g;
-        const wrappedLines = [];
-        rawLines.forEach((line) => {
-          const chunks = line.match(chunkPattern);
-          if (chunks === null) {
-            wrappedLines.push("");
-            return;
-          }
-          let sumChunks = [chunks.shift()];
-          let sumWidth = this.displayWidth(sumChunks[0]);
-          chunks.forEach((chunk) => {
-            const visibleWidth = this.displayWidth(chunk);
-            if (sumWidth + visibleWidth <= width) {
-              sumChunks.push(chunk);
-              sumWidth += visibleWidth;
-              return;
-            }
-            wrappedLines.push(sumChunks.join(""));
-            const nextChunk = chunk.trimStart();
-            sumChunks = [nextChunk];
-            sumWidth = this.displayWidth(nextChunk);
-          });
-          wrappedLines.push(sumChunks.join(""));
-        });
-        return wrappedLines.join("\n");
-      }
-    };
-    function stripColor(str) {
-      const sgrPattern = /\x1b\[\d*(;\d*)*m/g;
-      return str.replace(sgrPattern, "");
-    }
-    exports.Help = Help2;
-    exports.stripColor = stripColor;
-  }
-});
-
-// node_modules/commander/lib/option.js
-var require_option = __commonJS({
-  "node_modules/commander/lib/option.js"(exports) {
-    "use strict";
-    var { InvalidArgumentError: InvalidArgumentError2 } = require_error();
-    var Option2 = class {
-      /**
-       * Initialize a new `Option` with the given `flags` and `description`.
-       *
-       * @param {string} flags
-       * @param {string} [description]
-       */
-      constructor(flags, description) {
-        this.flags = flags;
-        this.description = description || "";
-        this.required = flags.includes("<");
-        this.optional = flags.includes("[");
-        this.variadic = /\w\.\.\.[>\]]$/.test(flags);
-        this.mandatory = false;
-        const optionFlags = splitOptionFlags(flags);
-        this.short = optionFlags.shortFlag;
-        this.long = optionFlags.longFlag;
-        this.negate = false;
-        if (this.long) {
-          this.negate = this.long.startsWith("--no-");
-        }
-        this.defaultValue = void 0;
-        this.defaultValueDescription = void 0;
-        this.presetArg = void 0;
-        this.envVar = void 0;
-        this.parseArg = void 0;
-        this.hidden = false;
-        this.argChoices = void 0;
-        this.conflictsWith = [];
-        this.implied = void 0;
-        this.helpGroupHeading = void 0;
-      }
-      /**
-       * Set the default value, and optionally supply the description to be displayed in the help.
-       *
-       * @param {*} value
-       * @param {string} [description]
-       * @return {Option}
-       */
-      default(value, description) {
-        this.defaultValue = value;
-        this.defaultValueDescription = description;
-        return this;
-      }
-      /**
-       * Preset to use when option used without option-argument, especially optional but also boolean and negated.
-       * The custom processing (parseArg) is called.
-       *
-       * @example
-       * new Option('--color').default('GREYSCALE').preset('RGB');
-       * new Option('--donate [amount]').preset('20').argParser(parseFloat);
-       *
-       * @param {*} arg
-       * @return {Option}
-       */
-      preset(arg) {
-        this.presetArg = arg;
-        return this;
-      }
-      /**
-       * Add option name(s) that conflict with this option.
-       * An error will be displayed if conflicting options are found during parsing.
-       *
-       * @example
-       * new Option('--rgb').conflicts('cmyk');
-       * new Option('--js').conflicts(['ts', 'jsx']);
-       *
-       * @param {(string | string[])} names
-       * @return {Option}
-       */
-      conflicts(names) {
-        this.conflictsWith = this.conflictsWith.concat(names);
-        return this;
-      }
-      /**
-       * Specify implied option values for when this option is set and the implied options are not.
-       *
-       * The custom processing (parseArg) is not called on the implied values.
-       *
-       * @example
-       * program
-       *   .addOption(new Option('--log', 'write logging information to file'))
-       *   .addOption(new Option('--trace', 'log extra details').implies({ log: 'trace.txt' }));
-       *
-       * @param {object} impliedOptionValues
-       * @return {Option}
-       */
-      implies(impliedOptionValues) {
-        let newImplied = impliedOptionValues;
-        if (typeof impliedOptionValues === "string") {
-          newImplied = { [impliedOptionValues]: true };
-        }
-        this.implied = Object.assign(this.implied || {}, newImplied);
-        return this;
-      }
-      /**
-       * Set environment variable to check for option value.
-       *
-       * An environment variable is only used if when processed the current option value is
-       * undefined, or the source of the current value is 'default' or 'config' or 'env'.
-       *
-       * @param {string} name
-       * @return {Option}
-       */
-      env(name) {
-        this.envVar = name;
-        return this;
-      }
-      /**
-       * Set the custom handler for processing CLI option arguments into option values.
-       *
-       * @param {Function} [fn]
-       * @return {Option}
-       */
-      argParser(fn) {
-        this.parseArg = fn;
-        return this;
-      }
-      /**
-       * Whether the option is mandatory and must have a value after parsing.
-       *
-       * @param {boolean} [mandatory=true]
-       * @return {Option}
-       */
-      makeOptionMandatory(mandatory = true) {
-        this.mandatory = !!mandatory;
-        return this;
-      }
-      /**
-       * Hide option in help.
-       *
-       * @param {boolean} [hide=true]
-       * @return {Option}
-       */
-      hideHelp(hide = true) {
-        this.hidden = !!hide;
-        return this;
-      }
-      /**
-       * @package
-       */
-      _collectValue(value, previous) {
-        if (previous === this.defaultValue || !Array.isArray(previous)) {
-          return [value];
-        }
-        previous.push(value);
-        return previous;
-      }
-      /**
-       * Only allow option value to be one of choices.
-       *
-       * @param {string[]} values
-       * @return {Option}
-       */
-      choices(values) {
-        this.argChoices = values.slice();
-        this.parseArg = (arg, previous) => {
-          if (!this.argChoices.includes(arg)) {
-            throw new InvalidArgumentError2(
-              `Allowed choices are ${this.argChoices.join(", ")}.`
-            );
-          }
-          if (this.variadic) {
-            return this._collectValue(arg, previous);
-          }
-          return arg;
-        };
-        return this;
-      }
-      /**
-       * Return option name.
-       *
-       * @return {string}
-       */
-      name() {
-        if (this.long) {
-          return this.long.replace(/^--/, "");
-        }
-        return this.short.replace(/^-/, "");
-      }
-      /**
-       * Return option name, in a camelcase format that can be used
-       * as an object attribute key.
-       *
-       * @return {string}
-       */
-      attributeName() {
-        if (this.negate) {
-          return camelcase(this.name().replace(/^no-/, ""));
-        }
-        return camelcase(this.name());
-      }
-      /**
-       * Set the help group heading.
-       *
-       * @param {string} heading
-       * @return {Option}
-       */
-      helpGroup(heading) {
-        this.helpGroupHeading = heading;
-        return this;
-      }
-      /**
-       * Check if `arg` matches the short or long flag.
-       *
-       * @param {string} arg
-       * @return {boolean}
-       * @package
-       */
-      is(arg) {
-        return this.short === arg || this.long === arg;
-      }
-      /**
-       * Return whether a boolean option.
-       *
-       * Options are one of boolean, negated, required argument, or optional argument.
-       *
-       * @return {boolean}
-       * @package
-       */
-      isBoolean() {
-        return !this.required && !this.optional && !this.negate;
-      }
-    };
-    var DualOptions = class {
-      /**
-       * @param {Option[]} options
-       */
-      constructor(options) {
-        this.positiveOptions = /* @__PURE__ */ new Map();
-        this.negativeOptions = /* @__PURE__ */ new Map();
-        this.dualOptions = /* @__PURE__ */ new Set();
-        options.forEach((option) => {
-          if (option.negate) {
-            this.negativeOptions.set(option.attributeName(), option);
-          } else {
-            this.positiveOptions.set(option.attributeName(), option);
-          }
-        });
-        this.negativeOptions.forEach((value, key) => {
-          if (this.positiveOptions.has(key)) {
-            this.dualOptions.add(key);
-          }
-        });
-      }
-      /**
-       * Did the value come from the option, and not from possible matching dual option?
-       *
-       * @param {*} value
-       * @param {Option} option
-       * @returns {boolean}
-       */
-      valueFromOption(value, option) {
-        const optionKey = option.attributeName();
-        if (!this.dualOptions.has(optionKey)) return true;
-        const preset = this.negativeOptions.get(optionKey).presetArg;
-        const negativeValue = preset !== void 0 ? preset : false;
-        return option.negate === (negativeValue === value);
-      }
-    };
-    function camelcase(str) {
-      return str.split("-").reduce((str2, word) => {
-        return str2 + word[0].toUpperCase() + word.slice(1);
-      });
-    }
-    function splitOptionFlags(flags) {
-      let shortFlag;
-      let longFlag;
-      const shortFlagExp = /^-[^-]$/;
-      const longFlagExp = /^--[^-]/;
-      const flagParts = flags.split(/[ |,]+/).concat("guard");
-      if (shortFlagExp.test(flagParts[0])) shortFlag = flagParts.shift();
-      if (longFlagExp.test(flagParts[0])) longFlag = flagParts.shift();
-      if (!shortFlag && shortFlagExp.test(flagParts[0]))
-        shortFlag = flagParts.shift();
-      if (!shortFlag && longFlagExp.test(flagParts[0])) {
-        shortFlag = longFlag;
-        longFlag = flagParts.shift();
-      }
-      if (flagParts[0].startsWith("-")) {
-        const unsupportedFlag = flagParts[0];
-        const baseError = `option creation failed due to '${unsupportedFlag}' in option flags '${flags}'`;
-        if (/^-[^-][^-]/.test(unsupportedFlag))
-          throw new Error(
-            `${baseError}
-- a short flag is a single dash and a single character
-  - either use a single dash and a single character (for a short flag)
-  - or use a double dash for a long option (and can have two, like '--ws, --workspace')`
-          );
-        if (shortFlagExp.test(unsupportedFlag))
-          throw new Error(`${baseError}
-- too many short flags`);
-        if (longFlagExp.test(unsupportedFlag))
-          throw new Error(`${baseError}
-- too many long flags`);
-        throw new Error(`${baseError}
-- unrecognised flag format`);
-      }
-      if (shortFlag === void 0 && longFlag === void 0)
-        throw new Error(
-          `option creation failed due to no flags found in '${flags}'.`
-        );
-      return { shortFlag, longFlag };
-    }
-    exports.Option = Option2;
-    exports.DualOptions = DualOptions;
-  }
-});
-
-// node_modules/commander/lib/suggestSimilar.js
-var require_suggestSimilar = __commonJS({
-  "node_modules/commander/lib/suggestSimilar.js"(exports) {
-    "use strict";
-    var maxDistance = 3;
-    function editDistance(a, b) {
-      if (Math.abs(a.length - b.length) > maxDistance)
-        return Math.max(a.length, b.length);
-      const d = [];
-      for (let i = 0; i <= a.length; i++) {
-        d[i] = [i];
-      }
-      for (let j = 0; j <= b.length; j++) {
-        d[0][j] = j;
-      }
-      for (let j = 1; j <= b.length; j++) {
-        for (let i = 1; i <= a.length; i++) {
-          let cost = 1;
-          if (a[i - 1] === b[j - 1]) {
-            cost = 0;
-          } else {
-            cost = 1;
-          }
-          d[i][j] = Math.min(
-            d[i - 1][j] + 1,
-            // deletion
-            d[i][j - 1] + 1,
-            // insertion
-            d[i - 1][j - 1] + cost
-            // substitution
-          );
-          if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
-            d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-          }
-        }
-      }
-      return d[a.length][b.length];
-    }
-    function suggestSimilar(word, candidates) {
-      if (!candidates || candidates.length === 0) return "";
-      candidates = Array.from(new Set(candidates));
-      const searchingOptions = word.startsWith("--");
-      if (searchingOptions) {
-        word = word.slice(2);
-        candidates = candidates.map((candidate) => candidate.slice(2));
-      }
-      let similar = [];
-      let bestDistance = maxDistance;
-      const minSimilarity = 0.4;
-      candidates.forEach((candidate) => {
-        if (candidate.length <= 1) return;
-        const distance = editDistance(word, candidate);
-        const length = Math.max(word.length, candidate.length);
-        const similarity = (length - distance) / length;
-        if (similarity > minSimilarity) {
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            similar = [candidate];
-          } else if (distance === bestDistance) {
-            similar.push(candidate);
-          }
-        }
-      });
-      similar.sort((a, b) => a.localeCompare(b));
-      if (searchingOptions) {
-        similar = similar.map((candidate) => `--${candidate}`);
-      }
-      if (similar.length > 1) {
-        return `
-(Did you mean one of ${similar.join(", ")}?)`;
-      }
-      if (similar.length === 1) {
-        return `
-(Did you mean ${similar[0]}?)`;
-      }
-      return "";
-    }
-    exports.suggestSimilar = suggestSimilar;
-  }
-});
-
-// node_modules/commander/lib/command.js
-var require_command = __commonJS({
-  "node_modules/commander/lib/command.js"(exports) {
-    "use strict";
-    var EventEmitter3 = __require("events").EventEmitter;
-    var childProcess = __require("child_process");
-    var path3 = __require("path");
-    var fs3 = __require("fs");
-    var process21 = __require("process");
-    var { Argument: Argument2, humanReadableArgName } = require_argument();
-    var { CommanderError: CommanderError2 } = require_error();
-    var { Help: Help2, stripColor } = require_help();
-    var { Option: Option2, DualOptions } = require_option();
-    var { suggestSimilar } = require_suggestSimilar();
-    var Command2 = class _Command extends EventEmitter3 {
-      /**
-       * Initialize a new `Command`.
-       *
-       * @param {string} [name]
-       */
-      constructor(name) {
-        super();
-        this.commands = [];
-        this.options = [];
-        this.parent = null;
-        this._allowUnknownOption = false;
-        this._allowExcessArguments = false;
-        this.registeredArguments = [];
-        this._args = this.registeredArguments;
-        this.args = [];
-        this.rawArgs = [];
-        this.processedArgs = [];
-        this._scriptPath = null;
-        this._name = name || "";
-        this._optionValues = {};
-        this._optionValueSources = {};
-        this._storeOptionsAsProperties = false;
-        this._actionHandler = null;
-        this._executableHandler = false;
-        this._executableFile = null;
-        this._executableDir = null;
-        this._defaultCommandName = null;
-        this._exitCallback = null;
-        this._aliases = [];
-        this._combineFlagAndOptionalValue = true;
-        this._description = "";
-        this._summary = "";
-        this._argsDescription = void 0;
-        this._enablePositionalOptions = false;
-        this._passThroughOptions = false;
-        this._lifeCycleHooks = {};
-        this._showHelpAfterError = false;
-        this._showSuggestionAfterError = true;
-        this._savedState = null;
-        this._outputConfiguration = {
-          writeOut: (str) => process21.stdout.write(str),
-          writeErr: (str) => process21.stderr.write(str),
-          outputError: (str, write) => write(str),
-          getOutHelpWidth: () => process21.stdout.isTTY ? process21.stdout.columns : void 0,
-          getErrHelpWidth: () => process21.stderr.isTTY ? process21.stderr.columns : void 0,
-          getOutHasColors: () => useColor() ?? (process21.stdout.isTTY && process21.stdout.hasColors?.()),
-          getErrHasColors: () => useColor() ?? (process21.stderr.isTTY && process21.stderr.hasColors?.()),
-          stripColor: (str) => stripColor(str)
-        };
-        this._hidden = false;
-        this._helpOption = void 0;
-        this._addImplicitHelpCommand = void 0;
-        this._helpCommand = void 0;
-        this._helpConfiguration = {};
-        this._helpGroupHeading = void 0;
-        this._defaultCommandGroup = void 0;
-        this._defaultOptionGroup = void 0;
-      }
-      /**
-       * Copy settings that are useful to have in common across root command and subcommands.
-       *
-       * (Used internally when adding a command using `.command()` so subcommands inherit parent settings.)
-       *
-       * @param {Command} sourceCommand
-       * @return {Command} `this` command for chaining
-       */
-      copyInheritedSettings(sourceCommand) {
-        this._outputConfiguration = sourceCommand._outputConfiguration;
-        this._helpOption = sourceCommand._helpOption;
-        this._helpCommand = sourceCommand._helpCommand;
-        this._helpConfiguration = sourceCommand._helpConfiguration;
-        this._exitCallback = sourceCommand._exitCallback;
-        this._storeOptionsAsProperties = sourceCommand._storeOptionsAsProperties;
-        this._combineFlagAndOptionalValue = sourceCommand._combineFlagAndOptionalValue;
-        this._allowExcessArguments = sourceCommand._allowExcessArguments;
-        this._enablePositionalOptions = sourceCommand._enablePositionalOptions;
-        this._showHelpAfterError = sourceCommand._showHelpAfterError;
-        this._showSuggestionAfterError = sourceCommand._showSuggestionAfterError;
-        return this;
-      }
-      /**
-       * @returns {Command[]}
-       * @private
-       */
-      _getCommandAndAncestors() {
-        const result = [];
-        for (let command = this; command; command = command.parent) {
-          result.push(command);
-        }
-        return result;
-      }
-      /**
-       * Define a command.
-       *
-       * There are two styles of command: pay attention to where to put the description.
-       *
-       * @example
-       * // Command implemented using action handler (description is supplied separately to `.command`)
-       * program
-       *   .command('clone <source> [destination]')
-       *   .description('clone a repository into a newly created directory')
-       *   .action((source, destination) => {
-       *     console.log('clone command called');
-       *   });
-       *
-       * // Command implemented using separate executable file (description is second parameter to `.command`)
-       * program
-       *   .command('start <service>', 'start named service')
-       *   .command('stop [service]', 'stop named service, or all if no name supplied');
-       *
-       * @param {string} nameAndArgs - command name and arguments, args are `<required>` or `[optional]` and last may also be `variadic...`
-       * @param {(object | string)} [actionOptsOrExecDesc] - configuration options (for action), or description (for executable)
-       * @param {object} [execOpts] - configuration options (for executable)
-       * @return {Command} returns new command for action handler, or `this` for executable command
-       */
-      command(nameAndArgs, actionOptsOrExecDesc, execOpts) {
-        let desc = actionOptsOrExecDesc;
-        let opts = execOpts;
-        if (typeof desc === "object" && desc !== null) {
-          opts = desc;
-          desc = null;
-        }
-        opts = opts || {};
-        const [, name, args] = nameAndArgs.match(/([^ ]+) *(.*)/);
-        const cmd = this.createCommand(name);
-        if (desc) {
-          cmd.description(desc);
-          cmd._executableHandler = true;
-        }
-        if (opts.isDefault) this._defaultCommandName = cmd._name;
-        cmd._hidden = !!(opts.noHelp || opts.hidden);
-        cmd._executableFile = opts.executableFile || null;
-        if (args) cmd.arguments(args);
-        this._registerCommand(cmd);
-        cmd.parent = this;
-        cmd.copyInheritedSettings(this);
-        if (desc) return this;
-        return cmd;
-      }
-      /**
-       * Factory routine to create a new unattached command.
-       *
-       * See .command() for creating an attached subcommand, which uses this routine to
-       * create the command. You can override createCommand to customise subcommands.
-       *
-       * @param {string} [name]
-       * @return {Command} new command
-       */
-      createCommand(name) {
-        return new _Command(name);
-      }
-      /**
-       * You can customise the help with a subclass of Help by overriding createHelp,
-       * or by overriding Help properties using configureHelp().
-       *
-       * @return {Help}
-       */
-      createHelp() {
-        return Object.assign(new Help2(), this.configureHelp());
-      }
-      /**
-       * You can customise the help by overriding Help properties using configureHelp(),
-       * or with a subclass of Help by overriding createHelp().
-       *
-       * @param {object} [configuration] - configuration options
-       * @return {(Command | object)} `this` command for chaining, or stored configuration
-       */
-      configureHelp(configuration) {
-        if (configuration === void 0) return this._helpConfiguration;
-        this._helpConfiguration = configuration;
-        return this;
-      }
-      /**
-       * The default output goes to stdout and stderr. You can customise this for special
-       * applications. You can also customise the display of errors by overriding outputError.
-       *
-       * The configuration properties are all functions:
-       *
-       *     // change how output being written, defaults to stdout and stderr
-       *     writeOut(str)
-       *     writeErr(str)
-       *     // change how output being written for errors, defaults to writeErr
-       *     outputError(str, write) // used for displaying errors and not used for displaying help
-       *     // specify width for wrapping help
-       *     getOutHelpWidth()
-       *     getErrHelpWidth()
-       *     // color support, currently only used with Help
-       *     getOutHasColors()
-       *     getErrHasColors()
-       *     stripColor() // used to remove ANSI escape codes if output does not have colors
-       *
-       * @param {object} [configuration] - configuration options
-       * @return {(Command | object)} `this` command for chaining, or stored configuration
-       */
-      configureOutput(configuration) {
-        if (configuration === void 0) return this._outputConfiguration;
-        this._outputConfiguration = {
-          ...this._outputConfiguration,
-          ...configuration
-        };
-        return this;
-      }
-      /**
-       * Display the help or a custom message after an error occurs.
-       *
-       * @param {(boolean|string)} [displayHelp]
-       * @return {Command} `this` command for chaining
-       */
-      showHelpAfterError(displayHelp = true) {
-        if (typeof displayHelp !== "string") displayHelp = !!displayHelp;
-        this._showHelpAfterError = displayHelp;
-        return this;
-      }
-      /**
-       * Display suggestion of similar commands for unknown commands, or options for unknown options.
-       *
-       * @param {boolean} [displaySuggestion]
-       * @return {Command} `this` command for chaining
-       */
-      showSuggestionAfterError(displaySuggestion = true) {
-        this._showSuggestionAfterError = !!displaySuggestion;
-        return this;
-      }
-      /**
-       * Add a prepared subcommand.
-       *
-       * See .command() for creating an attached subcommand which inherits settings from its parent.
-       *
-       * @param {Command} cmd - new subcommand
-       * @param {object} [opts] - configuration options
-       * @return {Command} `this` command for chaining
-       */
-      addCommand(cmd, opts) {
-        if (!cmd._name) {
-          throw new Error(`Command passed to .addCommand() must have a name
-- specify the name in Command constructor or using .name()`);
-        }
-        opts = opts || {};
-        if (opts.isDefault) this._defaultCommandName = cmd._name;
-        if (opts.noHelp || opts.hidden) cmd._hidden = true;
-        this._registerCommand(cmd);
-        cmd.parent = this;
-        cmd._checkForBrokenPassThrough();
-        return this;
-      }
-      /**
-       * Factory routine to create a new unattached argument.
-       *
-       * See .argument() for creating an attached argument, which uses this routine to
-       * create the argument. You can override createArgument to return a custom argument.
-       *
-       * @param {string} name
-       * @param {string} [description]
-       * @return {Argument} new argument
-       */
-      createArgument(name, description) {
-        return new Argument2(name, description);
-      }
-      /**
-       * Define argument syntax for command.
-       *
-       * The default is that the argument is required, and you can explicitly
-       * indicate this with <> around the name. Put [] around the name for an optional argument.
-       *
-       * @example
-       * program.argument('<input-file>');
-       * program.argument('[output-file]');
-       *
-       * @param {string} name
-       * @param {string} [description]
-       * @param {(Function|*)} [parseArg] - custom argument processing function or default value
-       * @param {*} [defaultValue]
-       * @return {Command} `this` command for chaining
-       */
-      argument(name, description, parseArg, defaultValue2) {
-        const argument = this.createArgument(name, description);
-        if (typeof parseArg === "function") {
-          argument.default(defaultValue2).argParser(parseArg);
-        } else {
-          argument.default(parseArg);
-        }
-        this.addArgument(argument);
-        return this;
-      }
-      /**
-       * Define argument syntax for command, adding multiple at once (without descriptions).
-       *
-       * See also .argument().
-       *
-       * @example
-       * program.arguments('<cmd> [env]');
-       *
-       * @param {string} names
-       * @return {Command} `this` command for chaining
-       */
-      arguments(names) {
-        names.trim().split(/ +/).forEach((detail) => {
-          this.argument(detail);
-        });
-        return this;
-      }
-      /**
-       * Define argument syntax for command, adding a prepared argument.
-       *
-       * @param {Argument} argument
-       * @return {Command} `this` command for chaining
-       */
-      addArgument(argument) {
-        const previousArgument = this.registeredArguments.slice(-1)[0];
-        if (previousArgument?.variadic) {
-          throw new Error(
-            `only the last argument can be variadic '${previousArgument.name()}'`
-          );
-        }
-        if (argument.required && argument.defaultValue !== void 0 && argument.parseArg === void 0) {
-          throw new Error(
-            `a default value for a required argument is never used: '${argument.name()}'`
-          );
-        }
-        this.registeredArguments.push(argument);
-        return this;
-      }
-      /**
-       * Customise or override default help command. By default a help command is automatically added if your command has subcommands.
-       *
-       * @example
-       *    program.helpCommand('help [cmd]');
-       *    program.helpCommand('help [cmd]', 'show help');
-       *    program.helpCommand(false); // suppress default help command
-       *    program.helpCommand(true); // add help command even if no subcommands
-       *
-       * @param {string|boolean} enableOrNameAndArgs - enable with custom name and/or arguments, or boolean to override whether added
-       * @param {string} [description] - custom description
-       * @return {Command} `this` command for chaining
-       */
-      helpCommand(enableOrNameAndArgs, description) {
-        if (typeof enableOrNameAndArgs === "boolean") {
-          this._addImplicitHelpCommand = enableOrNameAndArgs;
-          if (enableOrNameAndArgs && this._defaultCommandGroup) {
-            this._initCommandGroup(this._getHelpCommand());
-          }
-          return this;
-        }
-        const nameAndArgs = enableOrNameAndArgs ?? "help [command]";
-        const [, helpName, helpArgs] = nameAndArgs.match(/([^ ]+) *(.*)/);
-        const helpDescription = description ?? "display help for command";
-        const helpCommand = this.createCommand(helpName);
-        helpCommand.helpOption(false);
-        if (helpArgs) helpCommand.arguments(helpArgs);
-        if (helpDescription) helpCommand.description(helpDescription);
-        this._addImplicitHelpCommand = true;
-        this._helpCommand = helpCommand;
-        if (enableOrNameAndArgs || description) this._initCommandGroup(helpCommand);
-        return this;
-      }
-      /**
-       * Add prepared custom help command.
-       *
-       * @param {(Command|string|boolean)} helpCommand - custom help command, or deprecated enableOrNameAndArgs as for `.helpCommand()`
-       * @param {string} [deprecatedDescription] - deprecated custom description used with custom name only
-       * @return {Command} `this` command for chaining
-       */
-      addHelpCommand(helpCommand, deprecatedDescription) {
-        if (typeof helpCommand !== "object") {
-          this.helpCommand(helpCommand, deprecatedDescription);
-          return this;
-        }
-        this._addImplicitHelpCommand = true;
-        this._helpCommand = helpCommand;
-        this._initCommandGroup(helpCommand);
-        return this;
-      }
-      /**
-       * Lazy create help command.
-       *
-       * @return {(Command|null)}
-       * @package
-       */
-      _getHelpCommand() {
-        const hasImplicitHelpCommand = this._addImplicitHelpCommand ?? (this.commands.length && !this._actionHandler && !this._findCommand("help"));
-        if (hasImplicitHelpCommand) {
-          if (this._helpCommand === void 0) {
-            this.helpCommand(void 0, void 0);
-          }
-          return this._helpCommand;
-        }
-        return null;
-      }
-      /**
-       * Add hook for life cycle event.
-       *
-       * @param {string} event
-       * @param {Function} listener
-       * @return {Command} `this` command for chaining
-       */
-      hook(event, listener) {
-        const allowedValues = ["preSubcommand", "preAction", "postAction"];
-        if (!allowedValues.includes(event)) {
-          throw new Error(`Unexpected value for event passed to hook : '${event}'.
-Expecting one of '${allowedValues.join("', '")}'`);
-        }
-        if (this._lifeCycleHooks[event]) {
-          this._lifeCycleHooks[event].push(listener);
-        } else {
-          this._lifeCycleHooks[event] = [listener];
-        }
-        return this;
-      }
-      /**
-       * Register callback to use as replacement for calling process.exit.
-       *
-       * @param {Function} [fn] optional callback which will be passed a CommanderError, defaults to throwing
-       * @return {Command} `this` command for chaining
-       */
-      exitOverride(fn) {
-        if (fn) {
-          this._exitCallback = fn;
-        } else {
-          this._exitCallback = (err) => {
-            if (err.code !== "commander.executeSubCommandAsync") {
-              throw err;
-            } else {
-            }
-          };
-        }
-        return this;
-      }
-      /**
-       * Call process.exit, and _exitCallback if defined.
-       *
-       * @param {number} exitCode exit code for using with process.exit
-       * @param {string} code an id string representing the error
-       * @param {string} message human-readable description of the error
-       * @return never
-       * @private
-       */
-      _exit(exitCode, code, message) {
-        if (this._exitCallback) {
-          this._exitCallback(new CommanderError2(exitCode, code, message));
-        }
-        process21.exit(exitCode);
-      }
-      /**
-       * Register callback `fn` for the command.
-       *
-       * @example
-       * program
-       *   .command('serve')
-       *   .description('start service')
-       *   .action(function() {
-       *      // do work here
-       *   });
-       *
-       * @param {Function} fn
-       * @return {Command} `this` command for chaining
-       */
-      action(fn) {
-        const listener = (args) => {
-          const expectedArgsCount = this.registeredArguments.length;
-          const actionArgs = args.slice(0, expectedArgsCount);
-          if (this._storeOptionsAsProperties) {
-            actionArgs[expectedArgsCount] = this;
-          } else {
-            actionArgs[expectedArgsCount] = this.opts();
-          }
-          actionArgs.push(this);
-          return fn.apply(this, actionArgs);
-        };
-        this._actionHandler = listener;
-        return this;
-      }
-      /**
-       * Factory routine to create a new unattached option.
-       *
-       * See .option() for creating an attached option, which uses this routine to
-       * create the option. You can override createOption to return a custom option.
-       *
-       * @param {string} flags
-       * @param {string} [description]
-       * @return {Option} new option
-       */
-      createOption(flags, description) {
-        return new Option2(flags, description);
-      }
-      /**
-       * Wrap parseArgs to catch 'commander.invalidArgument'.
-       *
-       * @param {(Option | Argument)} target
-       * @param {string} value
-       * @param {*} previous
-       * @param {string} invalidArgumentMessage
-       * @private
-       */
-      _callParseArg(target, value, previous, invalidArgumentMessage) {
-        try {
-          return target.parseArg(value, previous);
-        } catch (err) {
-          if (err.code === "commander.invalidArgument") {
-            const message = `${invalidArgumentMessage} ${err.message}`;
-            this.error(message, { exitCode: err.exitCode, code: err.code });
-          }
-          throw err;
-        }
-      }
-      /**
-       * Check for option flag conflicts.
-       * Register option if no conflicts found, or throw on conflict.
-       *
-       * @param {Option} option
-       * @private
-       */
-      _registerOption(option) {
-        const matchingOption = option.short && this._findOption(option.short) || option.long && this._findOption(option.long);
-        if (matchingOption) {
-          const matchingFlag = option.long && this._findOption(option.long) ? option.long : option.short;
-          throw new Error(`Cannot add option '${option.flags}'${this._name && ` to command '${this._name}'`} due to conflicting flag '${matchingFlag}'
--  already used by option '${matchingOption.flags}'`);
-        }
-        this._initOptionGroup(option);
-        this.options.push(option);
-      }
-      /**
-       * Check for command name and alias conflicts with existing commands.
-       * Register command if no conflicts found, or throw on conflict.
-       *
-       * @param {Command} command
-       * @private
-       */
-      _registerCommand(command) {
-        const knownBy = (cmd) => {
-          return [cmd.name()].concat(cmd.aliases());
-        };
-        const alreadyUsed = knownBy(command).find(
-          (name) => this._findCommand(name)
-        );
-        if (alreadyUsed) {
-          const existingCmd = knownBy(this._findCommand(alreadyUsed)).join("|");
-          const newCmd = knownBy(command).join("|");
-          throw new Error(
-            `cannot add command '${newCmd}' as already have command '${existingCmd}'`
-          );
-        }
-        this._initCommandGroup(command);
-        this.commands.push(command);
-      }
-      /**
-       * Add an option.
-       *
-       * @param {Option} option
-       * @return {Command} `this` command for chaining
-       */
-      addOption(option) {
-        this._registerOption(option);
-        const oname = option.name();
-        const name = option.attributeName();
-        if (option.negate) {
-          const positiveLongFlag = option.long.replace(/^--no-/, "--");
-          if (!this._findOption(positiveLongFlag)) {
-            this.setOptionValueWithSource(
-              name,
-              option.defaultValue === void 0 ? true : option.defaultValue,
-              "default"
-            );
-          }
-        } else if (option.defaultValue !== void 0) {
-          this.setOptionValueWithSource(name, option.defaultValue, "default");
-        }
-        const handleOptionValue = (val, invalidValueMessage, valueSource) => {
-          if (val == null && option.presetArg !== void 0) {
-            val = option.presetArg;
-          }
-          const oldValue = this.getOptionValue(name);
-          if (val !== null && option.parseArg) {
-            val = this._callParseArg(option, val, oldValue, invalidValueMessage);
-          } else if (val !== null && option.variadic) {
-            val = option._collectValue(val, oldValue);
-          }
-          if (val == null) {
-            if (option.negate) {
-              val = false;
-            } else if (option.isBoolean() || option.optional) {
-              val = true;
-            } else {
-              val = "";
-            }
-          }
-          this.setOptionValueWithSource(name, val, valueSource);
-        };
-        this.on("option:" + oname, (val) => {
-          const invalidValueMessage = `error: option '${option.flags}' argument '${val}' is invalid.`;
-          handleOptionValue(val, invalidValueMessage, "cli");
-        });
-        if (option.envVar) {
-          this.on("optionEnv:" + oname, (val) => {
-            const invalidValueMessage = `error: option '${option.flags}' value '${val}' from env '${option.envVar}' is invalid.`;
-            handleOptionValue(val, invalidValueMessage, "env");
-          });
-        }
-        return this;
-      }
-      /**
-       * Internal implementation shared by .option() and .requiredOption()
-       *
-       * @return {Command} `this` command for chaining
-       * @private
-       */
-      _optionEx(config, flags, description, fn, defaultValue2) {
-        if (typeof flags === "object" && flags instanceof Option2) {
-          throw new Error(
-            "To add an Option object use addOption() instead of option() or requiredOption()"
-          );
-        }
-        const option = this.createOption(flags, description);
-        option.makeOptionMandatory(!!config.mandatory);
-        if (typeof fn === "function") {
-          option.default(defaultValue2).argParser(fn);
-        } else if (fn instanceof RegExp) {
-          const regex2 = fn;
-          fn = (val, def) => {
-            const m = regex2.exec(val);
-            return m ? m[0] : def;
-          };
-          option.default(defaultValue2).argParser(fn);
-        } else {
-          option.default(fn);
-        }
-        return this.addOption(option);
-      }
-      /**
-       * Define option with `flags`, `description`, and optional argument parsing function or `defaultValue` or both.
-       *
-       * The `flags` string contains the short and/or long flags, separated by comma, a pipe or space. A required
-       * option-argument is indicated by `<>` and an optional option-argument by `[]`.
-       *
-       * See the README for more details, and see also addOption() and requiredOption().
-       *
-       * @example
-       * program
-       *     .option('-p, --pepper', 'add pepper')
-       *     .option('--pt, --pizza-type <TYPE>', 'type of pizza') // required option-argument
-       *     .option('-c, --cheese [CHEESE]', 'add extra cheese', 'mozzarella') // optional option-argument with default
-       *     .option('-t, --tip <VALUE>', 'add tip to purchase cost', parseFloat) // custom parse function
-       *
-       * @param {string} flags
-       * @param {string} [description]
-       * @param {(Function|*)} [parseArg] - custom option processing function or default value
-       * @param {*} [defaultValue]
-       * @return {Command} `this` command for chaining
-       */
-      option(flags, description, parseArg, defaultValue2) {
-        return this._optionEx({}, flags, description, parseArg, defaultValue2);
-      }
-      /**
-       * Add a required option which must have a value after parsing. This usually means
-       * the option must be specified on the command line. (Otherwise the same as .option().)
-       *
-       * The `flags` string contains the short and/or long flags, separated by comma, a pipe or space.
-       *
-       * @param {string} flags
-       * @param {string} [description]
-       * @param {(Function|*)} [parseArg] - custom option processing function or default value
-       * @param {*} [defaultValue]
-       * @return {Command} `this` command for chaining
-       */
-      requiredOption(flags, description, parseArg, defaultValue2) {
-        return this._optionEx(
-          { mandatory: true },
-          flags,
-          description,
-          parseArg,
-          defaultValue2
-        );
-      }
-      /**
-       * Alter parsing of short flags with optional values.
-       *
-       * @example
-       * // for `.option('-f,--flag [value]'):
-       * program.combineFlagAndOptionalValue(true);  // `-f80` is treated like `--flag=80`, this is the default behaviour
-       * program.combineFlagAndOptionalValue(false) // `-fb` is treated like `-f -b`
-       *
-       * @param {boolean} [combine] - if `true` or omitted, an optional value can be specified directly after the flag.
-       * @return {Command} `this` command for chaining
-       */
-      combineFlagAndOptionalValue(combine = true) {
-        this._combineFlagAndOptionalValue = !!combine;
-        return this;
-      }
-      /**
-       * Allow unknown options on the command line.
-       *
-       * @param {boolean} [allowUnknown] - if `true` or omitted, no error will be thrown for unknown options.
-       * @return {Command} `this` command for chaining
-       */
-      allowUnknownOption(allowUnknown = true) {
-        this._allowUnknownOption = !!allowUnknown;
-        return this;
-      }
-      /**
-       * Allow excess command-arguments on the command line. Pass false to make excess arguments an error.
-       *
-       * @param {boolean} [allowExcess] - if `true` or omitted, no error will be thrown for excess arguments.
-       * @return {Command} `this` command for chaining
-       */
-      allowExcessArguments(allowExcess = true) {
-        this._allowExcessArguments = !!allowExcess;
-        return this;
-      }
-      /**
-       * Enable positional options. Positional means global options are specified before subcommands which lets
-       * subcommands reuse the same option names, and also enables subcommands to turn on passThroughOptions.
-       * The default behaviour is non-positional and global options may appear anywhere on the command line.
-       *
-       * @param {boolean} [positional]
-       * @return {Command} `this` command for chaining
-       */
-      enablePositionalOptions(positional = true) {
-        this._enablePositionalOptions = !!positional;
-        return this;
-      }
-      /**
-       * Pass through options that come after command-arguments rather than treat them as command-options,
-       * so actual command-options come before command-arguments. Turning this on for a subcommand requires
-       * positional options to have been enabled on the program (parent commands).
-       * The default behaviour is non-positional and options may appear before or after command-arguments.
-       *
-       * @param {boolean} [passThrough] for unknown options.
-       * @return {Command} `this` command for chaining
-       */
-      passThroughOptions(passThrough = true) {
-        this._passThroughOptions = !!passThrough;
-        this._checkForBrokenPassThrough();
-        return this;
-      }
-      /**
-       * @private
-       */
-      _checkForBrokenPassThrough() {
-        if (this.parent && this._passThroughOptions && !this.parent._enablePositionalOptions) {
-          throw new Error(
-            `passThroughOptions cannot be used for '${this._name}' without turning on enablePositionalOptions for parent command(s)`
-          );
-        }
-      }
-      /**
-       * Whether to store option values as properties on command object,
-       * or store separately (specify false). In both cases the option values can be accessed using .opts().
-       *
-       * @param {boolean} [storeAsProperties=true]
-       * @return {Command} `this` command for chaining
-       */
-      storeOptionsAsProperties(storeAsProperties = true) {
-        if (this.options.length) {
-          throw new Error("call .storeOptionsAsProperties() before adding options");
-        }
-        if (Object.keys(this._optionValues).length) {
-          throw new Error(
-            "call .storeOptionsAsProperties() before setting option values"
-          );
-        }
-        this._storeOptionsAsProperties = !!storeAsProperties;
-        return this;
-      }
-      /**
-       * Retrieve option value.
-       *
-       * @param {string} key
-       * @return {object} value
-       */
-      getOptionValue(key) {
-        if (this._storeOptionsAsProperties) {
-          return this[key];
-        }
-        return this._optionValues[key];
-      }
-      /**
-       * Store option value.
-       *
-       * @param {string} key
-       * @param {object} value
-       * @return {Command} `this` command for chaining
-       */
-      setOptionValue(key, value) {
-        return this.setOptionValueWithSource(key, value, void 0);
-      }
-      /**
-       * Store option value and where the value came from.
-       *
-       * @param {string} key
-       * @param {object} value
-       * @param {string} source - expected values are default/config/env/cli/implied
-       * @return {Command} `this` command for chaining
-       */
-      setOptionValueWithSource(key, value, source) {
-        if (this._storeOptionsAsProperties) {
-          this[key] = value;
-        } else {
-          this._optionValues[key] = value;
-        }
-        this._optionValueSources[key] = source;
-        return this;
-      }
-      /**
-       * Get source of option value.
-       * Expected values are default | config | env | cli | implied
-       *
-       * @param {string} key
-       * @return {string}
-       */
-      getOptionValueSource(key) {
-        return this._optionValueSources[key];
-      }
-      /**
-       * Get source of option value. See also .optsWithGlobals().
-       * Expected values are default | config | env | cli | implied
-       *
-       * @param {string} key
-       * @return {string}
-       */
-      getOptionValueSourceWithGlobals(key) {
-        let source;
-        this._getCommandAndAncestors().forEach((cmd) => {
-          if (cmd.getOptionValueSource(key) !== void 0) {
-            source = cmd.getOptionValueSource(key);
-          }
-        });
-        return source;
-      }
-      /**
-       * Get user arguments from implied or explicit arguments.
-       * Side-effects: set _scriptPath if args included script. Used for default program name, and subcommand searches.
-       *
-       * @private
-       */
-      _prepareUserArgs(argv, parseOptions) {
-        if (argv !== void 0 && !Array.isArray(argv)) {
-          throw new Error("first parameter to parse must be array or undefined");
-        }
-        parseOptions = parseOptions || {};
-        if (argv === void 0 && parseOptions.from === void 0) {
-          if (process21.versions?.electron) {
-            parseOptions.from = "electron";
-          }
-          const execArgv = process21.execArgv ?? [];
-          if (execArgv.includes("-e") || execArgv.includes("--eval") || execArgv.includes("-p") || execArgv.includes("--print")) {
-            parseOptions.from = "eval";
-          }
-        }
-        if (argv === void 0) {
-          argv = process21.argv;
-        }
-        this.rawArgs = argv.slice();
-        let userArgs;
-        switch (parseOptions.from) {
-          case void 0:
-          case "node":
-            this._scriptPath = argv[1];
-            userArgs = argv.slice(2);
-            break;
-          case "electron":
-            if (process21.defaultApp) {
-              this._scriptPath = argv[1];
-              userArgs = argv.slice(2);
-            } else {
-              userArgs = argv.slice(1);
-            }
-            break;
-          case "user":
-            userArgs = argv.slice(0);
-            break;
-          case "eval":
-            userArgs = argv.slice(1);
-            break;
-          default:
-            throw new Error(
-              `unexpected parse option { from: '${parseOptions.from}' }`
-            );
-        }
-        if (!this._name && this._scriptPath)
-          this.nameFromFilename(this._scriptPath);
-        this._name = this._name || "program";
-        return userArgs;
-      }
-      /**
-       * Parse `argv`, setting options and invoking commands when defined.
-       *
-       * Use parseAsync instead of parse if any of your action handlers are async.
-       *
-       * Call with no parameters to parse `process.argv`. Detects Electron and special node options like `node --eval`. Easy mode!
-       *
-       * Or call with an array of strings to parse, and optionally where the user arguments start by specifying where the arguments are `from`:
-       * - `'node'`: default, `argv[0]` is the application and `argv[1]` is the script being run, with user arguments after that
-       * - `'electron'`: `argv[0]` is the application and `argv[1]` varies depending on whether the electron application is packaged
-       * - `'user'`: just user arguments
-       *
-       * @example
-       * program.parse(); // parse process.argv and auto-detect electron and special node flags
-       * program.parse(process.argv); // assume argv[0] is app and argv[1] is script
-       * program.parse(my-args, { from: 'user' }); // just user supplied arguments, nothing special about argv[0]
-       *
-       * @param {string[]} [argv] - optional, defaults to process.argv
-       * @param {object} [parseOptions] - optionally specify style of options with from: node/user/electron
-       * @param {string} [parseOptions.from] - where the args are from: 'node', 'user', 'electron'
-       * @return {Command} `this` command for chaining
-       */
-      parse(argv, parseOptions) {
-        this._prepareForParse();
-        const userArgs = this._prepareUserArgs(argv, parseOptions);
-        this._parseCommand([], userArgs);
-        return this;
-      }
-      /**
-       * Parse `argv`, setting options and invoking commands when defined.
-       *
-       * Call with no parameters to parse `process.argv`. Detects Electron and special node options like `node --eval`. Easy mode!
-       *
-       * Or call with an array of strings to parse, and optionally where the user arguments start by specifying where the arguments are `from`:
-       * - `'node'`: default, `argv[0]` is the application and `argv[1]` is the script being run, with user arguments after that
-       * - `'electron'`: `argv[0]` is the application and `argv[1]` varies depending on whether the electron application is packaged
-       * - `'user'`: just user arguments
-       *
-       * @example
-       * await program.parseAsync(); // parse process.argv and auto-detect electron and special node flags
-       * await program.parseAsync(process.argv); // assume argv[0] is app and argv[1] is script
-       * await program.parseAsync(my-args, { from: 'user' }); // just user supplied arguments, nothing special about argv[0]
-       *
-       * @param {string[]} [argv]
-       * @param {object} [parseOptions]
-       * @param {string} parseOptions.from - where the args are from: 'node', 'user', 'electron'
-       * @return {Promise}
-       */
-      async parseAsync(argv, parseOptions) {
-        this._prepareForParse();
-        const userArgs = this._prepareUserArgs(argv, parseOptions);
-        await this._parseCommand([], userArgs);
-        return this;
-      }
-      _prepareForParse() {
-        if (this._savedState === null) {
-          this.saveStateBeforeParse();
-        } else {
-          this.restoreStateBeforeParse();
-        }
-      }
-      /**
-       * Called the first time parse is called to save state and allow a restore before subsequent calls to parse.
-       * Not usually called directly, but available for subclasses to save their custom state.
-       *
-       * This is called in a lazy way. Only commands used in parsing chain will have state saved.
-       */
-      saveStateBeforeParse() {
-        this._savedState = {
-          // name is stable if supplied by author, but may be unspecified for root command and deduced during parsing
-          _name: this._name,
-          // option values before parse have default values (including false for negated options)
-          // shallow clones
-          _optionValues: { ...this._optionValues },
-          _optionValueSources: { ...this._optionValueSources }
-        };
-      }
-      /**
-       * Restore state before parse for calls after the first.
-       * Not usually called directly, but available for subclasses to save their custom state.
-       *
-       * This is called in a lazy way. Only commands used in parsing chain will have state restored.
-       */
-      restoreStateBeforeParse() {
-        if (this._storeOptionsAsProperties)
-          throw new Error(`Can not call parse again when storeOptionsAsProperties is true.
-- either make a new Command for each call to parse, or stop storing options as properties`);
-        this._name = this._savedState._name;
-        this._scriptPath = null;
-        this.rawArgs = [];
-        this._optionValues = { ...this._savedState._optionValues };
-        this._optionValueSources = { ...this._savedState._optionValueSources };
-        this.args = [];
-        this.processedArgs = [];
-      }
-      /**
-       * Throw if expected executable is missing. Add lots of help for author.
-       *
-       * @param {string} executableFile
-       * @param {string} executableDir
-       * @param {string} subcommandName
-       */
-      _checkForMissingExecutable(executableFile, executableDir, subcommandName) {
-        if (fs3.existsSync(executableFile)) return;
-        const executableDirMessage = executableDir ? `searched for local subcommand relative to directory '${executableDir}'` : "no directory for search for local subcommand, use .executableDir() to supply a custom directory";
-        const executableMissing = `'${executableFile}' does not exist
- - if '${subcommandName}' is not meant to be an executable command, remove description parameter from '.command()' and use '.description()' instead
- - if the default executable name is not suitable, use the executableFile option to supply a custom name or path
- - ${executableDirMessage}`;
-        throw new Error(executableMissing);
-      }
-      /**
-       * Execute a sub-command executable.
-       *
-       * @private
-       */
-      _executeSubCommand(subcommand, args) {
-        args = args.slice();
-        let launchWithNode = false;
-        const sourceExt = [".js", ".ts", ".tsx", ".mjs", ".cjs"];
-        function findFile(baseDir, baseName) {
-          const localBin = path3.resolve(baseDir, baseName);
-          if (fs3.existsSync(localBin)) return localBin;
-          if (sourceExt.includes(path3.extname(baseName))) return void 0;
-          const foundExt = sourceExt.find(
-            (ext) => fs3.existsSync(`${localBin}${ext}`)
-          );
-          if (foundExt) return `${localBin}${foundExt}`;
-          return void 0;
-        }
-        this._checkForMissingMandatoryOptions();
-        this._checkForConflictingOptions();
-        let executableFile = subcommand._executableFile || `${this._name}-${subcommand._name}`;
-        let executableDir = this._executableDir || "";
-        if (this._scriptPath) {
-          let resolvedScriptPath;
-          try {
-            resolvedScriptPath = fs3.realpathSync(this._scriptPath);
-          } catch {
-            resolvedScriptPath = this._scriptPath;
-          }
-          executableDir = path3.resolve(
-            path3.dirname(resolvedScriptPath),
-            executableDir
-          );
-        }
-        if (executableDir) {
-          let localFile = findFile(executableDir, executableFile);
-          if (!localFile && !subcommand._executableFile && this._scriptPath) {
-            const legacyName = path3.basename(
-              this._scriptPath,
-              path3.extname(this._scriptPath)
-            );
-            if (legacyName !== this._name) {
-              localFile = findFile(
-                executableDir,
-                `${legacyName}-${subcommand._name}`
-              );
-            }
-          }
-          executableFile = localFile || executableFile;
-        }
-        launchWithNode = sourceExt.includes(path3.extname(executableFile));
-        let proc;
-        if (process21.platform !== "win32") {
-          if (launchWithNode) {
-            args.unshift(executableFile);
-            args = incrementNodeInspectorPort(process21.execArgv).concat(args);
-            proc = childProcess.spawn(process21.argv[0], args, { stdio: "inherit" });
-          } else {
-            proc = childProcess.spawn(executableFile, args, { stdio: "inherit" });
-          }
-        } else {
-          this._checkForMissingExecutable(
-            executableFile,
-            executableDir,
-            subcommand._name
-          );
-          args.unshift(executableFile);
-          args = incrementNodeInspectorPort(process21.execArgv).concat(args);
-          proc = childProcess.spawn(process21.execPath, args, { stdio: "inherit" });
-        }
-        if (!proc.killed) {
-          const signals2 = ["SIGUSR1", "SIGUSR2", "SIGTERM", "SIGINT", "SIGHUP"];
-          signals2.forEach((signal) => {
-            process21.on(signal, () => {
-              if (proc.killed === false && proc.exitCode === null) {
-                proc.kill(signal);
-              }
-            });
-          });
-        }
-        const exitCallback = this._exitCallback;
-        proc.on("close", (code) => {
-          code = code ?? 1;
-          if (!exitCallback) {
-            process21.exit(code);
-          } else {
-            exitCallback(
-              new CommanderError2(
-                code,
-                "commander.executeSubCommandAsync",
-                "(close)"
-              )
-            );
-          }
-        });
-        proc.on("error", (err) => {
-          if (err.code === "ENOENT") {
-            this._checkForMissingExecutable(
-              executableFile,
-              executableDir,
-              subcommand._name
-            );
-          } else if (err.code === "EACCES") {
-            throw new Error(`'${executableFile}' not executable`);
-          }
-          if (!exitCallback) {
-            process21.exit(1);
-          } else {
-            const wrappedError = new CommanderError2(
-              1,
-              "commander.executeSubCommandAsync",
-              "(error)"
-            );
-            wrappedError.nestedError = err;
-            exitCallback(wrappedError);
-          }
-        });
-        this.runningCommand = proc;
-      }
-      /**
-       * @private
-       */
-      _dispatchSubcommand(commandName, operands, unknown) {
-        const subCommand = this._findCommand(commandName);
-        if (!subCommand) this.help({ error: true });
-        subCommand._prepareForParse();
-        let promiseChain;
-        promiseChain = this._chainOrCallSubCommandHook(
-          promiseChain,
-          subCommand,
-          "preSubcommand"
-        );
-        promiseChain = this._chainOrCall(promiseChain, () => {
-          if (subCommand._executableHandler) {
-            this._executeSubCommand(subCommand, operands.concat(unknown));
-          } else {
-            return subCommand._parseCommand(operands, unknown);
-          }
-        });
-        return promiseChain;
-      }
-      /**
-       * Invoke help directly if possible, or dispatch if necessary.
-       * e.g. help foo
-       *
-       * @private
-       */
-      _dispatchHelpCommand(subcommandName) {
-        if (!subcommandName) {
-          this.help();
-        }
-        const subCommand = this._findCommand(subcommandName);
-        if (subCommand && !subCommand._executableHandler) {
-          subCommand.help();
-        }
-        return this._dispatchSubcommand(
-          subcommandName,
-          [],
-          [this._getHelpOption()?.long ?? this._getHelpOption()?.short ?? "--help"]
-        );
-      }
-      /**
-       * Check this.args against expected this.registeredArguments.
-       *
-       * @private
-       */
-      _checkNumberOfArguments() {
-        this.registeredArguments.forEach((arg, i) => {
-          if (arg.required && this.args[i] == null) {
-            this.missingArgument(arg.name());
-          }
-        });
-        if (this.registeredArguments.length > 0 && this.registeredArguments[this.registeredArguments.length - 1].variadic) {
-          return;
-        }
-        if (this.args.length > this.registeredArguments.length) {
-          this._excessArguments(this.args);
-        }
-      }
-      /**
-       * Process this.args using this.registeredArguments and save as this.processedArgs!
-       *
-       * @private
-       */
-      _processArguments() {
-        const myParseArg = (argument, value, previous) => {
-          let parsedValue = value;
-          if (value !== null && argument.parseArg) {
-            const invalidValueMessage = `error: command-argument value '${value}' is invalid for argument '${argument.name()}'.`;
-            parsedValue = this._callParseArg(
-              argument,
-              value,
-              previous,
-              invalidValueMessage
-            );
-          }
-          return parsedValue;
-        };
-        this._checkNumberOfArguments();
-        const processedArgs = [];
-        this.registeredArguments.forEach((declaredArg, index) => {
-          let value = declaredArg.defaultValue;
-          if (declaredArg.variadic) {
-            if (index < this.args.length) {
-              value = this.args.slice(index);
-              if (declaredArg.parseArg) {
-                value = value.reduce((processed, v) => {
-                  return myParseArg(declaredArg, v, processed);
-                }, declaredArg.defaultValue);
-              }
-            } else if (value === void 0) {
-              value = [];
-            }
-          } else if (index < this.args.length) {
-            value = this.args[index];
-            if (declaredArg.parseArg) {
-              value = myParseArg(declaredArg, value, declaredArg.defaultValue);
-            }
-          }
-          processedArgs[index] = value;
-        });
-        this.processedArgs = processedArgs;
-      }
-      /**
-       * Once we have a promise we chain, but call synchronously until then.
-       *
-       * @param {(Promise|undefined)} promise
-       * @param {Function} fn
-       * @return {(Promise|undefined)}
-       * @private
-       */
-      _chainOrCall(promise, fn) {
-        if (promise?.then && typeof promise.then === "function") {
-          return promise.then(() => fn());
-        }
-        return fn();
-      }
-      /**
-       *
-       * @param {(Promise|undefined)} promise
-       * @param {string} event
-       * @return {(Promise|undefined)}
-       * @private
-       */
-      _chainOrCallHooks(promise, event) {
-        let result = promise;
-        const hooks = [];
-        this._getCommandAndAncestors().reverse().filter((cmd) => cmd._lifeCycleHooks[event] !== void 0).forEach((hookedCommand) => {
-          hookedCommand._lifeCycleHooks[event].forEach((callback) => {
-            hooks.push({ hookedCommand, callback });
-          });
-        });
-        if (event === "postAction") {
-          hooks.reverse();
-        }
-        hooks.forEach((hookDetail) => {
-          result = this._chainOrCall(result, () => {
-            return hookDetail.callback(hookDetail.hookedCommand, this);
-          });
-        });
-        return result;
-      }
-      /**
-       *
-       * @param {(Promise|undefined)} promise
-       * @param {Command} subCommand
-       * @param {string} event
-       * @return {(Promise|undefined)}
-       * @private
-       */
-      _chainOrCallSubCommandHook(promise, subCommand, event) {
-        let result = promise;
-        if (this._lifeCycleHooks[event] !== void 0) {
-          this._lifeCycleHooks[event].forEach((hook) => {
-            result = this._chainOrCall(result, () => {
-              return hook(this, subCommand);
-            });
-          });
-        }
-        return result;
-      }
-      /**
-       * Process arguments in context of this command.
-       * Returns action result, in case it is a promise.
-       *
-       * @private
-       */
-      _parseCommand(operands, unknown) {
-        const parsed = this.parseOptions(unknown);
-        this._parseOptionsEnv();
-        this._parseOptionsImplied();
-        operands = operands.concat(parsed.operands);
-        unknown = parsed.unknown;
-        this.args = operands.concat(unknown);
-        if (operands && this._findCommand(operands[0])) {
-          return this._dispatchSubcommand(operands[0], operands.slice(1), unknown);
-        }
-        if (this._getHelpCommand() && operands[0] === this._getHelpCommand().name()) {
-          return this._dispatchHelpCommand(operands[1]);
-        }
-        if (this._defaultCommandName) {
-          this._outputHelpIfRequested(unknown);
-          return this._dispatchSubcommand(
-            this._defaultCommandName,
-            operands,
-            unknown
-          );
-        }
-        if (this.commands.length && this.args.length === 0 && !this._actionHandler && !this._defaultCommandName) {
-          this.help({ error: true });
-        }
-        this._outputHelpIfRequested(parsed.unknown);
-        this._checkForMissingMandatoryOptions();
-        this._checkForConflictingOptions();
-        const checkForUnknownOptions = () => {
-          if (parsed.unknown.length > 0) {
-            this.unknownOption(parsed.unknown[0]);
-          }
-        };
-        const commandEvent = `command:${this.name()}`;
-        if (this._actionHandler) {
-          checkForUnknownOptions();
-          this._processArguments();
-          let promiseChain;
-          promiseChain = this._chainOrCallHooks(promiseChain, "preAction");
-          promiseChain = this._chainOrCall(
-            promiseChain,
-            () => this._actionHandler(this.processedArgs)
-          );
-          if (this.parent) {
-            promiseChain = this._chainOrCall(promiseChain, () => {
-              this.parent.emit(commandEvent, operands, unknown);
-            });
-          }
-          promiseChain = this._chainOrCallHooks(promiseChain, "postAction");
-          return promiseChain;
-        }
-        if (this.parent?.listenerCount(commandEvent)) {
-          checkForUnknownOptions();
-          this._processArguments();
-          this.parent.emit(commandEvent, operands, unknown);
-        } else if (operands.length) {
-          if (this._findCommand("*")) {
-            return this._dispatchSubcommand("*", operands, unknown);
-          }
-          if (this.listenerCount("command:*")) {
-            this.emit("command:*", operands, unknown);
-          } else if (this.commands.length) {
-            this.unknownCommand();
-          } else {
-            checkForUnknownOptions();
-            this._processArguments();
-          }
-        } else if (this.commands.length) {
-          checkForUnknownOptions();
-          this.help({ error: true });
-        } else {
-          checkForUnknownOptions();
-          this._processArguments();
-        }
-      }
-      /**
-       * Find matching command.
-       *
-       * @private
-       * @return {Command | undefined}
-       */
-      _findCommand(name) {
-        if (!name) return void 0;
-        return this.commands.find(
-          (cmd) => cmd._name === name || cmd._aliases.includes(name)
-        );
-      }
-      /**
-       * Return an option matching `arg` if any.
-       *
-       * @param {string} arg
-       * @return {Option}
-       * @package
-       */
-      _findOption(arg) {
-        return this.options.find((option) => option.is(arg));
-      }
-      /**
-       * Display an error message if a mandatory option does not have a value.
-       * Called after checking for help flags in leaf subcommand.
-       *
-       * @private
-       */
-      _checkForMissingMandatoryOptions() {
-        this._getCommandAndAncestors().forEach((cmd) => {
-          cmd.options.forEach((anOption) => {
-            if (anOption.mandatory && cmd.getOptionValue(anOption.attributeName()) === void 0) {
-              cmd.missingMandatoryOptionValue(anOption);
-            }
-          });
-        });
-      }
-      /**
-       * Display an error message if conflicting options are used together in this.
-       *
-       * @private
-       */
-      _checkForConflictingLocalOptions() {
-        const definedNonDefaultOptions = this.options.filter((option) => {
-          const optionKey = option.attributeName();
-          if (this.getOptionValue(optionKey) === void 0) {
-            return false;
-          }
-          return this.getOptionValueSource(optionKey) !== "default";
-        });
-        const optionsWithConflicting = definedNonDefaultOptions.filter(
-          (option) => option.conflictsWith.length > 0
-        );
-        optionsWithConflicting.forEach((option) => {
-          const conflictingAndDefined = definedNonDefaultOptions.find(
-            (defined) => option.conflictsWith.includes(defined.attributeName())
-          );
-          if (conflictingAndDefined) {
-            this._conflictingOption(option, conflictingAndDefined);
-          }
-        });
-      }
-      /**
-       * Display an error message if conflicting options are used together.
-       * Called after checking for help flags in leaf subcommand.
-       *
-       * @private
-       */
-      _checkForConflictingOptions() {
-        this._getCommandAndAncestors().forEach((cmd) => {
-          cmd._checkForConflictingLocalOptions();
-        });
-      }
-      /**
-       * Parse options from `argv` removing known options,
-       * and return argv split into operands and unknown arguments.
-       *
-       * Side effects: modifies command by storing options. Does not reset state if called again.
-       *
-       * Examples:
-       *
-       *     argv => operands, unknown
-       *     --known kkk op => [op], []
-       *     op --known kkk => [op], []
-       *     sub --unknown uuu op => [sub], [--unknown uuu op]
-       *     sub -- --unknown uuu op => [sub --unknown uuu op], []
-       *
-       * @param {string[]} args
-       * @return {{operands: string[], unknown: string[]}}
-       */
-      parseOptions(args) {
-        const operands = [];
-        const unknown = [];
-        let dest = operands;
-        function maybeOption(arg) {
-          return arg.length > 1 && arg[0] === "-";
-        }
-        const negativeNumberArg = (arg) => {
-          if (!/^-(\d+|\d*\.\d+)(e[+-]?\d+)?$/.test(arg)) return false;
-          return !this._getCommandAndAncestors().some(
-            (cmd) => cmd.options.map((opt) => opt.short).some((short) => /^-\d$/.test(short))
-          );
-        };
-        let activeVariadicOption = null;
-        let activeGroup = null;
-        let i = 0;
-        while (i < args.length || activeGroup) {
-          const arg = activeGroup ?? args[i++];
-          activeGroup = null;
-          if (arg === "--") {
-            if (dest === unknown) dest.push(arg);
-            dest.push(...args.slice(i));
-            break;
-          }
-          if (activeVariadicOption && (!maybeOption(arg) || negativeNumberArg(arg))) {
-            this.emit(`option:${activeVariadicOption.name()}`, arg);
-            continue;
-          }
-          activeVariadicOption = null;
-          if (maybeOption(arg)) {
-            const option = this._findOption(arg);
-            if (option) {
-              if (option.required) {
-                const value = args[i++];
-                if (value === void 0) this.optionMissingArgument(option);
-                this.emit(`option:${option.name()}`, value);
-              } else if (option.optional) {
-                let value = null;
-                if (i < args.length && (!maybeOption(args[i]) || negativeNumberArg(args[i]))) {
-                  value = args[i++];
-                }
-                this.emit(`option:${option.name()}`, value);
-              } else {
-                this.emit(`option:${option.name()}`);
-              }
-              activeVariadicOption = option.variadic ? option : null;
-              continue;
-            }
-          }
-          if (arg.length > 2 && arg[0] === "-" && arg[1] !== "-") {
-            const option = this._findOption(`-${arg[1]}`);
-            if (option) {
-              if (option.required || option.optional && this._combineFlagAndOptionalValue) {
-                this.emit(`option:${option.name()}`, arg.slice(2));
-              } else {
-                this.emit(`option:${option.name()}`);
-                activeGroup = `-${arg.slice(2)}`;
-              }
-              continue;
-            }
-          }
-          if (/^--[^=]+=/.test(arg)) {
-            const index = arg.indexOf("=");
-            const option = this._findOption(arg.slice(0, index));
-            if (option && (option.required || option.optional)) {
-              this.emit(`option:${option.name()}`, arg.slice(index + 1));
-              continue;
-            }
-          }
-          if (dest === operands && maybeOption(arg) && !(this.commands.length === 0 && negativeNumberArg(arg))) {
-            dest = unknown;
-          }
-          if ((this._enablePositionalOptions || this._passThroughOptions) && operands.length === 0 && unknown.length === 0) {
-            if (this._findCommand(arg)) {
-              operands.push(arg);
-              unknown.push(...args.slice(i));
-              break;
-            } else if (this._getHelpCommand() && arg === this._getHelpCommand().name()) {
-              operands.push(arg, ...args.slice(i));
-              break;
-            } else if (this._defaultCommandName) {
-              unknown.push(arg, ...args.slice(i));
-              break;
-            }
-          }
-          if (this._passThroughOptions) {
-            dest.push(arg, ...args.slice(i));
-            break;
-          }
-          dest.push(arg);
-        }
-        return { operands, unknown };
-      }
-      /**
-       * Return an object containing local option values as key-value pairs.
-       *
-       * @return {object}
-       */
-      opts() {
-        if (this._storeOptionsAsProperties) {
-          const result = {};
-          const len = this.options.length;
-          for (let i = 0; i < len; i++) {
-            const key = this.options[i].attributeName();
-            result[key] = key === this._versionOptionName ? this._version : this[key];
-          }
-          return result;
-        }
-        return this._optionValues;
-      }
-      /**
-       * Return an object containing merged local and global option values as key-value pairs.
-       *
-       * @return {object}
-       */
-      optsWithGlobals() {
-        return this._getCommandAndAncestors().reduce(
-          (combinedOptions, cmd) => Object.assign(combinedOptions, cmd.opts()),
-          {}
-        );
-      }
-      /**
-       * Display error message and exit (or call exitOverride).
-       *
-       * @param {string} message
-       * @param {object} [errorOptions]
-       * @param {string} [errorOptions.code] - an id string representing the error
-       * @param {number} [errorOptions.exitCode] - used with process.exit
-       */
-      error(message, errorOptions) {
-        this._outputConfiguration.outputError(
-          `${message}
-`,
-          this._outputConfiguration.writeErr
-        );
-        if (typeof this._showHelpAfterError === "string") {
-          this._outputConfiguration.writeErr(`${this._showHelpAfterError}
-`);
-        } else if (this._showHelpAfterError) {
-          this._outputConfiguration.writeErr("\n");
-          this.outputHelp({ error: true });
-        }
-        const config = errorOptions || {};
-        const exitCode = config.exitCode || 1;
-        const code = config.code || "commander.error";
-        this._exit(exitCode, code, message);
-      }
-      /**
-       * Apply any option related environment variables, if option does
-       * not have a value from cli or client code.
-       *
-       * @private
-       */
-      _parseOptionsEnv() {
-        this.options.forEach((option) => {
-          if (option.envVar && option.envVar in process21.env) {
-            const optionKey = option.attributeName();
-            if (this.getOptionValue(optionKey) === void 0 || ["default", "config", "env"].includes(
-              this.getOptionValueSource(optionKey)
-            )) {
-              if (option.required || option.optional) {
-                this.emit(`optionEnv:${option.name()}`, process21.env[option.envVar]);
-              } else {
-                this.emit(`optionEnv:${option.name()}`);
-              }
-            }
-          }
-        });
-      }
-      /**
-       * Apply any implied option values, if option is undefined or default value.
-       *
-       * @private
-       */
-      _parseOptionsImplied() {
-        const dualHelper = new DualOptions(this.options);
-        const hasCustomOptionValue = (optionKey) => {
-          return this.getOptionValue(optionKey) !== void 0 && !["default", "implied"].includes(this.getOptionValueSource(optionKey));
-        };
-        this.options.filter(
-          (option) => option.implied !== void 0 && hasCustomOptionValue(option.attributeName()) && dualHelper.valueFromOption(
-            this.getOptionValue(option.attributeName()),
-            option
-          )
-        ).forEach((option) => {
-          Object.keys(option.implied).filter((impliedKey) => !hasCustomOptionValue(impliedKey)).forEach((impliedKey) => {
-            this.setOptionValueWithSource(
-              impliedKey,
-              option.implied[impliedKey],
-              "implied"
-            );
-          });
-        });
-      }
-      /**
-       * Argument `name` is missing.
-       *
-       * @param {string} name
-       * @private
-       */
-      missingArgument(name) {
-        const message = `error: missing required argument '${name}'`;
-        this.error(message, { code: "commander.missingArgument" });
-      }
-      /**
-       * `Option` is missing an argument.
-       *
-       * @param {Option} option
-       * @private
-       */
-      optionMissingArgument(option) {
-        const message = `error: option '${option.flags}' argument missing`;
-        this.error(message, { code: "commander.optionMissingArgument" });
-      }
-      /**
-       * `Option` does not have a value, and is a mandatory option.
-       *
-       * @param {Option} option
-       * @private
-       */
-      missingMandatoryOptionValue(option) {
-        const message = `error: required option '${option.flags}' not specified`;
-        this.error(message, { code: "commander.missingMandatoryOptionValue" });
-      }
-      /**
-       * `Option` conflicts with another option.
-       *
-       * @param {Option} option
-       * @param {Option} conflictingOption
-       * @private
-       */
-      _conflictingOption(option, conflictingOption) {
-        const findBestOptionFromValue = (option2) => {
-          const optionKey = option2.attributeName();
-          const optionValue = this.getOptionValue(optionKey);
-          const negativeOption = this.options.find(
-            (target) => target.negate && optionKey === target.attributeName()
-          );
-          const positiveOption = this.options.find(
-            (target) => !target.negate && optionKey === target.attributeName()
-          );
-          if (negativeOption && (negativeOption.presetArg === void 0 && optionValue === false || negativeOption.presetArg !== void 0 && optionValue === negativeOption.presetArg)) {
-            return negativeOption;
-          }
-          return positiveOption || option2;
-        };
-        const getErrorMessage = (option2) => {
-          const bestOption = findBestOptionFromValue(option2);
-          const optionKey = bestOption.attributeName();
-          const source = this.getOptionValueSource(optionKey);
-          if (source === "env") {
-            return `environment variable '${bestOption.envVar}'`;
-          }
-          return `option '${bestOption.flags}'`;
-        };
-        const message = `error: ${getErrorMessage(option)} cannot be used with ${getErrorMessage(conflictingOption)}`;
-        this.error(message, { code: "commander.conflictingOption" });
-      }
-      /**
-       * Unknown option `flag`.
-       *
-       * @param {string} flag
-       * @private
-       */
-      unknownOption(flag) {
-        if (this._allowUnknownOption) return;
-        let suggestion = "";
-        if (flag.startsWith("--") && this._showSuggestionAfterError) {
-          let candidateFlags = [];
-          let command = this;
-          do {
-            const moreFlags = command.createHelp().visibleOptions(command).filter((option) => option.long).map((option) => option.long);
-            candidateFlags = candidateFlags.concat(moreFlags);
-            command = command.parent;
-          } while (command && !command._enablePositionalOptions);
-          suggestion = suggestSimilar(flag, candidateFlags);
-        }
-        const message = `error: unknown option '${flag}'${suggestion}`;
-        this.error(message, { code: "commander.unknownOption" });
-      }
-      /**
-       * Excess arguments, more than expected.
-       *
-       * @param {string[]} receivedArgs
-       * @private
-       */
-      _excessArguments(receivedArgs) {
-        if (this._allowExcessArguments) return;
-        const expected = this.registeredArguments.length;
-        const s = expected === 1 ? "" : "s";
-        const forSubcommand = this.parent ? ` for '${this.name()}'` : "";
-        const message = `error: too many arguments${forSubcommand}. Expected ${expected} argument${s} but got ${receivedArgs.length}.`;
-        this.error(message, { code: "commander.excessArguments" });
-      }
-      /**
-       * Unknown command.
-       *
-       * @private
-       */
-      unknownCommand() {
-        const unknownName = this.args[0];
-        let suggestion = "";
-        if (this._showSuggestionAfterError) {
-          const candidateNames = [];
-          this.createHelp().visibleCommands(this).forEach((command) => {
-            candidateNames.push(command.name());
-            if (command.alias()) candidateNames.push(command.alias());
-          });
-          suggestion = suggestSimilar(unknownName, candidateNames);
-        }
-        const message = `error: unknown command '${unknownName}'${suggestion}`;
-        this.error(message, { code: "commander.unknownCommand" });
-      }
-      /**
-       * Get or set the program version.
-       *
-       * This method auto-registers the "-V, --version" option which will print the version number.
-       *
-       * You can optionally supply the flags and description to override the defaults.
-       *
-       * @param {string} [str]
-       * @param {string} [flags]
-       * @param {string} [description]
-       * @return {(this | string | undefined)} `this` command for chaining, or version string if no arguments
-       */
-      version(str, flags, description) {
-        if (str === void 0) return this._version;
-        this._version = str;
-        flags = flags || "-V, --version";
-        description = description || "output the version number";
-        const versionOption = this.createOption(flags, description);
-        this._versionOptionName = versionOption.attributeName();
-        this._registerOption(versionOption);
-        this.on("option:" + versionOption.name(), () => {
-          this._outputConfiguration.writeOut(`${str}
-`);
-          this._exit(0, "commander.version", str);
-        });
-        return this;
-      }
-      /**
-       * Set the description.
-       *
-       * @param {string} [str]
-       * @param {object} [argsDescription]
-       * @return {(string|Command)}
-       */
-      description(str, argsDescription) {
-        if (str === void 0 && argsDescription === void 0)
-          return this._description;
-        this._description = str;
-        if (argsDescription) {
-          this._argsDescription = argsDescription;
-        }
-        return this;
-      }
-      /**
-       * Set the summary. Used when listed as subcommand of parent.
-       *
-       * @param {string} [str]
-       * @return {(string|Command)}
-       */
-      summary(str) {
-        if (str === void 0) return this._summary;
-        this._summary = str;
-        return this;
-      }
-      /**
-       * Set an alias for the command.
-       *
-       * You may call more than once to add multiple aliases. Only the first alias is shown in the auto-generated help.
-       *
-       * @param {string} [alias]
-       * @return {(string|Command)}
-       */
-      alias(alias) {
-        if (alias === void 0) return this._aliases[0];
-        let command = this;
-        if (this.commands.length !== 0 && this.commands[this.commands.length - 1]._executableHandler) {
-          command = this.commands[this.commands.length - 1];
-        }
-        if (alias === command._name)
-          throw new Error("Command alias can't be the same as its name");
-        const matchingCommand = this.parent?._findCommand(alias);
-        if (matchingCommand) {
-          const existingCmd = [matchingCommand.name()].concat(matchingCommand.aliases()).join("|");
-          throw new Error(
-            `cannot add alias '${alias}' to command '${this.name()}' as already have command '${existingCmd}'`
-          );
-        }
-        command._aliases.push(alias);
-        return this;
-      }
-      /**
-       * Set aliases for the command.
-       *
-       * Only the first alias is shown in the auto-generated help.
-       *
-       * @param {string[]} [aliases]
-       * @return {(string[]|Command)}
-       */
-      aliases(aliases) {
-        if (aliases === void 0) return this._aliases;
-        aliases.forEach((alias) => this.alias(alias));
-        return this;
-      }
-      /**
-       * Set / get the command usage `str`.
-       *
-       * @param {string} [str]
-       * @return {(string|Command)}
-       */
-      usage(str) {
-        if (str === void 0) {
-          if (this._usage) return this._usage;
-          const args = this.registeredArguments.map((arg) => {
-            return humanReadableArgName(arg);
-          });
-          return [].concat(
-            this.options.length || this._helpOption !== null ? "[options]" : [],
-            this.commands.length ? "[command]" : [],
-            this.registeredArguments.length ? args : []
-          ).join(" ");
-        }
-        this._usage = str;
-        return this;
-      }
-      /**
-       * Get or set the name of the command.
-       *
-       * @param {string} [str]
-       * @return {(string|Command)}
-       */
-      name(str) {
-        if (str === void 0) return this._name;
-        this._name = str;
-        return this;
-      }
-      /**
-       * Set/get the help group heading for this subcommand in parent command's help.
-       *
-       * @param {string} [heading]
-       * @return {Command | string}
-       */
-      helpGroup(heading) {
-        if (heading === void 0) return this._helpGroupHeading ?? "";
-        this._helpGroupHeading = heading;
-        return this;
-      }
-      /**
-       * Set/get the default help group heading for subcommands added to this command.
-       * (This does not override a group set directly on the subcommand using .helpGroup().)
-       *
-       * @example
-       * program.commandsGroup('Development Commands:);
-       * program.command('watch')...
-       * program.command('lint')...
-       * ...
-       *
-       * @param {string} [heading]
-       * @returns {Command | string}
-       */
-      commandsGroup(heading) {
-        if (heading === void 0) return this._defaultCommandGroup ?? "";
-        this._defaultCommandGroup = heading;
-        return this;
-      }
-      /**
-       * Set/get the default help group heading for options added to this command.
-       * (This does not override a group set directly on the option using .helpGroup().)
-       *
-       * @example
-       * program
-       *   .optionsGroup('Development Options:')
-       *   .option('-d, --debug', 'output extra debugging')
-       *   .option('-p, --profile', 'output profiling information')
-       *
-       * @param {string} [heading]
-       * @returns {Command | string}
-       */
-      optionsGroup(heading) {
-        if (heading === void 0) return this._defaultOptionGroup ?? "";
-        this._defaultOptionGroup = heading;
-        return this;
-      }
-      /**
-       * @param {Option} option
-       * @private
-       */
-      _initOptionGroup(option) {
-        if (this._defaultOptionGroup && !option.helpGroupHeading)
-          option.helpGroup(this._defaultOptionGroup);
-      }
-      /**
-       * @param {Command} cmd
-       * @private
-       */
-      _initCommandGroup(cmd) {
-        if (this._defaultCommandGroup && !cmd.helpGroup())
-          cmd.helpGroup(this._defaultCommandGroup);
-      }
-      /**
-       * Set the name of the command from script filename, such as process.argv[1],
-       * or require.main.filename, or __filename.
-       *
-       * (Used internally and public although not documented in README.)
-       *
-       * @example
-       * program.nameFromFilename(require.main.filename);
-       *
-       * @param {string} filename
-       * @return {Command}
-       */
-      nameFromFilename(filename) {
-        this._name = path3.basename(filename, path3.extname(filename));
-        return this;
-      }
-      /**
-       * Get or set the directory for searching for executable subcommands of this command.
-       *
-       * @example
-       * program.executableDir(__dirname);
-       * // or
-       * program.executableDir('subcommands');
-       *
-       * @param {string} [path]
-       * @return {(string|null|Command)}
-       */
-      executableDir(path4) {
-        if (path4 === void 0) return this._executableDir;
-        this._executableDir = path4;
-        return this;
-      }
-      /**
-       * Return program help documentation.
-       *
-       * @param {{ error: boolean }} [contextOptions] - pass {error:true} to wrap for stderr instead of stdout
-       * @return {string}
-       */
-      helpInformation(contextOptions) {
-        const helper = this.createHelp();
-        const context = this._getOutputContext(contextOptions);
-        helper.prepareContext({
-          error: context.error,
-          helpWidth: context.helpWidth,
-          outputHasColors: context.hasColors
-        });
-        const text = helper.formatHelp(this, helper);
-        if (context.hasColors) return text;
-        return this._outputConfiguration.stripColor(text);
-      }
-      /**
-       * @typedef HelpContext
-       * @type {object}
-       * @property {boolean} error
-       * @property {number} helpWidth
-       * @property {boolean} hasColors
-       * @property {function} write - includes stripColor if needed
-       *
-       * @returns {HelpContext}
-       * @private
-       */
-      _getOutputContext(contextOptions) {
-        contextOptions = contextOptions || {};
-        const error3 = !!contextOptions.error;
-        let baseWrite;
-        let hasColors2;
-        let helpWidth;
-        if (error3) {
-          baseWrite = (str) => this._outputConfiguration.writeErr(str);
-          hasColors2 = this._outputConfiguration.getErrHasColors();
-          helpWidth = this._outputConfiguration.getErrHelpWidth();
-        } else {
-          baseWrite = (str) => this._outputConfiguration.writeOut(str);
-          hasColors2 = this._outputConfiguration.getOutHasColors();
-          helpWidth = this._outputConfiguration.getOutHelpWidth();
-        }
-        const write = (str) => {
-          if (!hasColors2) str = this._outputConfiguration.stripColor(str);
-          return baseWrite(str);
-        };
-        return { error: error3, write, hasColors: hasColors2, helpWidth };
-      }
-      /**
-       * Output help information for this command.
-       *
-       * Outputs built-in help, and custom text added using `.addHelpText()`.
-       *
-       * @param {{ error: boolean } | Function} [contextOptions] - pass {error:true} to write to stderr instead of stdout
-       */
-      outputHelp(contextOptions) {
-        let deprecatedCallback;
-        if (typeof contextOptions === "function") {
-          deprecatedCallback = contextOptions;
-          contextOptions = void 0;
-        }
-        const outputContext = this._getOutputContext(contextOptions);
-        const eventContext = {
-          error: outputContext.error,
-          write: outputContext.write,
-          command: this
-        };
-        this._getCommandAndAncestors().reverse().forEach((command) => command.emit("beforeAllHelp", eventContext));
-        this.emit("beforeHelp", eventContext);
-        let helpInformation = this.helpInformation({ error: outputContext.error });
-        if (deprecatedCallback) {
-          helpInformation = deprecatedCallback(helpInformation);
-          if (typeof helpInformation !== "string" && !Buffer.isBuffer(helpInformation)) {
-            throw new Error("outputHelp callback must return a string or a Buffer");
-          }
-        }
-        outputContext.write(helpInformation);
-        if (this._getHelpOption()?.long) {
-          this.emit(this._getHelpOption().long);
-        }
-        this.emit("afterHelp", eventContext);
-        this._getCommandAndAncestors().forEach(
-          (command) => command.emit("afterAllHelp", eventContext)
-        );
-      }
-      /**
-       * You can pass in flags and a description to customise the built-in help option.
-       * Pass in false to disable the built-in help option.
-       *
-       * @example
-       * program.helpOption('-?, --help' 'show help'); // customise
-       * program.helpOption(false); // disable
-       *
-       * @param {(string | boolean)} flags
-       * @param {string} [description]
-       * @return {Command} `this` command for chaining
-       */
-      helpOption(flags, description) {
-        if (typeof flags === "boolean") {
-          if (flags) {
-            if (this._helpOption === null) this._helpOption = void 0;
-            if (this._defaultOptionGroup) {
-              this._initOptionGroup(this._getHelpOption());
-            }
-          } else {
-            this._helpOption = null;
-          }
-          return this;
-        }
-        this._helpOption = this.createOption(
-          flags ?? "-h, --help",
-          description ?? "display help for command"
-        );
-        if (flags || description) this._initOptionGroup(this._helpOption);
-        return this;
-      }
-      /**
-       * Lazy create help option.
-       * Returns null if has been disabled with .helpOption(false).
-       *
-       * @returns {(Option | null)} the help option
-       * @package
-       */
-      _getHelpOption() {
-        if (this._helpOption === void 0) {
-          this.helpOption(void 0, void 0);
-        }
-        return this._helpOption;
-      }
-      /**
-       * Supply your own option to use for the built-in help option.
-       * This is an alternative to using helpOption() to customise the flags and description etc.
-       *
-       * @param {Option} option
-       * @return {Command} `this` command for chaining
-       */
-      addHelpOption(option) {
-        this._helpOption = option;
-        this._initOptionGroup(option);
-        return this;
-      }
-      /**
-       * Output help information and exit.
-       *
-       * Outputs built-in help, and custom text added using `.addHelpText()`.
-       *
-       * @param {{ error: boolean }} [contextOptions] - pass {error:true} to write to stderr instead of stdout
-       */
-      help(contextOptions) {
-        this.outputHelp(contextOptions);
-        let exitCode = Number(process21.exitCode ?? 0);
-        if (exitCode === 0 && contextOptions && typeof contextOptions !== "function" && contextOptions.error) {
-          exitCode = 1;
-        }
-        this._exit(exitCode, "commander.help", "(outputHelp)");
-      }
-      /**
-       * // Do a little typing to coordinate emit and listener for the help text events.
-       * @typedef HelpTextEventContext
-       * @type {object}
-       * @property {boolean} error
-       * @property {Command} command
-       * @property {function} write
-       */
-      /**
-       * Add additional text to be displayed with the built-in help.
-       *
-       * Position is 'before' or 'after' to affect just this command,
-       * and 'beforeAll' or 'afterAll' to affect this command and all its subcommands.
-       *
-       * @param {string} position - before or after built-in help
-       * @param {(string | Function)} text - string to add, or a function returning a string
-       * @return {Command} `this` command for chaining
-       */
-      addHelpText(position, text) {
-        const allowedValues = ["beforeAll", "before", "after", "afterAll"];
-        if (!allowedValues.includes(position)) {
-          throw new Error(`Unexpected value for position to addHelpText.
-Expecting one of '${allowedValues.join("', '")}'`);
-        }
-        const helpEvent = `${position}Help`;
-        this.on(helpEvent, (context) => {
-          let helpStr;
-          if (typeof text === "function") {
-            helpStr = text({ error: context.error, command: context.command });
-          } else {
-            helpStr = text;
-          }
-          if (helpStr) {
-            context.write(`${helpStr}
-`);
-          }
-        });
-        return this;
-      }
-      /**
-       * Output help information if help flags specified
-       *
-       * @param {Array} args - array of options to search for help flags
-       * @private
-       */
-      _outputHelpIfRequested(args) {
-        const helpOption = this._getHelpOption();
-        const helpRequested = helpOption && args.find((arg) => helpOption.is(arg));
-        if (helpRequested) {
-          this.outputHelp();
-          this._exit(0, "commander.helpDisplayed", "(outputHelp)");
-        }
-      }
-    };
-    function incrementNodeInspectorPort(args) {
-      return args.map((arg) => {
-        if (!arg.startsWith("--inspect")) {
-          return arg;
-        }
-        let debugOption;
-        let debugHost = "127.0.0.1";
-        let debugPort = "9229";
-        let match;
-        if ((match = arg.match(/^(--inspect(-brk)?)$/)) !== null) {
-          debugOption = match[1];
-        } else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+)$/)) !== null) {
-          debugOption = match[1];
-          if (/^\d+$/.test(match[3])) {
-            debugPort = match[3];
-          } else {
-            debugHost = match[3];
-          }
-        } else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+):(\d+)$/)) !== null) {
-          debugOption = match[1];
-          debugHost = match[3];
-          debugPort = match[4];
-        }
-        if (debugOption && debugPort !== "0") {
-          return `${debugOption}=${debugHost}:${parseInt(debugPort) + 1}`;
-        }
-        return arg;
-      });
-    }
-    function useColor() {
-      if (process21.env.NO_COLOR || process21.env.FORCE_COLOR === "0" || process21.env.FORCE_COLOR === "false")
-        return false;
-      if (process21.env.FORCE_COLOR || process21.env.CLICOLOR_FORCE !== void 0)
-        return true;
-      return void 0;
-    }
-    exports.Command = Command2;
-    exports.useColor = useColor;
-  }
-});
-
-// node_modules/commander/index.js
-var require_commander = __commonJS({
-  "node_modules/commander/index.js"(exports) {
-    "use strict";
-    var { Argument: Argument2 } = require_argument();
-    var { Command: Command2 } = require_command();
-    var { CommanderError: CommanderError2, InvalidArgumentError: InvalidArgumentError2 } = require_error();
-    var { Help: Help2 } = require_help();
-    var { Option: Option2 } = require_option();
-    exports.program = new Command2();
-    exports.createCommand = (name) => new Command2(name);
-    exports.createOption = (flags, description) => new Option2(flags, description);
-    exports.createArgument = (name, description) => new Argument2(name, description);
-    exports.Command = Command2;
-    exports.Option = Option2;
-    exports.Argument = Argument2;
-    exports.Help = Help2;
-    exports.CommanderError = CommanderError2;
-    exports.InvalidArgumentError = InvalidArgumentError2;
-    exports.InvalidOptionArgumentError = InvalidArgumentError2;
-  }
-});
-
 // node_modules/chalk/source/vendor/ansi-styles/index.js
 function assembleStyles() {
   const codes = /* @__PURE__ */ new Map();
@@ -4815,10 +1382,10 @@ var init_ansi_styles = __esm({
 });
 
 // node_modules/chalk/source/vendor/supports-color/index.js
-import process2 from "process";
+import process3 from "process";
 import os from "os";
 import tty from "tty";
-function hasFlag(flag, argv = globalThis.Deno ? globalThis.Deno.args : process2.argv) {
+function hasFlag(flag, argv = globalThis.Deno ? globalThis.Deno.args : process3.argv) {
   const prefix = flag.startsWith("-") ? "" : flag.length === 1 ? "-" : "--";
   const position = argv.indexOf(prefix + flag);
   const terminatorPosition = argv.indexOf("--");
@@ -4873,7 +1440,7 @@ function _supportsColor(haveStream, { streamIsTTY, sniffFlags = true } = {}) {
   if (env.TERM === "dumb") {
     return min;
   }
-  if (process2.platform === "win32") {
+  if (process3.platform === "win32") {
     const osRelease = os.release().split(".");
     if (Number(osRelease[0]) >= 10 && Number(osRelease[2]) >= 10586) {
       return Number(osRelease[2]) >= 14931 ? 3 : 2;
@@ -4937,7 +1504,7 @@ var env, flagForceColor, supportsColor, supports_color_default;
 var init_supports_color = __esm({
   "node_modules/chalk/source/vendor/supports-color/index.js"() {
     "use strict";
-    ({ env } = process2);
+    ({ env } = process3);
     if (hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never")) {
       flagForceColor = 0;
     } else if (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) {
@@ -5173,12 +1740,12 @@ var init_signals = __esm({
 });
 
 // node_modules/signal-exit/dist/mjs/index.js
-var processOk, kExitEmitter, global2, ObjectDefineProperty, Emitter, SignalExitBase, signalExitWrap, SignalExitFallback, SignalExit, process3, onExit, load, unload;
+var processOk, kExitEmitter, global2, ObjectDefineProperty, Emitter, SignalExitBase, signalExitWrap, SignalExitFallback, SignalExit, process4, onExit, load, unload;
 var init_mjs = __esm({
   "node_modules/signal-exit/dist/mjs/index.js"() {
     "use strict";
     init_signals();
-    processOk = (process21) => !!process21 && typeof process21 === "object" && typeof process21.removeListener === "function" && typeof process21.emit === "function" && typeof process21.reallyExit === "function" && typeof process21.listeners === "function" && typeof process21.kill === "function" && typeof process21.pid === "number" && typeof process21.on === "function";
+    processOk = (process22) => !!process22 && typeof process22 === "object" && typeof process22.removeListener === "function" && typeof process22.emit === "function" && typeof process22.reallyExit === "function" && typeof process22.listeners === "function" && typeof process22.kill === "function" && typeof process22.pid === "number" && typeof process22.on === "function";
     kExitEmitter = /* @__PURE__ */ Symbol.for("signal-exit emitter");
     global2 = globalThis;
     ObjectDefineProperty = Object.defineProperty.bind(Object);
@@ -5263,7 +1830,7 @@ var init_mjs = __esm({
       // "SIGHUP" throws an `ENOSYS` error on Windows,
       // so use a supported signal instead
       /* c8 ignore start */
-      #hupSig = process3.platform === "win32" ? "SIGINT" : "SIGHUP";
+      #hupSig = process4.platform === "win32" ? "SIGINT" : "SIGHUP";
       /* c8 ignore stop */
       #emitter = new Emitter();
       #process;
@@ -5271,15 +1838,15 @@ var init_mjs = __esm({
       #originalProcessReallyExit;
       #sigListeners = {};
       #loaded = false;
-      constructor(process21) {
+      constructor(process22) {
         super();
-        this.#process = process21;
+        this.#process = process22;
         this.#sigListeners = {};
         for (const sig of signals) {
           this.#sigListeners[sig] = () => {
             const listeners = this.#process.listeners(sig);
             let { count } = this.#emitter;
-            const p = process21;
+            const p = process22;
             if (typeof p.__signal_exit_emitter__ === "object" && typeof p.__signal_exit_emitter__.count === "number") {
               count += p.__signal_exit_emitter__.count;
             }
@@ -5288,12 +1855,12 @@ var init_mjs = __esm({
               const ret = this.#emitter.emit("exit", null, sig);
               const s = sig === "SIGHUP" ? this.#hupSig : sig;
               if (!ret)
-                process21.kill(process21.pid, s);
+                process22.kill(process22.pid, s);
             }
           };
         }
-        this.#originalProcessReallyExit = process21.reallyExit;
-        this.#originalProcessEmit = process21.emit;
+        this.#originalProcessReallyExit = process22.reallyExit;
+        this.#originalProcessEmit = process22.emit;
       }
       onExit(cb, opts) {
         if (!processOk(this.#process)) {
@@ -5374,7 +1941,7 @@ var init_mjs = __esm({
         }
       }
     };
-    process3 = globalThis.process;
+    process4 = globalThis.process;
     ({
       onExit: (
         /**
@@ -5408,7 +1975,7 @@ var init_mjs = __esm({
          */
         unload
       )
-    } = signalExitWrap(processOk(process3) ? new SignalExit(process3) : new SignalExitFallback()));
+    } = signalExitWrap(processOk(process4) ? new SignalExit(process4) : new SignalExitFallback()));
   }
 });
 
@@ -7339,21 +3906,32 @@ var init_installer = __esm({
 });
 
 // node_modules/@inquirer/core/dist/lib/key.js
-var isUpKey, isDownKey, isSpaceKey, isBackspaceKey, isTabKey, isNumberKey, isEnterKey;
+function isKeybinding(value) {
+  return keybindingLookup.has(value);
+}
+function getDefaultKeybindings() {
+  const env3 = process.env["INQUIRER_KEYBINDINGS"];
+  if (!env3)
+    return [];
+  return Array.from(new Set(env3.toLowerCase().split(/[\s,]+/).filter(isKeybinding)));
+}
+var keybindings, keybindingLookup, isUpKey, isDownKey, isSpaceKey, isBackspaceKey, isTabKey, isNumberKey, isEnterKey;
 var init_key = __esm({
   "node_modules/@inquirer/core/dist/lib/key.js"() {
     "use strict";
-    isUpKey = (key, keybindings = []) => (
+    keybindings = ["emacs", "vim"];
+    keybindingLookup = new Set(keybindings);
+    isUpKey = (key, keybindings2 = []) => (
       // The up key
       key.name === "up" || // Vim keybinding: hjkl keys map to left/down/up/right
-      keybindings.includes("vim") && key.name === "k" || // Emacs keybinding: Ctrl+P means "previous" in Emacs navigation conventions
-      keybindings.includes("emacs") && key.ctrl && key.name === "p"
+      keybindings2.includes("vim") && key.name === "k" || // Emacs keybinding: Ctrl+P means "previous" in Emacs navigation conventions
+      keybindings2.includes("emacs") && key.ctrl && key.name === "p"
     );
-    isDownKey = (key, keybindings = []) => (
+    isDownKey = (key, keybindings2 = []) => (
       // The down key
       key.name === "down" || // Vim keybinding: hjkl keys map to left/down/up/right
-      keybindings.includes("vim") && key.name === "j" || // Emacs keybinding: Ctrl+N means "next" in Emacs navigation conventions
-      keybindings.includes("emacs") && key.ctrl && key.name === "n"
+      keybindings2.includes("vim") && key.name === "j" || // Emacs keybinding: Ctrl+N means "next" in Emacs navigation conventions
+      keybindings2.includes("emacs") && key.ctrl && key.name === "n"
     );
     isSpaceKey = (key) => key.name === "space";
     isBackspaceKey = (key) => key.name === "backspace";
@@ -7552,16 +4130,16 @@ var init_use_effect = __esm({
 });
 
 // node_modules/@inquirer/figures/dist/index.js
-import process9 from "process";
+import process10 from "process";
 function isUnicodeSupported2() {
-  if (!process9.platform.startsWith("win")) {
-    return process9.env["TERM"] !== "linux";
+  if (!process10.platform.startsWith("win")) {
+    return process10.env["TERM"] !== "linux";
   }
-  return Boolean(process9.env["CI"]) || // CI environments generally support unicode
-  Boolean(process9.env["WT_SESSION"]) || // Windows Terminal
-  Boolean(process9.env["TERMINUS_SUBLIME"]) || // Terminus (<0.2.27)
-  process9.env["ConEmuTask"] === "{cmd::Cmder}" || // ConEmu and cmder
-  process9.env["TERM_PROGRAM"] === "Terminus-Sublime" || process9.env["TERM_PROGRAM"] === "vscode" || process9.env["TERM"] === "xterm-256color" || process9.env["TERM"] === "alacritty" || process9.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
+  return Boolean(process10.env["CI"]) || // CI environments generally support unicode
+  Boolean(process10.env["WT_SESSION"]) || // Windows Terminal
+  Boolean(process10.env["TERMINUS_SUBLIME"]) || // Terminus (<0.2.27)
+  process10.env["ConEmuTask"] === "{cmd::Cmder}" || // ConEmu and cmder
+  process10.env["TERM_PROGRAM"] === "Terminus-Sublime" || process10.env["TERM_PROGRAM"] === "vscode" || process10.env["TERM"] === "xterm-256color" || process10.env["TERM"] === "alacritty" || process10.env["TERMINAL_EMULATOR"] === "JetBrains-JediTerm";
 }
 var common, specialMainSymbols, specialFallbackSymbols, mainSymbols, fallbackSymbols, shouldUseMain, figures, dist_default, replacements;
 var init_dist2 = __esm({
@@ -7852,11 +4430,18 @@ var init_dist2 = __esm({
 
 // node_modules/@inquirer/core/dist/lib/theme.js
 import { styleText } from "util";
+function getDefaultTheme() {
+  return {
+    ...defaultTheme,
+    keybindings: getDefaultKeybindings()
+  };
+}
 var defaultTheme;
 var init_theme = __esm({
   "node_modules/@inquirer/core/dist/lib/theme.js"() {
     "use strict";
     init_dist2();
+    init_key();
     defaultTheme = {
       prefix: {
         idle: styleText("blue", "?"),
@@ -7866,6 +4451,7 @@ var init_theme = __esm({
         interval: 80,
         frames: ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"].map((frame) => styleText("yellow", frame))
       },
+      keybindings: [],
       style: {
         answer: (text) => styleText("cyan", text),
         message: (text) => styleText("bold", text),
@@ -7901,7 +4487,7 @@ function deepMerge2(...objects) {
 }
 function makeTheme(...themes) {
   const themesToMerge = [
-    defaultTheme,
+    getDefaultTheme(),
     ...themes.filter((theme2) => theme2 != null)
   ];
   return deepMerge2(...themesToMerge);
@@ -8417,7 +5003,7 @@ var init_main = __esm({
 
 // node_modules/@inquirer/core/dist/lib/utils.js
 function breakLines(content, width) {
-  return content.split("\n").flatMap((line) => wrapAnsi(line, width, { trim: false, hard: true }).split("\n").map((str) => str.trimEnd())).join("\n");
+  return content.split("\n").flatMap((line) => wrapAnsi(line, width, { trim: false, wordWrap: false }).split("\n").map((str) => str.trimEnd())).join("\n");
 }
 function readlineWidth() {
   return (0, import_cli_width.default)({ defaultWidth: 80, output: readline().output });
@@ -8674,7 +5260,7 @@ var init_dist5 = __esm({
 });
 
 // node_modules/@inquirer/core/dist/lib/screen-manager.js
-import { stripVTControlCharacters as stripVTControlCharacters2 } from "util";
+import { stripVTControlCharacters as stripVTControlCharacters4 } from "util";
 var height, lastLine, ScreenManager;
 var init_screen_manager = __esm({
   "node_modules/@inquirer/core/dist/lib/screen-manager.js"() {
@@ -8700,7 +5286,7 @@ var init_screen_manager = __esm({
       }
       render(content, bottomContent = "") {
         const promptLine = lastLine(content);
-        const rawPromptLine = stripVTControlCharacters2(promptLine);
+        const rawPromptLine = stripVTControlCharacters4(promptLine);
         let prompt = rawPromptLine;
         if (this.rl.line.length > 0) {
           prompt = prompt.slice(0, -this.rl.line.length);
@@ -8734,6 +5320,7 @@ var init_screen_manager = __esm({
         this.rl.setPrompt("");
         let output = cursorDown(this.extraLinesUnderPrompt);
         output += clearContent ? eraseLines(this.height) : "\n";
+        output += cursorLeft;
         output += cursorShow;
         this.write(output);
         this.rl.close();
@@ -8766,9 +5353,9 @@ var init_promise_polyfill = __esm({
 // node_modules/@inquirer/core/dist/lib/create-prompt.js
 import * as readline2 from "readline";
 import { AsyncResource as AsyncResource3 } from "async_hooks";
-import path from "path";
+import path2 from "path";
 function getCallSites() {
-  const _prepareStackTrace = Error.prepareStackTrace;
+  const savedPrepareStackTrace = Error.prepareStackTrace;
   let result = [];
   try {
     Error.prepareStackTrace = (_, callSites) => {
@@ -8780,7 +5367,7 @@ function getCallSites() {
   } catch {
     return result;
   }
-  Error.prepareStackTrace = _prepareStackTrace;
+  Error.prepareStackTrace = savedPrepareStackTrace;
   return result;
 }
 function createPrompt(view) {
@@ -8836,7 +5423,7 @@ function createPrompt(view) {
             if (nextView === void 0) {
               let callerFilename = callSites[1]?.getFileName();
               if (callerFilename && !callerFilename.startsWith("file://")) {
-                callerFilename = path.resolve(callerFilename);
+                callerFilename = path2.resolve(callerFilename);
               }
               throw new Error(`Prompt functions must return a string.
     at ${callerFilename}`);
@@ -9001,14 +5588,13 @@ var init_dist7 = __esm({
         description: (text) => styleText3("cyan", text),
         keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText3("bold", key)} ${styleText3("dim", action)}`).join(styleText3("dim", " \u2022 "))
       },
-      i18n: { disabledError: "This option is disabled and cannot be toggled." },
-      keybindings: []
+      i18n: { disabledError: "This option is disabled and cannot be toggled." }
     };
     dist_default4 = createPrompt((config, done) => {
       const { pageSize = 7, loop = true, required, validate: validate2 = () => true } = config;
       const shortcuts = { all: "a", invert: "i", ...config.shortcuts };
       const theme2 = makeTheme(checkboxTheme, config.theme);
-      const { keybindings } = theme2;
+      const { keybindings: keybindings2 } = theme2;
       const [status, setStatus] = useState("idle");
       const prefix = usePrefix({ status, theme: theme2 });
       const [items, setItems] = useState(normalizeChoices(config.choices));
@@ -9034,12 +5620,12 @@ var init_dist7 = __esm({
           } else {
             setError(isValid || "You must select a valid value");
           }
-        } else if (isUpKey(key, keybindings) || isDownKey(key, keybindings)) {
+        } else if (isUpKey(key, keybindings2) || isDownKey(key, keybindings2)) {
           if (errorMsg) {
             setError(void 0);
           }
-          if (loop || isUpKey(key, keybindings) && active !== bounds.first || isDownKey(key, keybindings) && active !== bounds.last) {
-            const offset = isUpKey(key, keybindings) ? -1 : 1;
+          if (loop || isUpKey(key, keybindings2) && active !== bounds.first || isDownKey(key, keybindings2) && active !== bounds.last) {
+            const offset = isUpKey(key, keybindings2) ? -1 : 1;
             let next = active;
             do {
               next = (next + offset + items.length) % items.length;
@@ -14709,10 +11295,10 @@ var require_lib2 = __commonJS({
     exports.analyse = analyse;
     var detectFile = (filepath, opts = {}) => new Promise((resolve5, reject) => {
       let fd;
-      const fs3 = (0, node_1.default)();
+      const fs4 = (0, node_1.default)();
       const handler = (err, buffer) => {
         if (fd) {
-          fs3.closeSync(fd);
+          fs4.closeSync(fd);
         }
         if (err) {
           reject(err);
@@ -14724,9 +11310,9 @@ var require_lib2 = __commonJS({
       };
       const sampleSize = (opts === null || opts === void 0 ? void 0 : opts.sampleSize) || 0;
       if (sampleSize > 0) {
-        fd = fs3.openSync(filepath, "r");
+        fd = fs4.openSync(filepath, "r");
         let sample = Buffer.allocUnsafe(sampleSize);
-        fs3.read(fd, sample, 0, sampleSize, opts.offset, (err, bytesRead) => {
+        fs4.read(fd, sample, 0, sampleSize, opts.offset, (err, bytesRead) => {
           if (err) {
             handler(err, null);
           } else {
@@ -14738,22 +11324,22 @@ var require_lib2 = __commonJS({
         });
         return;
       }
-      fs3.readFile(filepath, handler);
+      fs4.readFile(filepath, handler);
     });
     exports.detectFile = detectFile;
     var detectFileSync = (filepath, opts = {}) => {
-      const fs3 = (0, node_1.default)();
+      const fs4 = (0, node_1.default)();
       if (opts && opts.sampleSize) {
-        const fd = fs3.openSync(filepath, "r");
+        const fd = fs4.openSync(filepath, "r");
         let sample = Buffer.allocUnsafe(opts.sampleSize);
-        const bytesRead = fs3.readSync(fd, sample, 0, opts.sampleSize, opts.offset);
+        const bytesRead = fs4.readSync(fd, sample, 0, opts.sampleSize, opts.offset);
         if (bytesRead < opts.sampleSize) {
           sample = sample.subarray(0, bytesRead);
         }
-        fs3.closeSync(fd);
+        fs4.closeSync(fd);
         return (0, exports.detect)(sample);
       }
-      return (0, exports.detect)(fs3.readFileSync(filepath));
+      return (0, exports.detect)(fs4.readFileSync(filepath));
     };
     exports.detectFileSync = detectFileSync;
     exports.default = {
@@ -18620,8 +15206,8 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { readFileSync as readFileSync9, unlinkSync as unlinkSync4, writeFileSync as writeFileSync6 } from "fs";
-import path2 from "path";
+import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
+import path3 from "path";
 import os2 from "os";
 import { randomUUID as randomUUID3 } from "crypto";
 function sanitizeAffix(affix) {
@@ -18647,6 +15233,7 @@ var init_dist8 = __esm({
       lastExitStatus = 0;
       text = "";
       tempFile = "";
+      tempDir = "";
       fileOptions = {};
       constructor(text = "", fileOptions = {}) {
         this.text = text;
@@ -18657,7 +15244,13 @@ var init_dist8 = __esm({
         this.createTempFile();
         try {
           try {
-            const editorProcess = spawnSync(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
+            const editorProcess = spawnSync(this.editor.bin, this.editorArgs(), {
+              shell: false,
+              stdio: "inherit"
+            });
+            if (editorProcess.error) {
+              throw editorProcess.error;
+            }
             this.lastExitStatus = editorProcess.status ?? 0;
           } catch (launchError) {
             throw new LaunchEditorError(launchError);
@@ -18672,9 +15265,15 @@ var init_dist8 = __esm({
         this.createTempFile();
         const promise = new Promise((resolve5, reject) => {
           try {
-            const editorProcess = spawn3(this.editor.bin, this.editor.args.concat([this.tempFile]), { stdio: "inherit" });
-            editorProcess.on("exit", (code) => {
-              this.lastExitStatus = code;
+            const editorProcess = spawn3(this.editor.bin, this.editorArgs(), {
+              shell: false,
+              stdio: "inherit"
+            });
+            editorProcess.once("error", (launchError) => {
+              reject(new LaunchEditorError(launchError));
+            });
+            editorProcess.once("exit", (code) => {
+              this.lastExitStatus = code ?? 0;
               resolve5();
             });
           } catch (launchError) {
@@ -18692,28 +15291,25 @@ var init_dist8 = __esm({
         return promise;
       }
       cleanup() {
-        if (!this.tempFile)
+        if (!this.tempDir)
           return;
         try {
-          unlinkSync4(this.tempFile);
+          rmSync3(this.tempDir, { force: true, recursive: true });
           this.tempFile = "";
+          this.tempDir = "";
         } catch (removeFileError) {
           throw new RemoveFileError(removeFileError);
         }
       }
       createTempFile() {
         try {
-          const baseDir = this.fileOptions.dir ?? os2.tmpdir();
+          const baseDir = path3.resolve(this.fileOptions.dir ?? os2.tmpdir());
+          this.tempDir = mkdtempSync2(path3.join(baseDir, "inquirer-editor-"));
           const id = randomUUID3();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
           const filename = `${prefix}${id}${postfix}`;
-          const candidate = path2.resolve(baseDir, filename);
-          const baseResolved = path2.resolve(baseDir) + path2.sep;
-          if (!candidate.startsWith(baseResolved)) {
-            throw new Error("Resolved temporary file escaped the base directory");
-          }
-          this.tempFile = candidate;
+          this.tempFile = path3.join(this.tempDir, filename);
           const opt = { encoding: "utf8", flag: "wx" };
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
@@ -18722,6 +15318,9 @@ var init_dist8 = __esm({
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
+      }
+      editorArgs() {
+        return [...this.editor.args, this.tempFile];
       }
       readTemporaryFile() {
         try {
@@ -19218,6 +15817,7 @@ var init_dist14 = __esm({
       });
       const [errorMsg, setError] = useState();
       const theme2 = makeTheme(rawlistTheme, config.theme);
+      const { keybindings: keybindings2 } = theme2;
       const prefix = usePrefix({ status, theme: theme2 });
       const bounds = useMemo(() => {
         const first = choices.findIndex(isSelectableChoice);
@@ -19239,14 +15839,14 @@ var init_dist14 = __esm({
           } else {
             setError(`"${styleText5("red", value)}" isn't an available option`);
           }
-        } else if (isUpKey(key) || isDownKey(key)) {
+        } else if (isUpKey(key, keybindings2) || isDownKey(key, keybindings2)) {
           rl.clearLine(0);
           const [selectedChoice2, active] = getSelectedChoice(value, choices);
           if (!selectedChoice2) {
-            const firstChoice = isDownKey(key) ? choices.find(isSelectableChoice) : choices.findLast(isSelectableChoice);
+            const firstChoice = isDownKey(key, keybindings2) ? choices.find(isSelectableChoice) : choices.findLast(isSelectableChoice);
             setValue(firstChoice.key);
-          } else if (loop || isUpKey(key) && active !== bounds.first || isDownKey(key) && active !== bounds.last) {
-            const offset = isUpKey(key) ? -1 : 1;
+          } else if (loop || isUpKey(key, keybindings2) && active !== bounds.first || isDownKey(key, keybindings2) && active !== bounds.last) {
+            const offset = isUpKey(key, keybindings2) ? -1 : 1;
             let next = active;
             let nextChoice;
             do {
@@ -19581,17 +16181,16 @@ var init_dist17 = __esm({
         keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText7("bold", key)} ${styleText7("dim", action)}`).join(styleText7("dim", " \u2022 "))
       },
       i18n: { disabledError: "This option is disabled and cannot be selected." },
-      indexMode: "hidden",
-      keybindings: []
+      indexMode: "hidden"
     };
     dist_default13 = createPrompt((config, done) => {
       const { loop = true, pageSize = 7 } = config;
       const theme2 = makeTheme(selectTheme, config.theme);
-      const { keybindings } = theme2;
+      const { keybindings: keybindings2 } = theme2;
       const [status, setStatus] = useState("idle");
       const prefix = usePrefix({ status, theme: theme2 });
       const searchTimeoutRef = useRef();
-      const searchEnabled = !keybindings.includes("vim");
+      const searchEnabled = !keybindings2.includes("vim");
       const items = useMemo(() => normalizeChoices5(config.choices), [config.choices]);
       const bounds = useMemo(() => {
         const first = items.findIndex(isNavigable2);
@@ -19624,10 +16223,10 @@ var init_dist17 = __esm({
             setStatus("done");
             done(selectedChoice.value);
           }
-        } else if (isUpKey(key, keybindings) || isDownKey(key, keybindings)) {
+        } else if (isUpKey(key, keybindings2) || isDownKey(key, keybindings2)) {
           rl.clearLine(0);
-          if (loop || isUpKey(key, keybindings) && active !== bounds.first || isDownKey(key, keybindings) && active !== bounds.last) {
-            const offset = isUpKey(key, keybindings) ? -1 : 1;
+          if (loop || isUpKey(key, keybindings2) && active !== bounds.first || isDownKey(key, keybindings2) && active !== bounds.last) {
+            const offset = isUpKey(key, keybindings2) ? -1 : 1;
             let next = active;
             do {
               next = (next + offset + items.length) % items.length;
@@ -20363,7 +16962,7 @@ var require_react_production = __commonJS({
     exports.useTransition = function() {
       return ReactSharedInternals.H.useTransition();
     };
-    exports.version = "19.2.5";
+    exports.version = "19.2.7";
   }
 });
 
@@ -21333,7 +17932,7 @@ var require_react_development = __commonJS({
       exports.useTransition = function() {
         return resolveDispatcher().useTransition();
       };
-      exports.version = "19.2.5";
+      exports.version = "19.2.7";
       "undefined" !== typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ && "function" === typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStop && __REACT_DEVTOOLS_GLOBAL_HOOK__.registerInternalModuleStop(Error());
     })();
   }
@@ -21557,7 +18156,7 @@ __export(base_exports, {
   setCwd: () => setCwd,
   synchronizedOutput: () => synchronizedOutput
 });
-import process10 from "process";
+import process11 from "process";
 import os3 from "os";
 var ESC3, OSC, BEL, SEP, isTerminalApp, isWindows2, isTmux, cwdFunction, wrapOsc, cursorTo2, cursorMove, cursorUp2, cursorDown2, cursorForward, cursorBackward, cursorLeft2, cursorSavePosition, cursorRestorePosition, cursorGetPosition, cursorNextLine, cursorPrevLine, cursorHide2, cursorShow2, eraseLines2, eraseEndLine, eraseStartLine, eraseLine2, eraseDown, eraseUp, eraseScreen, scrollUp, scrollDown, clearScreen, clearViewport, isOldWindows, clearTerminal, enterAlternativeScreen, exitAlternativeScreen, beginSynchronizedOutput, endSynchronizedOutput, synchronizedOutput, beep, link, image, iTerm, ConEmu, setCwd;
 var init_base = __esm({
@@ -21568,12 +18167,12 @@ var init_base = __esm({
     OSC = "\x1B]";
     BEL = "\x07";
     SEP = ";";
-    isTerminalApp = !isBrowser && process10.env.TERM_PROGRAM === "Apple_Terminal";
-    isWindows2 = !isBrowser && process10.platform === "win32";
-    isTmux = !isBrowser && (process10.env.TERM?.startsWith("screen") || process10.env.TERM?.startsWith("tmux") || process10.env.TMUX !== void 0);
+    isTerminalApp = !isBrowser && process11.env.TERM_PROGRAM === "Apple_Terminal";
+    isWindows2 = !isBrowser && process11.platform === "win32";
+    isTmux = !isBrowser && (process11.env.TERM?.startsWith("screen") || process11.env.TERM?.startsWith("tmux") || process11.env.TMUX !== void 0);
     cwdFunction = isBrowser ? () => {
       throw new Error("`process.cwd()` only works in Node.js, not the browser.");
-    } : process10.cwd;
+    } : process11.cwd;
     wrapOsc = (sequence) => {
       if (isTmux) {
         return "\x1BPtmux;" + sequence.replaceAll("\x1B", "\x1B\x1B") + "\x1B\\";
@@ -21807,11 +18406,11 @@ var require_signals = __commonJS({
 var require_signal_exit = __commonJS({
   "node_modules/ink/node_modules/signal-exit/index.js"(exports, module) {
     "use strict";
-    var process21 = global.process;
-    var processOk2 = function(process22) {
-      return process22 && typeof process22 === "object" && typeof process22.removeListener === "function" && typeof process22.emit === "function" && typeof process22.reallyExit === "function" && typeof process22.listeners === "function" && typeof process22.kill === "function" && typeof process22.pid === "number" && typeof process22.on === "function";
+    var process22 = global.process;
+    var processOk2 = function(process23) {
+      return process23 && typeof process23 === "object" && typeof process23.removeListener === "function" && typeof process23.emit === "function" && typeof process23.reallyExit === "function" && typeof process23.listeners === "function" && typeof process23.kill === "function" && typeof process23.pid === "number" && typeof process23.on === "function";
     };
-    if (!processOk2(process21)) {
+    if (!processOk2(process22)) {
       module.exports = function() {
         return function() {
         };
@@ -21819,15 +18418,15 @@ var require_signal_exit = __commonJS({
     } else {
       assert = __require("assert");
       signals2 = require_signals();
-      isWin = /^win/i.test(process21.platform);
+      isWin = /^win/i.test(process22.platform);
       EE = __require("events");
       if (typeof EE !== "function") {
         EE = EE.EventEmitter;
       }
-      if (process21.__signal_exit_emitter__) {
-        emitter = process21.__signal_exit_emitter__;
+      if (process22.__signal_exit_emitter__) {
+        emitter = process22.__signal_exit_emitter__;
       } else {
-        emitter = process21.__signal_exit_emitter__ = new EE();
+        emitter = process22.__signal_exit_emitter__ = new EE();
         emitter.count = 0;
         emitter.emitted = {};
       }
@@ -21864,12 +18463,12 @@ var require_signal_exit = __commonJS({
         loaded = false;
         signals2.forEach(function(sig) {
           try {
-            process21.removeListener(sig, sigListeners[sig]);
+            process22.removeListener(sig, sigListeners[sig]);
           } catch (er) {
           }
         });
-        process21.emit = originalProcessEmit;
-        process21.reallyExit = originalProcessReallyExit;
+        process22.emit = originalProcessEmit;
+        process22.reallyExit = originalProcessReallyExit;
         emitter.count -= 1;
       };
       module.exports.unload = unload2;
@@ -21886,7 +18485,7 @@ var require_signal_exit = __commonJS({
           if (!processOk2(global.process)) {
             return;
           }
-          var listeners = process21.listeners(sig);
+          var listeners = process22.listeners(sig);
           if (listeners.length === emitter.count) {
             unload2();
             emit("exit", null, sig);
@@ -21894,7 +18493,7 @@ var require_signal_exit = __commonJS({
             if (isWin && sig === "SIGHUP") {
               sig = "SIGINT";
             }
-            process21.kill(process21.pid, sig);
+            process22.kill(process22.pid, sig);
           }
         };
       });
@@ -21910,36 +18509,36 @@ var require_signal_exit = __commonJS({
         emitter.count += 1;
         signals2 = signals2.filter(function(sig) {
           try {
-            process21.on(sig, sigListeners[sig]);
+            process22.on(sig, sigListeners[sig]);
             return true;
           } catch (er) {
             return false;
           }
         });
-        process21.emit = processEmit;
-        process21.reallyExit = processReallyExit;
+        process22.emit = processEmit;
+        process22.reallyExit = processReallyExit;
       };
       module.exports.load = load2;
-      originalProcessReallyExit = process21.reallyExit;
+      originalProcessReallyExit = process22.reallyExit;
       processReallyExit = function processReallyExit2(code) {
         if (!processOk2(global.process)) {
           return;
         }
-        process21.exitCode = code || /* istanbul ignore next */
+        process22.exitCode = code || /* istanbul ignore next */
         0;
-        emit("exit", process21.exitCode, null);
-        emit("afterexit", process21.exitCode, null);
-        originalProcessReallyExit.call(process21, process21.exitCode);
+        emit("exit", process22.exitCode, null);
+        emit("afterexit", process22.exitCode, null);
+        originalProcessReallyExit.call(process22, process22.exitCode);
       };
-      originalProcessEmit = process21.emit;
+      originalProcessEmit = process22.emit;
       processEmit = function processEmit2(ev, arg) {
         if (ev === "exit" && processOk2(global.process)) {
           if (arg !== void 0) {
-            process21.exitCode = arg;
+            process22.exitCode = arg;
           }
           var ret = originalProcessEmit.apply(this, arguments);
-          emit("exit", process21.exitCode, null);
-          emit("afterexit", process21.exitCode, null);
+          emit("exit", process22.exitCode, null);
+          emit("afterexit", process22.exitCode, null);
           return ret;
         } else {
           return originalProcessEmit.apply(this, arguments);
@@ -24163,12 +20762,12 @@ var init_wrap_ansi = __esm({
 });
 
 // node_modules/terminal-size/index.js
-import process11 from "process";
+import process12 from "process";
 import { execFileSync as execFileSync5 } from "child_process";
-import fs from "fs";
+import fs2 from "fs";
 import tty3 from "tty";
 function terminalSize() {
-  const { env: env3, stdout, stderr } = process11;
+  const { env: env3, stdout, stderr } = process12;
   if (stdout?.columns && stdout?.rows) {
     return create(stdout.columns, stdout.rows);
   }
@@ -24182,10 +20781,10 @@ function terminalSize() {
     columns: defaultColumns,
     rows: defaultRows
   };
-  if (process11.platform === "win32") {
+  if (process12.platform === "win32") {
     return tput() ?? fallback;
   }
-  if (process11.platform === "darwin") {
+  if (process12.platform === "darwin") {
     return devTty() ?? tput() ?? fallback;
   }
   return devTty() ?? tput() ?? resize() ?? fallback;
@@ -24218,11 +20817,11 @@ var init_terminal_size = __esm({
       return { columns, rows };
     };
     isForegroundProcess = () => {
-      if (process11.platform !== "linux") {
+      if (process12.platform !== "linux") {
         return true;
       }
       try {
-        const statContents = fs.readFileSync("/proc/self/stat", "utf8");
+        const statContents = fs2.readFileSync("/proc/self/stat", "utf8");
         const closingParenthesisIndex = statContents.lastIndexOf(") ");
         if (closingParenthesisIndex === -1) {
           return false;
@@ -24243,16 +20842,16 @@ var init_terminal_size = __esm({
     };
     devTty = () => {
       try {
-        const flags = process11.platform === "darwin" ? fs.constants.O_EVTONLY | fs.constants.O_NONBLOCK : fs.constants.O_NONBLOCK;
-        const { columns, rows } = tty3.WriteStream(fs.openSync("/dev/tty", flags));
+        const flags = process12.platform === "darwin" ? fs2.constants.O_EVTONLY | fs2.constants.O_NONBLOCK : fs2.constants.O_NONBLOCK;
+        const { columns, rows } = tty3.WriteStream(fs2.openSync("/dev/tty", flags));
         return { columns, rows };
       } catch {
       }
     };
     tput = () => {
       try {
-        const columns = exec3("tput", ["cols"], { env: { TERM: "dumb", ...process11.env } });
-        const rows = exec3("tput", ["lines"], { env: { TERM: "dumb", ...process11.env } });
+        const columns = exec3("tput", ["cols"], { env: { TERM: "dumb", ...process12.env } });
+        const rows = exec3("tput", ["lines"], { env: { TERM: "dumb", ...process12.env } });
         if (columns && rows) {
           return createIfNotDefault(columns, rows);
         }
@@ -33027,10 +29626,10 @@ var require_react_reconciler_development = __commonJS({
           fiber = fiber.next, id--;
         return fiber;
       }
-      function copyWithSetImpl(obj, path3, index, value) {
-        if (index >= path3.length) return value;
-        var key = path3[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
-        updated[key] = copyWithSetImpl(obj[key], path3, index + 1, value);
+      function copyWithSetImpl(obj, path4, index, value) {
+        if (index >= path4.length) return value;
+        var key = path4[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
+        updated[key] = copyWithSetImpl(obj[key], path4, index + 1, value);
         return updated;
       }
       function copyWithRename(obj, oldPath, newPath) {
@@ -33057,11 +29656,11 @@ var require_react_reconciler_development = __commonJS({
         );
         return updated;
       }
-      function copyWithDeleteImpl(obj, path3, index) {
-        var key = path3[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
-        if (index + 1 === path3.length)
+      function copyWithDeleteImpl(obj, path4, index) {
+        var key = path4[index], updated = isArrayImpl(obj) ? obj.slice() : assign({}, obj);
+        if (index + 1 === path4.length)
           return isArrayImpl(updated) ? updated.splice(key, 1) : delete updated[key], updated;
-        updated[key] = copyWithDeleteImpl(obj[key], path3, index + 1);
+        updated[key] = copyWithDeleteImpl(obj[key], path4, index + 1);
         return updated;
       }
       function shouldSuspendImpl() {
@@ -46338,29 +42937,29 @@ var require_react_reconciler_development = __commonJS({
       var didWarnAboutNestedUpdates = false;
       var didWarnAboutFindNodeInStrictMode = {};
       var overrideHookState = null, overrideHookStateDeletePath = null, overrideHookStateRenamePath = null, overrideProps = null, overridePropsDeletePath = null, overridePropsRenamePath = null, scheduleUpdate = null, scheduleRetry = null, setErrorHandler = null, setSuspenseHandler = null;
-      overrideHookState = function(fiber, id, path3, value) {
+      overrideHookState = function(fiber, id, path4, value) {
         id = findHook(fiber, id);
-        null !== id && (path3 = copyWithSetImpl(id.memoizedState, path3, 0, value), id.memoizedState = path3, id.baseState = path3, fiber.memoizedProps = assign({}, fiber.memoizedProps), path3 = enqueueConcurrentRenderForLane(fiber, 2), null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2));
+        null !== id && (path4 = copyWithSetImpl(id.memoizedState, path4, 0, value), id.memoizedState = path4, id.baseState = path4, fiber.memoizedProps = assign({}, fiber.memoizedProps), path4 = enqueueConcurrentRenderForLane(fiber, 2), null !== path4 && scheduleUpdateOnFiber(path4, fiber, 2));
       };
-      overrideHookStateDeletePath = function(fiber, id, path3) {
+      overrideHookStateDeletePath = function(fiber, id, path4) {
         id = findHook(fiber, id);
-        null !== id && (path3 = copyWithDeleteImpl(id.memoizedState, path3, 0), id.memoizedState = path3, id.baseState = path3, fiber.memoizedProps = assign({}, fiber.memoizedProps), path3 = enqueueConcurrentRenderForLane(fiber, 2), null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2));
+        null !== id && (path4 = copyWithDeleteImpl(id.memoizedState, path4, 0), id.memoizedState = path4, id.baseState = path4, fiber.memoizedProps = assign({}, fiber.memoizedProps), path4 = enqueueConcurrentRenderForLane(fiber, 2), null !== path4 && scheduleUpdateOnFiber(path4, fiber, 2));
       };
       overrideHookStateRenamePath = function(fiber, id, oldPath, newPath) {
         id = findHook(fiber, id);
         null !== id && (oldPath = copyWithRename(id.memoizedState, oldPath, newPath), id.memoizedState = oldPath, id.baseState = oldPath, fiber.memoizedProps = assign({}, fiber.memoizedProps), oldPath = enqueueConcurrentRenderForLane(fiber, 2), null !== oldPath && scheduleUpdateOnFiber(oldPath, fiber, 2));
       };
-      overrideProps = function(fiber, path3, value) {
-        fiber.pendingProps = copyWithSetImpl(fiber.memoizedProps, path3, 0, value);
+      overrideProps = function(fiber, path4, value) {
+        fiber.pendingProps = copyWithSetImpl(fiber.memoizedProps, path4, 0, value);
         fiber.alternate && (fiber.alternate.pendingProps = fiber.pendingProps);
-        path3 = enqueueConcurrentRenderForLane(fiber, 2);
-        null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2);
+        path4 = enqueueConcurrentRenderForLane(fiber, 2);
+        null !== path4 && scheduleUpdateOnFiber(path4, fiber, 2);
       };
-      overridePropsDeletePath = function(fiber, path3) {
-        fiber.pendingProps = copyWithDeleteImpl(fiber.memoizedProps, path3, 0);
+      overridePropsDeletePath = function(fiber, path4) {
+        fiber.pendingProps = copyWithDeleteImpl(fiber.memoizedProps, path4, 0);
         fiber.alternate && (fiber.alternate.pendingProps = fiber.pendingProps);
-        path3 = enqueueConcurrentRenderForLane(fiber, 2);
-        null !== path3 && scheduleUpdateOnFiber(path3, fiber, 2);
+        path4 = enqueueConcurrentRenderForLane(fiber, 2);
+        null !== path4 && scheduleUpdateOnFiber(path4, fiber, 2);
       };
       overridePropsRenamePath = function(fiber, oldPath, newPath) {
         fiber.pendingProps = copyWithRename(
@@ -50886,7 +47485,7 @@ var require_extension = __commonJS({
 var require_websocket = __commonJS({
   "node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
-    var EventEmitter3 = __require("events");
+    var EventEmitter4 = __require("events");
     var https = __require("https");
     var http = __require("http");
     var net = __require("net");
@@ -50918,7 +47517,7 @@ var require_websocket = __commonJS({
     var protocolVersions = [8, 13];
     var readyStates = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
     var subprotocolRegex = /^[!#$%&'*+\-.0-9A-Z^_`|a-z~]+$/;
-    var WebSocket2 = class _WebSocket extends EventEmitter3 {
+    var WebSocket2 = class _WebSocket extends EventEmitter4 {
       /**
        * Create a new `WebSocket`.
        *
@@ -51915,7 +48514,7 @@ var require_subprotocol = __commonJS({
 var require_websocket_server = __commonJS({
   "node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
-    var EventEmitter3 = __require("events");
+    var EventEmitter4 = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
     var { createHash } = __require("crypto");
@@ -51928,7 +48527,7 @@ var require_websocket_server = __commonJS({
     var RUNNING = 0;
     var CLOSING = 1;
     var CLOSED = 2;
-    var WebSocketServer2 = class extends EventEmitter3 {
+    var WebSocketServer2 = class extends EventEmitter4 {
       /**
        * Create a `WebSocketServer` instance.
        *
@@ -53108,7 +49707,7 @@ var require_backend = __commonJS({
               /***/
               ((__unused_webpack_module, exports2, __webpack_require__2) => {
                 "use strict";
-                var process21 = __webpack_require__2(169);
+                var process22 = __webpack_require__2(169);
                 function _typeof(o) {
                   "@babel/helpers - typeof";
                   return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
@@ -53289,8 +49888,8 @@ var require_backend = __commonJS({
                       error: error3
                     });
                     if (!window.dispatchEvent(event)) return;
-                  } else if ("object" === (typeof process21 === "undefined" ? "undefined" : _typeof(process21)) && "function" === typeof process21.emit) {
-                    process21.emit("uncaughtException", error3);
+                  } else if ("object" === (typeof process22 === "undefined" ? "undefined" : _typeof(process22)) && "function" === typeof process22.emit) {
+                    process22.emit("uncaughtException", error3);
                     return;
                   }
                   console.error(error3);
@@ -54062,7 +50661,7 @@ var require_backend = __commonJS({
             169: (
               /***/
               ((module2) => {
-                var process21 = module2.exports = {};
+                var process22 = module2.exports = {};
                 var cachedSetTimeout;
                 var cachedClearTimeout;
                 function defaultSetTimout() {
@@ -54167,7 +50766,7 @@ var require_backend = __commonJS({
                   draining = false;
                   runClearTimeout(timeout);
                 }
-                process21.nextTick = function(fun) {
+                process22.nextTick = function(fun) {
                   var args = new Array(arguments.length - 1);
                   if (arguments.length > 1) {
                     for (var i = 1; i < arguments.length; i++) {
@@ -54186,36 +50785,36 @@ var require_backend = __commonJS({
                 Item.prototype.run = function() {
                   this.fun.apply(null, this.array);
                 };
-                process21.title = "browser";
-                process21.browser = true;
-                process21.env = {};
-                process21.argv = [];
-                process21.version = "";
-                process21.versions = {};
+                process22.title = "browser";
+                process22.browser = true;
+                process22.env = {};
+                process22.argv = [];
+                process22.version = "";
+                process22.versions = {};
                 function noop2() {
                 }
-                process21.on = noop2;
-                process21.addListener = noop2;
-                process21.once = noop2;
-                process21.off = noop2;
-                process21.removeListener = noop2;
-                process21.removeAllListeners = noop2;
-                process21.emit = noop2;
-                process21.prependListener = noop2;
-                process21.prependOnceListener = noop2;
-                process21.listeners = function(name) {
+                process22.on = noop2;
+                process22.addListener = noop2;
+                process22.once = noop2;
+                process22.off = noop2;
+                process22.removeListener = noop2;
+                process22.removeAllListeners = noop2;
+                process22.emit = noop2;
+                process22.prependListener = noop2;
+                process22.prependOnceListener = noop2;
+                process22.listeners = function(name) {
                   return [];
                 };
-                process21.binding = function(name) {
+                process22.binding = function(name) {
                   throw new Error("process.binding is not supported");
                 };
-                process21.cwd = function() {
+                process22.cwd = function() {
                   return "/";
                 };
-                process21.chdir = function(dir) {
+                process22.chdir = function(dir) {
                   throw new Error("process.chdir is not supported");
                 };
-                process21.umask = function() {
+                process22.umask = function() {
                   return 0;
                 };
               })
@@ -55125,12 +51724,12 @@ var require_backend = __commonJS({
               }
               return ("string" === r ? String : Number)(t);
             }
-            var EventEmitter3 = /* @__PURE__ */ (function() {
-              function EventEmitter4() {
-                _classCallCheck(this, EventEmitter4);
+            var EventEmitter4 = /* @__PURE__ */ (function() {
+              function EventEmitter5() {
+                _classCallCheck(this, EventEmitter5);
                 _defineProperty(this, "listenersMap", /* @__PURE__ */ new Map());
               }
-              return _createClass(EventEmitter4, [{
+              return _createClass(EventEmitter5, [{
                 key: "addListener",
                 value: function addListener(event, listener) {
                   var listeners = this.listenersMap.get(event);
@@ -55560,7 +52159,7 @@ var require_backend = __commonJS({
             var isArray = Array.isArray;
             const src_isArray = isArray;
             ;
-            var process21 = __webpack_require__(169);
+            var process22 = __webpack_require__(169);
             function ownKeys(e, r) {
               var t = Object.keys(e);
               if (Object.getOwnPropertySymbols) {
@@ -55928,10 +52527,10 @@ var require_backend = __commonJS({
             }
             var vscodeFilepath = "vscode://file/{path}:{line}:{column}";
             function getDefaultPreset() {
-              return typeof process21.env.EDITOR_URL === "string" ? "custom" : "vscode";
+              return typeof process22.env.EDITOR_URL === "string" ? "custom" : "vscode";
             }
             function getDefaultOpenInEditorURL() {
-              return typeof process21.env.EDITOR_URL === "string" ? process21.env.EDITOR_URL : vscodeFilepath;
+              return typeof process22.env.EDITOR_URL === "string" ? process22.env.EDITOR_URL : vscodeFilepath;
             }
             function getOpenInEditorURL() {
               try {
@@ -56010,8 +52609,8 @@ var require_backend = __commonJS({
               }
               return false;
             }
-            function utils_getInObject(object, path3) {
-              return path3.reduce(function(reduced, attr) {
+            function utils_getInObject(object, path4) {
+              return path4.reduce(function(reduced, attr) {
                 if (reduced) {
                   if (utils_hasOwnProperty.call(reduced, attr)) {
                     return reduced[attr];
@@ -56023,11 +52622,11 @@ var require_backend = __commonJS({
                 return null;
               }, object);
             }
-            function deletePathInObject(object, path3) {
-              var length = path3.length;
-              var last = path3[length - 1];
+            function deletePathInObject(object, path4) {
+              var length = path4.length;
+              var last = path4[length - 1];
               if (object != null) {
-                var parent = utils_getInObject(object, path3.slice(0, length - 1));
+                var parent = utils_getInObject(object, path4.slice(0, length - 1));
                 if (parent) {
                   if (src_isArray(parent)) {
                     parent.splice(last, 1);
@@ -56053,11 +52652,11 @@ var require_backend = __commonJS({
                 }
               }
             }
-            function utils_setInObject(object, path3, value) {
-              var length = path3.length;
-              var last = path3[length - 1];
+            function utils_setInObject(object, path4, value) {
+              var length = path4.length;
+              var last = path4[length - 1];
               if (object != null) {
-                var parent = utils_getInObject(object, path3.slice(0, length - 1));
+                var parent = utils_getInObject(object, path4.slice(0, length - 1));
                 if (parent) {
                   parent[last] = value;
                 }
@@ -56590,8 +53189,8 @@ var require_backend = __commonJS({
               unserializable: /* @__PURE__ */ Symbol("unserializable")
             };
             var LEVEL_THRESHOLD = 2;
-            function createDehydrated(type, inspectable, data, cleaned, path3) {
-              cleaned.push(path3);
+            function createDehydrated(type, inspectable, data, cleaned, path4) {
+              cleaned.push(path4);
               var dehydrated = {
                 inspectable,
                 type,
@@ -56609,13 +53208,13 @@ var require_backend = __commonJS({
               }
               return dehydrated;
             }
-            function dehydrate(data, cleaned, unserializable, path3, isPathAllowed) {
+            function dehydrate(data, cleaned, unserializable, path4, isPathAllowed) {
               var level = arguments.length > 5 && arguments[5] !== void 0 ? arguments[5] : 0;
               var type = getDataType(data);
               var isPathAllowedCheck;
               switch (type) {
                 case "html_element":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56624,7 +53223,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "function":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56633,14 +53232,14 @@ var require_backend = __commonJS({
                     type
                   };
                 case "string":
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (isPathAllowedCheck) {
                     return data;
                   } else {
                     return data.length <= 500 ? data : data.slice(0, 500) + "...";
                   }
                 case "bigint":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56649,7 +53248,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "symbol":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56658,9 +53257,9 @@ var require_backend = __commonJS({
                     type
                   };
                 case "react_element": {
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path3);
+                    cleaned.push(path4);
                     return {
                       inspectable: true,
                       preview_short: formatDataForPreview(data, false),
@@ -56677,19 +53276,19 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: getDisplayNameForReactElement(data) || "Unknown"
                   };
-                  unserializableValue.key = dehydrate(data.key, cleaned, unserializable, path3.concat(["key"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializableValue.key = dehydrate(data.key, cleaned, unserializable, path4.concat(["key"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   if (data.$$typeof === REACT_LEGACY_ELEMENT_TYPE) {
-                    unserializableValue.ref = dehydrate(data.ref, cleaned, unserializable, path3.concat(["ref"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    unserializableValue.ref = dehydrate(data.ref, cleaned, unserializable, path4.concat(["ref"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
-                  unserializableValue.props = dehydrate(data.props, cleaned, unserializable, path3.concat(["props"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  unserializable.push(path3);
+                  unserializableValue.props = dehydrate(data.props, cleaned, unserializable, path4.concat(["props"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializable.push(path4);
                   return unserializableValue;
                 }
                 case "react_lazy": {
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   var payload = data._payload;
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path3);
+                    cleaned.push(path4);
                     var inspectable = payload !== null && hydration_typeof(payload) === "object" && (payload._status === 1 || payload._status === 2 || payload.status === "fulfilled" || payload.status === "rejected");
                     return {
                       inspectable,
@@ -56706,13 +53305,13 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: "lazy()"
                   };
-                  _unserializableValue._payload = dehydrate(payload, cleaned, unserializable, path3.concat(["_payload"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  unserializable.push(path3);
+                  _unserializableValue._payload = dehydrate(payload, cleaned, unserializable, path4.concat(["_payload"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  unserializable.push(path4);
                   return _unserializableValue;
                 }
                 case "array_buffer":
                 case "data_view":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56722,21 +53321,21 @@ var require_backend = __commonJS({
                     type
                   };
                 case "array":
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path3);
+                    return createDehydrated(type, true, data, cleaned, path4);
                   }
                   var arr = [];
                   for (var i = 0; i < data.length; i++) {
-                    arr[i] = dehydrateKey(data, i, cleaned, unserializable, path3.concat([i]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    arr[i] = dehydrateKey(data, i, cleaned, unserializable, path4.concat([i]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
                   return arr;
                 case "html_all_collection":
                 case "typed_array":
                 case "iterator":
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path3);
+                    return createDehydrated(type, true, data, cleaned, path4);
                   } else {
                     var _unserializableValue2 = {
                       unserializable: true,
@@ -56748,13 +53347,13 @@ var require_backend = __commonJS({
                       name: typeof data.constructor !== "function" || typeof data.constructor.name !== "string" || data.constructor.name === "Object" ? "" : data.constructor.name
                     };
                     Array.from(data).forEach(function(item, i2) {
-                      return _unserializableValue2[i2] = dehydrate(item, cleaned, unserializable, path3.concat([i2]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      return _unserializableValue2[i2] = dehydrate(item, cleaned, unserializable, path4.concat([i2]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                     });
-                    unserializable.push(path3);
+                    unserializable.push(path4);
                     return _unserializableValue2;
                   }
                 case "opaque_iterator":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56763,7 +53362,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "date":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56772,7 +53371,7 @@ var require_backend = __commonJS({
                     type
                   };
                 case "regexp":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     inspectable: false,
                     preview_short: formatDataForPreview(data, false),
@@ -56781,9 +53380,9 @@ var require_backend = __commonJS({
                     type
                   };
                 case "thenable":
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    cleaned.push(path3);
+                    cleaned.push(path4);
                     return {
                       inspectable: data.status === "fulfilled" || data.status === "rejected",
                       preview_short: formatDataForPreview(data, false),
@@ -56804,8 +53403,8 @@ var require_backend = __commonJS({
                         preview_long: formatDataForPreview(data, true),
                         name: "fulfilled Thenable"
                       };
-                      _unserializableValue3.value = dehydrate(data.value, cleaned, unserializable, path3.concat(["value"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                      unserializable.push(path3);
+                      _unserializableValue3.value = dehydrate(data.value, cleaned, unserializable, path4.concat(["value"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      unserializable.push(path4);
                       return _unserializableValue3;
                     }
                     case "rejected": {
@@ -56816,12 +53415,12 @@ var require_backend = __commonJS({
                         preview_long: formatDataForPreview(data, true),
                         name: "rejected Thenable"
                       };
-                      _unserializableValue4.reason = dehydrate(data.reason, cleaned, unserializable, path3.concat(["reason"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                      unserializable.push(path3);
+                      _unserializableValue4.reason = dehydrate(data.reason, cleaned, unserializable, path4.concat(["reason"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      unserializable.push(path4);
                       return _unserializableValue4;
                     }
                     default:
-                      cleaned.push(path3);
+                      cleaned.push(path4);
                       return {
                         inspectable: false,
                         preview_short: formatDataForPreview(data, false),
@@ -56831,21 +53430,21 @@ var require_backend = __commonJS({
                       };
                   }
                 case "object":
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path3);
+                    return createDehydrated(type, true, data, cleaned, path4);
                   } else {
                     var object = {};
                     getAllEnumerableKeys(data).forEach(function(key) {
                       var name = key.toString();
-                      object[name] = dehydrateKey(data, key, cleaned, unserializable, path3.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      object[name] = dehydrateKey(data, key, cleaned, unserializable, path4.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                     });
                     return object;
                   }
                 case "class_instance": {
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path3);
+                    return createDehydrated(type, true, data, cleaned, path4);
                   }
                   var value = {
                     unserializable: true,
@@ -56857,15 +53456,15 @@ var require_backend = __commonJS({
                   };
                   getAllEnumerableKeys(data).forEach(function(key) {
                     var keyAsString = key.toString();
-                    value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path3.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path4.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   });
-                  unserializable.push(path3);
+                  unserializable.push(path4);
                   return value;
                 }
                 case "error": {
-                  isPathAllowedCheck = isPathAllowed(path3);
+                  isPathAllowedCheck = isPathAllowed(path4);
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
-                    return createDehydrated(type, true, data, cleaned, path3);
+                    return createDehydrated(type, true, data, cleaned, path4);
                   }
                   var _value = {
                     unserializable: true,
@@ -56875,22 +53474,22 @@ var require_backend = __commonJS({
                     preview_long: formatDataForPreview(data, true),
                     name: data.name
                   };
-                  _value.message = dehydrate(data.message, cleaned, unserializable, path3.concat(["message"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
-                  _value.stack = dehydrate(data.stack, cleaned, unserializable, path3.concat(["stack"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  _value.message = dehydrate(data.message, cleaned, unserializable, path4.concat(["message"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                  _value.stack = dehydrate(data.stack, cleaned, unserializable, path4.concat(["stack"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   if ("cause" in data) {
-                    _value.cause = dehydrate(data.cause, cleaned, unserializable, path3.concat(["cause"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    _value.cause = dehydrate(data.cause, cleaned, unserializable, path4.concat(["cause"]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   }
                   getAllEnumerableKeys(data).forEach(function(key) {
                     var keyAsString = key.toString();
-                    _value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path3.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                    _value[keyAsString] = dehydrate(data[key], cleaned, unserializable, path4.concat([keyAsString]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                   });
-                  unserializable.push(path3);
+                  unserializable.push(path4);
                   return _value;
                 }
                 case "infinity":
                 case "nan":
                 case "undefined":
-                  cleaned.push(path3);
+                  cleaned.push(path4);
                   return {
                     type
                   };
@@ -56898,10 +53497,10 @@ var require_backend = __commonJS({
                   return data;
               }
             }
-            function dehydrateKey(parent, key, cleaned, unserializable, path3, isPathAllowed) {
+            function dehydrateKey(parent, key, cleaned, unserializable, path4, isPathAllowed) {
               var level = arguments.length > 6 && arguments[6] !== void 0 ? arguments[6] : 0;
               try {
-                return dehydrate(parent[key], cleaned, unserializable, path3, isPathAllowed, level);
+                return dehydrate(parent[key], cleaned, unserializable, path4, isPathAllowed, level);
               } catch (error3) {
                 var preview = "";
                 if (hydration_typeof(error3) === "object" && error3 !== null && typeof error3.stack === "string") {
@@ -56909,7 +53508,7 @@ var require_backend = __commonJS({
                 } else if (typeof error3 === "string") {
                   preview = error3;
                 }
-                cleaned.push(path3);
+                cleaned.push(path4);
                 return {
                   inspectable: false,
                   preview_short: "[Exception]",
@@ -56919,8 +53518,8 @@ var require_backend = __commonJS({
                 };
               }
             }
-            function fillInPath(object, data, path3, value) {
-              var target = getInObject(object, path3);
+            function fillInPath(object, data, path4, value) {
+              var target = getInObject(object, path4);
               if (target != null) {
                 if (!target[meta.unserializable]) {
                   delete target[meta.inspectable];
@@ -56935,9 +53534,9 @@ var require_backend = __commonJS({
               }
               if (value !== null && data.unserializable.length > 0) {
                 var unserializablePath = data.unserializable[0];
-                var isMatch = unserializablePath.length === path3.length;
-                for (var i = 0; i < path3.length; i++) {
-                  if (path3[i] !== unserializablePath[i]) {
+                var isMatch = unserializablePath.length === path4.length;
+                for (var i = 0; i < path4.length; i++) {
+                  if (path4[i] !== unserializablePath[i]) {
                     isMatch = false;
                     break;
                   }
@@ -56946,13 +53545,13 @@ var require_backend = __commonJS({
                   upgradeUnserializable(value, value);
                 }
               }
-              setInObject(object, path3, value);
+              setInObject(object, path4, value);
             }
             function hydrate(object, cleaned, unserializable) {
-              cleaned.forEach(function(path3) {
-                var length = path3.length;
-                var last = path3[length - 1];
-                var parent = getInObject(object, path3.slice(0, length - 1));
+              cleaned.forEach(function(path4) {
+                var length = path4.length;
+                var last = path4[length - 1];
+                var parent = getInObject(object, path4.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -56978,10 +53577,10 @@ var require_backend = __commonJS({
                   parent[last] = replaced;
                 }
               });
-              unserializable.forEach(function(path3) {
-                var length = path3.length;
-                var last = path3[length - 1];
-                var parent = getInObject(object, path3.slice(0, length - 1));
+              unserializable.forEach(function(path4) {
+                var length = path4.length;
+                var last = path4[length - 1];
+                var parent = getInObject(object, path4.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -57102,11 +53701,11 @@ var require_backend = __commonJS({
               return gte(version, FIRST_DEVTOOLS_BACKEND_LOCKSTEP_VER);
             }
             function cleanForBridge(data, isPathAllowed) {
-              var path3 = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : [];
+              var path4 = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : [];
               if (data !== null) {
                 var cleanedPaths = [];
                 var unserializablePaths = [];
-                var cleanedData = dehydrate(data, cleanedPaths, unserializablePaths, path3, isPathAllowed);
+                var cleanedData = dehydrate(data, cleanedPaths, unserializablePaths, path4, isPathAllowed);
                 return {
                   data: cleanedData,
                   cleaned: cleanedPaths,
@@ -57116,18 +53715,18 @@ var require_backend = __commonJS({
                 return null;
               }
             }
-            function copyWithDelete(obj, path3) {
+            function copyWithDelete(obj, path4) {
               var index = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : 0;
-              var key = path3[index];
+              var key = path4[index];
               var updated = shared_isArray(obj) ? obj.slice() : utils_objectSpread({}, obj);
-              if (index + 1 === path3.length) {
+              if (index + 1 === path4.length) {
                 if (shared_isArray(updated)) {
                   updated.splice(key, 1);
                 } else {
                   delete updated[key];
                 }
               } else {
-                updated[key] = copyWithDelete(obj[key], path3, index + 1);
+                updated[key] = copyWithDelete(obj[key], path4, index + 1);
               }
               return updated;
             }
@@ -57148,14 +53747,14 @@ var require_backend = __commonJS({
               }
               return updated;
             }
-            function copyWithSet(obj, path3, value) {
+            function copyWithSet(obj, path4, value) {
               var index = arguments.length > 3 && arguments[3] !== void 0 ? arguments[3] : 0;
-              if (index >= path3.length) {
+              if (index >= path4.length) {
                 return value;
               }
-              var key = path3[index];
+              var key = path4[index];
               var updated = shared_isArray(obj) ? obj.slice() : utils_objectSpread({}, obj);
-              updated[key] = copyWithSet(obj[key], path3, value, index + 1);
+              updated[key] = copyWithSet(obj[key], path4, value, index + 1);
               return updated;
             }
             function getEffectDurations(root) {
@@ -58431,12 +55030,12 @@ var require_backend = __commonJS({
                   }
                 });
                 bridge_defineProperty(_this, "overrideValueAtPath", function(_ref) {
-                  var id = _ref.id, path3 = _ref.path, rendererID = _ref.rendererID, type = _ref.type, value = _ref.value;
+                  var id = _ref.id, path4 = _ref.path, rendererID = _ref.rendererID, type = _ref.type, value = _ref.value;
                   switch (type) {
                     case "context":
                       _this.send("overrideContext", {
                         id,
-                        path: path3,
+                        path: path4,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -58445,7 +55044,7 @@ var require_backend = __commonJS({
                     case "hooks":
                       _this.send("overrideHookState", {
                         id,
-                        path: path3,
+                        path: path4,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -58454,7 +55053,7 @@ var require_backend = __commonJS({
                     case "props":
                       _this.send("overrideProps", {
                         id,
-                        path: path3,
+                        path: path4,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -58463,7 +55062,7 @@ var require_backend = __commonJS({
                     case "state":
                       _this.send("overrideState", {
                         id,
-                        path: path3,
+                        path: path4,
                         rendererID,
                         wasForwarded: true,
                         value
@@ -58530,7 +55129,7 @@ var require_backend = __commonJS({
                   } while (this._messageQueue.length);
                 }
               }]);
-            })(EventEmitter3);
+            })(EventEmitter4);
             const src_bridge = Bridge;
             ;
             function storage_localStorageGetItem(key) {
@@ -58801,12 +55400,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "copyElementPath", function(_ref5) {
-                  var id = _ref5.id, path3 = _ref5.path, rendererID = _ref5.rendererID;
+                  var id = _ref5.id, path4 = _ref5.path, rendererID = _ref5.rendererID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    var value = renderer2.getSerializedElementValueByPath(id, path3);
+                    var value = renderer2.getSerializedElementValueByPath(id, path4);
                     if (value != null) {
                       _this._bridge.send("saveToClipboard", value);
                     } else {
@@ -58815,12 +55414,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "deletePath", function(_ref6) {
-                  var hookID = _ref6.hookID, id = _ref6.id, path3 = _ref6.path, rendererID = _ref6.rendererID, type = _ref6.type;
+                  var hookID = _ref6.hookID, id = _ref6.id, path4 = _ref6.path, rendererID = _ref6.rendererID, type = _ref6.type;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.deletePath(type, id, hookID, path3);
+                    renderer2.deletePath(type, id, hookID, path4);
                   }
                 });
                 agent_defineProperty(_this, "getBackendVersion", function() {
@@ -58857,12 +55456,12 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "inspectElement", function(_ref9) {
-                  var forceFullData = _ref9.forceFullData, id = _ref9.id, path3 = _ref9.path, rendererID = _ref9.rendererID, requestID = _ref9.requestID;
+                  var forceFullData = _ref9.forceFullData, id = _ref9.id, path4 = _ref9.path, rendererID = _ref9.rendererID, requestID = _ref9.requestID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    _this._bridge.send("inspectedElement", renderer2.inspectElement(requestID, id, path3, forceFullData));
+                    _this._bridge.send("inspectedElement", renderer2.inspectElement(requestID, id, path4, forceFullData));
                     if (_this._persistedSelectionMatch === null || _this._persistedSelectionMatch.id !== id) {
                       _this._persistedSelection = null;
                       _this._persistedSelectionMatch = null;
@@ -58896,15 +55495,15 @@ var require_backend = __commonJS({
                   }
                   for (var rendererID in _this._rendererInterfaces) {
                     var renderer2 = _this._rendererInterfaces[rendererID];
-                    var path3 = null;
+                    var path4 = null;
                     if (suspendedByPathIndex !== null && rendererPath !== null) {
                       var suspendedByPathRendererIndex = suspendedByPathIndex - suspendedByOffset;
                       var rendererHasRequestedSuspendedByPath = renderer2.getElementAttributeByPath(id, ["suspendedBy", suspendedByPathRendererIndex]) !== void 0;
                       if (rendererHasRequestedSuspendedByPath) {
-                        path3 = ["suspendedBy", suspendedByPathRendererIndex].concat(rendererPath);
+                        path4 = ["suspendedBy", suspendedByPathRendererIndex].concat(rendererPath);
                       }
                     }
-                    var inspectedRootsPayload = renderer2.inspectElement(requestID, id, path3, forceFullData);
+                    var inspectedRootsPayload = renderer2.inspectElement(requestID, id, path4, forceFullData);
                     switch (inspectedRootsPayload.type) {
                       case "hydrated-path":
                         inspectedRootsPayload.path[1] += suspendedByOffset;
@@ -58998,20 +55597,20 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideValueAtPath", function(_ref15) {
-                  var hookID = _ref15.hookID, id = _ref15.id, path3 = _ref15.path, rendererID = _ref15.rendererID, type = _ref15.type, value = _ref15.value;
+                  var hookID = _ref15.hookID, id = _ref15.id, path4 = _ref15.path, rendererID = _ref15.rendererID, type = _ref15.type, value = _ref15.value;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.overrideValueAtPath(type, id, hookID, path3, value);
+                    renderer2.overrideValueAtPath(type, id, hookID, path4, value);
                   }
                 });
                 agent_defineProperty(_this, "overrideContext", function(_ref16) {
-                  var id = _ref16.id, path3 = _ref16.path, rendererID = _ref16.rendererID, wasForwarded = _ref16.wasForwarded, value = _ref16.value;
+                  var id = _ref16.id, path4 = _ref16.path, rendererID = _ref16.rendererID, wasForwarded = _ref16.wasForwarded, value = _ref16.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path3,
+                      path: path4,
                       rendererID,
                       type: "context",
                       value
@@ -59019,11 +55618,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideHookState", function(_ref17) {
-                  var id = _ref17.id, hookID = _ref17.hookID, path3 = _ref17.path, rendererID = _ref17.rendererID, wasForwarded = _ref17.wasForwarded, value = _ref17.value;
+                  var id = _ref17.id, hookID = _ref17.hookID, path4 = _ref17.path, rendererID = _ref17.rendererID, wasForwarded = _ref17.wasForwarded, value = _ref17.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path3,
+                      path: path4,
                       rendererID,
                       type: "hooks",
                       value
@@ -59031,11 +55630,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideProps", function(_ref18) {
-                  var id = _ref18.id, path3 = _ref18.path, rendererID = _ref18.rendererID, wasForwarded = _ref18.wasForwarded, value = _ref18.value;
+                  var id = _ref18.id, path4 = _ref18.path, rendererID = _ref18.rendererID, wasForwarded = _ref18.wasForwarded, value = _ref18.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path3,
+                      path: path4,
                       rendererID,
                       type: "props",
                       value
@@ -59043,11 +55642,11 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideState", function(_ref19) {
-                  var id = _ref19.id, path3 = _ref19.path, rendererID = _ref19.rendererID, wasForwarded = _ref19.wasForwarded, value = _ref19.value;
+                  var id = _ref19.id, path4 = _ref19.path, rendererID = _ref19.rendererID, wasForwarded = _ref19.wasForwarded, value = _ref19.value;
                   if (!wasForwarded) {
                     _this.overrideValueAtPath({
                       id,
-                      path: path3,
+                      path: path4,
                       rendererID,
                       type: "state",
                       value
@@ -59114,12 +55713,12 @@ var require_backend = __commonJS({
                   _this._bridge.send("stopInspectingHost", selected);
                 });
                 agent_defineProperty(_this, "storeAsGlobal", function(_ref23) {
-                  var count = _ref23.count, id = _ref23.id, path3 = _ref23.path, rendererID = _ref23.rendererID;
+                  var count = _ref23.count, id = _ref23.id, path4 = _ref23.path, rendererID = _ref23.rendererID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
                   if (renderer2 == null) {
                     console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
                   } else {
-                    renderer2.storeAsGlobal(id, path3, count);
+                    renderer2.storeAsGlobal(id, path4, count);
                   }
                 });
                 agent_defineProperty(_this, "updateHookSettings", function(settings) {
@@ -59136,12 +55735,12 @@ var require_backend = __commonJS({
                     var rendererID = +rendererIDString;
                     var renderer2 = _this._rendererInterfaces[rendererID];
                     if (_this._lastSelectedRendererID === rendererID) {
-                      var path3 = renderer2.getPathForElement(_this._lastSelectedElementID);
-                      if (path3 !== null) {
-                        renderer2.setTrackedPath(path3);
+                      var path4 = renderer2.getPathForElement(_this._lastSelectedElementID);
+                      if (path4 !== null) {
+                        renderer2.setTrackedPath(path4);
                         _this._persistedSelection = {
                           rendererID,
-                          path: path3
+                          path: path4
                         };
                       }
                     }
@@ -59216,11 +55815,11 @@ var require_backend = __commonJS({
                   var rendererID = _this._lastSelectedRendererID;
                   var id = _this._lastSelectedElementID;
                   var renderer2 = _this._rendererInterfaces[rendererID];
-                  var path3 = renderer2 != null ? renderer2.getPathForElement(id) : null;
-                  if (path3 !== null) {
+                  var path4 = renderer2 != null ? renderer2.getPathForElement(id) : null;
+                  if (path4 !== null) {
                     storage_sessionStorageSetItem(SESSION_STORAGE_LAST_SELECTION_KEY, JSON.stringify({
                       rendererID,
-                      path: path3
+                      path: path4
                     }));
                   } else {
                     storage_sessionStorageRemoveItem(SESSION_STORAGE_LAST_SELECTION_KEY);
@@ -59388,7 +55987,7 @@ var require_backend = __commonJS({
                   this._bridge.send("unsupportedRendererVersion");
                 }
               }]);
-            })(EventEmitter3);
+            })(EventEmitter4);
             ;
             function DevToolsConsolePatching_typeof(o) {
               "@babel/helpers - typeof";
@@ -59929,7 +56528,7 @@ var require_backend = __commonJS({
                 hasElementWithId: function hasElementWithId() {
                   return false;
                 },
-                inspectElement: function inspectElement(requestID, id, path3) {
+                inspectElement: function inspectElement(requestID, id, path4) {
                   return {
                     id,
                     responseID: requestID,
@@ -65180,9 +61779,9 @@ var require_backend = __commonJS({
                 }
                 return null;
               }
-              function getElementAttributeByPath(id, path3) {
+              function getElementAttributeByPath(id, path4) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  return utils_getInObject(mostRecentlyInspectedElement, path3);
+                  return utils_getInObject(mostRecentlyInspectedElement, path4);
                 }
                 return void 0;
               }
@@ -65889,9 +62488,9 @@ var require_backend = __commonJS({
               function isMostRecentlyInspectedElementCurrent(id) {
                 return isMostRecentlyInspectedElement(id) && !hasElementUpdatedSinceLastInspected;
               }
-              function mergeInspectedPaths(path3) {
+              function mergeInspectedPaths(path4) {
                 var current = currentlyInspectedPaths;
-                path3.forEach(function(key) {
+                path4.forEach(function(key) {
                   if (!current[key]) {
                     current[key] = {};
                   }
@@ -65899,21 +62498,21 @@ var require_backend = __commonJS({
                 });
               }
               function createIsPathAllowed(key, secondaryCategory) {
-                return function isPathAllowed(path3) {
+                return function isPathAllowed(path4) {
                   switch (secondaryCategory) {
                     case "hooks":
-                      if (path3.length === 1) {
+                      if (path4.length === 1) {
                         return true;
                       }
-                      if (path3[path3.length - 2] === "hookSource" && path3[path3.length - 1] === "fileName") {
+                      if (path4[path4.length - 2] === "hookSource" && path4[path4.length - 1] === "fileName") {
                         return true;
                       }
-                      if (path3[path3.length - 1] === "subHooks" || path3[path3.length - 2] === "subHooks") {
+                      if (path4[path4.length - 1] === "subHooks" || path4[path4.length - 2] === "subHooks") {
                         return true;
                       }
                       break;
                     case "suspendedBy":
-                      if (path3.length < 5) {
+                      if (path4.length < 5) {
                         return true;
                       }
                       break;
@@ -65924,8 +62523,8 @@ var require_backend = __commonJS({
                   if (!current) {
                     return false;
                   }
-                  for (var i = 0; i < path3.length; i++) {
-                    current = current[path3[i]];
+                  for (var i = 0; i < path4.length; i++) {
+                    current = current[path4[i]];
                     if (!current) {
                       return false;
                     }
@@ -65979,38 +62578,38 @@ var require_backend = __commonJS({
                     break;
                 }
               }
-              function storeAsGlobal(id, path3, count) {
+              function storeAsGlobal(id, path4, count) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  var value = utils_getInObject(mostRecentlyInspectedElement, path3);
+                  var value = utils_getInObject(mostRecentlyInspectedElement, path4);
                   var key = "$reactTemp".concat(count);
                   window[key] = value;
                   console.log(key);
                   console.log(value);
                 }
               }
-              function getSerializedElementValueByPath(id, path3) {
+              function getSerializedElementValueByPath(id, path4) {
                 if (isMostRecentlyInspectedElement(id)) {
-                  var valueToCopy = utils_getInObject(mostRecentlyInspectedElement, path3);
+                  var valueToCopy = utils_getInObject(mostRecentlyInspectedElement, path4);
                   return serializeToString(valueToCopy);
                 }
               }
-              function inspectElement(requestID, id, path3, forceFullData) {
-                if (path3 !== null) {
-                  mergeInspectedPaths(path3);
+              function inspectElement(requestID, id, path4, forceFullData) {
+                if (path4 !== null) {
+                  mergeInspectedPaths(path4);
                 }
                 if (isMostRecentlyInspectedElement(id) && !forceFullData) {
                   if (!hasElementUpdatedSinceLastInspected) {
-                    if (path3 !== null) {
+                    if (path4 !== null) {
                       var secondaryCategory = null;
-                      if (path3[0] === "hooks" || path3[0] === "suspendedBy") {
-                        secondaryCategory = path3[0];
+                      if (path4[0] === "hooks" || path4[0] === "suspendedBy") {
+                        secondaryCategory = path4[0];
                       }
                       return {
                         id,
                         responseID: requestID,
                         type: "hydrated-path",
-                        path: path3,
-                        value: cleanForBridge(utils_getInObject(mostRecentlyInspectedElement, path3), createIsPathAllowed(null, secondaryCategory), path3)
+                        path: path4,
+                        value: cleanForBridge(utils_getInObject(mostRecentlyInspectedElement, path4), createIsPathAllowed(null, secondaryCategory), path4)
                       };
                     } else {
                       return {
@@ -66199,7 +62798,7 @@ var require_backend = __commonJS({
                   console.groupEnd();
                 }
               }
-              function deletePath(type, id, hookID, path3) {
+              function deletePath(type, id, hookID, path4) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(id);
                 if (devtoolsInstance === void 0) {
                   console.warn('Could not find DevToolsInstance with id "'.concat(id, '"'));
@@ -66213,12 +62812,12 @@ var require_backend = __commonJS({
                   var instance = fiber.stateNode;
                   switch (type) {
                     case "context":
-                      path3 = path3.slice(1);
+                      path4 = path4.slice(1);
                       switch (fiber.tag) {
                         case ClassComponent:
-                          if (path3.length === 0) {
+                          if (path4.length === 0) {
                           } else {
-                            deletePathInObject(instance.context, path3);
+                            deletePathInObject(instance.context, path4);
                           }
                           instance.forceUpdate();
                           break;
@@ -66228,21 +62827,21 @@ var require_backend = __commonJS({
                       break;
                     case "hooks":
                       if (typeof overrideHookStateDeletePath === "function") {
-                        overrideHookStateDeletePath(fiber, hookID, path3);
+                        overrideHookStateDeletePath(fiber, hookID, path4);
                       }
                       break;
                     case "props":
                       if (instance === null) {
                         if (typeof overridePropsDeletePath === "function") {
-                          overridePropsDeletePath(fiber, path3);
+                          overridePropsDeletePath(fiber, path4);
                         }
                       } else {
-                        fiber.pendingProps = copyWithDelete(instance.props, path3);
+                        fiber.pendingProps = copyWithDelete(instance.props, path4);
                         instance.forceUpdate();
                       }
                       break;
                     case "state":
-                      deletePathInObject(instance.state, path3);
+                      deletePathInObject(instance.state, path4);
                       instance.forceUpdate();
                       break;
                   }
@@ -66298,7 +62897,7 @@ var require_backend = __commonJS({
                   }
                 }
               }
-              function overrideValueAtPath(type, id, hookID, path3, value) {
+              function overrideValueAtPath(type, id, hookID, path4, value) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(id);
                 if (devtoolsInstance === void 0) {
                   console.warn('Could not find DevToolsInstance with id "'.concat(id, '"'));
@@ -66312,13 +62911,13 @@ var require_backend = __commonJS({
                   var instance = fiber.stateNode;
                   switch (type) {
                     case "context":
-                      path3 = path3.slice(1);
+                      path4 = path4.slice(1);
                       switch (fiber.tag) {
                         case ClassComponent:
-                          if (path3.length === 0) {
+                          if (path4.length === 0) {
                             instance.context = value;
                           } else {
-                            utils_setInObject(instance.context, path3, value);
+                            utils_setInObject(instance.context, path4, value);
                           }
                           instance.forceUpdate();
                           break;
@@ -66328,18 +62927,18 @@ var require_backend = __commonJS({
                       break;
                     case "hooks":
                       if (typeof overrideHookState === "function") {
-                        overrideHookState(fiber, hookID, path3, value);
+                        overrideHookState(fiber, hookID, path4, value);
                       }
                       break;
                     case "props":
                       switch (fiber.tag) {
                         case ClassComponent:
-                          fiber.pendingProps = copyWithSet(instance.props, path3, value);
+                          fiber.pendingProps = copyWithSet(instance.props, path4, value);
                           instance.forceUpdate();
                           break;
                         default:
                           if (typeof overrideProps === "function") {
-                            overrideProps(fiber, path3, value);
+                            overrideProps(fiber, path4, value);
                           }
                           break;
                       }
@@ -66347,7 +62946,7 @@ var require_backend = __commonJS({
                     case "state":
                       switch (fiber.tag) {
                         case ClassComponent:
-                          utils_setInObject(instance.state, path3, value);
+                          utils_setInObject(instance.state, path4, value);
                           instance.forceUpdate();
                           break;
                       }
@@ -66633,14 +63232,14 @@ var require_backend = __commonJS({
               var trackedPathMatchInstance = null;
               var trackedPathMatchDepth = -1;
               var mightBeOnTrackedPath = false;
-              function setTrackedPath(path3) {
-                if (path3 === null) {
+              function setTrackedPath(path4) {
+                if (path4 === null) {
                   trackedPathMatchFiber = null;
                   trackedPathMatchInstance = null;
                   trackedPathMatchDepth = -1;
                   mightBeOnTrackedPath = false;
                 }
-                trackedPath = path3;
+                trackedPath = path4;
               }
               function updateTrackedPathStateBeforeMount(fiber, fiberInstance) {
                 if (trackedPath === null || !mightBeOnTrackedPath) {
@@ -67408,9 +64007,9 @@ var require_backend = __commonJS({
               }
               var currentlyInspectedElementID = null;
               var currentlyInspectedPaths = {};
-              function mergeInspectedPaths(path3) {
+              function mergeInspectedPaths(path4) {
                 var current = currentlyInspectedPaths;
-                path3.forEach(function(key) {
+                path4.forEach(function(key) {
                   if (!current[key]) {
                     current[key] = {};
                   }
@@ -67418,13 +64017,13 @@ var require_backend = __commonJS({
                 });
               }
               function createIsPathAllowed(key) {
-                return function isPathAllowed(path3) {
+                return function isPathAllowed(path4) {
                   var current = currentlyInspectedPaths[key];
                   if (!current) {
                     return false;
                   }
-                  for (var i = 0; i < path3.length; i++) {
-                    current = current[path3[i]];
+                  for (var i = 0; i < path4.length; i++) {
+                    current = current[path4[i]];
                     if (!current) {
                       return false;
                     }
@@ -67474,24 +64073,24 @@ var require_backend = __commonJS({
                     break;
                 }
               }
-              function storeAsGlobal(id, path3, count) {
+              function storeAsGlobal(id, path4, count) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  var value = utils_getInObject(inspectedElement, path3);
+                  var value = utils_getInObject(inspectedElement, path4);
                   var key = "$reactTemp".concat(count);
                   window[key] = value;
                   console.log(key);
                   console.log(value);
                 }
               }
-              function getSerializedElementValueByPath(id, path3) {
+              function getSerializedElementValueByPath(id, path4) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  var valueToCopy = utils_getInObject(inspectedElement, path3);
+                  var valueToCopy = utils_getInObject(inspectedElement, path4);
                   return serializeToString(valueToCopy);
                 }
               }
-              function inspectElement(requestID, id, path3, forceFullData) {
+              function inspectElement(requestID, id, path4, forceFullData) {
                 if (forceFullData || currentlyInspectedElementID !== id) {
                   currentlyInspectedElementID = id;
                   currentlyInspectedPaths = {};
@@ -67504,8 +64103,8 @@ var require_backend = __commonJS({
                     type: "not-found"
                   };
                 }
-                if (path3 !== null) {
-                  mergeInspectedPaths(path3);
+                if (path4 !== null) {
+                  mergeInspectedPaths(path4);
                 }
                 updateSelectedElement(id);
                 inspectedElement.context = cleanForBridge(inspectedElement.context, createIsPathAllowed("context"));
@@ -67708,10 +64307,10 @@ var require_backend = __commonJS({
                   console.groupEnd();
                 }
               }
-              function getElementAttributeByPath(id, path3) {
+              function getElementAttributeByPath(id, path4) {
                 var inspectedElement = inspectElementRaw(id);
                 if (inspectedElement !== null) {
-                  return utils_getInObject(inspectedElement, path3);
+                  return utils_getInObject(inspectedElement, path4);
                 }
                 return void 0;
               }
@@ -67728,14 +64327,14 @@ var require_backend = __commonJS({
                 }
                 return element.type;
               }
-              function deletePath(type, id, hookID, path3) {
+              function deletePath(type, id, hookID, path4) {
                 var internalInstance = idToInternalInstanceMap.get(id);
                 if (internalInstance != null) {
                   var publicInstance = internalInstance._instance;
                   if (publicInstance != null) {
                     switch (type) {
                       case "context":
-                        deletePathInObject(publicInstance.context, path3);
+                        deletePathInObject(publicInstance.context, path4);
                         forceUpdate(publicInstance);
                         break;
                       case "hooks":
@@ -67743,12 +64342,12 @@ var require_backend = __commonJS({
                       case "props":
                         var element = internalInstance._currentElement;
                         internalInstance._currentElement = legacy_renderer_objectSpread(legacy_renderer_objectSpread({}, element), {}, {
-                          props: copyWithDelete(element.props, path3)
+                          props: copyWithDelete(element.props, path4)
                         });
                         forceUpdate(publicInstance);
                         break;
                       case "state":
-                        deletePathInObject(publicInstance.state, path3);
+                        deletePathInObject(publicInstance.state, path4);
                         forceUpdate(publicInstance);
                         break;
                     }
@@ -67782,14 +64381,14 @@ var require_backend = __commonJS({
                   }
                 }
               }
-              function overrideValueAtPath(type, id, hookID, path3, value) {
+              function overrideValueAtPath(type, id, hookID, path4, value) {
                 var internalInstance = idToInternalInstanceMap.get(id);
                 if (internalInstance != null) {
                   var publicInstance = internalInstance._instance;
                   if (publicInstance != null) {
                     switch (type) {
                       case "context":
-                        utils_setInObject(publicInstance.context, path3, value);
+                        utils_setInObject(publicInstance.context, path4, value);
                         forceUpdate(publicInstance);
                         break;
                       case "hooks":
@@ -67797,12 +64396,12 @@ var require_backend = __commonJS({
                       case "props":
                         var element = internalInstance._currentElement;
                         internalInstance._currentElement = legacy_renderer_objectSpread(legacy_renderer_objectSpread({}, element), {}, {
-                          props: copyWithSet(element.props, path3, value)
+                          props: copyWithSet(element.props, path4, value)
                         });
                         forceUpdate(publicInstance);
                         break;
                       case "state":
-                        utils_setInObject(publicInstance.state, path3, value);
+                        utils_setInObject(publicInstance.state, path4, value);
                         forceUpdate(publicInstance);
                         break;
                     }
@@ -67847,7 +64446,7 @@ var require_backend = __commonJS({
               }
               function setTraceUpdatesEnabled(enabled) {
               }
-              function setTrackedPath(path3) {
+              function setTrackedPath(path4) {
               }
               function getOwnersList(id) {
                 return null;
@@ -69125,10 +65724,10 @@ var init_devtools = __esm({
 });
 
 // node_modules/ink/build/reconciler.js
-import process12 from "process";
+import process13 from "process";
 async function loadPackageJson() {
-  const fs3 = await import("fs");
-  const content = fs3.readFileSync(new URL("../package.json", import.meta.url), "utf8");
+  const fs4 = await import("fs");
+  const content = fs4.readFileSync(new URL("../package.json", import.meta.url), "utf8");
   const parsedContent = JSON.parse(content);
   return {
     name: parsedContent?.name,
@@ -69146,7 +65745,7 @@ var init_reconciler = __esm({
     import_react = __toESM(require_react(), 1);
     await init_dom();
     await init_styles();
-    if (process12.env["DEV"] === "true") {
+    if (process13.env["DEV"] === "true") {
       let isDevtoolsInstalled = false;
       try {
         import.meta.resolve("react-devtools-core");
@@ -69192,7 +65791,7 @@ var init_reconciler = __esm({
       name: "ink",
       version: import_react.version
     };
-    if (process12.env["DEV"] === "true") {
+    if (process13.env["DEV"] === "true") {
       try {
         const loaded = await loadPackageJson();
         packageInfo = {
@@ -69217,6 +65816,12 @@ var init_reconciler = __esm({
           rootNode.onComputeLayout();
         }
         emitLayoutListeners(rootNode);
+        if (rootNode.staticNode !== rootNode.previousStaticNode) {
+          rootNode.previousStaticNode = rootNode.staticNode;
+          if (typeof rootNode.onStaticChange === "function") {
+            rootNode.onStaticChange();
+          }
+        }
         if (rootNode.isStaticDirty) {
           rootNode.isStaticDirty = false;
           if (typeof rootNode.onImmediateRender === "function") {
@@ -69326,7 +65931,7 @@ var init_reconciler = __esm({
       removeChildFromContainer(node, removeNode) {
         removeChildNode(node, removeNode);
         cleanupYogaNode(removeNode.yogaNode);
-        if (removeNode.internal_static && currentRootNode) {
+        if (removeNode.internal_static && currentRootNode?.staticNode === removeNode) {
           currentRootNode.staticNode = void 0;
         }
       },
@@ -69366,7 +65971,7 @@ var init_reconciler = __esm({
       removeChild(node, removeNode) {
         removeChildNode(node, removeNode);
         cleanupYogaNode(removeNode.yogaNode);
-        if (removeNode.internal_static && currentRootNode) {
+        if (removeNode.internal_static && currentRootNode?.staticNode === removeNode) {
           currentRootNode.staticNode = void 0;
         }
       },
@@ -70564,7 +67169,7 @@ var require_onetime = __commonJS({
 });
 
 // node_modules/ink/node_modules/restore-cursor/index.js
-import process13 from "process";
+import process14 from "process";
 var import_onetime2, import_signal_exit3, restoreCursor2, restore_cursor_default2;
 var init_restore_cursor = __esm({
   "node_modules/ink/node_modules/restore-cursor/index.js"() {
@@ -70573,7 +67178,7 @@ var init_restore_cursor = __esm({
     import_signal_exit3 = __toESM(require_signal_exit(), 1);
     restoreCursor2 = (0, import_onetime2.default)(() => {
       (0, import_signal_exit3.default)(() => {
-        process13.stderr.write("\x1B[?25h");
+        process14.stderr.write("\x1B[?25h");
       }, { alwaysLast: true });
     });
     restore_cursor_default2 = restoreCursor2;
@@ -70581,7 +67186,7 @@ var init_restore_cursor = __esm({
 });
 
 // node_modules/ink/node_modules/cli-cursor/index.js
-import process14 from "process";
+import process15 from "process";
 var isHidden2, cliCursor2, cli_cursor_default2;
 var init_cli_cursor = __esm({
   "node_modules/ink/node_modules/cli-cursor/index.js"() {
@@ -70589,14 +67194,14 @@ var init_cli_cursor = __esm({
     init_restore_cursor();
     isHidden2 = false;
     cliCursor2 = {};
-    cliCursor2.show = (writableStream = process14.stderr) => {
+    cliCursor2.show = (writableStream = process15.stderr) => {
       if (!writableStream.isTTY) {
         return;
       }
       isHidden2 = false;
       writableStream.write("\x1B[?25h");
     };
-    cliCursor2.hide = (writableStream = process14.stderr) => {
+    cliCursor2.hide = (writableStream = process15.stderr) => {
       if (!writableStream.isTTY) {
         return;
       }
@@ -71091,17 +67696,17 @@ var init_AppContext = __esm({
 });
 
 // node_modules/ink/build/components/StdinContext.js
-import { EventEmitter } from "events";
-import process15 from "process";
+import { EventEmitter as EventEmitter2 } from "events";
+import process16 from "process";
 var import_react3, StdinContext, StdinContext_default;
 var init_StdinContext = __esm({
   "node_modules/ink/build/components/StdinContext.js"() {
     "use strict";
     import_react3 = __toESM(require_react(), 1);
     StdinContext = (0, import_react3.createContext)({
-      stdin: process15.stdin,
+      stdin: process16.stdin,
       // eslint-disable-next-line @typescript-eslint/naming-convention
-      internal_eventEmitter: new EventEmitter(),
+      internal_eventEmitter: new EventEmitter2(),
       setRawMode() {
       },
       setBracketedPasteMode() {
@@ -71116,14 +67721,14 @@ var init_StdinContext = __esm({
 });
 
 // node_modules/ink/build/components/StdoutContext.js
-import process16 from "process";
+import process17 from "process";
 var import_react4, StdoutContext, StdoutContext_default;
 var init_StdoutContext = __esm({
   "node_modules/ink/build/components/StdoutContext.js"() {
     "use strict";
     import_react4 = __toESM(require_react(), 1);
     StdoutContext = (0, import_react4.createContext)({
-      stdout: process16.stdout,
+      stdout: process17.stdout,
       write() {
       }
     });
@@ -71133,14 +67738,14 @@ var init_StdoutContext = __esm({
 });
 
 // node_modules/ink/build/components/StderrContext.js
-import process17 from "process";
+import process18 from "process";
 var import_react5, StderrContext, StderrContext_default;
 var init_StderrContext = __esm({
   "node_modules/ink/build/components/StderrContext.js"() {
     "use strict";
     import_react5 = __toESM(require_react(), 1);
     StderrContext = (0, import_react5.createContext)({
-      stderr: process17.stderr,
+      stderr: process18.stderr,
       write() {
       }
     });
@@ -71642,7 +68247,7 @@ var init_Text = __esm({
 });
 
 // node_modules/ink/build/components/ErrorOverview.js
-import * as fs2 from "fs";
+import * as fs3 from "fs";
 import { cwd } from "process";
 function ErrorOverview({ error: error3 }) {
   const stack = error3.stack ? error3.stack.split("\n").slice(1) : void 0;
@@ -71650,8 +68255,9 @@ function ErrorOverview({ error: error3 }) {
   const filePath = cleanupPath(origin?.file);
   let excerpt;
   let lineWidth = 0;
-  if (filePath && origin?.line && fs2.existsSync(filePath)) {
-    const sourceCode = fs2.readFileSync(filePath, "utf8");
+  const stackLineCounts = /* @__PURE__ */ new Map();
+  if (filePath && origin?.line && fs3.existsSync(filePath)) {
+    const sourceCode = fs3.readFileSync(filePath, "utf8");
     excerpt = dist_default16(sourceCode, origin.line);
     if (excerpt) {
       for (const { line } of excerpt) {
@@ -71709,10 +68315,13 @@ function ErrorOverview({ error: error3 }) {
     ))) : null,
     error3.stack ? import_react13.default.createElement(Box_default, { marginTop: 1, flexDirection: "column" }, error3.stack.split("\n").slice(1).map((line) => {
       const parsedLine = stackUtils.parseLine(line);
-      if (!parsedLine) {
+      const lineCount = stackLineCounts.get(line) ?? 0;
+      stackLineCounts.set(line, lineCount + 1);
+      const key = `${line}-${lineCount}`;
+      if (!parsedLine?.file || !parsedLine.line || !parsedLine.column) {
         return import_react13.default.createElement(
           Box_default,
-          { key: line },
+          { key },
           import_react13.default.createElement(Text, { dimColor: true }, "- "),
           import_react13.default.createElement(
             Text,
@@ -71725,7 +68334,7 @@ function ErrorOverview({ error: error3 }) {
       }
       return import_react13.default.createElement(
         Box_default,
-        { key: line },
+        { key },
         import_react13.default.createElement(Text, { dimColor: true }, "- "),
         import_react13.default.createElement(Text, { dimColor: true, bold: true }, parsedLine.function),
         import_react13.default.createElement(
@@ -71753,8 +68362,8 @@ var init_ErrorOverview = __esm({
     init_dist21();
     init_Box();
     init_Text();
-    cleanupPath = (path3) => {
-      return path3?.replace(`file://${cwd()}/`, "");
+    cleanupPath = (path4) => {
+      return path4?.replace(`file://${cwd()}/`, "");
     };
     stackUtils = new import_stack_utils.default({
       cwd: cwd(),
@@ -71792,8 +68401,8 @@ var init_ErrorBoundary = __esm({
 });
 
 // node_modules/ink/build/components/App.js
-import { EventEmitter as EventEmitter2 } from "events";
-import process18 from "process";
+import { EventEmitter as EventEmitter3 } from "events";
+import process19 from "process";
 function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, exitOnCtrlC, onExit: onExit2, onWaitUntilRenderFlush, setCursorPosition, interactive, renderThrottleMs }) {
   const [isFocusEnabled, setIsFocusEnabled] = (0, import_react15.useState)(true);
   const [activeFocusId, setActiveFocusId] = (0, import_react15.useState)(void 0);
@@ -71802,8 +68411,9 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
   const animationSubscribersRef = (0, import_react15.useRef)(/* @__PURE__ */ new Map());
   const animationTimerRef = (0, import_react15.useRef)(void 0);
   const rawModeEnabledCount = (0, import_react15.useRef)(0);
+  const pendingDisableRawModeRef = (0, import_react15.useRef)(false);
   const bracketedPasteModeEnabledCount = (0, import_react15.useRef)(0);
-  const internal_eventEmitter = (0, import_react15.useRef)(new EventEmitter2());
+  const internal_eventEmitter = (0, import_react15.useRef)(new EventEmitter3());
   internal_eventEmitter.current.setMaxListeners(Infinity);
   const readableListenerRef = (0, import_react15.useRef)(void 0);
   const inputParserRef = (0, import_react15.useRef)(createInputParser());
@@ -71882,16 +68492,20 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
     stdin.removeListener("readable", readableListenerRef.current);
     readableListenerRef.current = void 0;
   }, [stdin]);
-  const disableRawMode = (0, import_react15.useCallback)(() => {
-    stdin.setRawMode(false);
-    detachReadableListener();
-    stdin.unref();
-    rawModeEnabledCount.current = 0;
+  const clearInputState = (0, import_react15.useCallback)(() => {
     inputParserRef.current.reset();
     clearPendingInputFlush();
-  }, [stdin, detachReadableListener, clearPendingInputFlush]);
+    detachReadableListener();
+  }, [clearPendingInputFlush, detachReadableListener]);
+  const disableRawMode = (0, import_react15.useCallback)(() => {
+    pendingDisableRawModeRef.current = false;
+    stdin.setRawMode(false);
+    stdin.unref();
+    rawModeEnabledCount.current = 0;
+    clearInputState();
+  }, [stdin, clearInputState]);
   const handleExit = (0, import_react15.useCallback)((errorOrResult) => {
-    if (isRawModeSupported && rawModeEnabledCount.current > 0) {
+    if (isRawModeSupported && (rawModeEnabledCount.current > 0 || pendingDisableRawModeRef.current)) {
       disableRawMode();
     }
     onExit2(errorOrResult);
@@ -71941,9 +68555,16 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
       schedulePendingInputFlush();
     }
   }, [stdin, emitInput, clearPendingInputFlush, schedulePendingInputFlush]);
+  const attachReadableListener = (0, import_react15.useCallback)(() => {
+    if (readableListenerRef.current) {
+      return;
+    }
+    readableListenerRef.current = handleReadable;
+    stdin.addListener("readable", handleReadable);
+  }, [stdin, handleReadable]);
   const handleSetRawMode = (0, import_react15.useCallback)((isEnabled) => {
     if (!isRawModeSupported) {
-      if (stdin === process18.stdin) {
+      if (stdin === process19.stdin) {
         throw new Error("Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported");
       } else {
         throw new Error("Raw mode is not supported on the stdin provided to Ink.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported");
@@ -71952,10 +68573,13 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
     stdin.setEncoding("utf8");
     if (isEnabled) {
       if (rawModeEnabledCount.current === 0) {
-        stdin.ref();
-        stdin.setRawMode(true);
-        readableListenerRef.current = handleReadable;
-        stdin.addListener("readable", handleReadable);
+        const isRawModeAlreadyEnabled = pendingDisableRawModeRef.current;
+        pendingDisableRawModeRef.current = false;
+        if (!isRawModeAlreadyEnabled) {
+          stdin.ref();
+          stdin.setRawMode(true);
+        }
+        attachReadableListener();
       }
       rawModeEnabledCount.current++;
       return;
@@ -71964,9 +68588,22 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
       return;
     }
     if (--rawModeEnabledCount.current === 0) {
-      disableRawMode();
+      clearInputState();
+      pendingDisableRawModeRef.current = true;
+      queueMicrotask(() => {
+        if (!pendingDisableRawModeRef.current) {
+          return;
+        }
+        disableRawMode();
+      });
     }
-  }, [isRawModeSupported, stdin, handleReadable, disableRawMode]);
+  }, [
+    isRawModeSupported,
+    stdin,
+    attachReadableListener,
+    clearInputState,
+    disableRawMode
+  ]);
   const handleSetBracketedPasteMode = (0, import_react15.useCallback)((isEnabled) => {
     if (!stdout.isTTY) {
       return;
@@ -72130,7 +68767,7 @@ function App({ children, stdin, stdout, stderr, writeToStdout, writeToStderr, ex
       if (interactive && canWriteToStdout) {
         cli_cursor_default2.show(stdout);
       }
-      if (isRawModeSupported && rawModeEnabledCount.current > 0) {
+      if (isRawModeSupported && (rawModeEnabledCount.current > 0 || pendingDisableRawModeRef.current)) {
         disableRawMode();
       }
       if (bracketedPasteModeEnabledCount.current > 0) {
@@ -72285,7 +68922,7 @@ var init_kitty_keyboard = __esm({
 });
 
 // node_modules/ink/build/ink.js
-import process19 from "process";
+import process20 from "process";
 var import_react16, import_signal_exit4, import_constants2, noop, textEncoder, yieldImmediate, kittyQueryEscapeByte, kittyQueryOpenBracketByte, kittyQueryQuestionMarkByte, kittyQueryLetterByte, zeroByte, nineByte, isDigitByte, matchKittyQueryResponse, hasCompleteKittyQueryResponse, stripKittyQueryResponsesAndTrailingPartial, shouldClearTerminalForFrame, isErrorInput, getWritableStreamState, settleThrottle, Ink;
 var init_ink = __esm({
   async "node_modules/ink/build/ink.js"() {
@@ -72450,7 +69087,7 @@ var init_ink = __esm({
         this.options = options;
         this.rootNode = createNode("ink-root");
         this.rootNode.onComputeLayout = this.calculateLayout;
-        this.isScreenReaderEnabled = options.isScreenReaderEnabled ?? process19.env["INK_SCREEN_READER"] === "true";
+        this.isScreenReaderEnabled = options.isScreenReaderEnabled ?? process20.env["INK_SCREEN_READER"] === "true";
         this.interactive = this.resolveInteractiveOption(options.interactive);
         this.alternateScreen = false;
         const unthrottled = options.debug || this.isScreenReaderEnabled;
@@ -72472,6 +69109,7 @@ var init_ink = __esm({
           this.throttledOnRender = throttled;
         }
         this.rootNode.onImmediateRender = this.onRender;
+        this.rootNode.onStaticChange = this.handleStaticChange;
         this.log = log_update_default.create(options.stdout, {
           incremental: options.incrementalRendering
         });
@@ -72506,7 +69144,7 @@ var init_ink = __esm({
         });
         this.unsubscribeExit = (0, import_signal_exit4.default)(this.unmount, { alwaysLast: false });
         this.setAlternateScreen(Boolean(options.alternateScreen));
-        if (process19.env["DEV"] === "true") {
+        if (process20.env["DEV"] === "true") {
           reconciler_default.injectIntoDevTools();
         }
         if (options.patchConsole) {
@@ -72533,6 +69171,7 @@ var init_ink = __esm({
           this.lastOutputToRender = "";
         }
         this.calculateLayout();
+        emitLayoutListeners(this.rootNode);
         this.onRender();
         this.lastTerminalWidth = currentWidth;
       };
@@ -72568,6 +69207,10 @@ var init_ink = __esm({
         const terminalWidth = getWindowSize(this.options.stdout).columns;
         this.rootNode.yogaNode.setWidth(terminalWidth);
         this.rootNode.yogaNode.calculateLayout(void 0, void 0, src_default.DIRECTION_LTR);
+      };
+      // Resets `fullStaticOutput` when the <Static> identity changes so stale items from a previous instance are not replayed on future rewrites.
+      handleStaticChange = () => {
+        this.fullStaticOutput = "";
       };
       onRender = () => {
         this.hasPendingThrottledRender = false;
@@ -72708,7 +69351,7 @@ var init_ink = __esm({
         }
         this.isUnmounting = true;
         if (this.beforeExitHandler) {
-          process19.off("beforeExit", this.beforeExitHandler);
+          process20.off("beforeExit", this.beforeExitHandler);
           this.beforeExitHandler = void 0;
         }
         const stdout = this.options.stdout;
@@ -72785,7 +69428,7 @@ var init_ink = __esm({
           this.beforeExitHandler = () => {
             this.unmount();
           };
-          process19.once("beforeExit", this.beforeExitHandler);
+          process20.once("beforeExit", this.beforeExitHandler);
         }
         return this.exitPromise;
       }
@@ -72996,7 +69639,7 @@ var init_ink = __esm({
 
 // node_modules/ink/build/render.js
 import { Stream } from "stream";
-import process20 from "process";
+import process21 from "process";
 var render, render_default, getOptions, getInstance;
 var init_render = __esm({
   async "node_modules/ink/build/render.js"() {
@@ -73005,9 +69648,9 @@ var init_render = __esm({
     init_instances();
     render = (node, options) => {
       const inkOptions = {
-        stdout: process20.stdout,
-        stdin: process20.stdin,
-        stderr: process20.stderr,
+        stdout: process21.stdout,
+        stdin: process21.stdin,
+        stderr: process21.stderr,
         debug: false,
         exitOnCtrlC: true,
         patchConsole: true,
@@ -73037,7 +69680,7 @@ var init_render = __esm({
       if (stdout instanceof Stream) {
         return {
           stdout,
-          stdin: process20.stdin
+          stdin: process21.stdin
         };
       }
       return stdout;
@@ -73049,7 +69692,7 @@ var init_render = __esm({
         instances_default.set(stdout, newInstance);
         return newInstance;
       }
-      process20.stderr.write("Warning: render() was called again for the same stdout before the previous Ink instance was unmounted. Reusing stdout across multiple render() calls is unsupported. Call unmount() first.\n");
+      process21.stderr.write("Warning: render() was called again for the same stdout before the previous Ink instance was unmounted. Reusing stdout across multiple render() calls is unsupported. Call unmount() first.\n");
       return instance;
     };
   }
@@ -73758,7 +70401,6 @@ var init_use_box_metrics = __esm({
     "use strict";
     import_react33 = __toESM(require_react(), 1);
     await init_dom();
-    init_use_stdout();
   }
 });
 
@@ -77096,7 +73738,7 @@ function error2(res, msg, status = 500) {
 }
 function handleApiRoute(req, res, bus, sse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const path3 = url.pathname;
+  const path4 = url.pathname;
   const method = req.method ?? "GET";
   if (method === "OPTIONS") {
     res.writeHead(204, {
@@ -77107,7 +73749,7 @@ function handleApiRoute(req, res, bus, sse) {
     res.end();
     return true;
   }
-  if (path3 === "/api/ingest" && method === "POST") {
+  if (path4 === "/api/ingest" && method === "POST") {
     const MAX_BODY = 1024 * 1024;
     let body = "";
     let size = 0;
@@ -77142,7 +73784,7 @@ function handleApiRoute(req, res, bus, sse) {
     });
     return true;
   }
-  if (path3 === "/api/sessions" && method === "GET") {
+  if (path4 === "/api/sessions" && method === "GET") {
     try {
       const sessions = bus.listSessions();
       json(res, sessions);
@@ -77151,7 +73793,7 @@ function handleApiRoute(req, res, bus, sse) {
     }
     return true;
   }
-  const sessionMatch = path3.match(/^\/api\/sessions\/([^/]+)$/);
+  const sessionMatch = path4.match(/^\/api\/sessions\/([^/]+)$/);
   if (sessionMatch && method === "GET") {
     try {
       const id = sessionMatch[1];
@@ -77177,13 +73819,13 @@ function handleApiRoute(req, res, bus, sse) {
     }
     return true;
   }
-  if (path3 === "/api/events" && method === "GET") {
+  if (path4 === "/api/events" && method === "GET") {
     const sessionId = url.searchParams.get("session");
     const cleanup = sse.addClient(res, sessionId);
     req.on("close", cleanup);
     return true;
   }
-  if (path3 === "/api/stats" && method === "GET") {
+  if (path4 === "/api/stats" && method === "GET") {
     try {
       const sessions = bus.listSessions();
       const active = sessions.filter((s) => s.status === "active").length;
@@ -77237,12 +73879,12 @@ async function startDashboard(opts = {}) {
   const publicDir = resolvePublicDir();
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const path3 = url.pathname;
-    if (path3.startsWith("/api/")) {
+    const path4 = url.pathname;
+    if (path4.startsWith("/api/")) {
       const handled = handleApiRoute(req, res, bus, sse);
       if (handled) return;
     }
-    const filePath = path3 === "/" ? join9(publicDir, "index.html") : join9(publicDir, path3);
+    const filePath = path4 === "/" ? join9(publicDir, "index.html") : join9(publicDir, path4);
     const resolved = resolve4(filePath);
     const rel = relative(publicDir, resolved);
     if (rel.startsWith("..") || rel.startsWith(sep2)) {
@@ -77257,7 +73899,7 @@ async function startDashboard(opts = {}) {
       res.writeHead(200, { "Content-Type": mime });
       res.end(content);
     } catch {
-      if (!extname(path3)) {
+      if (!extname(path4)) {
         try {
           const index = await readFile(join9(publicDir, "index.html"));
           res.writeHead(200, { "Content-Type": "text/html" });
@@ -78893,33 +75535,3384 @@ registerBackend(OPENCODE_BACKEND);
 import { existsSync as existsSync14 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
-// node_modules/commander/esm.mjs
-var import_index6 = __toESM(require_commander(), 1);
-var {
-  program,
-  createCommand,
-  createArgument,
-  createOption,
-  CommanderError,
-  InvalidArgumentError,
-  InvalidOptionArgumentError,
-  // deprecated old name
-  Command,
-  Argument,
-  Option,
-  Help
-} = import_index6.default;
+// node_modules/commander/lib/error.js
+var CommanderError = class extends Error {
+  /**
+   * Constructs the CommanderError class
+   * @param {number} exitCode suggested exit code which could be used with process.exit
+   * @param {string} code an id string representing the error
+   * @param {string} message human-readable description of the error
+   */
+  constructor(exitCode, code, message) {
+    super(message);
+    Error.captureStackTrace(this, this.constructor);
+    this.name = this.constructor.name;
+    this.code = code;
+    this.exitCode = exitCode;
+    this.nestedError = void 0;
+  }
+};
+var InvalidArgumentError = class extends CommanderError {
+  /**
+   * Constructs the InvalidArgumentError class
+   * @param {string} [message] explanation of why argument is invalid
+   */
+  constructor(message) {
+    super(1, "commander.invalidArgument", message);
+    Error.captureStackTrace(this, this.constructor);
+    this.name = this.constructor.name;
+  }
+};
+
+// node_modules/commander/lib/argument.js
+var Argument = class {
+  /**
+   * Initialize a new command argument with the given name and description.
+   * The default is that the argument is required, and you can explicitly
+   * indicate this with <> around the name. Put [] around the name for an optional argument.
+   *
+   * @param {string} name
+   * @param {string} [description]
+   */
+  constructor(name, description) {
+    this.description = description || "";
+    this.variadic = false;
+    this.parseArg = void 0;
+    this.defaultValue = void 0;
+    this.defaultValueDescription = void 0;
+    this.argChoices = void 0;
+    switch (name[0]) {
+      case "<":
+        this.required = true;
+        this._name = name.slice(1, -1);
+        break;
+      case "[":
+        this.required = false;
+        this._name = name.slice(1, -1);
+        break;
+      default:
+        this.required = true;
+        this._name = name;
+        break;
+    }
+    if (this._name.endsWith("...")) {
+      this.variadic = true;
+      this._name = this._name.slice(0, -3);
+    }
+  }
+  /**
+   * Return argument name.
+   *
+   * @return {string}
+   */
+  name() {
+    return this._name;
+  }
+  /**
+   * @package
+   */
+  _collectValue(value, previous) {
+    if (previous === this.defaultValue || !Array.isArray(previous)) {
+      return [value];
+    }
+    previous.push(value);
+    return previous;
+  }
+  /**
+   * Set the default value, and optionally supply the description to be displayed in the help.
+   *
+   * @param {*} value
+   * @param {string} [description]
+   * @return {Argument}
+   */
+  default(value, description) {
+    this.defaultValue = value;
+    this.defaultValueDescription = description;
+    return this;
+  }
+  /**
+   * Set the custom handler for processing CLI command arguments into argument values.
+   *
+   * @param {Function} [fn]
+   * @return {Argument}
+   */
+  argParser(fn) {
+    this.parseArg = fn;
+    return this;
+  }
+  /**
+   * Only allow argument value to be one of choices.
+   *
+   * @param {string[]} values
+   * @return {Argument}
+   */
+  choices(values) {
+    this.argChoices = values.slice();
+    this.parseArg = (arg, previous) => {
+      if (!this.argChoices.includes(arg)) {
+        throw new InvalidArgumentError(
+          `Allowed choices are ${this.argChoices.join(", ")}.`
+        );
+      }
+      if (this.variadic) {
+        return this._collectValue(arg, previous);
+      }
+      return arg;
+    };
+    return this;
+  }
+  /**
+   * Make argument required.
+   *
+   * @returns {Argument}
+   */
+  argRequired() {
+    this.required = true;
+    return this;
+  }
+  /**
+   * Make argument optional.
+   *
+   * @returns {Argument}
+   */
+  argOptional() {
+    this.required = false;
+    return this;
+  }
+};
+function humanReadableArgName(arg) {
+  const nameOutput = arg.name() + (arg.variadic === true ? "..." : "");
+  return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
+}
+
+// node_modules/commander/lib/command.js
+import { EventEmitter } from "events";
+import childProcess from "child_process";
+import path from "path";
+import fs from "fs";
+import process2 from "process";
+import { stripVTControlCharacters as stripVTControlCharacters2 } from "util";
+
+// node_modules/commander/lib/help.js
+import { stripVTControlCharacters } from "util";
+var Help = class {
+  constructor() {
+    this.helpWidth = void 0;
+    this.minWidthToWrap = 40;
+    this.sortSubcommands = false;
+    this.sortOptions = false;
+    this.showGlobalOptions = false;
+  }
+  /**
+   * prepareContext is called by Commander after applying overrides from `Command.configureHelp()`
+   * and just before calling `formatHelp()`.
+   *
+   * Commander just uses the helpWidth and the rest is provided for optional use by more complex subclasses.
+   *
+   * @param {{ error?: boolean, helpWidth?: number, outputHasColors?: boolean }} contextOptions
+   */
+  prepareContext(contextOptions) {
+    this.helpWidth = this.helpWidth ?? contextOptions.helpWidth ?? 80;
+  }
+  /**
+   * Get an array of the visible subcommands. Includes a placeholder for the implicit help command, if there is one.
+   *
+   * @param {Command} cmd
+   * @returns {Command[]}
+   */
+  visibleCommands(cmd) {
+    const visibleCommands = cmd.commands.filter((cmd2) => !cmd2._hidden);
+    const helpCommand = cmd._getHelpCommand();
+    if (helpCommand && !helpCommand._hidden) {
+      visibleCommands.push(helpCommand);
+    }
+    if (this.sortSubcommands) {
+      visibleCommands.sort((a, b) => {
+        return a.name().localeCompare(b.name());
+      });
+    }
+    return visibleCommands;
+  }
+  /**
+   * Compare options for sort.
+   *
+   * @param {Option} a
+   * @param {Option} b
+   * @returns {number}
+   */
+  compareOptions(a, b) {
+    const getSortKey = (option) => {
+      return option.short ? option.short.replace(/^-/, "") : option.long.replace(/^--/, "");
+    };
+    return getSortKey(a).localeCompare(getSortKey(b));
+  }
+  /**
+   * Get an array of the visible options. Includes a placeholder for the implicit help option, if there is one.
+   *
+   * @param {Command} cmd
+   * @returns {Option[]}
+   */
+  visibleOptions(cmd) {
+    const visibleOptions = cmd.options.filter((option) => !option.hidden);
+    const helpOption = cmd._getHelpOption();
+    if (helpOption && !helpOption.hidden) {
+      const removeShort = helpOption.short && cmd._findOption(helpOption.short);
+      const removeLong = helpOption.long && cmd._findOption(helpOption.long);
+      if (!removeShort && !removeLong) {
+        visibleOptions.push(helpOption);
+      } else if (helpOption.long && !removeLong) {
+        visibleOptions.push(
+          cmd.createOption(helpOption.long, helpOption.description)
+        );
+      } else if (helpOption.short && !removeShort) {
+        visibleOptions.push(
+          cmd.createOption(helpOption.short, helpOption.description)
+        );
+      }
+    }
+    if (this.sortOptions) {
+      visibleOptions.sort(this.compareOptions);
+    }
+    return visibleOptions;
+  }
+  /**
+   * Get an array of the visible global options. (Not including help.)
+   *
+   * @param {Command} cmd
+   * @returns {Option[]}
+   */
+  visibleGlobalOptions(cmd) {
+    if (!this.showGlobalOptions) return [];
+    const globalOptions = [];
+    for (let ancestorCmd = cmd.parent; ancestorCmd; ancestorCmd = ancestorCmd.parent) {
+      const visibleOptions = ancestorCmd.options.filter(
+        (option) => !option.hidden
+      );
+      globalOptions.push(...visibleOptions);
+    }
+    if (this.sortOptions) {
+      globalOptions.sort(this.compareOptions);
+    }
+    return globalOptions;
+  }
+  /**
+   * Get an array of the arguments if any have a description.
+   *
+   * @param {Command} cmd
+   * @returns {Argument[]}
+   */
+  visibleArguments(cmd) {
+    if (cmd._argsDescription) {
+      cmd.registeredArguments.forEach((argument) => {
+        argument.description = argument.description || cmd._argsDescription[argument.name()] || "";
+      });
+    }
+    if (cmd.registeredArguments.find((argument) => argument.description)) {
+      return cmd.registeredArguments;
+    }
+    return [];
+  }
+  /**
+   * Get the command term to show in the list of subcommands.
+   *
+   * @param {Command} cmd
+   * @returns {string}
+   */
+  subcommandTerm(cmd) {
+    const args = cmd.registeredArguments.map((arg) => humanReadableArgName(arg)).join(" ");
+    return cmd._name + (cmd._aliases[0] ? "|" + cmd._aliases[0] : "") + (cmd.options.length ? " [options]" : "") + // simplistic check for non-help option
+    (args ? " " + args : "");
+  }
+  /**
+   * Get the option term to show in the list of options.
+   *
+   * @param {Option} option
+   * @returns {string}
+   */
+  optionTerm(option) {
+    return option.flags;
+  }
+  /**
+   * Get the argument term to show in the list of arguments.
+   *
+   * @param {Argument} argument
+   * @returns {string}
+   */
+  argumentTerm(argument) {
+    return argument.name();
+  }
+  /**
+   * Get the longest command term length.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {number}
+   */
+  longestSubcommandTermLength(cmd, helper) {
+    return helper.visibleCommands(cmd).reduce((max, command) => {
+      return Math.max(
+        max,
+        this.displayWidth(
+          helper.styleSubcommandTerm(helper.subcommandTerm(command))
+        )
+      );
+    }, 0);
+  }
+  /**
+   * Get the longest option term length.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {number}
+   */
+  longestOptionTermLength(cmd, helper) {
+    return helper.visibleOptions(cmd).reduce((max, option) => {
+      return Math.max(
+        max,
+        this.displayWidth(helper.styleOptionTerm(helper.optionTerm(option)))
+      );
+    }, 0);
+  }
+  /**
+   * Get the longest global option term length.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {number}
+   */
+  longestGlobalOptionTermLength(cmd, helper) {
+    return helper.visibleGlobalOptions(cmd).reduce((max, option) => {
+      return Math.max(
+        max,
+        this.displayWidth(helper.styleOptionTerm(helper.optionTerm(option)))
+      );
+    }, 0);
+  }
+  /**
+   * Get the longest argument term length.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {number}
+   */
+  longestArgumentTermLength(cmd, helper) {
+    return helper.visibleArguments(cmd).reduce((max, argument) => {
+      return Math.max(
+        max,
+        this.displayWidth(
+          helper.styleArgumentTerm(helper.argumentTerm(argument))
+        )
+      );
+    }, 0);
+  }
+  /**
+   * Get the command usage to be displayed at the top of the built-in help.
+   *
+   * @param {Command} cmd
+   * @returns {string}
+   */
+  commandUsage(cmd) {
+    let cmdName = cmd._name;
+    if (cmd._aliases[0]) {
+      cmdName = cmdName + "|" + cmd._aliases[0];
+    }
+    let ancestorCmdNames = "";
+    for (let ancestorCmd = cmd.parent; ancestorCmd; ancestorCmd = ancestorCmd.parent) {
+      ancestorCmdNames = ancestorCmd.name() + " " + ancestorCmdNames;
+    }
+    return ancestorCmdNames + cmdName + " " + cmd.usage();
+  }
+  /**
+   * Get the description for the command.
+   *
+   * @param {Command} cmd
+   * @returns {string}
+   */
+  commandDescription(cmd) {
+    return cmd.description();
+  }
+  /**
+   * Get the subcommand summary to show in the list of subcommands.
+   * (Fallback to description for backwards compatibility.)
+   *
+   * @param {Command} cmd
+   * @returns {string}
+   */
+  subcommandDescription(cmd) {
+    return cmd.summary() || cmd.description();
+  }
+  /**
+   * Get the option description to show in the list of options.
+   *
+   * @param {Option} option
+   * @return {string}
+   */
+  optionDescription(option) {
+    const extraInfo = [];
+    if (option.argChoices) {
+      extraInfo.push(
+        // use stringify to match the display of the default value
+        `choices: ${option.argChoices.map((choice) => JSON.stringify(choice)).join(", ")}`
+      );
+    }
+    if (option.defaultValue !== void 0) {
+      const showDefault = option.required || option.optional || option.isBoolean() && typeof option.defaultValue === "boolean";
+      if (showDefault) {
+        extraInfo.push(
+          `default: ${option.defaultValueDescription || JSON.stringify(option.defaultValue)}`
+        );
+      }
+    }
+    if (option.presetArg !== void 0 && option.optional) {
+      extraInfo.push(`preset: ${JSON.stringify(option.presetArg)}`);
+    }
+    if (option.envVar !== void 0) {
+      extraInfo.push(`env: ${option.envVar}`);
+    }
+    if (extraInfo.length > 0) {
+      const extraDescription = `(${extraInfo.join(", ")})`;
+      if (option.description) {
+        return `${option.description} ${extraDescription}`;
+      }
+      return extraDescription;
+    }
+    return option.description;
+  }
+  /**
+   * Get the argument description to show in the list of arguments.
+   *
+   * @param {Argument} argument
+   * @return {string}
+   */
+  argumentDescription(argument) {
+    const extraInfo = [];
+    if (argument.argChoices) {
+      extraInfo.push(
+        // use stringify to match the display of the default value
+        `choices: ${argument.argChoices.map((choice) => JSON.stringify(choice)).join(", ")}`
+      );
+    }
+    if (argument.defaultValue !== void 0) {
+      extraInfo.push(
+        `default: ${argument.defaultValueDescription || JSON.stringify(argument.defaultValue)}`
+      );
+    }
+    if (extraInfo.length > 0) {
+      const extraDescription = `(${extraInfo.join(", ")})`;
+      if (argument.description) {
+        return `${argument.description} ${extraDescription}`;
+      }
+      return extraDescription;
+    }
+    return argument.description;
+  }
+  /**
+   * Format a list of items, given a heading and an array of formatted items.
+   *
+   * @param {string} heading
+   * @param {string[]} items
+   * @param {Help} helper
+   * @returns string[]
+   */
+  formatItemList(heading, items, helper) {
+    if (items.length === 0) return [];
+    return [helper.styleTitle(heading), ...items, ""];
+  }
+  /**
+   * Group items by their help group heading.
+   *
+   * @param {Command[] | Option[]} unsortedItems
+   * @param {Command[] | Option[]} visibleItems
+   * @param {Function} getGroup
+   * @returns {Map<string, Command[] | Option[]>}
+   */
+  groupItems(unsortedItems, visibleItems, getGroup) {
+    const result = /* @__PURE__ */ new Map();
+    unsortedItems.forEach((item) => {
+      const group = getGroup(item);
+      if (!result.has(group)) result.set(group, []);
+    });
+    visibleItems.forEach((item) => {
+      const group = getGroup(item);
+      if (!result.has(group)) {
+        result.set(group, []);
+      }
+      result.get(group).push(item);
+    });
+    return result;
+  }
+  /**
+   * Generate the built-in help text.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {string}
+   */
+  formatHelp(cmd, helper) {
+    const termWidth = helper.padWidth(cmd, helper);
+    const helpWidth = helper.helpWidth ?? 80;
+    function callFormatItem(term, description) {
+      return helper.formatItem(term, termWidth, description, helper);
+    }
+    let output = [
+      `${helper.styleTitle("Usage:")} ${helper.styleUsage(helper.commandUsage(cmd))}`,
+      ""
+    ];
+    const commandDescription = helper.commandDescription(cmd);
+    if (commandDescription.length > 0) {
+      output = output.concat([
+        helper.boxWrap(
+          helper.styleCommandDescription(commandDescription),
+          helpWidth
+        ),
+        ""
+      ]);
+    }
+    const argumentList = helper.visibleArguments(cmd).map((argument) => {
+      return callFormatItem(
+        helper.styleArgumentTerm(helper.argumentTerm(argument)),
+        helper.styleArgumentDescription(helper.argumentDescription(argument))
+      );
+    });
+    output = output.concat(
+      this.formatItemList("Arguments:", argumentList, helper)
+    );
+    const optionGroups = this.groupItems(
+      cmd.options,
+      helper.visibleOptions(cmd),
+      (option) => option.helpGroupHeading ?? "Options:"
+    );
+    optionGroups.forEach((options, group) => {
+      const optionList = options.map((option) => {
+        return callFormatItem(
+          helper.styleOptionTerm(helper.optionTerm(option)),
+          helper.styleOptionDescription(helper.optionDescription(option))
+        );
+      });
+      output = output.concat(this.formatItemList(group, optionList, helper));
+    });
+    if (helper.showGlobalOptions) {
+      const globalOptionList = helper.visibleGlobalOptions(cmd).map((option) => {
+        return callFormatItem(
+          helper.styleOptionTerm(helper.optionTerm(option)),
+          helper.styleOptionDescription(helper.optionDescription(option))
+        );
+      });
+      output = output.concat(
+        this.formatItemList("Global Options:", globalOptionList, helper)
+      );
+    }
+    const commandGroups = this.groupItems(
+      cmd.commands,
+      helper.visibleCommands(cmd),
+      (sub) => sub.helpGroup() || "Commands:"
+    );
+    commandGroups.forEach((commands, group) => {
+      const commandList = commands.map((sub) => {
+        return callFormatItem(
+          helper.styleSubcommandTerm(helper.subcommandTerm(sub)),
+          helper.styleSubcommandDescription(helper.subcommandDescription(sub))
+        );
+      });
+      output = output.concat(this.formatItemList(group, commandList, helper));
+    });
+    return output.join("\n");
+  }
+  /**
+   * Return display width of string, ignoring ANSI escape sequences. Used in padding and wrapping calculations.
+   *
+   * @param {string} str
+   * @returns {number}
+   */
+  displayWidth(str) {
+    return stripVTControlCharacters(str).length;
+  }
+  /**
+   * Style the title for displaying in the help. Called with 'Usage:', 'Options:', etc.
+   *
+   * @param {string} str
+   * @returns {string}
+   */
+  styleTitle(str) {
+    return str;
+  }
+  styleUsage(str) {
+    return str.split(" ").map((word) => {
+      if (word === "[options]") return this.styleOptionText(word);
+      if (word === "[command]") return this.styleSubcommandText(word);
+      if (word[0] === "[" || word[0] === "<")
+        return this.styleArgumentText(word);
+      return this.styleCommandText(word);
+    }).join(" ");
+  }
+  styleCommandDescription(str) {
+    return this.styleDescriptionText(str);
+  }
+  styleOptionDescription(str) {
+    return this.styleDescriptionText(str);
+  }
+  styleSubcommandDescription(str) {
+    return this.styleDescriptionText(str);
+  }
+  styleArgumentDescription(str) {
+    return this.styleDescriptionText(str);
+  }
+  styleDescriptionText(str) {
+    return str;
+  }
+  styleOptionTerm(str) {
+    return this.styleOptionText(str);
+  }
+  styleSubcommandTerm(str) {
+    return str.split(" ").map((word) => {
+      if (word === "[options]") return this.styleOptionText(word);
+      if (word[0] === "[" || word[0] === "<")
+        return this.styleArgumentText(word);
+      return this.styleSubcommandText(word);
+    }).join(" ");
+  }
+  styleArgumentTerm(str) {
+    return this.styleArgumentText(str);
+  }
+  styleOptionText(str) {
+    return str;
+  }
+  styleArgumentText(str) {
+    return str;
+  }
+  styleSubcommandText(str) {
+    return str;
+  }
+  styleCommandText(str) {
+    return str;
+  }
+  /**
+   * Calculate the pad width from the maximum term length.
+   *
+   * @param {Command} cmd
+   * @param {Help} helper
+   * @returns {number}
+   */
+  padWidth(cmd, helper) {
+    return Math.max(
+      helper.longestOptionTermLength(cmd, helper),
+      helper.longestGlobalOptionTermLength(cmd, helper),
+      helper.longestSubcommandTermLength(cmd, helper),
+      helper.longestArgumentTermLength(cmd, helper)
+    );
+  }
+  /**
+   * Detect manually wrapped and indented strings by checking for line break followed by whitespace.
+   *
+   * @param {string} str
+   * @returns {boolean}
+   */
+  preformatted(str) {
+    return /\n[^\S\r\n]/.test(str);
+  }
+  /**
+   * Format the "item", which consists of a term and description. Pad the term and wrap the description, indenting the following lines.
+   *
+   * So "TTT", 5, "DDD DDDD DD DDD" might be formatted for this.helpWidth=17 like so:
+   *   TTT  DDD DDDD
+   *        DD DDD
+   *
+   * @param {string} term
+   * @param {number} termWidth
+   * @param {string} description
+   * @param {Help} helper
+   * @returns {string}
+   */
+  formatItem(term, termWidth, description, helper) {
+    const itemIndent = 2;
+    const itemIndentStr = " ".repeat(itemIndent);
+    if (!description) return itemIndentStr + term;
+    const paddedTerm = term.padEnd(
+      termWidth + term.length - helper.displayWidth(term)
+    );
+    const spacerWidth = 2;
+    const helpWidth = this.helpWidth ?? 80;
+    const remainingWidth = helpWidth - termWidth - spacerWidth - itemIndent;
+    let formattedDescription;
+    if (remainingWidth < this.minWidthToWrap || helper.preformatted(description)) {
+      formattedDescription = description;
+    } else {
+      const wrappedDescription = helper.boxWrap(description, remainingWidth);
+      formattedDescription = wrappedDescription.replace(
+        /\n/g,
+        "\n" + " ".repeat(termWidth + spacerWidth)
+      );
+    }
+    return itemIndentStr + paddedTerm + " ".repeat(spacerWidth) + formattedDescription.replace(/\n/g, `
+${itemIndentStr}`);
+  }
+  /**
+   * Wrap a string at whitespace, preserving existing line breaks.
+   * Wrapping is skipped if the width is less than `minWidthToWrap`.
+   *
+   * @param {string} str
+   * @param {number} width
+   * @returns {string}
+   */
+  boxWrap(str, width) {
+    if (width < this.minWidthToWrap) return str;
+    const rawLines = str.split(/\r\n|\n/);
+    const chunkPattern = /[\s]*[^\s]+/g;
+    const wrappedLines = [];
+    rawLines.forEach((line) => {
+      const chunks = line.match(chunkPattern);
+      if (chunks === null) {
+        wrappedLines.push("");
+        return;
+      }
+      let sumChunks = [chunks.shift()];
+      let sumWidth = this.displayWidth(sumChunks[0]);
+      chunks.forEach((chunk) => {
+        const visibleWidth = this.displayWidth(chunk);
+        if (sumWidth + visibleWidth <= width) {
+          sumChunks.push(chunk);
+          sumWidth += visibleWidth;
+          return;
+        }
+        wrappedLines.push(sumChunks.join(""));
+        const nextChunk = chunk.trimStart();
+        sumChunks = [nextChunk];
+        sumWidth = this.displayWidth(nextChunk);
+      });
+      wrappedLines.push(sumChunks.join(""));
+    });
+    return wrappedLines.join("\n");
+  }
+};
+
+// node_modules/commander/lib/option.js
+var Option = class {
+  /**
+   * Initialize a new `Option` with the given `flags` and `description`.
+   *
+   * @param {string} flags
+   * @param {string} [description]
+   */
+  constructor(flags, description) {
+    this.flags = flags;
+    this.description = description || "";
+    this.required = flags.includes("<");
+    this.optional = flags.includes("[");
+    this.variadic = /\w\.\.\.[>\]]$/.test(flags);
+    this.mandatory = false;
+    const optionFlags = splitOptionFlags(flags);
+    this.short = optionFlags.shortFlag;
+    this.long = optionFlags.longFlag;
+    this.negate = false;
+    if (this.long) {
+      this.negate = this.long.startsWith("--no-");
+    }
+    this.defaultValue = void 0;
+    this.defaultValueDescription = void 0;
+    this.presetArg = void 0;
+    this.envVar = void 0;
+    this.parseArg = void 0;
+    this.hidden = false;
+    this.argChoices = void 0;
+    this.conflictsWith = [];
+    this.implied = void 0;
+    this.helpGroupHeading = void 0;
+  }
+  /**
+   * Set the default value, and optionally supply the description to be displayed in the help.
+   *
+   * @param {*} value
+   * @param {string} [description]
+   * @return {Option}
+   */
+  default(value, description) {
+    this.defaultValue = value;
+    this.defaultValueDescription = description;
+    return this;
+  }
+  /**
+   * Preset to use when option used without option-argument, especially optional but also boolean and negated.
+   * The custom processing (parseArg) is called.
+   *
+   * @example
+   * new Option('--color').default('GREYSCALE').preset('RGB');
+   * new Option('--donate [amount]').preset('20').argParser(parseFloat);
+   *
+   * @param {*} arg
+   * @return {Option}
+   */
+  preset(arg) {
+    this.presetArg = arg;
+    return this;
+  }
+  /**
+   * Add option name(s) that conflict with this option.
+   * An error will be displayed if conflicting options are found during parsing.
+   *
+   * @example
+   * new Option('--rgb').conflicts('cmyk');
+   * new Option('--js').conflicts(['ts', 'jsx']);
+   *
+   * @param {(string | string[])} names
+   * @return {Option}
+   */
+  conflicts(names) {
+    this.conflictsWith = this.conflictsWith.concat(names);
+    return this;
+  }
+  /**
+   * Specify implied option values for when this option is set and the implied options are not.
+   *
+   * The custom processing (parseArg) is not called on the implied values.
+   *
+   * @example
+   * program
+   *   .addOption(new Option('--log', 'write logging information to file'))
+   *   .addOption(new Option('--trace', 'log extra details').implies({ log: 'trace.txt' }));
+   *
+   * @param {object} impliedOptionValues
+   * @return {Option}
+   */
+  implies(impliedOptionValues) {
+    let newImplied = impliedOptionValues;
+    if (typeof impliedOptionValues === "string") {
+      newImplied = { [impliedOptionValues]: true };
+    }
+    this.implied = Object.assign(this.implied || {}, newImplied);
+    return this;
+  }
+  /**
+   * Set environment variable to check for option value.
+   *
+   * An environment variable is only used if when processed the current option value is
+   * undefined, or the source of the current value is 'default' or 'config' or 'env'.
+   *
+   * @param {string} name
+   * @return {Option}
+   */
+  env(name) {
+    this.envVar = name;
+    return this;
+  }
+  /**
+   * Set the custom handler for processing CLI option arguments into option values.
+   *
+   * @param {Function} [fn]
+   * @return {Option}
+   */
+  argParser(fn) {
+    this.parseArg = fn;
+    return this;
+  }
+  /**
+   * Whether the option is mandatory and must have a value after parsing.
+   *
+   * @param {boolean} [mandatory=true]
+   * @return {Option}
+   */
+  makeOptionMandatory(mandatory = true) {
+    this.mandatory = !!mandatory;
+    return this;
+  }
+  /**
+   * Hide option in help.
+   *
+   * @param {boolean} [hide=true]
+   * @return {Option}
+   */
+  hideHelp(hide = true) {
+    this.hidden = !!hide;
+    return this;
+  }
+  /**
+   * @package
+   */
+  _collectValue(value, previous) {
+    if (previous === this.defaultValue || !Array.isArray(previous)) {
+      return [value];
+    }
+    previous.push(value);
+    return previous;
+  }
+  /**
+   * Only allow option value to be one of choices.
+   *
+   * @param {string[]} values
+   * @return {Option}
+   */
+  choices(values) {
+    this.argChoices = values.slice();
+    this.parseArg = (arg, previous) => {
+      if (!this.argChoices.includes(arg)) {
+        throw new InvalidArgumentError(
+          `Allowed choices are ${this.argChoices.join(", ")}.`
+        );
+      }
+      if (this.variadic) {
+        return this._collectValue(arg, previous);
+      }
+      return arg;
+    };
+    return this;
+  }
+  /**
+   * Return option name.
+   *
+   * @return {string}
+   */
+  name() {
+    if (this.long) {
+      return this.long.replace(/^--/, "");
+    }
+    return this.short.replace(/^-/, "");
+  }
+  /**
+   * Return option name, in a camelcase format that can be used
+   * as an object attribute key.
+   *
+   * @return {string}
+   */
+  attributeName() {
+    if (this.negate) {
+      return camelcase(this.name().replace(/^no-/, ""));
+    }
+    return camelcase(this.name());
+  }
+  /**
+   * Set the help group heading.
+   *
+   * @param {string} heading
+   * @return {Option}
+   */
+  helpGroup(heading) {
+    this.helpGroupHeading = heading;
+    return this;
+  }
+  /**
+   * Check if `arg` matches the short or long flag.
+   *
+   * @param {string} arg
+   * @return {boolean}
+   * @package
+   */
+  is(arg) {
+    return this.short === arg || this.long === arg;
+  }
+  /**
+   * Return whether a boolean option.
+   *
+   * Options are one of boolean, negated, required argument, or optional argument.
+   *
+   * @return {boolean}
+   * @package
+   */
+  isBoolean() {
+    return !this.required && !this.optional && !this.negate;
+  }
+};
+var DualOptions = class {
+  /**
+   * @param {Option[]} options
+   */
+  constructor(options) {
+    this.positiveOptions = /* @__PURE__ */ new Map();
+    this.negativeOptions = /* @__PURE__ */ new Map();
+    this.dualOptions = /* @__PURE__ */ new Set();
+    options.forEach((option) => {
+      if (option.negate) {
+        this.negativeOptions.set(option.attributeName(), option);
+      } else {
+        this.positiveOptions.set(option.attributeName(), option);
+      }
+    });
+    this.negativeOptions.forEach((value, key) => {
+      if (this.positiveOptions.has(key)) {
+        this.dualOptions.add(key);
+      }
+    });
+  }
+  /**
+   * Did the value come from the option, and not from possible matching dual option?
+   *
+   * @param {*} value
+   * @param {Option} option
+   * @returns {boolean}
+   */
+  valueFromOption(value, option) {
+    const optionKey = option.attributeName();
+    if (!this.dualOptions.has(optionKey)) return true;
+    const preset = this.negativeOptions.get(optionKey).presetArg;
+    const negativeValue = preset !== void 0 ? preset : false;
+    return option.negate === (negativeValue === value);
+  }
+};
+function camelcase(str) {
+  return str.split("-").reduce((str2, word) => {
+    return str2 + word[0].toUpperCase() + word.slice(1);
+  });
+}
+function splitOptionFlags(flags) {
+  let shortFlag;
+  let longFlag;
+  const shortFlagExp = /^-[^-]$/;
+  const longFlagExp = /^--[^-]/;
+  const flagParts = flags.split(/[ |,]+/).concat("guard");
+  if (shortFlagExp.test(flagParts[0])) shortFlag = flagParts.shift();
+  if (longFlagExp.test(flagParts[0])) longFlag = flagParts.shift();
+  if (!shortFlag && shortFlagExp.test(flagParts[0]))
+    shortFlag = flagParts.shift();
+  if (!shortFlag && longFlagExp.test(flagParts[0])) {
+    shortFlag = longFlag;
+    longFlag = flagParts.shift();
+  }
+  if (flagParts[0].startsWith("-")) {
+    const unsupportedFlag = flagParts[0];
+    const baseError = `option creation failed due to '${unsupportedFlag}' in option flags '${flags}'`;
+    if (/^-[^-][^-]/.test(unsupportedFlag))
+      throw new Error(
+        `${baseError}
+- a short flag is a single dash and a single character
+  - either use a single dash and a single character (for a short flag)
+  - or use a double dash for a long option (and can have two, like '--ws, --workspace')`
+      );
+    if (shortFlagExp.test(unsupportedFlag))
+      throw new Error(`${baseError}
+- too many short flags`);
+    if (longFlagExp.test(unsupportedFlag))
+      throw new Error(`${baseError}
+- too many long flags`);
+    throw new Error(`${baseError}
+- unrecognised flag format`);
+  }
+  if (shortFlag === void 0 && longFlag === void 0)
+    throw new Error(
+      `option creation failed due to no flags found in '${flags}'.`
+    );
+  return { shortFlag, longFlag };
+}
+
+// node_modules/commander/lib/suggestSimilar.js
+var maxDistance = 3;
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > maxDistance)
+    return Math.max(a.length, b.length);
+  const d = [];
+  for (let i = 0; i <= a.length; i++) {
+    d[i] = [i];
+  }
+  for (let j = 0; j <= b.length; j++) {
+    d[0][j] = j;
+  }
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      let cost;
+      if (a[i - 1] === b[j - 1]) {
+        cost = 0;
+      } else {
+        cost = 1;
+      }
+      d[i][j] = Math.min(
+        d[i - 1][j] + 1,
+        // deletion
+        d[i][j - 1] + 1,
+        // insertion
+        d[i - 1][j - 1] + cost
+        // substitution
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[a.length][b.length];
+}
+function suggestSimilar(word, candidates) {
+  if (!candidates || candidates.length === 0) return "";
+  candidates = Array.from(new Set(candidates));
+  const searchingOptions = word.startsWith("--");
+  if (searchingOptions) {
+    word = word.slice(2);
+    candidates = candidates.map((candidate) => candidate.slice(2));
+  }
+  let similar = [];
+  let bestDistance = maxDistance;
+  const minSimilarity = 0.4;
+  candidates.forEach((candidate) => {
+    if (candidate.length <= 1) return;
+    const distance = editDistance(word, candidate);
+    const length = Math.max(word.length, candidate.length);
+    const similarity = (length - distance) / length;
+    if (similarity > minSimilarity) {
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        similar = [candidate];
+      } else if (distance === bestDistance) {
+        similar.push(candidate);
+      }
+    }
+  });
+  similar.sort((a, b) => a.localeCompare(b));
+  if (searchingOptions) {
+    similar = similar.map((candidate) => `--${candidate}`);
+  }
+  if (similar.length > 1) {
+    return `
+(Did you mean one of ${similar.join(", ")}?)`;
+  }
+  if (similar.length === 1) {
+    return `
+(Did you mean ${similar[0]}?)`;
+  }
+  return "";
+}
+
+// node_modules/commander/lib/command.js
+var Command = class _Command extends EventEmitter {
+  /**
+   * Initialize a new `Command`.
+   *
+   * @param {string} [name]
+   */
+  constructor(name) {
+    super();
+    this.commands = [];
+    this.options = [];
+    this.parent = null;
+    this._allowUnknownOption = false;
+    this._allowExcessArguments = false;
+    this.registeredArguments = [];
+    this._args = this.registeredArguments;
+    this.args = [];
+    this.rawArgs = [];
+    this.processedArgs = [];
+    this._scriptPath = null;
+    this._name = name || "";
+    this._optionValues = {};
+    this._optionValueSources = {};
+    this._storeOptionsAsProperties = false;
+    this._actionHandler = null;
+    this._executableHandler = false;
+    this._executableFile = null;
+    this._executableDir = null;
+    this._defaultCommandName = null;
+    this._exitCallback = null;
+    this._aliases = [];
+    this._combineFlagAndOptionalValue = true;
+    this._description = "";
+    this._summary = "";
+    this._argsDescription = void 0;
+    this._enablePositionalOptions = false;
+    this._passThroughOptions = false;
+    this._lifeCycleHooks = {};
+    this._showHelpAfterError = false;
+    this._showSuggestionAfterError = true;
+    this._savedState = null;
+    this._outputConfiguration = {
+      writeOut: (str) => process2.stdout.write(str),
+      writeErr: (str) => process2.stderr.write(str),
+      outputError: (str, write) => write(str),
+      getOutHelpWidth: () => process2.stdout.isTTY ? process2.stdout.columns : void 0,
+      getErrHelpWidth: () => process2.stderr.isTTY ? process2.stderr.columns : void 0,
+      getOutHasColors: () => useColor() ?? (process2.stdout.isTTY && process2.stdout.hasColors?.()),
+      getErrHasColors: () => useColor() ?? (process2.stderr.isTTY && process2.stderr.hasColors?.()),
+      stripColor: (str) => stripVTControlCharacters2(str)
+    };
+    this._hidden = false;
+    this._helpOption = void 0;
+    this._addImplicitHelpCommand = void 0;
+    this._helpCommand = void 0;
+    this._helpConfiguration = {};
+    this._helpGroupHeading = void 0;
+    this._defaultCommandGroup = void 0;
+    this._defaultOptionGroup = void 0;
+  }
+  /**
+   * Copy settings that are useful to have in common across root command and subcommands.
+   *
+   * (Used internally when adding a command using `.command()` so subcommands inherit parent settings.)
+   *
+   * @param {Command} sourceCommand
+   * @return {Command} `this` command for chaining
+   */
+  copyInheritedSettings(sourceCommand) {
+    this._outputConfiguration = sourceCommand._outputConfiguration;
+    this._helpOption = sourceCommand._helpOption;
+    this._helpCommand = sourceCommand._helpCommand;
+    this._helpConfiguration = sourceCommand._helpConfiguration;
+    this._exitCallback = sourceCommand._exitCallback;
+    this._storeOptionsAsProperties = sourceCommand._storeOptionsAsProperties;
+    this._combineFlagAndOptionalValue = sourceCommand._combineFlagAndOptionalValue;
+    this._allowExcessArguments = sourceCommand._allowExcessArguments;
+    this._enablePositionalOptions = sourceCommand._enablePositionalOptions;
+    this._showHelpAfterError = sourceCommand._showHelpAfterError;
+    this._showSuggestionAfterError = sourceCommand._showSuggestionAfterError;
+    return this;
+  }
+  /**
+   * @returns {Command[]}
+   * @private
+   */
+  _getCommandAndAncestors() {
+    const result = [];
+    for (let command = this; command; command = command.parent) {
+      result.push(command);
+    }
+    return result;
+  }
+  /**
+   * Define a command.
+   *
+   * There are two styles of command: pay attention to where to put the description.
+   *
+   * @example
+   * // Command implemented using action handler (description is supplied separately to `.command`)
+   * program
+   *   .command('clone <source> [destination]')
+   *   .description('clone a repository into a newly created directory')
+   *   .action((source, destination) => {
+   *     console.log('clone command called');
+   *   });
+   *
+   * // Command implemented using separate executable file (description is second parameter to `.command`)
+   * program
+   *   .command('start <service>', 'start named service')
+   *   .command('stop [service]', 'stop named service, or all if no name supplied');
+   *
+   * @param {string} nameAndArgs - command name and arguments, args are `<required>` or `[optional]` and last may also be `variadic...`
+   * @param {(object | string)} [actionOptsOrExecDesc] - configuration options (for action), or description (for executable)
+   * @param {object} [execOpts] - configuration options (for executable)
+   * @return {Command} returns new command for action handler, or `this` for executable command
+   */
+  command(nameAndArgs, actionOptsOrExecDesc, execOpts) {
+    let desc = actionOptsOrExecDesc;
+    let opts = execOpts;
+    if (typeof desc === "object" && desc !== null) {
+      opts = desc;
+      desc = null;
+    }
+    opts = opts || {};
+    const [, name, args] = nameAndArgs.match(/([^ ]+) *(.*)/);
+    const cmd = this.createCommand(name);
+    if (desc) {
+      cmd.description(desc);
+      cmd._executableHandler = true;
+    }
+    if (opts.isDefault) this._defaultCommandName = cmd._name;
+    cmd._hidden = !!(opts.noHelp || opts.hidden);
+    cmd._executableFile = opts.executableFile || null;
+    if (args) cmd.arguments(args);
+    this._registerCommand(cmd);
+    cmd.parent = this;
+    cmd.copyInheritedSettings(this);
+    if (desc) return this;
+    return cmd;
+  }
+  /**
+   * Factory routine to create a new unattached command.
+   *
+   * See .command() for creating an attached subcommand, which uses this routine to
+   * create the command. You can override createCommand to customise subcommands.
+   *
+   * @param {string} [name]
+   * @return {Command} new command
+   */
+  createCommand(name) {
+    return new _Command(name);
+  }
+  /**
+   * You can customise the help with a subclass of Help by overriding createHelp,
+   * or by overriding Help properties using configureHelp().
+   *
+   * @return {Help}
+   */
+  createHelp() {
+    return Object.assign(new Help(), this.configureHelp());
+  }
+  /**
+   * You can customise the help by overriding Help properties using configureHelp(),
+   * or with a subclass of Help by overriding createHelp().
+   *
+   * @param {object} [configuration] - configuration options
+   * @return {(Command | object)} `this` command for chaining, or stored configuration
+   */
+  configureHelp(configuration) {
+    if (configuration === void 0) return this._helpConfiguration;
+    this._helpConfiguration = configuration;
+    return this;
+  }
+  /**
+   * The default output goes to stdout and stderr. You can customise this for special
+   * applications. You can also customise the display of errors by overriding outputError.
+   *
+   * The configuration properties are all functions:
+   *
+   *     // change how output being written, defaults to stdout and stderr
+   *     writeOut(str)
+   *     writeErr(str)
+   *     // change how output being written for errors, defaults to writeErr
+   *     outputError(str, write) // used for displaying errors and not used for displaying help
+   *     // specify width for wrapping help
+   *     getOutHelpWidth()
+   *     getErrHelpWidth()
+   *     // color support, currently only used with Help
+   *     getOutHasColors()
+   *     getErrHasColors()
+   *     stripColor() // used to remove ANSI escape codes if output does not have colors
+   *
+   * @param {object} [configuration] - configuration options
+   * @return {(Command | object)} `this` command for chaining, or stored configuration
+   */
+  configureOutput(configuration) {
+    if (configuration === void 0) return this._outputConfiguration;
+    this._outputConfiguration = {
+      ...this._outputConfiguration,
+      ...configuration
+    };
+    return this;
+  }
+  /**
+   * Display the help or a custom message after an error occurs.
+   *
+   * @param {(boolean|string)} [displayHelp]
+   * @return {Command} `this` command for chaining
+   */
+  showHelpAfterError(displayHelp = true) {
+    if (typeof displayHelp !== "string") displayHelp = !!displayHelp;
+    this._showHelpAfterError = displayHelp;
+    return this;
+  }
+  /**
+   * Display suggestion of similar commands for unknown commands, or options for unknown options.
+   *
+   * @param {boolean} [displaySuggestion]
+   * @return {Command} `this` command for chaining
+   */
+  showSuggestionAfterError(displaySuggestion = true) {
+    this._showSuggestionAfterError = !!displaySuggestion;
+    return this;
+  }
+  /**
+   * Add a prepared subcommand.
+   *
+   * See .command() for creating an attached subcommand which inherits settings from its parent.
+   *
+   * @param {Command} cmd - new subcommand
+   * @param {object} [opts] - configuration options
+   * @return {Command} `this` command for chaining
+   */
+  addCommand(cmd, opts) {
+    if (!cmd._name) {
+      throw new Error(`Command passed to .addCommand() must have a name
+- specify the name in Command constructor or using .name()`);
+    }
+    opts = opts || {};
+    if (opts.isDefault) this._defaultCommandName = cmd._name;
+    if (opts.noHelp || opts.hidden) cmd._hidden = true;
+    this._registerCommand(cmd);
+    cmd.parent = this;
+    cmd._checkForBrokenPassThrough();
+    return this;
+  }
+  /**
+   * Factory routine to create a new unattached argument.
+   *
+   * See .argument() for creating an attached argument, which uses this routine to
+   * create the argument. You can override createArgument to return a custom argument.
+   *
+   * @param {string} name
+   * @param {string} [description]
+   * @return {Argument} new argument
+   */
+  createArgument(name, description) {
+    return new Argument(name, description);
+  }
+  /**
+   * Define argument syntax for command.
+   *
+   * The default is that the argument is required, and you can explicitly
+   * indicate this with <> around the name. Put [] around the name for an optional argument.
+   *
+   * @example
+   * program.argument('<input-file>');
+   * program.argument('[output-file]');
+   *
+   * @param {string} name
+   * @param {string} [description]
+   * @param {(Function|*)} [parseArg] - custom argument processing function or default value
+   * @param {*} [defaultValue]
+   * @return {Command} `this` command for chaining
+   */
+  argument(name, description, parseArg, defaultValue2) {
+    const argument = this.createArgument(name, description);
+    if (typeof parseArg === "function") {
+      argument.default(defaultValue2).argParser(parseArg);
+    } else {
+      argument.default(parseArg);
+    }
+    this.addArgument(argument);
+    return this;
+  }
+  /**
+   * Define argument syntax for command, adding multiple at once (without descriptions).
+   *
+   * See also .argument().
+   *
+   * @example
+   * program.arguments('<cmd> [env]');
+   *
+   * @param {string} names
+   * @return {Command} `this` command for chaining
+   */
+  arguments(names) {
+    names.trim().split(/ +/).forEach((detail) => {
+      this.argument(detail);
+    });
+    return this;
+  }
+  /**
+   * Define argument syntax for command, adding a prepared argument.
+   *
+   * @param {Argument} argument
+   * @return {Command} `this` command for chaining
+   */
+  addArgument(argument) {
+    const previousArgument = this.registeredArguments.slice(-1)[0];
+    if (previousArgument?.variadic) {
+      throw new Error(
+        `only the last argument can be variadic '${previousArgument.name()}'`
+      );
+    }
+    if (argument.required && argument.defaultValue !== void 0 && argument.parseArg === void 0) {
+      throw new Error(
+        `a default value for a required argument is never used: '${argument.name()}'`
+      );
+    }
+    this.registeredArguments.push(argument);
+    return this;
+  }
+  /**
+   * Customise or override default help command. By default a help command is automatically added if your command has subcommands.
+   *
+   * @example
+   *    program.helpCommand('help [cmd]');
+   *    program.helpCommand('help [cmd]', 'show help');
+   *    program.helpCommand(false); // suppress default help command
+   *    program.helpCommand(true); // add help command even if no subcommands
+   *
+   * @param {string|boolean} enableOrNameAndArgs - enable with custom name and/or arguments, or boolean to override whether added
+   * @param {string} [description] - custom description
+   * @return {Command} `this` command for chaining
+   */
+  helpCommand(enableOrNameAndArgs, description) {
+    if (typeof enableOrNameAndArgs === "boolean") {
+      this._addImplicitHelpCommand = enableOrNameAndArgs;
+      if (enableOrNameAndArgs && this._defaultCommandGroup) {
+        this._initCommandGroup(this._getHelpCommand());
+      }
+      return this;
+    }
+    const nameAndArgs = enableOrNameAndArgs ?? "help [command]";
+    const [, helpName, helpArgs] = nameAndArgs.match(/([^ ]+) *(.*)/);
+    const helpDescription = description ?? "display help for command";
+    const helpCommand = this.createCommand(helpName);
+    helpCommand.helpOption(false);
+    if (helpArgs) helpCommand.arguments(helpArgs);
+    if (helpDescription) helpCommand.description(helpDescription);
+    this._addImplicitHelpCommand = true;
+    this._helpCommand = helpCommand;
+    if (enableOrNameAndArgs || description) this._initCommandGroup(helpCommand);
+    return this;
+  }
+  /**
+   * Add prepared custom help command.
+   *
+   * @param {(Command|string|boolean)} helpCommand - custom help command, or deprecated enableOrNameAndArgs as for `.helpCommand()`
+   * @param {string} [deprecatedDescription] - deprecated custom description used with custom name only
+   * @return {Command} `this` command for chaining
+   */
+  addHelpCommand(helpCommand, deprecatedDescription) {
+    if (typeof helpCommand !== "object") {
+      this.helpCommand(helpCommand, deprecatedDescription);
+      return this;
+    }
+    this._addImplicitHelpCommand = true;
+    this._helpCommand = helpCommand;
+    this._initCommandGroup(helpCommand);
+    return this;
+  }
+  /**
+   * Lazy create help command.
+   *
+   * @return {(Command|null)}
+   * @package
+   */
+  _getHelpCommand() {
+    const hasImplicitHelpCommand = this._addImplicitHelpCommand ?? (this.commands.length && !this._actionHandler && !this._findCommand("help"));
+    if (hasImplicitHelpCommand) {
+      if (this._helpCommand === void 0) {
+        this.helpCommand(void 0, void 0);
+      }
+      return this._helpCommand;
+    }
+    return null;
+  }
+  /**
+   * Add hook for life cycle event.
+   *
+   * @param {string} event
+   * @param {Function} listener
+   * @return {Command} `this` command for chaining
+   */
+  hook(event, listener) {
+    const allowedValues = ["preSubcommand", "preAction", "postAction"];
+    if (!allowedValues.includes(event)) {
+      throw new Error(`Unexpected value for event passed to hook : '${event}'.
+Expecting one of '${allowedValues.join("', '")}'`);
+    }
+    if (this._lifeCycleHooks[event]) {
+      this._lifeCycleHooks[event].push(listener);
+    } else {
+      this._lifeCycleHooks[event] = [listener];
+    }
+    return this;
+  }
+  /**
+   * Register callback to use as replacement for calling process.exit.
+   *
+   * @param {Function} [fn] optional callback which will be passed a CommanderError, defaults to throwing
+   * @return {Command} `this` command for chaining
+   */
+  exitOverride(fn) {
+    if (fn) {
+      this._exitCallback = fn;
+    } else {
+      this._exitCallback = (err) => {
+        if (err.code !== "commander.executeSubCommandAsync") {
+          throw err;
+        } else {
+        }
+      };
+    }
+    return this;
+  }
+  /**
+   * Call process.exit, and _exitCallback if defined.
+   *
+   * @param {number} exitCode exit code for using with process.exit
+   * @param {string} code an id string representing the error
+   * @param {string} message human-readable description of the error
+   * @return never
+   * @private
+   */
+  _exit(exitCode, code, message) {
+    if (this._exitCallback) {
+      this._exitCallback(new CommanderError(exitCode, code, message));
+    }
+    process2.exit(exitCode);
+  }
+  /**
+   * Register callback `fn` for the command.
+   *
+   * @example
+   * program
+   *   .command('serve')
+   *   .description('start service')
+   *   .action(function() {
+   *      // do work here
+   *   });
+   *
+   * @param {Function} fn
+   * @return {Command} `this` command for chaining
+   */
+  action(fn) {
+    const listener = (args) => {
+      const expectedArgsCount = this.registeredArguments.length;
+      const actionArgs = args.slice(0, expectedArgsCount);
+      if (this._storeOptionsAsProperties) {
+        actionArgs[expectedArgsCount] = this;
+      } else {
+        actionArgs[expectedArgsCount] = this.opts();
+      }
+      actionArgs.push(this);
+      return fn.apply(this, actionArgs);
+    };
+    this._actionHandler = listener;
+    return this;
+  }
+  /**
+   * Factory routine to create a new unattached option.
+   *
+   * See .option() for creating an attached option, which uses this routine to
+   * create the option. You can override createOption to return a custom option.
+   *
+   * @param {string} flags
+   * @param {string} [description]
+   * @return {Option} new option
+   */
+  createOption(flags, description) {
+    return new Option(flags, description);
+  }
+  /**
+   * Wrap parseArgs to catch 'commander.invalidArgument'.
+   *
+   * @param {(Option | Argument)} target
+   * @param {string} value
+   * @param {*} previous
+   * @param {string} invalidArgumentMessage
+   * @private
+   */
+  _callParseArg(target, value, previous, invalidArgumentMessage) {
+    try {
+      return target.parseArg(value, previous);
+    } catch (err) {
+      if (err.code === "commander.invalidArgument") {
+        const message = `${invalidArgumentMessage} ${err.message}`;
+        this.error(message, { exitCode: err.exitCode, code: err.code });
+      }
+      throw err;
+    }
+  }
+  /**
+   * Check for option flag conflicts.
+   * Register option if no conflicts found, or throw on conflict.
+   *
+   * @param {Option} option
+   * @private
+   */
+  _registerOption(option) {
+    const matchingOption = option.short && this._findOption(option.short) || option.long && this._findOption(option.long);
+    if (matchingOption) {
+      const matchingFlag = option.long && this._findOption(option.long) ? option.long : option.short;
+      throw new Error(`Cannot add option '${option.flags}'${this._name && ` to command '${this._name}'`} due to conflicting flag '${matchingFlag}'
+-  already used by option '${matchingOption.flags}'`);
+    }
+    this._initOptionGroup(option);
+    this.options.push(option);
+  }
+  /**
+   * Check for command name and alias conflicts with existing commands.
+   * Register command if no conflicts found, or throw on conflict.
+   *
+   * @param {Command} command
+   * @private
+   */
+  _registerCommand(command) {
+    const knownBy = (cmd) => {
+      return [cmd.name()].concat(cmd.aliases());
+    };
+    const alreadyUsed = knownBy(command).find(
+      (name) => this._findCommand(name)
+    );
+    if (alreadyUsed) {
+      const existingCmd = knownBy(this._findCommand(alreadyUsed)).join("|");
+      const newCmd = knownBy(command).join("|");
+      throw new Error(
+        `cannot add command '${newCmd}' as already have command '${existingCmd}'`
+      );
+    }
+    this._initCommandGroup(command);
+    this.commands.push(command);
+  }
+  /**
+   * Add an option.
+   *
+   * @param {Option} option
+   * @return {Command} `this` command for chaining
+   */
+  addOption(option) {
+    this._registerOption(option);
+    const oname = option.name();
+    const name = option.attributeName();
+    if (option.defaultValue !== void 0) {
+      this.setOptionValueWithSource(name, option.defaultValue, "default");
+    }
+    const handleOptionValue = (val, invalidValueMessage, valueSource) => {
+      if (val == null && option.presetArg !== void 0) {
+        val = option.presetArg;
+      }
+      const oldValue = this.getOptionValue(name);
+      if (val !== null && option.parseArg) {
+        val = this._callParseArg(option, val, oldValue, invalidValueMessage);
+      } else if (val !== null && option.variadic) {
+        val = option._collectValue(val, oldValue);
+      }
+      if (val == null) {
+        if (option.negate) {
+          val = false;
+        } else if (option.isBoolean() || option.optional) {
+          val = true;
+        } else {
+          val = "";
+        }
+      }
+      this.setOptionValueWithSource(name, val, valueSource);
+    };
+    this.on("option:" + oname, (val) => {
+      const invalidValueMessage = `error: option '${option.flags}' argument '${val}' is invalid.`;
+      handleOptionValue(val, invalidValueMessage, "cli");
+    });
+    if (option.envVar) {
+      this.on("optionEnv:" + oname, (val) => {
+        const invalidValueMessage = `error: option '${option.flags}' value '${val}' from env '${option.envVar}' is invalid.`;
+        handleOptionValue(val, invalidValueMessage, "env");
+      });
+    }
+    return this;
+  }
+  /**
+   * Internal implementation shared by .option() and .requiredOption()
+   *
+   * @return {Command} `this` command for chaining
+   * @private
+   */
+  _optionEx(config, flags, description, fn, defaultValue2) {
+    if (typeof flags === "object" && flags instanceof Option) {
+      throw new Error(
+        "To add an Option object use addOption() instead of option() or requiredOption()"
+      );
+    }
+    const option = this.createOption(flags, description);
+    option.makeOptionMandatory(!!config.mandatory);
+    if (typeof fn === "function") {
+      option.default(defaultValue2).argParser(fn);
+    } else if (fn instanceof RegExp) {
+      const regex2 = fn;
+      fn = (val, def) => {
+        const m = regex2.exec(val);
+        return m ? m[0] : def;
+      };
+      option.default(defaultValue2).argParser(fn);
+    } else {
+      option.default(fn);
+    }
+    return this.addOption(option);
+  }
+  /**
+   * Define option with `flags`, `description`, and optional argument parsing function or `defaultValue` or both.
+   *
+   * The `flags` string contains the short and/or long flags, separated by comma, a pipe or space. A required
+   * option-argument is indicated by `<>` and an optional option-argument by `[]`.
+   *
+   * See the README for more details, and see also addOption() and requiredOption().
+   *
+   * @example
+   * program
+   *     .option('-p, --pepper', 'add pepper')
+   *     .option('--pt, --pizza-type <TYPE>', 'type of pizza') // required option-argument
+   *     .option('-c, --cheese [CHEESE]', 'add extra cheese', 'mozzarella') // optional option-argument with default
+   *     .option('-t, --tip <VALUE>', 'add tip to purchase cost', parseFloat) // custom parse function
+   *
+   * @param {string} flags
+   * @param {string} [description]
+   * @param {(Function|*)} [parseArg] - custom option processing function or default value
+   * @param {*} [defaultValue]
+   * @return {Command} `this` command for chaining
+   */
+  option(flags, description, parseArg, defaultValue2) {
+    return this._optionEx({}, flags, description, parseArg, defaultValue2);
+  }
+  /**
+   * Add a required option which must have a value after parsing. This usually means
+   * the option must be specified on the command line. (Otherwise the same as .option().)
+   *
+   * The `flags` string contains the short and/or long flags, separated by comma, a pipe or space.
+   *
+   * @param {string} flags
+   * @param {string} [description]
+   * @param {(Function|*)} [parseArg] - custom option processing function or default value
+   * @param {*} [defaultValue]
+   * @return {Command} `this` command for chaining
+   */
+  requiredOption(flags, description, parseArg, defaultValue2) {
+    return this._optionEx(
+      { mandatory: true },
+      flags,
+      description,
+      parseArg,
+      defaultValue2
+    );
+  }
+  /**
+   * Alter parsing of short flags with optional values.
+   *
+   * @example
+   * // for `.option('-f,--flag [value]'):
+   * program.combineFlagAndOptionalValue(true);  // `-f80` is treated like `--flag=80`, this is the default behaviour
+   * program.combineFlagAndOptionalValue(false) // `-fb` is treated like `-f -b`
+   *
+   * @param {boolean} [combine] - if `true` or omitted, an optional value can be specified directly after the flag.
+   * @return {Command} `this` command for chaining
+   */
+  combineFlagAndOptionalValue(combine = true) {
+    this._combineFlagAndOptionalValue = !!combine;
+    return this;
+  }
+  /**
+   * Allow unknown options on the command line.
+   *
+   * @param {boolean} [allowUnknown] - if `true` or omitted, no error will be thrown for unknown options.
+   * @return {Command} `this` command for chaining
+   */
+  allowUnknownOption(allowUnknown = true) {
+    this._allowUnknownOption = !!allowUnknown;
+    return this;
+  }
+  /**
+   * Allow excess command-arguments on the command line. Pass false to make excess arguments an error.
+   *
+   * @param {boolean} [allowExcess] - if `true` or omitted, no error will be thrown for excess arguments.
+   * @return {Command} `this` command for chaining
+   */
+  allowExcessArguments(allowExcess = true) {
+    this._allowExcessArguments = !!allowExcess;
+    return this;
+  }
+  /**
+   * Enable positional options. Positional means global options are specified before subcommands which lets
+   * subcommands reuse the same option names, and also enables subcommands to turn on passThroughOptions.
+   * The default behaviour is non-positional and global options may appear anywhere on the command line.
+   *
+   * @param {boolean} [positional]
+   * @return {Command} `this` command for chaining
+   */
+  enablePositionalOptions(positional = true) {
+    this._enablePositionalOptions = !!positional;
+    return this;
+  }
+  /**
+   * Pass through options that come after command-arguments rather than treat them as command-options,
+   * so actual command-options come before command-arguments. Turning this on for a subcommand requires
+   * positional options to have been enabled on the program (parent commands).
+   * The default behaviour is non-positional and options may appear before or after command-arguments.
+   *
+   * @param {boolean} [passThrough] for unknown options.
+   * @return {Command} `this` command for chaining
+   */
+  passThroughOptions(passThrough = true) {
+    this._passThroughOptions = !!passThrough;
+    this._checkForBrokenPassThrough();
+    return this;
+  }
+  /**
+   * @private
+   */
+  _checkForBrokenPassThrough() {
+    if (this.parent && this._passThroughOptions && !this.parent._enablePositionalOptions) {
+      throw new Error(
+        `passThroughOptions cannot be used for '${this._name}' without turning on enablePositionalOptions for parent command(s)`
+      );
+    }
+  }
+  /**
+   * Whether to store option values as properties on command object,
+   * or store separately (specify false). In both cases the option values can be accessed using .opts().
+   *
+   * @param {boolean} [storeAsProperties=true]
+   * @return {Command} `this` command for chaining
+   */
+  storeOptionsAsProperties(storeAsProperties = true) {
+    if (this.options.length) {
+      throw new Error("call .storeOptionsAsProperties() before adding options");
+    }
+    if (Object.keys(this._optionValues).length) {
+      throw new Error(
+        "call .storeOptionsAsProperties() before setting option values"
+      );
+    }
+    this._storeOptionsAsProperties = !!storeAsProperties;
+    return this;
+  }
+  /**
+   * Retrieve option value.
+   *
+   * @param {string} key
+   * @return {object} value
+   */
+  getOptionValue(key) {
+    if (this._storeOptionsAsProperties) {
+      return this[key];
+    }
+    return this._optionValues[key];
+  }
+  /**
+   * Store option value.
+   *
+   * @param {string} key
+   * @param {object} value
+   * @return {Command} `this` command for chaining
+   */
+  setOptionValue(key, value) {
+    return this.setOptionValueWithSource(key, value, void 0);
+  }
+  /**
+   * Store option value and where the value came from.
+   *
+   * @param {string} key
+   * @param {object} value
+   * @param {string} source - expected values are default/config/env/cli/implied
+   * @return {Command} `this` command for chaining
+   */
+  setOptionValueWithSource(key, value, source) {
+    if (this._storeOptionsAsProperties) {
+      this[key] = value;
+    } else {
+      this._optionValues[key] = value;
+    }
+    this._optionValueSources[key] = source;
+    return this;
+  }
+  /**
+   * Get source of option value.
+   * Expected values are default | config | env | cli | implied
+   *
+   * @param {string} key
+   * @return {string}
+   */
+  getOptionValueSource(key) {
+    return this._optionValueSources[key];
+  }
+  /**
+   * Get source of option value. See also .optsWithGlobals().
+   * Expected values are default | config | env | cli | implied
+   *
+   * @param {string} key
+   * @return {string}
+   */
+  getOptionValueSourceWithGlobals(key) {
+    let source;
+    this._getCommandAndAncestors().forEach((cmd) => {
+      if (cmd.getOptionValueSource(key) !== void 0) {
+        source = cmd.getOptionValueSource(key);
+      }
+    });
+    return source;
+  }
+  /**
+   * Get user arguments from implied or explicit arguments.
+   * Side-effects: set _scriptPath if args included script. Used for default program name, and subcommand searches.
+   *
+   * @private
+   */
+  _prepareUserArgs(argv, parseOptions) {
+    if (argv !== void 0 && !Array.isArray(argv)) {
+      throw new Error("first parameter to parse must be array or undefined");
+    }
+    parseOptions = parseOptions || {};
+    if (argv === void 0 && parseOptions.from === void 0) {
+      if (process2.versions?.electron) {
+        parseOptions.from = "electron";
+      }
+      const execArgv = process2.execArgv ?? [];
+      if (execArgv.includes("-e") || execArgv.includes("--eval") || execArgv.includes("-p") || execArgv.includes("--print")) {
+        parseOptions.from = "eval";
+      }
+    }
+    if (argv === void 0) {
+      argv = process2.argv;
+    }
+    this.rawArgs = argv.slice();
+    let userArgs;
+    switch (parseOptions.from) {
+      case void 0:
+      case "node":
+        this._scriptPath = argv[1];
+        userArgs = argv.slice(2);
+        break;
+      case "electron":
+        if (process2.defaultApp) {
+          this._scriptPath = argv[1];
+          userArgs = argv.slice(2);
+        } else {
+          userArgs = argv.slice(1);
+        }
+        break;
+      case "user":
+        userArgs = argv.slice(0);
+        break;
+      case "eval":
+        userArgs = argv.slice(1);
+        break;
+      default:
+        throw new Error(
+          `unexpected parse option { from: '${parseOptions.from}' }`
+        );
+    }
+    if (!this._name && this._scriptPath)
+      this.nameFromFilename(this._scriptPath);
+    this._name = this._name || "program";
+    return userArgs;
+  }
+  /**
+   * Parse `argv`, setting options and invoking commands when defined.
+   *
+   * Use parseAsync instead of parse if any of your action handlers are async.
+   *
+   * Call with no parameters to parse `process.argv`. Detects Electron and special node options like `node --eval`. Easy mode!
+   *
+   * Or call with an array of strings to parse, and optionally where the user arguments start by specifying where the arguments are `from`:
+   * - `'node'`: default, `argv[0]` is the application and `argv[1]` is the script being run, with user arguments after that
+   * - `'electron'`: `argv[0]` is the application and `argv[1]` varies depending on whether the electron application is packaged
+   * - `'user'`: just user arguments
+   *
+   * @example
+   * program.parse(); // parse process.argv and auto-detect electron and special node flags
+   * program.parse(process.argv); // assume argv[0] is app and argv[1] is script
+   * program.parse(my-args, { from: 'user' }); // just user supplied arguments, nothing special about argv[0]
+   *
+   * @param {string[]} [argv] - optional, defaults to process.argv
+   * @param {object} [parseOptions] - optionally specify style of options with from: node/user/electron
+   * @param {string} [parseOptions.from] - where the args are from: 'node', 'user', 'electron'
+   * @return {Command} `this` command for chaining
+   */
+  parse(argv, parseOptions) {
+    this._prepareForParse();
+    const userArgs = this._prepareUserArgs(argv, parseOptions);
+    this._parseCommand([], userArgs);
+    return this;
+  }
+  /**
+   * Parse `argv`, setting options and invoking commands when defined.
+   *
+   * Call with no parameters to parse `process.argv`. Detects Electron and special node options like `node --eval`. Easy mode!
+   *
+   * Or call with an array of strings to parse, and optionally where the user arguments start by specifying where the arguments are `from`:
+   * - `'node'`: default, `argv[0]` is the application and `argv[1]` is the script being run, with user arguments after that
+   * - `'electron'`: `argv[0]` is the application and `argv[1]` varies depending on whether the electron application is packaged
+   * - `'user'`: just user arguments
+   *
+   * @example
+   * await program.parseAsync(); // parse process.argv and auto-detect electron and special node flags
+   * await program.parseAsync(process.argv); // assume argv[0] is app and argv[1] is script
+   * await program.parseAsync(my-args, { from: 'user' }); // just user supplied arguments, nothing special about argv[0]
+   *
+   * @param {string[]} [argv]
+   * @param {object} [parseOptions]
+   * @param {string} parseOptions.from - where the args are from: 'node', 'user', 'electron'
+   * @return {Promise}
+   */
+  async parseAsync(argv, parseOptions) {
+    this._prepareForParse();
+    const userArgs = this._prepareUserArgs(argv, parseOptions);
+    await this._parseCommand([], userArgs);
+    return this;
+  }
+  _prepareForParse() {
+    if (this._savedState === null) {
+      this.options.filter(
+        (option) => option.negate && option.defaultValue === void 0 && this.getOptionValue(option.attributeName()) === void 0
+      ).forEach((option) => {
+        const positiveLongFlag = option.long.replace(/^--no-/, "--");
+        if (!this._findOption(positiveLongFlag)) {
+          this.setOptionValueWithSource(
+            option.attributeName(),
+            true,
+            "default"
+          );
+        }
+      });
+      this.saveStateBeforeParse();
+    } else {
+      this.restoreStateBeforeParse();
+    }
+  }
+  /**
+   * Called the first time parse is called to save state and allow a restore before subsequent calls to parse.
+   * Not usually called directly, but available for subclasses to save their custom state.
+   *
+   * This is called in a lazy way. Only commands used in parsing chain will have state saved.
+   */
+  saveStateBeforeParse() {
+    this._savedState = {
+      // name is stable if supplied by author, but may be unspecified for root command and deduced during parsing
+      _name: this._name,
+      // option values before parse have default values (including false for negated options)
+      // shallow clones
+      _optionValues: { ...this._optionValues },
+      _optionValueSources: { ...this._optionValueSources }
+    };
+  }
+  /**
+   * Restore state before parse for calls after the first.
+   * Not usually called directly, but available for subclasses to save their custom state.
+   *
+   * This is called in a lazy way. Only commands used in parsing chain will have state restored.
+   */
+  restoreStateBeforeParse() {
+    if (this._storeOptionsAsProperties)
+      throw new Error(`Can not call parse again when storeOptionsAsProperties is true.
+- either make a new Command for each call to parse, or stop storing options as properties`);
+    this._name = this._savedState._name;
+    this._scriptPath = null;
+    this.rawArgs = [];
+    this._optionValues = { ...this._savedState._optionValues };
+    this._optionValueSources = { ...this._savedState._optionValueSources };
+    this.args = [];
+    this.processedArgs = [];
+  }
+  /**
+   * Throw if expected executable is missing. Add lots of help for author.
+   *
+   * @param {string} executableFile
+   * @param {string} executableDir
+   * @param {string} subcommandName
+   */
+  _checkForMissingExecutable(executableFile, executableDir, subcommandName) {
+    if (fs.existsSync(executableFile)) return;
+    const executableDirMessage = executableDir ? `searched for local subcommand relative to directory '${executableDir}'` : "no directory for search for local subcommand, use .executableDir() to supply a custom directory";
+    const executableMissing = `'${executableFile}' does not exist
+ - if '${subcommandName}' is not meant to be an executable command, remove description parameter from '.command()' and use '.description()' instead
+ - if the default executable name is not suitable, use the executableFile option to supply a custom name or path
+ - ${executableDirMessage}`;
+    throw new Error(executableMissing);
+  }
+  /**
+   * Execute a sub-command executable.
+   *
+   * @private
+   */
+  _executeSubCommand(subcommand, args) {
+    args = args.slice();
+    const sourceExt = [".js", ".ts", ".tsx", ".mjs", ".cjs"];
+    function findFile(baseDir, baseName) {
+      const localBin = path.resolve(baseDir, baseName);
+      if (fs.existsSync(localBin)) return localBin;
+      if (sourceExt.includes(path.extname(baseName))) return void 0;
+      const foundExt = sourceExt.find(
+        (ext) => fs.existsSync(`${localBin}${ext}`)
+      );
+      if (foundExt) return `${localBin}${foundExt}`;
+      return void 0;
+    }
+    this._checkForMissingMandatoryOptions();
+    this._checkForConflictingOptions();
+    let executableFile = subcommand._executableFile || `${this._name}-${subcommand._name}`;
+    let executableDir = this._executableDir || "";
+    if (this._scriptPath) {
+      let resolvedScriptPath;
+      try {
+        resolvedScriptPath = fs.realpathSync(this._scriptPath);
+      } catch {
+        resolvedScriptPath = this._scriptPath;
+      }
+      executableDir = path.resolve(
+        path.dirname(resolvedScriptPath),
+        executableDir
+      );
+    }
+    if (executableDir) {
+      let localFile = findFile(executableDir, executableFile);
+      if (!localFile && !subcommand._executableFile && this._scriptPath) {
+        const legacyName = path.basename(
+          this._scriptPath,
+          path.extname(this._scriptPath)
+        );
+        if (legacyName !== this._name) {
+          localFile = findFile(
+            executableDir,
+            `${legacyName}-${subcommand._name}`
+          );
+        }
+      }
+      executableFile = localFile || executableFile;
+    }
+    const launchWithNode = sourceExt.includes(path.extname(executableFile));
+    let proc;
+    if (process2.platform !== "win32") {
+      if (launchWithNode) {
+        args.unshift(executableFile);
+        args = incrementNodeInspectorPort(process2.execArgv).concat(args);
+        proc = childProcess.spawn(process2.argv[0], args, { stdio: "inherit" });
+      } else {
+        proc = childProcess.spawn(executableFile, args, { stdio: "inherit" });
+      }
+    } else {
+      this._checkForMissingExecutable(
+        executableFile,
+        executableDir,
+        subcommand._name
+      );
+      args.unshift(executableFile);
+      args = incrementNodeInspectorPort(process2.execArgv).concat(args);
+      proc = childProcess.spawn(process2.execPath, args, { stdio: "inherit" });
+    }
+    if (!proc.killed) {
+      const signals2 = ["SIGUSR1", "SIGUSR2", "SIGTERM", "SIGINT", "SIGHUP"];
+      signals2.forEach((signal) => {
+        process2.on(signal, () => {
+          if (proc.killed === false && proc.exitCode === null) {
+            proc.kill(signal);
+          }
+        });
+      });
+    }
+    const exitCallback = this._exitCallback;
+    proc.on("close", (code) => {
+      code = code ?? 1;
+      if (!exitCallback) {
+        process2.exit(code);
+      } else {
+        exitCallback(
+          new CommanderError(
+            code,
+            "commander.executeSubCommandAsync",
+            "(close)"
+          )
+        );
+      }
+    });
+    proc.on("error", (err) => {
+      if (err.code === "ENOENT") {
+        this._checkForMissingExecutable(
+          executableFile,
+          executableDir,
+          subcommand._name
+        );
+      } else if (err.code === "EACCES") {
+        throw new Error(`'${executableFile}' not executable`);
+      }
+      if (!exitCallback) {
+        process2.exit(1);
+      } else {
+        const wrappedError = new CommanderError(
+          1,
+          "commander.executeSubCommandAsync",
+          "(error)"
+        );
+        wrappedError.nestedError = err;
+        exitCallback(wrappedError);
+      }
+    });
+    this.runningCommand = proc;
+  }
+  /**
+   * @private
+   */
+  _dispatchSubcommand(commandName, operands, unknown) {
+    const subCommand = this._findCommand(commandName);
+    if (!subCommand) this.help({ error: true });
+    subCommand._prepareForParse();
+    let promiseChain;
+    promiseChain = this._chainOrCallSubCommandHook(
+      promiseChain,
+      subCommand,
+      "preSubcommand"
+    );
+    promiseChain = this._chainOrCall(promiseChain, () => {
+      if (subCommand._executableHandler) {
+        this._executeSubCommand(subCommand, operands.concat(unknown));
+      } else {
+        return subCommand._parseCommand(operands, unknown);
+      }
+    });
+    return promiseChain;
+  }
+  /**
+   * Invoke help directly if possible, or dispatch if necessary.
+   * e.g. help foo
+   *
+   * @private
+   */
+  _dispatchHelpCommand(subcommandName) {
+    if (!subcommandName) {
+      this.help();
+    }
+    const subCommand = this._findCommand(subcommandName);
+    if (subCommand && !subCommand._executableHandler) {
+      subCommand.help();
+    }
+    return this._dispatchSubcommand(
+      subcommandName,
+      [],
+      [this._getHelpOption()?.long ?? this._getHelpOption()?.short ?? "--help"]
+    );
+  }
+  /**
+   * Check this.args against expected this.registeredArguments.
+   *
+   * @private
+   */
+  _checkNumberOfArguments() {
+    this.registeredArguments.forEach((arg, i) => {
+      if (arg.required && this.args[i] == null) {
+        this.missingArgument(arg.name());
+      }
+    });
+    if (this.registeredArguments.length > 0 && this.registeredArguments[this.registeredArguments.length - 1].variadic) {
+      return;
+    }
+    if (this.args.length > this.registeredArguments.length) {
+      this._excessArguments(this.args);
+    }
+  }
+  /**
+   * Process this.args using this.registeredArguments and save as this.processedArgs!
+   *
+   * @private
+   */
+  _processArguments() {
+    const myParseArg = (argument, value, previous) => {
+      let parsedValue = value;
+      if (value !== null && argument.parseArg) {
+        const invalidValueMessage = `error: command-argument value '${value}' is invalid for argument '${argument.name()}'.`;
+        parsedValue = this._callParseArg(
+          argument,
+          value,
+          previous,
+          invalidValueMessage
+        );
+      }
+      return parsedValue;
+    };
+    this._checkNumberOfArguments();
+    const processedArgs = [];
+    this.registeredArguments.forEach((declaredArg, index) => {
+      let value = declaredArg.defaultValue;
+      if (declaredArg.variadic) {
+        if (index < this.args.length) {
+          value = this.args.slice(index);
+          if (declaredArg.parseArg) {
+            value = value.reduce((processed, v) => {
+              return myParseArg(declaredArg, v, processed);
+            }, declaredArg.defaultValue);
+          }
+        } else if (value === void 0) {
+          value = [];
+        }
+      } else if (index < this.args.length) {
+        value = this.args[index];
+        if (declaredArg.parseArg) {
+          value = myParseArg(declaredArg, value, declaredArg.defaultValue);
+        }
+      }
+      processedArgs[index] = value;
+    });
+    this.processedArgs = processedArgs;
+  }
+  /**
+   * Once we have a promise we chain, but call synchronously until then.
+   *
+   * @param {(Promise|undefined)} promise
+   * @param {Function} fn
+   * @return {(Promise|undefined)}
+   * @private
+   */
+  _chainOrCall(promise, fn) {
+    if (promise?.then && typeof promise.then === "function") {
+      return promise.then(() => fn());
+    }
+    return fn();
+  }
+  /**
+   *
+   * @param {(Promise|undefined)} promise
+   * @param {string} event
+   * @return {(Promise|undefined)}
+   * @private
+   */
+  _chainOrCallHooks(promise, event) {
+    let result = promise;
+    const hooks = [];
+    this._getCommandAndAncestors().reverse().filter((cmd) => cmd._lifeCycleHooks[event] !== void 0).forEach((hookedCommand) => {
+      hookedCommand._lifeCycleHooks[event].forEach((callback) => {
+        hooks.push({ hookedCommand, callback });
+      });
+    });
+    if (event === "postAction") {
+      hooks.reverse();
+    }
+    hooks.forEach((hookDetail) => {
+      result = this._chainOrCall(result, () => {
+        return hookDetail.callback(hookDetail.hookedCommand, this);
+      });
+    });
+    return result;
+  }
+  /**
+   *
+   * @param {(Promise|undefined)} promise
+   * @param {Command} subCommand
+   * @param {string} event
+   * @return {(Promise|undefined)}
+   * @private
+   */
+  _chainOrCallSubCommandHook(promise, subCommand, event) {
+    let result = promise;
+    if (this._lifeCycleHooks[event] !== void 0) {
+      this._lifeCycleHooks[event].forEach((hook) => {
+        result = this._chainOrCall(result, () => {
+          return hook(this, subCommand);
+        });
+      });
+    }
+    return result;
+  }
+  /**
+   * Process arguments in context of this command.
+   * Returns action result, in case it is a promise.
+   *
+   * @private
+   */
+  _parseCommand(operands, unknown) {
+    const parsed = this.parseOptions(unknown);
+    this._parseOptionsEnv();
+    this._parseOptionsImplied();
+    operands = operands.concat(parsed.operands);
+    unknown = parsed.unknown;
+    this.args = operands.concat(unknown);
+    if (operands && this._findCommand(operands[0])) {
+      return this._dispatchSubcommand(operands[0], operands.slice(1), unknown);
+    }
+    if (this._getHelpCommand() && operands[0] === this._getHelpCommand().name()) {
+      return this._dispatchHelpCommand(operands[1]);
+    }
+    if (this._defaultCommandName) {
+      this._outputHelpIfRequested(unknown);
+      return this._dispatchSubcommand(
+        this._defaultCommandName,
+        operands,
+        unknown
+      );
+    }
+    if (this.commands.length && this.args.length === 0 && !this._actionHandler && !this._defaultCommandName) {
+      this.help({ error: true });
+    }
+    this._outputHelpIfRequested(parsed.unknown);
+    this._checkForMissingMandatoryOptions();
+    this._checkForConflictingOptions();
+    const checkForUnknownOptions = () => {
+      if (parsed.unknown.length > 0) {
+        this.unknownOption(parsed.unknown[0]);
+      }
+    };
+    const commandEvent = `command:${this.name()}`;
+    if (this._actionHandler) {
+      checkForUnknownOptions();
+      this._processArguments();
+      let promiseChain;
+      promiseChain = this._chainOrCallHooks(promiseChain, "preAction");
+      promiseChain = this._chainOrCall(
+        promiseChain,
+        () => this._actionHandler(this.processedArgs)
+      );
+      if (this.parent) {
+        promiseChain = this._chainOrCall(promiseChain, () => {
+          this.parent.emit(commandEvent, operands, unknown);
+        });
+      }
+      promiseChain = this._chainOrCallHooks(promiseChain, "postAction");
+      return promiseChain;
+    }
+    if (this.parent?.listenerCount(commandEvent)) {
+      checkForUnknownOptions();
+      this._processArguments();
+      this.parent.emit(commandEvent, operands, unknown);
+    } else if (operands.length) {
+      if (this._findCommand("*")) {
+        return this._dispatchSubcommand("*", operands, unknown);
+      }
+      if (this.listenerCount("command:*")) {
+        this.emit("command:*", operands, unknown);
+      } else if (this.commands.length) {
+        this.unknownCommand();
+      } else {
+        checkForUnknownOptions();
+        this._processArguments();
+      }
+    } else if (this.commands.length) {
+      checkForUnknownOptions();
+      this.help({ error: true });
+    } else {
+      checkForUnknownOptions();
+      this._processArguments();
+    }
+  }
+  /**
+   * Find matching command.
+   *
+   * @private
+   * @return {Command | undefined}
+   */
+  _findCommand(name) {
+    if (!name) return void 0;
+    return this.commands.find(
+      (cmd) => cmd._name === name || cmd._aliases.includes(name)
+    );
+  }
+  /**
+   * Return an option matching `arg` if any.
+   *
+   * @param {string} arg
+   * @return {Option}
+   * @package
+   */
+  _findOption(arg) {
+    return this.options.find((option) => option.is(arg));
+  }
+  /**
+   * Display an error message if a mandatory option does not have a value.
+   * Called after checking for help flags in leaf subcommand.
+   *
+   * @private
+   */
+  _checkForMissingMandatoryOptions() {
+    this._getCommandAndAncestors().forEach((cmd) => {
+      cmd.options.forEach((anOption) => {
+        if (anOption.mandatory && cmd.getOptionValue(anOption.attributeName()) === void 0) {
+          cmd.missingMandatoryOptionValue(anOption);
+        }
+      });
+    });
+  }
+  /**
+   * Display an error message if conflicting options are used together in this.
+   *
+   * @private
+   */
+  _checkForConflictingLocalOptions() {
+    const definedNonDefaultOptions = this.options.filter((option) => {
+      const optionKey = option.attributeName();
+      if (this.getOptionValue(optionKey) === void 0) {
+        return false;
+      }
+      return this.getOptionValueSource(optionKey) !== "default";
+    });
+    const optionsWithConflicting = definedNonDefaultOptions.filter(
+      (option) => option.conflictsWith.length > 0
+    );
+    optionsWithConflicting.forEach((option) => {
+      const conflictingAndDefined = definedNonDefaultOptions.find(
+        (defined) => option.conflictsWith.includes(defined.attributeName())
+      );
+      if (conflictingAndDefined) {
+        this._conflictingOption(option, conflictingAndDefined);
+      }
+    });
+  }
+  /**
+   * Display an error message if conflicting options are used together.
+   * Called after checking for help flags in leaf subcommand.
+   *
+   * @private
+   */
+  _checkForConflictingOptions() {
+    this._getCommandAndAncestors().forEach((cmd) => {
+      cmd._checkForConflictingLocalOptions();
+    });
+  }
+  /**
+   * Parse options from `argv` removing known options,
+   * and return argv split into operands and unknown arguments.
+   *
+   * Side effects: modifies command by storing options. Does not reset state if called again.
+   *
+   * Examples:
+   *
+   *     argv => operands, unknown
+   *     --known kkk op => [op], []
+   *     op --known kkk => [op], []
+   *     sub --unknown uuu op => [sub], [--unknown uuu op]
+   *     sub -- --unknown uuu op => [sub --unknown uuu op], []
+   *
+   * @param {string[]} args
+   * @return {{operands: string[], unknown: string[]}}
+   */
+  parseOptions(args) {
+    const operands = [];
+    const unknown = [];
+    let dest = operands;
+    function maybeOption(arg) {
+      return arg.length > 1 && arg[0] === "-";
+    }
+    const negativeNumberArg = (arg) => {
+      if (!/^-(\d+|\d*\.\d+)(e[+-]?\d+)?$/.test(arg)) return false;
+      return !this._getCommandAndAncestors().some(
+        (cmd) => cmd.options.map((opt) => opt.short).some((short) => /^-\d$/.test(short))
+      );
+    };
+    let activeVariadicOption = null;
+    let activeGroup = null;
+    let i = 0;
+    while (i < args.length || activeGroup) {
+      const arg = activeGroup ?? args[i++];
+      activeGroup = null;
+      if (arg === "--") {
+        if (dest === unknown) dest.push(arg);
+        dest.push(...args.slice(i));
+        break;
+      }
+      if (activeVariadicOption && (!maybeOption(arg) || negativeNumberArg(arg))) {
+        this.emit(`option:${activeVariadicOption.name()}`, arg);
+        continue;
+      }
+      activeVariadicOption = null;
+      if (maybeOption(arg)) {
+        const option = this._findOption(arg);
+        if (option) {
+          if (option.required) {
+            const value = args[i++];
+            if (value === void 0) this.optionMissingArgument(option);
+            this.emit(`option:${option.name()}`, value);
+          } else if (option.optional) {
+            let value = null;
+            if (i < args.length && (!maybeOption(args[i]) || negativeNumberArg(args[i]))) {
+              value = args[i++];
+            }
+            this.emit(`option:${option.name()}`, value);
+          } else {
+            this.emit(`option:${option.name()}`);
+          }
+          activeVariadicOption = option.variadic ? option : null;
+          continue;
+        }
+      }
+      if (arg.length > 2 && arg[0] === "-" && arg[1] !== "-") {
+        const option = this._findOption(`-${arg[1]}`);
+        if (option) {
+          if (option.required || option.optional && this._combineFlagAndOptionalValue) {
+            this.emit(`option:${option.name()}`, arg.slice(2));
+          } else {
+            this.emit(`option:${option.name()}`);
+            activeGroup = `-${arg.slice(2)}`;
+          }
+          continue;
+        }
+      }
+      if (/^--[^=]+=/.test(arg)) {
+        const index = arg.indexOf("=");
+        const option = this._findOption(arg.slice(0, index));
+        if (option && (option.required || option.optional)) {
+          this.emit(`option:${option.name()}`, arg.slice(index + 1));
+          continue;
+        }
+      }
+      if (dest === operands && maybeOption(arg) && !(this.commands.length === 0 && negativeNumberArg(arg))) {
+        dest = unknown;
+      }
+      if ((this._enablePositionalOptions || this._passThroughOptions) && operands.length === 0 && unknown.length === 0) {
+        if (this._findCommand(arg)) {
+          operands.push(arg);
+          unknown.push(...args.slice(i));
+          break;
+        } else if (this._getHelpCommand() && arg === this._getHelpCommand().name()) {
+          operands.push(arg, ...args.slice(i));
+          break;
+        } else if (this._defaultCommandName) {
+          unknown.push(arg, ...args.slice(i));
+          break;
+        }
+      }
+      if (this._passThroughOptions) {
+        dest.push(arg, ...args.slice(i));
+        break;
+      }
+      dest.push(arg);
+    }
+    return { operands, unknown };
+  }
+  /**
+   * Return an object containing local option values as key-value pairs.
+   *
+   * @return {object}
+   */
+  opts() {
+    if (this._storeOptionsAsProperties) {
+      const result = {};
+      const len = this.options.length;
+      for (let i = 0; i < len; i++) {
+        const key = this.options[i].attributeName();
+        result[key] = key === this._versionOptionName ? this._version : this[key];
+      }
+      return result;
+    }
+    return this._optionValues;
+  }
+  /**
+   * Return an object containing merged local and global option values as key-value pairs.
+   *
+   * @return {object}
+   */
+  optsWithGlobals() {
+    return this._getCommandAndAncestors().reduce(
+      (combinedOptions, cmd) => Object.assign(combinedOptions, cmd.opts()),
+      {}
+    );
+  }
+  /**
+   * Display error message and exit (or call exitOverride).
+   *
+   * @param {string} message
+   * @param {object} [errorOptions]
+   * @param {string} [errorOptions.code] - an id string representing the error
+   * @param {number} [errorOptions.exitCode] - used with process.exit
+   */
+  error(message, errorOptions) {
+    this._outputConfiguration.outputError(
+      `${message}
+`,
+      this._outputConfiguration.writeErr
+    );
+    if (typeof this._showHelpAfterError === "string") {
+      this._outputConfiguration.writeErr(`${this._showHelpAfterError}
+`);
+    } else if (this._showHelpAfterError) {
+      this._outputConfiguration.writeErr("\n");
+      this.outputHelp({ error: true });
+    }
+    const config = errorOptions || {};
+    const exitCode = config.exitCode || 1;
+    const code = config.code || "commander.error";
+    this._exit(exitCode, code, message);
+  }
+  /**
+   * Apply any option related environment variables, if option does
+   * not have a value from cli or client code.
+   *
+   * @private
+   */
+  _parseOptionsEnv() {
+    this.options.forEach((option) => {
+      if (option.envVar && option.envVar in process2.env) {
+        const optionKey = option.attributeName();
+        if (this.getOptionValue(optionKey) === void 0 || ["default", "config", "env"].includes(
+          this.getOptionValueSource(optionKey)
+        )) {
+          if (option.required || option.optional) {
+            this.emit(`optionEnv:${option.name()}`, process2.env[option.envVar]);
+          } else {
+            this.emit(`optionEnv:${option.name()}`);
+          }
+        }
+      }
+    });
+  }
+  /**
+   * Apply any implied option values, if option is undefined or default value.
+   *
+   * @private
+   */
+  _parseOptionsImplied() {
+    const dualHelper = new DualOptions(this.options);
+    const hasCustomOptionValue = (optionKey) => {
+      return this.getOptionValue(optionKey) !== void 0 && !["default", "implied"].includes(this.getOptionValueSource(optionKey));
+    };
+    this.options.filter(
+      (option) => option.implied !== void 0 && hasCustomOptionValue(option.attributeName()) && dualHelper.valueFromOption(
+        this.getOptionValue(option.attributeName()),
+        option
+      )
+    ).forEach((option) => {
+      Object.keys(option.implied).filter((impliedKey) => !hasCustomOptionValue(impliedKey)).forEach((impliedKey) => {
+        this.setOptionValueWithSource(
+          impliedKey,
+          option.implied[impliedKey],
+          "implied"
+        );
+      });
+    });
+  }
+  /**
+   * Argument `name` is missing.
+   *
+   * @param {string} name
+   * @private
+   */
+  missingArgument(name) {
+    const message = `error: missing required argument '${name}'`;
+    this.error(message, { code: "commander.missingArgument" });
+  }
+  /**
+   * `Option` is missing an argument.
+   *
+   * @param {Option} option
+   * @private
+   */
+  optionMissingArgument(option) {
+    const message = `error: option '${option.flags}' argument missing`;
+    this.error(message, { code: "commander.optionMissingArgument" });
+  }
+  /**
+   * `Option` does not have a value, and is a mandatory option.
+   *
+   * @param {Option} option
+   * @private
+   */
+  missingMandatoryOptionValue(option) {
+    const message = `error: required option '${option.flags}' not specified`;
+    this.error(message, { code: "commander.missingMandatoryOptionValue" });
+  }
+  /**
+   * `Option` conflicts with another option.
+   *
+   * @param {Option} option
+   * @param {Option} conflictingOption
+   * @private
+   */
+  _conflictingOption(option, conflictingOption) {
+    const findBestOptionFromValue = (option2) => {
+      const optionKey = option2.attributeName();
+      const optionValue = this.getOptionValue(optionKey);
+      const negativeOption = this.options.find(
+        (target) => target.negate && optionKey === target.attributeName()
+      );
+      const positiveOption = this.options.find(
+        (target) => !target.negate && optionKey === target.attributeName()
+      );
+      if (negativeOption && (negativeOption.presetArg === void 0 && optionValue === false || negativeOption.presetArg !== void 0 && optionValue === negativeOption.presetArg)) {
+        return negativeOption;
+      }
+      return positiveOption || option2;
+    };
+    const getErrorMessage = (option2) => {
+      const bestOption = findBestOptionFromValue(option2);
+      const optionKey = bestOption.attributeName();
+      const source = this.getOptionValueSource(optionKey);
+      if (source === "env") {
+        return `environment variable '${bestOption.envVar}'`;
+      }
+      return `option '${bestOption.flags}'`;
+    };
+    const message = `error: ${getErrorMessage(option)} cannot be used with ${getErrorMessage(conflictingOption)}`;
+    this.error(message, { code: "commander.conflictingOption" });
+  }
+  /**
+   * Unknown option `flag`.
+   *
+   * @param {string} flag
+   * @private
+   */
+  unknownOption(flag) {
+    if (this._allowUnknownOption) return;
+    let suggestion = "";
+    if (flag.startsWith("--") && this._showSuggestionAfterError) {
+      let candidateFlags = [];
+      let command = this;
+      do {
+        const moreFlags = command.createHelp().visibleOptions(command).filter((option) => option.long).map((option) => option.long);
+        candidateFlags = candidateFlags.concat(moreFlags);
+        command = command.parent;
+      } while (command && !command._enablePositionalOptions);
+      suggestion = suggestSimilar(flag, candidateFlags);
+    }
+    const message = `error: unknown option '${flag}'${suggestion}`;
+    this.error(message, { code: "commander.unknownOption" });
+  }
+  /**
+   * Excess arguments, more than expected.
+   *
+   * @param {string[]} receivedArgs
+   * @private
+   */
+  _excessArguments(receivedArgs) {
+    if (this._allowExcessArguments) return;
+    const expected = this.registeredArguments.length;
+    const s = expected === 1 ? "" : "s";
+    const received = receivedArgs.length;
+    const forSubcommand = this.parent ? ` for '${this.name()}'` : "";
+    const details = receivedArgs.join(", ");
+    const message = `error: too many arguments${forSubcommand}. Expected ${expected} argument${s} but got ${received}: ${details}.`;
+    this.error(message, { code: "commander.excessArguments" });
+  }
+  /**
+   * Unknown command.
+   *
+   * @private
+   */
+  unknownCommand() {
+    const unknownName = this.args[0];
+    let suggestion = "";
+    if (this._showSuggestionAfterError) {
+      const candidateNames = [];
+      this.createHelp().visibleCommands(this).forEach((command) => {
+        candidateNames.push(command.name());
+        if (command.alias()) candidateNames.push(command.alias());
+      });
+      suggestion = suggestSimilar(unknownName, candidateNames);
+    }
+    const message = `error: unknown command '${unknownName}'${suggestion}`;
+    this.error(message, { code: "commander.unknownCommand" });
+  }
+  /**
+   * Get or set the program version.
+   *
+   * This method auto-registers the "-V, --version" option which will print the version number.
+   *
+   * You can optionally supply the flags and description to override the defaults.
+   *
+   * @param {string} [str]
+   * @param {string} [flags]
+   * @param {string} [description]
+   * @return {(this | string | undefined)} `this` command for chaining, or version string if no arguments
+   */
+  version(str, flags, description) {
+    if (str === void 0) return this._version;
+    this._version = str;
+    flags = flags || "-V, --version";
+    description = description || "output the version number";
+    const versionOption = this.createOption(flags, description);
+    this._versionOptionName = versionOption.attributeName();
+    this._registerOption(versionOption);
+    this.on("option:" + versionOption.name(), () => {
+      this._outputConfiguration.writeOut(`${str}
+`);
+      this._exit(0, "commander.version", str);
+    });
+    return this;
+  }
+  /**
+   * Set the description.
+   *
+   * @param {string} [str]
+   * @param {object} [argsDescription]
+   * @return {(string|Command)}
+   */
+  description(str, argsDescription) {
+    if (str === void 0 && argsDescription === void 0)
+      return this._description;
+    this._description = str;
+    if (argsDescription) {
+      this._argsDescription = argsDescription;
+    }
+    return this;
+  }
+  /**
+   * Set the summary. Used when listed as subcommand of parent.
+   *
+   * @param {string} [str]
+   * @return {(string|Command)}
+   */
+  summary(str) {
+    if (str === void 0) return this._summary;
+    this._summary = str;
+    return this;
+  }
+  /**
+   * Set an alias for the command.
+   *
+   * You may call more than once to add multiple aliases. Only the first alias is shown in the auto-generated help.
+   *
+   * @param {string} [alias]
+   * @return {(string|Command)}
+   */
+  alias(alias) {
+    if (alias === void 0) return this._aliases[0];
+    let command = this;
+    if (this.commands.length !== 0 && this.commands[this.commands.length - 1]._executableHandler) {
+      command = this.commands[this.commands.length - 1];
+    }
+    if (alias === command._name)
+      throw new Error("Command alias can't be the same as its name");
+    const matchingCommand = this.parent?._findCommand(alias);
+    if (matchingCommand) {
+      const existingCmd = [matchingCommand.name()].concat(matchingCommand.aliases()).join("|");
+      throw new Error(
+        `cannot add alias '${alias}' to command '${this.name()}' as already have command '${existingCmd}'`
+      );
+    }
+    command._aliases.push(alias);
+    return this;
+  }
+  /**
+   * Set aliases for the command.
+   *
+   * Only the first alias is shown in the auto-generated help.
+   *
+   * @param {string[]} [aliases]
+   * @return {(string[]|Command)}
+   */
+  aliases(aliases) {
+    if (aliases === void 0) return this._aliases;
+    aliases.forEach((alias) => this.alias(alias));
+    return this;
+  }
+  /**
+   * Set / get the command usage `str`.
+   *
+   * @param {string} [str]
+   * @return {(string|Command)}
+   */
+  usage(str) {
+    if (str === void 0) {
+      if (this._usage) return this._usage;
+      const args = this.registeredArguments.map((arg) => {
+        return humanReadableArgName(arg);
+      });
+      return [].concat(
+        this.options.length || this._helpOption !== null ? "[options]" : [],
+        this.commands.length ? "[command]" : [],
+        this.registeredArguments.length ? args : []
+      ).join(" ");
+    }
+    this._usage = str;
+    return this;
+  }
+  /**
+   * Get or set the name of the command.
+   *
+   * @param {string} [str]
+   * @return {(string|Command)}
+   */
+  name(str) {
+    if (str === void 0) return this._name;
+    this._name = str;
+    return this;
+  }
+  /**
+   * Set/get the help group heading for this subcommand in parent command's help.
+   *
+   * @param {string} [heading]
+   * @return {Command | string}
+   */
+  helpGroup(heading) {
+    if (heading === void 0) return this._helpGroupHeading ?? "";
+    this._helpGroupHeading = heading;
+    return this;
+  }
+  /**
+   * Set/get the default help group heading for subcommands added to this command.
+   * (This does not override a group set directly on the subcommand using .helpGroup().)
+   *
+   * @example
+   * program.commandsGroup('Development Commands:);
+   * program.command('watch')...
+   * program.command('lint')...
+   * ...
+   *
+   * @param {string} [heading]
+   * @returns {Command | string}
+   */
+  commandsGroup(heading) {
+    if (heading === void 0) return this._defaultCommandGroup ?? "";
+    this._defaultCommandGroup = heading;
+    return this;
+  }
+  /**
+   * Set/get the default help group heading for options added to this command.
+   * (This does not override a group set directly on the option using .helpGroup().)
+   *
+   * @example
+   * program
+   *   .optionsGroup('Development Options:')
+   *   .option('-d, --debug', 'output extra debugging')
+   *   .option('-p, --profile', 'output profiling information')
+   *
+   * @param {string} [heading]
+   * @returns {Command | string}
+   */
+  optionsGroup(heading) {
+    if (heading === void 0) return this._defaultOptionGroup ?? "";
+    this._defaultOptionGroup = heading;
+    return this;
+  }
+  /**
+   * @param {Option} option
+   * @private
+   */
+  _initOptionGroup(option) {
+    if (this._defaultOptionGroup && !option.helpGroupHeading)
+      option.helpGroup(this._defaultOptionGroup);
+  }
+  /**
+   * @param {Command} cmd
+   * @private
+   */
+  _initCommandGroup(cmd) {
+    if (this._defaultCommandGroup && !cmd.helpGroup())
+      cmd.helpGroup(this._defaultCommandGroup);
+  }
+  /**
+   * Set the name of the command from script filename, such as process.argv[1],
+   * or import.meta.filename.
+   *
+   * (Used internally and public although not documented in README.)
+   *
+   * @example
+   * program.nameFromFilename(import.meta.filename);
+   *
+   * @param {string} filename
+   * @return {Command}
+   */
+  nameFromFilename(filename) {
+    this._name = path.basename(filename, path.extname(filename));
+    return this;
+  }
+  /**
+   * Get or set the directory for searching for executable subcommands of this command.
+   *
+   * @example
+   * program.executableDir(import.meta.dirname);
+   * // or
+   * program.executableDir('subcommands');
+   *
+   * @param {string} [path]
+   * @return {(string|null|Command)}
+   */
+  executableDir(path4) {
+    if (path4 === void 0) return this._executableDir;
+    this._executableDir = path4;
+    return this;
+  }
+  /**
+   * Return program help documentation.
+   *
+   * @param {{ error: boolean }} [contextOptions] - pass {error:true} to wrap for stderr instead of stdout
+   * @return {string}
+   */
+  helpInformation(contextOptions) {
+    const helper = this.createHelp();
+    const context = this._getOutputContext(contextOptions);
+    helper.prepareContext({
+      error: context.error,
+      helpWidth: context.helpWidth,
+      outputHasColors: context.hasColors
+    });
+    const text = helper.formatHelp(this, helper);
+    if (context.hasColors) return text;
+    return this._outputConfiguration.stripColor(text);
+  }
+  /**
+   * @typedef HelpContext
+   * @type {object}
+   * @property {boolean} error
+   * @property {number} helpWidth
+   * @property {boolean} hasColors
+   * @property {function} write - includes stripColor if needed
+   *
+   * @returns {HelpContext}
+   * @private
+   */
+  _getOutputContext(contextOptions) {
+    contextOptions = contextOptions || {};
+    const error3 = !!contextOptions.error;
+    let baseWrite;
+    let hasColors2;
+    let helpWidth;
+    if (error3) {
+      baseWrite = (str) => this._outputConfiguration.writeErr(str);
+      hasColors2 = this._outputConfiguration.getErrHasColors();
+      helpWidth = this._outputConfiguration.getErrHelpWidth();
+    } else {
+      baseWrite = (str) => this._outputConfiguration.writeOut(str);
+      hasColors2 = this._outputConfiguration.getOutHasColors();
+      helpWidth = this._outputConfiguration.getOutHelpWidth();
+    }
+    const write = (str) => {
+      if (!hasColors2) str = this._outputConfiguration.stripColor(str);
+      return baseWrite(str);
+    };
+    return { error: error3, write, hasColors: hasColors2, helpWidth };
+  }
+  /**
+   * Output help information for this command.
+   *
+   * Outputs built-in help, and custom text added using `.addHelpText()`.
+   *
+   * @param {{ error: boolean } | Function} [contextOptions] - pass {error:true} to write to stderr instead of stdout
+   */
+  outputHelp(contextOptions) {
+    let deprecatedCallback;
+    if (typeof contextOptions === "function") {
+      deprecatedCallback = contextOptions;
+      contextOptions = void 0;
+    }
+    const outputContext = this._getOutputContext(contextOptions);
+    const eventContext = {
+      error: outputContext.error,
+      write: outputContext.write,
+      command: this
+    };
+    this._getCommandAndAncestors().reverse().forEach((command) => command.emit("beforeAllHelp", eventContext));
+    this.emit("beforeHelp", eventContext);
+    let helpInformation = this.helpInformation({ error: outputContext.error });
+    if (deprecatedCallback) {
+      helpInformation = deprecatedCallback(helpInformation);
+      if (typeof helpInformation !== "string" && !Buffer.isBuffer(helpInformation)) {
+        throw new Error("outputHelp callback must return a string or a Buffer");
+      }
+    }
+    outputContext.write(helpInformation);
+    if (this._getHelpOption()?.long) {
+      this.emit(this._getHelpOption().long);
+    }
+    this.emit("afterHelp", eventContext);
+    this._getCommandAndAncestors().forEach(
+      (command) => command.emit("afterAllHelp", eventContext)
+    );
+  }
+  /**
+   * You can pass in flags and a description to customise the built-in help option.
+   * Pass in false to disable the built-in help option.
+   *
+   * @example
+   * program.helpOption('-?, --help' 'show help'); // customise
+   * program.helpOption(false); // disable
+   *
+   * @param {(string | boolean)} flags
+   * @param {string} [description]
+   * @return {Command} `this` command for chaining
+   */
+  helpOption(flags, description) {
+    if (typeof flags === "boolean") {
+      if (flags) {
+        if (this._helpOption === null) this._helpOption = void 0;
+        if (this._defaultOptionGroup) {
+          this._initOptionGroup(this._getHelpOption());
+        }
+      } else {
+        this._helpOption = null;
+      }
+      return this;
+    }
+    this._helpOption = this.createOption(
+      flags ?? "-h, --help",
+      description ?? "display help for command"
+    );
+    if (flags || description) this._initOptionGroup(this._helpOption);
+    return this;
+  }
+  /**
+   * Lazy create help option.
+   * Returns null if has been disabled with .helpOption(false).
+   *
+   * @returns {(Option | null)} the help option
+   * @package
+   */
+  _getHelpOption() {
+    if (this._helpOption === void 0) {
+      this.helpOption(void 0, void 0);
+    }
+    return this._helpOption;
+  }
+  /**
+   * Supply your own option to use for the built-in help option.
+   * This is an alternative to using helpOption() to customise the flags and description etc.
+   *
+   * @param {Option} option
+   * @return {Command} `this` command for chaining
+   */
+  addHelpOption(option) {
+    this._helpOption = option;
+    this._initOptionGroup(option);
+    return this;
+  }
+  /**
+   * Output help information and exit.
+   *
+   * Outputs built-in help, and custom text added using `.addHelpText()`.
+   *
+   * @param {{ error: boolean }} [contextOptions] - pass {error:true} to write to stderr instead of stdout
+   */
+  help(contextOptions) {
+    this.outputHelp(contextOptions);
+    let exitCode = Number(process2.exitCode ?? 0);
+    if (exitCode === 0 && contextOptions && typeof contextOptions !== "function" && contextOptions.error) {
+      exitCode = 1;
+    }
+    this._exit(exitCode, "commander.help", "(outputHelp)");
+  }
+  /**
+   * // Do a little typing to coordinate emit and listener for the help text events.
+   * @typedef HelpTextEventContext
+   * @type {object}
+   * @property {boolean} error
+   * @property {Command} command
+   * @property {function} write
+   */
+  /**
+   * Add additional text to be displayed with the built-in help.
+   *
+   * Position is 'before' or 'after' to affect just this command,
+   * and 'beforeAll' or 'afterAll' to affect this command and all its subcommands.
+   *
+   * @param {string} position - before or after built-in help
+   * @param {(string | Function)} text - string to add, or a function returning a string
+   * @return {Command} `this` command for chaining
+   */
+  addHelpText(position, text) {
+    const allowedValues = ["beforeAll", "before", "after", "afterAll"];
+    if (!allowedValues.includes(position)) {
+      throw new Error(`Unexpected value for position to addHelpText.
+Expecting one of '${allowedValues.join("', '")}'`);
+    }
+    const helpEvent = `${position}Help`;
+    this.on(helpEvent, (context) => {
+      let helpStr;
+      if (typeof text === "function") {
+        helpStr = text({ error: context.error, command: context.command });
+      } else {
+        helpStr = text;
+      }
+      if (helpStr) {
+        context.write(`${helpStr}
+`);
+      }
+    });
+    return this;
+  }
+  /**
+   * Output help information if help flags specified
+   *
+   * @param {Array} args - array of options to search for help flags
+   * @private
+   */
+  _outputHelpIfRequested(args) {
+    const helpOption = this._getHelpOption();
+    const helpRequested = helpOption && args.find((arg) => helpOption.is(arg));
+    if (helpRequested) {
+      this.outputHelp();
+      this._exit(0, "commander.helpDisplayed", "(outputHelp)");
+    }
+  }
+};
+function incrementNodeInspectorPort(args) {
+  return args.map((arg) => {
+    if (!arg.startsWith("--inspect")) {
+      return arg;
+    }
+    let debugOption;
+    let debugHost = "127.0.0.1";
+    let debugPort = "9229";
+    let match;
+    if ((match = arg.match(/^(--inspect(-brk)?)$/)) !== null) {
+      debugOption = match[1];
+    } else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+)$/)) !== null) {
+      debugOption = match[1];
+      if (/^\d+$/.test(match[3])) {
+        debugPort = match[3];
+      } else {
+        debugHost = match[3];
+      }
+    } else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+):(\d+)$/)) !== null) {
+      debugOption = match[1];
+      debugHost = match[3];
+      debugPort = match[4];
+    }
+    if (debugOption && debugPort !== "0") {
+      return `${debugOption}=${debugHost}:${parseInt(debugPort) + 1}`;
+    }
+    return arg;
+  });
+}
+function useColor() {
+  if (process2.env.NO_COLOR || process2.env.FORCE_COLOR === "0" || process2.env.FORCE_COLOR === "false")
+    return false;
+  if (process2.env.FORCE_COLOR || process2.env.CLICOLOR_FORCE !== void 0)
+    return true;
+  return void 0;
+}
+
+// node_modules/commander/index.js
+var program = new Command();
 
 // node_modules/ora/index.js
 init_source();
-import process8 from "process";
-import { stripVTControlCharacters } from "util";
+import process9 from "process";
+import { stripVTControlCharacters as stripVTControlCharacters3 } from "util";
 
 // node_modules/cli-cursor/index.js
-import process5 from "process";
+import process6 from "process";
 
 // node_modules/restore-cursor/index.js
-import process4 from "process";
+import process5 from "process";
 
 // node_modules/mimic-function/index.js
 var copyProperty = (to, from, property, ignoreNonConfigurable) => {
@@ -79000,7 +78993,7 @@ var onetime_default = onetime;
 
 // node_modules/restore-cursor/index.js
 init_mjs();
-var terminal = process4.stderr.isTTY ? process4.stderr : process4.stdout.isTTY ? process4.stdout : void 0;
+var terminal = process5.stderr.isTTY ? process5.stderr : process5.stdout.isTTY ? process5.stdout : void 0;
 var restoreCursor = terminal ? onetime_default(() => {
   onExit(() => {
     terminal.write("\x1B[?25h");
@@ -79012,14 +79005,14 @@ var restore_cursor_default = restoreCursor;
 // node_modules/cli-cursor/index.js
 var isHidden = false;
 var cliCursor = {};
-cliCursor.show = (writableStream = process5.stderr) => {
+cliCursor.show = (writableStream = process6.stderr) => {
   if (!writableStream.isTTY) {
     return;
   }
   isHidden = false;
   writableStream.write("\x1B[?25h");
 };
-cliCursor.hide = (writableStream = process5.stderr) => {
+cliCursor.hide = (writableStream = process6.stderr) => {
   if (!writableStream.isTTY) {
     return;
   }
@@ -80822,11 +80815,11 @@ var bgCyanBright = format(106, 49);
 var bgWhiteBright = format(107, 49);
 
 // node_modules/is-unicode-supported/index.js
-import process6 from "process";
+import process7 from "process";
 function isUnicodeSupported() {
-  const { env: env3 } = process6;
+  const { env: env3 } = process7;
   const { TERM, TERM_PROGRAM } = env3;
-  if (process6.platform !== "win32") {
+  if (process7.platform !== "win32") {
     return TERM !== "linux";
   }
   return Boolean(env3.WT_SESSION) || Boolean(env3.TERMINUS_SUBLIME) || env3.ConEmuTask === "{cmd::Cmder}" || TERM_PROGRAM === "Terminus-Sublime" || TERM_PROGRAM === "vscode" || TERM === "xterm-256color" || TERM === "alacritty" || TERM === "rxvt-unicode" || TERM === "rxvt-unicode-256color" || env3.TERMINAL_EMULATOR === "JetBrains-JediTerm";
@@ -80850,7 +80843,7 @@ function isInteractive({ stream = process.stdout } = {}) {
 }
 
 // node_modules/stdin-discarder/index.js
-import process7 from "process";
+import process8 from "process";
 var ASCII_ETX_CODE = 3;
 var StdinDiscarder = class {
   #activeCount = 0;
@@ -80863,7 +80856,7 @@ var StdinDiscarder = class {
     }
     const code = typeof chunk === "string" ? chunk.codePointAt(0) : chunk[0];
     if (code === ASCII_ETX_CODE) {
-      process7.kill(process7.pid, "SIGINT");
+      process8.kill(process8.pid, "SIGINT");
     }
   };
   start() {
@@ -80881,8 +80874,8 @@ var StdinDiscarder = class {
     }
   }
   #realStart() {
-    const { stdin } = process7;
-    if (process7.platform === "win32" || !stdin?.isTTY || typeof stdin.setRawMode !== "function") {
+    const { stdin } = process8;
+    if (process8.platform === "win32" || !stdin?.isTTY || typeof stdin.setRawMode !== "function") {
       this.#stdin = void 0;
       return;
     }
@@ -81006,7 +80999,7 @@ var Ora = class {
     }
     this.#options = {
       color: "cyan",
-      stream: process8.stderr,
+      stream: process9.stderr,
       discardStdin: true,
       hideCursor: true,
       ...options
@@ -81029,7 +81022,7 @@ var Ora = class {
     this.prefixText = this.#options.prefixText;
     this.suffixText = this.#options.suffixText;
     this.indent = this.#options.indent;
-    if (process8.env.NODE_ENV === "test") {
+    if (process9.env.NODE_ENV === "test") {
       this._stream = this.#stream;
       this._isEnabled = this.#options.isEnabled;
       Object.defineProperty(this, "_linesToClear", {
@@ -81131,7 +81124,7 @@ var Ora = class {
   }
   #computeLineCountFrom(text, columns) {
     let count = 0;
-    for (const line of stripVTControlCharacters(text).split("\n")) {
+    for (const line of stripVTControlCharacters3(text).split("\n")) {
       count += Math.max(1, Math.ceil(stringWidth(line) / columns));
     }
     return count;
@@ -81219,7 +81212,7 @@ var Ora = class {
     if (!this.isEnabled || this.#hookedStreams.size > 0) {
       return;
     }
-    const streamsToHook = /* @__PURE__ */ new Set([this.#stream, process8.stdout, process8.stderr]);
+    const streamsToHook = /* @__PURE__ */ new Set([this.#stream, process9.stdout, process9.stderr]);
     for (const stream of streamsToHook) {
       this.#hookStream(stream);
     }
@@ -81314,7 +81307,7 @@ var Ora = class {
     if (this.#options.hideCursor) {
       cli_cursor_default.hide(this.#stream);
     }
-    if (this.#options.discardStdin && process8.stdin.isTTY) {
+    if (this.#options.discardStdin && process9.stdin.isTTY) {
       stdin_discarder_default.start();
       this.#isDiscardingStdin = true;
     }
@@ -81667,7 +81660,7 @@ import {
   openSync as openSync3,
   readFileSync as readFileSync10,
   renameSync as renameSync3,
-  unlinkSync as unlinkSync5,
+  unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync7
 } from "fs";
 import { homedir as homedir6 } from "os";
@@ -81743,7 +81736,7 @@ function writeSnapshot(filePath, snapshot) {
     renameSync3(tmpPath, filePath);
   } catch (err) {
     try {
-      unlinkSync5(tmpPath);
+      unlinkSync4(tmpPath);
     } catch {
     }
     throw err;

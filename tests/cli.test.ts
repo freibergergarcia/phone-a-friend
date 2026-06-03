@@ -337,6 +337,50 @@ describe('CLI', () => {
     expect(resolveCall[0].includeDiff).toBeUndefined();
   });
 
+  it('--no-stream passes explicit false to resolveConfig (overrides config default)', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+      '--no-stream',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].stream).toBe('false');
+  });
+
+  it('--stream passes explicit true to resolveConfig', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+      '--stream',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].stream).toBe('true');
+  });
+
+  it('omitting --stream/--no-stream leaves cliOpts.stream undefined so config/env can win', async () => {
+    mockResolveConfig.mockClear();
+
+    await run([
+      'relay',
+      '--to', 'codex',
+      '--repo', tmpDir,
+      '--prompt', 'Sanity check',
+    ]);
+
+    const resolveCall = mockResolveConfig.mock.calls[0];
+    expect(resolveCall[0].stream).toBeUndefined();
+  });
+
   it('passes schema, session, and fast flags through to relay', async () => {
     await run([
       'relay',

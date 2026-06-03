@@ -451,10 +451,11 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
-      // Commander defaults paired flags to true when neither is passed (e.g. with both
-      // --include-diff and --no-include-diff registered, opts.includeDiff is never
-      // undefined). Use getOptionValueSource to distinguish "user explicitly passed
-      // a flag" from "default value", so absent CLI flags fall through to env/config.
+      // Commander 15 no longer implicitly sets a default for paired flags: with both
+      // --include-diff and --no-include-diff registered, opts.includeDiff is undefined
+      // when neither is passed (Commander 14 defaulted it to true). Either way, use
+      // getOptionValueSource to distinguish "user explicitly passed a flag" (source
+      // 'cli') from an unset value, so absent CLI flags fall through to env/config.
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
       const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
 
