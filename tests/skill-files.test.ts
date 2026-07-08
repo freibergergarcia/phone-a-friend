@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 
 const REPO = join(__dirname, '..');
 
@@ -23,7 +23,7 @@ function readFile(rel: string): string {
 function parseFrontmatter(raw: string): unknown {
   const match = raw.match(/^---\n([\s\S]*?)\n---/);
   if (!match) throw new Error('no frontmatter');
-  return yaml.load(match[1]);
+  return load(match[1]);
 }
 
 /**
