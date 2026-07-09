@@ -150,7 +150,7 @@ describe('AntigravityBackend', () => {
     expect(capturedOpts.cwd).toBe('/tmp/repo');
   });
 
-  it('adds a grace buffer to the outer subprocess timeout', async () => {
+  it('adds a grace buffer and preserves Codex timeout remediation end to end', async () => {
     vi.useFakeTimers();
     mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
     const child = new EventEmitter();
@@ -168,15 +168,18 @@ describe('AntigravityBackend', () => {
       timeoutSeconds: 60,
       sandbox: 'read-only',
       model: null,
-      env: {},
+      env: { PHONE_A_FRIEND_HOST: 'codex' },
     });
-    const rejection = expect(promise).rejects.toThrow(/antigravity timed out after 75s/);
+    const rejection = promise.catch((err) => err);
 
     await vi.advanceTimersByTimeAsync(74_000);
     expect((child as any).kill).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1_000);
-    await rejection;
+    const err = await rejection;
+    expect(err).toBeInstanceOf(AntigravityBackendError);
+    expect(err.message).toContain('antigravity timed out after 75s');
+    expect(err.message).toContain('danger-full-access');
   });
 
   it('injects schema instructions as best-effort prompt text', async () => {

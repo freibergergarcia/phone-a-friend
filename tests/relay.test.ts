@@ -352,6 +352,25 @@ describe('relay', () => {
     ).rejects.toThrow(/Invalid sandbox mode/);
   });
 
+  it('rejects write sandboxes for antigravity before calling the backend', async () => {
+    const backend = {
+      ...makeMockBackend('antigravity'),
+      allowedSandboxes: new Set<SandboxMode>(['read-only']),
+    };
+    registerBackend(backend);
+
+    await expect(
+      relay({
+        prompt: 'Review',
+        repoPath: repo,
+        backend: 'antigravity',
+        sandbox: 'workspace-write',
+      }),
+    ).rejects.toThrow('Invalid sandbox mode: workspace-write. Allowed values: read-only');
+
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
   it('raises when context file does not exist', async () => {
     const missingContext = path.join(repo, 'missing.md');
     await expect(
