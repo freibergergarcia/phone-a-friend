@@ -19,7 +19,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
-| **Relay** | One-shot delegation to Codex, Gemini, Ollama, Claude, or OpenCode | Quick second opinions, code reviews, analysis |
+| **Relay** | One-shot delegation to Antigravity, Codex, Gemini, Ollama, Claude, or OpenCode | Quick second opinions, code reviews, analysis |
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
@@ -38,28 +38,29 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 Claude `/phone-a-team` orchestrates rounds via the Agent Teams primitive (TeamCreate + Task + SendMessage). Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
 > [!IMPORTANT]
-> **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Gemini hangs until the timeout. Two workarounds today, both with tradeoffs:
+> **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini and Antigravity). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Google CLI relays can hang until the timeout. Two workarounds today, both with tradeoffs:
 >
 > **Option A — Lower the sandbox.** Per-session (preferred): launch Codex with `codex --sandbox danger-full-access`. Persistent (convenient but removes sandbox protections from every Codex session, not just PaF relays): add an alias to `~/.zshrc` or `~/.bashrc`:
 > ```bash
 > alias codex='codex --sandbox danger-full-access'
 > ```
 >
-> **Option B — Use API keys.** Skips OAuth entirely, works in any sandbox:
+> **Option B — Use API keys for API-key backends.** Skips OAuth entirely for Claude/Gemini CLI, works in any sandbox:
 > ```bash
 > export ANTHROPIC_API_KEY=...
 > export GEMINI_API_KEY=...
 > ```
 >
-> A portable-auth path via `claude setup-token` is planned for the Claude side. Gemini OAuth refresh inside the sandbox is a separate open issue with no planned fix yet — until then, Option B is the only Gemini-safe path that keeps the sandbox intact.
+> A portable-auth path via `claude setup-token` is planned for the Claude side. Antigravity uses `agy` subscription auth, so the current Antigravity-safe path from Codex is Option A or running PaF from a regular terminal.
 
 ## Quick Start
 
 **Prerequisites:** Node.js 22.13+ and at least one backend:
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)
+- [Google Antigravity CLI](https://antigravity.google/) (`agy`) for Google AI Pro/Ultra or consumer Google accounts
 - [Codex CLI](https://developers.openai.com/codex/quickstart/)
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli) for API key, Vertex AI, or enterprise Gemini Code Assist flows
 - [Ollama](https://ollama.com/download)
 - [OpenCode](https://opencode.ai/docs)
 
@@ -162,6 +163,7 @@ Delegate a task to any backend and get the result back:
 
 ```bash
 phone-a-friend --to codex --prompt "Review this code"
+phone-a-friend --to antigravity --prompt "Review this code" --sandbox read-only
 phone-a-friend --to gemini --prompt "Analyze the architecture"
 phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"
@@ -182,7 +184,7 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
   --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
 ```
 
-Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Gemini and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
+Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Antigravity, Gemini, and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
 
 ### Sessions
 
@@ -194,7 +196,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work reliably with Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations). (Gemini resumes natively via `--session-id`/`--resume`; resume depends on Gemini's session retention.)
+Sessions work reliably with Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations). Antigravity is one-shot only in this release, so `--session` is rejected for `--to antigravity`.
 
 ### Job tracking
 
@@ -245,7 +247,7 @@ phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
-`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. The OpenCode CLI is treated as optional: if you only use Claude Code and don't have OpenCode installed, doctor will not flag that as a degraded state.
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. Antigravity and OpenCode CLI are treated as optional: if you don't have `agy` or OpenCode installed, doctor will show them but will not flag that as a degraded state.
 
 ### Update notifications
 
@@ -285,6 +287,7 @@ state.
 
 | Backend | Type | Streaming |
 |---------|------|-----------|
+| **Antigravity** | CLI subprocess (`agy`) | No |
 | **Codex** | CLI subprocess | No |
 | **Gemini** | CLI subprocess | No |
 | **Ollama** | HTTP API | Yes (NDJSON) |
@@ -300,6 +303,14 @@ Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_HOST=opencode|codex` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Set automatically by the install shims.
 - `CODEX_HOME` -- override the Codex config root (default: `~/.codex`). Honored by the Codex skill installer.
 - `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
+
+Antigravity notes:
+- PaF backend name: `antigravity`; executable: `agy`.
+- Antigravity is read-only only for now. Plain `--to antigravity` calls resolve
+  to `read-only`; explicit write sandboxes such as `--sandbox workspace-write`
+  are rejected.
+- `--session` and `--backend-session` are not supported yet.
+- If Gemini CLI says individual Google sign-in is no longer supported, use `--to antigravity` for the Google subscription path or use Gemini CLI with an API key/Vertex flow.
 
 OpenCode configuration via TOML:
 ```toml
@@ -410,7 +421,7 @@ npm run typecheck        # Type check (tsc --noEmit)
 
 Phone a Friend does not collect, transmit, or store any data on servers operated by this project. There is no telemetry and no analytics.
 
-Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, and OpenCode CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
+Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, Antigravity, and OpenCode CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
 
 Local state (config, sessions, jobs, and agentic transcripts) is written only to `~/.config/phone-a-friend/` on your machine.
 

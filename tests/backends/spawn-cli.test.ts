@@ -12,7 +12,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawn: mockSpawn };
 });
 
-import { spawnCli, BackendError, SpawnCliError } from '../../src/backends/index.js';
+import { spawnCli, BackendError, SpawnCliError, SpawnCliTimeoutError } from '../../src/backends/index.js';
 
 function fakeChild(exitCode = 0, stdout = '', stderr = '') {
   const child = new EventEmitter() as ChildProcess;
@@ -78,7 +78,7 @@ describe('spawnCli()', () => {
     expect(err.stderr).toBe('');
   });
 
-  it('rejects on timeout with descriptive message', async () => {
+  it('rejects on timeout with typed timeout error and descriptive message', async () => {
     const child = new EventEmitter() as ChildProcess;
     (child as any).stdout = new PassThrough();
     (child as any).stderr = new PassThrough();
@@ -89,8 +89,12 @@ describe('spawnCli()', () => {
     });
     mockSpawn.mockReturnValue(child);
 
-    await expect(spawnCli('slow', [], { timeoutMs: 10, label: 'slow-cmd' }))
-      .rejects.toThrow(/slow-cmd timed out/);
+    const err = await spawnCli('slow', [], { timeoutMs: 10, label: 'slow-cmd' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(SpawnCliTimeoutError);
+    expect(err).toBeInstanceOf(BackendError);
+    expect(err.message).toMatch(/slow-cmd timed out/);
+    expect(err.timeoutMs).toBe(10);
   });
 
   it('rejects on signal kill', async () => {

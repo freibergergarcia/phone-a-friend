@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Codex, Gemini, Ollama, OpenCode). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Antigravity, Codex, Gemini, Ollama, OpenCode). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
 
 ## Project Structure
 
@@ -27,6 +27,7 @@ src/
   sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   backends/
     index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
+    antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, one-shot)
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
@@ -71,9 +72,10 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
-- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
+- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
+- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, no sessions yet)
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
@@ -170,6 +172,7 @@ After `npm install -g @freibergergarcia/phone-a-friend`, the `phone-a-friend` co
 ```bash
 # Relay
 phone-a-friend --to codex --repo <path> --prompt "..."
+phone-a-friend --to antigravity --repo <path> --prompt "..." --sandbox read-only
 phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..."
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
@@ -397,6 +400,7 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 
 - Claude: native enforcement via `--output-format json --json-schema`
 - Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
+- Antigravity: schema injected into prompt (best-effort, not validated)
 - Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
 - Ollama: native enforcement via JSON Schema object in the HTTP `format` field, with the schema also injected into the prompt for grounding
 - OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
@@ -451,11 +455,12 @@ Implementation notes:
 - `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
+- Antigravity: sessions unsupported for now (`resumeStrategy: unsupported`); PaF rejects `--session` and `--backend-session`.
 - Gemini: `--session-id <uuid>` on start, `--resume <uuid>` on resume. UUID generated client-side (mirrors Claude). Never `--resume latest`, so a label always maps to one conversation.
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
 - Ollama: stateless replay (full history prepended to each request)
 - `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, Gemini, OpenCode)
-- `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call (no shipped backend is currently `unsupported`; Gemini now resumes natively)
+- `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call (currently Antigravity)
 - An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
 - Streaming is disabled when `--session` or `--backend-session` is active
 
@@ -490,7 +495,7 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 

@@ -12,14 +12,21 @@ describe('detection', () => {
   });
 
   describe('detectCliBackends', () => {
-    it('marks codex and gemini as available when found in PATH', async () => {
+    it('marks CLI backends as available when their executables are found in PATH', async () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectCliBackends(whichFn);
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
+      const antigravity = results.find(b => b.name === 'antigravity');
       const codex = results.find(b => b.name === 'codex');
       const gemini = results.find(b => b.name === 'gemini');
       const opencode = results.find(b => b.name === 'opencode');
+
+      expect(antigravity).toBeDefined();
+      expect(antigravity!.available).toBe(true);
+      expect(antigravity!.category).toBe('cli');
+      expect(antigravity!.optional).toBe(true);
+      expect(whichFn).toHaveBeenCalledWith('agy');
 
       expect(codex).toBeDefined();
       expect(codex!.available).toBe(true);
@@ -38,6 +45,12 @@ describe('detection', () => {
       const whichFn = vi.fn(() => false);
       const results = await detection.detectCliBackends(whichFn);
 
+      const antigravity = results.find(b => b.name === 'antigravity');
+      expect(antigravity!.available).toBe(false);
+      expect(antigravity!.installHint).toContain('antigravity.google');
+      expect(antigravity!.detail).toContain('agy not found in PATH');
+      expect(antigravity!.optional).toBe(true);
+
       const codex = results.find(b => b.name === 'codex');
       expect(codex!.available).toBe(false);
       expect(codex!.installHint).toContain('npm install');
@@ -51,7 +64,9 @@ describe('detection', () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectCliBackends(whichFn);
       const codex = results.find(b => b.name === 'codex');
+      const antigravity = results.find(b => b.name === 'antigravity');
       expect(codex!.detail).toBeTruthy();
+      expect(antigravity!.detail).toContain('agy found in PATH');
     });
   });
 
@@ -282,6 +297,8 @@ describe('detection', () => {
       const allRelay = [...report.cli, ...report.local];
       const available = allRelay.filter(b => b.available);
       expect(available.length).toBe(2); // codex + gemini
+      expect(report.cli.find(b => b.name === 'antigravity')?.available).toBe(false);
+      expect(report.cli.find(b => b.name === 'antigravity')?.optional).toBe(true);
     });
 
     it('includes environment detection in report', async () => {

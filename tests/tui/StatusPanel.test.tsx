@@ -48,7 +48,40 @@ describe('StatusPanel', () => {
     );
     const frame = lastFrame()!;
     // 1 available (codex) out of 3 non-planned (codex + gemini + ollama)
-    expect(frame).toMatch(/\d+ of \d+/);
+    expect(frame).toContain('Relay Backends (1 of 3 ready)');
+  });
+
+  it('excludes unavailable optional backends from the summary count', () => {
+    const report: DetectionReport = {
+      ...MOCK_REPORT,
+      cli: [
+        ...MOCK_REPORT.cli,
+        {
+          name: 'antigravity',
+          category: 'cli',
+          available: false,
+          detail: 'agy not found in PATH',
+          installHint: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+          optional: true,
+        },
+        {
+          name: 'opencode',
+          category: 'cli',
+          available: false,
+          detail: 'opencode not found in PATH',
+          installHint: 'curl -fsSL https://opencode.ai/install | bash',
+          optional: true,
+        },
+      ],
+    };
+
+    const { lastFrame } = render(
+      <StatusPanel report={report} loading={false} refreshing={false} error={null} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Relay Backends (1 of 3 ready)');
+    expect(frame).toContain('antigravity');
+    expect(frame).toContain('opencode');
   });
 
   it('shows available backends', () => {

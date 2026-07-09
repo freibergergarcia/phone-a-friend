@@ -352,6 +352,25 @@ describe('relay', () => {
     ).rejects.toThrow(/Invalid sandbox mode/);
   });
 
+  it('rejects write sandboxes for antigravity before calling the backend', async () => {
+    const backend = {
+      ...makeMockBackend('antigravity'),
+      allowedSandboxes: new Set<SandboxMode>(['read-only']),
+    };
+    registerBackend(backend);
+
+    await expect(
+      relay({
+        prompt: 'Review',
+        repoPath: repo,
+        backend: 'antigravity',
+        sandbox: 'workspace-write',
+      }),
+    ).rejects.toThrow('Invalid sandbox mode: workspace-write. Allowed values: read-only');
+
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
   it('raises when context file does not exist', async () => {
     const missingContext = path.join(repo, 'missing.md');
     await expect(
@@ -730,6 +749,36 @@ describe('reviewRelay', () => {
     const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Git Diff:');
     expect(callArgs.prompt).toContain('diff --git');
+  });
+
+  it('uses generic run() review fallback for antigravity', async () => {
+    const backend = {
+      ...makeUnsupportedBackend('antigravity'),
+      allowedSandboxes: new Set<SandboxMode>(['read-only']),
+    };
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) {
+        return 'diff --git a/file.ts b/file.ts\n+added line';
+      }
+      return '';
+    });
+
+    const result = await reviewRelay({
+      repoPath: repo,
+      backend: 'antigravity',
+      base: 'main',
+      prompt: 'Review changes',
+      sandbox: 'read-only',
+    });
+
+    expect(result).toBe('unsupported reply');
+    expect(backend.run).toHaveBeenCalledOnce();
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.prompt).toContain('Review changes');
+    expect(callArgs.prompt).toContain('Git Diff:');
+    expect(callArgs.sandbox).toBe('read-only');
   });
 
   it('falls back to run() when review() throws', async () => {
@@ -1285,28 +1334,42 @@ describe('relay --session unsupported backend guard', () => {
   });
 
   it('errors when --session is used against an unsupported backend', async () => {
-    const backend = makeUnsupportedBackend('gemini');
+    const backend = makeUnsupportedBackend('antigravity');
     registerBackend(backend);
 
     await expect(
       relay({
         prompt: 'follow up',
         repoPath: repo,
-        backend: 'gemini',
+        backend: 'antigravity',
         session: 'should-fail',
       }),
-    ).rejects.toThrow(/--session is not supported by the gemini backend/);
+    ).rejects.toThrow(/--session is not supported by the antigravity backend/);
+  });
+
+  it('errors when --backend-session is used against antigravity', async () => {
+    const backend = makeUnsupportedBackend('antigravity');
+    registerBackend(backend);
+
+    await expect(
+      relay({
+        prompt: 'follow up',
+        repoPath: repo,
+        backend: 'antigravity',
+        backendSession: 'agy-thread',
+      }),
+    ).rejects.toThrow(/--backend-session is not supported by the antigravity backend/);
   });
 
   it('does not error when --session is omitted on an unsupported backend', async () => {
-    const backend = makeUnsupportedBackend('gemini');
+    const backend = makeUnsupportedBackend('antigravity');
     registerBackend(backend);
 
     await expect(
       relay({
         prompt: 'one-shot',
         repoPath: repo,
-        backend: 'gemini',
+        backend: 'antigravity',
       }),
     ).resolves.toBe('unsupported reply');
   });

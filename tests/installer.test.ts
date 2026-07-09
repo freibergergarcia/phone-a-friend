@@ -676,6 +676,7 @@ describe('verifyBackends', () => {
 
   it('returns availability map with hints', () => {
     mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which' && args[0] === 'agy') return '/usr/bin/agy';
       if (cmd === 'which' && args[0] === 'codex') return '/usr/bin/codex';
       throw new Error('not found');
     });
@@ -683,6 +684,8 @@ describe('verifyBackends', () => {
     const results = verifyBackends();
     const byName = Object.fromEntries(results.map(r => [r.name, r]));
 
+    expect(byName['antigravity'].available).toBe(true);
+    expect(byName['antigravity'].hint).toContain('antigravity.google');
     expect(byName['codex'].available).toBe(true);
     expect(byName['gemini'].available).toBe(false);
     expect(byName['gemini'].hint).toContain('npm');

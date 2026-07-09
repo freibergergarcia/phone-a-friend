@@ -54,9 +54,9 @@ function getBackend(name) {
   }
   return backend;
 }
-function isInPath(name) {
+function isInPath(name, env3) {
   try {
-    execFileSync("which", [name], { stdio: "pipe" });
+    execFileSync("which", [name], { stdio: "pipe", ...env3 ? { env: env3 } : {} });
     return true;
   } catch {
     return false;
@@ -65,7 +65,7 @@ function isInPath(name) {
 function checkBackends(whichFn = isInPath) {
   const result = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = whichFn(name);
+    result[name] = whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }
@@ -101,7 +101,7 @@ function spawnCli(command, args, opts) {
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
       const stderr = Buffer.concat(stderrChunks).toString().trim();
       if (timedOut) {
-        reject(new BackendError(`${label} timed out after ${opts.timeoutMs / 1e3}s`));
+        reject(new SpawnCliTimeoutError(`${label} timed out after ${opts.timeoutMs / 1e3}s`, opts.timeoutMs));
         return;
       }
       if (signal) {
@@ -117,7 +117,7 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var BackendError, SpawnCliError, INSTALL_HINTS, registry;
+var BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -139,12 +139,29 @@ var init_backends = __esm({
         this.exitCode = exitCode;
       }
     };
+    SpawnCliTimeoutError = class extends BackendError {
+      timeoutMs;
+      constructor(message, timeoutMs) {
+        super(message);
+        this.name = "SpawnCliTimeoutError";
+        this.timeoutMs = timeoutMs;
+      }
+    };
     INSTALL_HINTS = {
+      antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       codex: "npm install -g @openai/codex",
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
       claude: "npm install -g @anthropic-ai/claude-code",
       opencode: "curl -fsSL https://opencode.ai/install | bash"
+    };
+    BACKEND_COMMANDS = {
+      antigravity: "agy",
+      claude: "claude",
+      codex: "codex",
+      gemini: "gemini",
+      ollama: "ollama",
+      opencode: "opencode"
     };
     registry = /* @__PURE__ */ new Map();
   }
@@ -1147,7 +1164,9 @@ function configSet(key, rawValue, filePath) {
 function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
   const cfg = loadConfig(repoRoot, xdgConfigHome);
   const backend = cliOpts.to ?? env3.PHONE_A_FRIEND_BACKEND ?? cfg.defaults.backend;
-  const sandbox = cliOpts.sandbox ?? env3.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
+  const sandboxFromCli = cliOpts.sandbox !== void 0;
+  const resolvedSandbox = cliOpts.sandbox ?? env3.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
+  const sandbox = backend === "antigravity" && !sandboxFromCli ? "read-only" : resolvedSandbox;
   const timeoutRaw = cliOpts.timeout ?? env3.PHONE_A_FRIEND_TIMEOUT ?? String(cfg.defaults.timeout);
   const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
   const includeDiffRaw = cliOpts.includeDiff ?? env3.PHONE_A_FRIEND_INCLUDE_DIFF;
@@ -16336,13 +16355,14 @@ var init_dist18 = __esm({
 // src/detection.ts
 import { execFileSync as execFileSync4 } from "child_process";
 async function detectCliBackends(whichFn = isInPath) {
-  return CLI_BACKENDS.map(({ name, installHint, label, optional }) => {
-    const found = whichFn(name);
+  return CLI_BACKENDS.map(({ name, command, installHint, label, optional }) => {
+    const executable = command ?? name;
+    const found = whichFn(executable);
     return {
       name,
       category: "cli",
       available: found,
-      detail: found ? `${label} (found in PATH)` : "not found in PATH",
+      detail: found ? `${label} (${executable} found in PATH)` : `${executable} not found in PATH`,
       installHint,
       ...optional ? { optional } : {}
     };
@@ -16496,6 +16516,9 @@ var init_detection = __esm({
     "use strict";
     init_backends();
     CLI_BACKENDS = [
+      // Antigravity is the consumer replacement path for Gemini CLI, but it is
+      // optional so existing users without `agy` do not get failing doctor checks.
+      { name: "antigravity", command: BACKEND_COMMANDS.antigravity, installHint: INSTALL_HINTS.antigravity, label: "Google Antigravity CLI", optional: true },
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
       { name: "gemini", installHint: "npm install -g @google/gemini-cli", label: "Google Gemini CLI" },
       // OpenCode is a recent addition. Existing Claude-Code-only users who
@@ -71048,9 +71071,9 @@ function StatusPanel({ report, loading, refreshing, error: error2, pluginInstall
     return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "Scanning backends..." }) });
   }
   const allRelay = [...report.cli, ...report.local];
-  const nonPlanned = allRelay.filter((b) => !b.planned);
-  const available = nonPlanned.filter((b) => b.available).length;
-  const total = nonPlanned.length;
+  const countable = allRelay.filter((b) => !b.planned && !(b.optional && !b.available));
+  const available = countable.filter((b) => b.available).length;
+  const total = countable.length;
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", gap: 1, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "   \xB7  \xB7  \xB7" }),
@@ -73719,6 +73742,119 @@ var init_agentic = __esm({
   }
 });
 
+// src/backends/antigravity.ts
+init_backends();
+var ANTIGRAVITY_COMMAND = BACKEND_COMMANDS.antigravity ?? "agy";
+var OUTER_TIMEOUT_GRACE_SECONDS = 15;
+var AntigravityBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "AntigravityBackendError";
+  }
+};
+function antigravityTimeoutRemediation(host) {
+  if (host === "codex") {
+    return "Antigravity timed out under Codex's sandbox. Codex's default workspace-write sandbox can block subprocess OAuth/keychain access and outbound Google auth refresh. Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), or run the relay from a regular terminal.";
+  }
+  return 'Antigravity timed out. Verify `agy --prompt "test"` works at the terminal and that your Google account is authenticated.';
+}
+var AntigravityBackend = class {
+  name = "antigravity";
+  localFileAccess = true;
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only"
+  ]);
+  capabilities = {
+    resumeStrategy: "unsupported",
+    requiresClientSessionId: false
+  };
+  async run(opts) {
+    if (!isInPath(ANTIGRAVITY_COMMAND, opts.env)) {
+      throw new AntigravityBackendError(
+        `Antigravity CLI not found in PATH. Install it: ${INSTALL_HINTS.antigravity}`
+      );
+    }
+    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+    const args = buildAntigravityArgs({
+      prompt,
+      repoPath: opts.repoPath,
+      sandbox: opts.sandbox,
+      model: opts.model,
+      timeoutSeconds: opts.timeoutSeconds
+    });
+    try {
+      const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
+        timeoutMs: (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1e3,
+        env: opts.env,
+        cwd: opts.repoPath,
+        label: "antigravity"
+      });
+      if (!result.stdout) {
+        throw new AntigravityBackendError("antigravity completed without producing output");
+      }
+      return result.stdout;
+    } catch (err) {
+      if (err instanceof AntigravityBackendError) throw err;
+      if (err instanceof SpawnCliTimeoutError) {
+        throw new AntigravityBackendError(
+          `${err.message}. ${antigravityTimeoutRemediation(opts.env.PHONE_A_FRIEND_HOST ?? "")}`
+        );
+      }
+      if (err instanceof SpawnCliError) {
+        throw new AntigravityBackendError(formatAntigravitySpawnError(err));
+      }
+      if (err instanceof BackendError) {
+        throw new AntigravityBackendError(err.message);
+      }
+      throw err;
+    }
+  }
+};
+function buildAntigravityArgs(opts) {
+  switch (opts.sandbox) {
+    case "read-only":
+      break;
+    case "workspace-write":
+    case "danger-full-access":
+      throw new AntigravityBackendError(
+        `Antigravity backend currently supports read-only sandbox only, got: ${opts.sandbox}`
+      );
+    default: {
+      const exhaustive = opts.sandbox;
+      throw new AntigravityBackendError(`Unsupported Antigravity sandbox: ${exhaustive}`);
+    }
+  }
+  const args = [
+    "--add-dir",
+    opts.repoPath,
+    "--print-timeout",
+    `${opts.timeoutSeconds}s`,
+    "--sandbox",
+    "--mode",
+    "plan"
+  ];
+  if (opts.model) {
+    args.push("--model", opts.model);
+  }
+  args.push("--prompt", opts.prompt);
+  return args;
+}
+function injectSchemaPrompt(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
+function formatAntigravitySpawnError(err) {
+  const lines = [`Antigravity exited with code ${err.exitCode ?? "unknown"}.`];
+  if (err.stderr) lines.push(`stderr: ${err.stderr}`);
+  if (err.stdout) lines.push(`stdout: ${err.stdout}`);
+  if (!err.stderr && !err.stdout) lines.push(err.message);
+  return lines.join("\n");
+}
+var ANTIGRAVITY_BACKEND = new AntigravityBackend();
+registerBackend(ANTIGRAVITY_BACKEND);
+
 // src/backends/codex.ts
 init_backends();
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "fs";
@@ -73736,7 +73872,7 @@ function isCodexHostEnv(env3) {
 function assertNotCodexHost(env3) {
   if (!isCodexHostEnv(env3)) return;
   throw new CodexBackendError(
-    "Codex is already the host for this Phone-a-Friend invocation. Choose another friend backend such as claude, gemini, opencode, or ollama."
+    "Codex is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, claude, gemini, opencode, or ollama."
   );
 }
 var CodexBackend = class {
@@ -74301,7 +74437,7 @@ var GeminiBackend = class {
   }
   async runOnce(opts, model) {
     const useJsonOutput = Boolean(opts.schema);
-    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
     const args = buildGeminiArgs({
       prompt,
       repoPath: opts.repoPath,
@@ -74394,7 +74530,7 @@ function classifyAttemptError(err) {
   }
   return classifyGeminiError({ message: String(err) });
 }
-function injectSchemaPrompt(prompt, schema) {
+function injectSchemaPrompt2(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:
@@ -74640,7 +74776,7 @@ var OllamaBackend = class {
   async run(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
     const history = opts.sessionHistory ?? [];
     const body = {
       messages: [...history, { role: "user", content: prompt }],
@@ -74700,7 +74836,7 @@ var OllamaBackend = class {
   async *runStream(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
     const history = opts.sessionHistory ?? [];
     const body = {
       messages: [...history, { role: "user", content: prompt }],
@@ -74777,7 +74913,7 @@ var OllamaBackend = class {
     throw new OllamaBackendError(`Ollama request failed: ${detail}`);
   }
 };
-function injectSchemaPrompt2(prompt, schema) {
+function injectSchemaPrompt3(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:
@@ -75027,8 +75163,8 @@ var OpenCodeBackendError = class extends BackendError {
     this.name = "OpenCodeBackendError";
   }
 };
-var OPENCODE_NO_OUTPUT_MESSAGE = "opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a more direct prompt, or use codex/gemini/claude for one-shot relays.";
-var OPENCODE_REVIEW_NO_OUTPUT_MESSAGE = "opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (codex, gemini, claude) for this review.";
+var OPENCODE_NO_OUTPUT_MESSAGE = "opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a more direct prompt, or use antigravity/codex/gemini/claude for one-shot relays.";
+var OPENCODE_REVIEW_NO_OUTPUT_MESSAGE = "opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (antigravity, codex, gemini, claude) for this review.";
 function normalizeOpenCodeModel(model, provider = "ollama") {
   if (!model) return null;
   return model.includes("/") ? model : `${provider}/${model}`;
@@ -75039,7 +75175,7 @@ function isOpenCodeHostEnv(env3) {
 function assertNotOpenCodeHost(env3) {
   if (!isOpenCodeHostEnv(env3)) return;
   throw new OpenCodeBackendError(
-    "OpenCode is already the host for this Phone-a-Friend invocation. Choose another friend backend such as codex, gemini, claude, or ollama."
+    "OpenCode is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
   );
 }
 function buildOpenCodeArgs(opts) {
@@ -75105,7 +75241,7 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, pure } = this.getConfig();
-    const promptWithSchema = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
+    const promptWithSchema = opts.schema ? injectSchemaPrompt4(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
       repoPath: opts.repoPath,
@@ -75274,7 +75410,7 @@ var OpenCodeBackend = class {
     }
   }
 };
-function injectSchemaPrompt3(prompt, schema) {
+function injectSchemaPrompt4(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:
@@ -82146,7 +82282,7 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (!opts.prompt && !isReview) {

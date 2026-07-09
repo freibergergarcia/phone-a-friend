@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 // Import all backends so they self-register
+import './backends/antigravity.js';
 import './backends/codex.js';
 import './backends/gemini.js';
 import './backends/ollama.js';

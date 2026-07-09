@@ -97,16 +97,36 @@ export class SpawnCliError extends BackendError {
   }
 }
 
+export class SpawnCliTimeoutError extends BackendError {
+  readonly timeoutMs: number;
+
+  constructor(message: string, timeoutMs: number) {
+    super(message);
+    this.name = 'SpawnCliTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Install hints
 // ---------------------------------------------------------------------------
 
 export const INSTALL_HINTS: Record<string, string> = {
+  antigravity: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
   codex: 'npm install -g @openai/codex',
   gemini: 'npm install -g @google/gemini-cli',
   ollama: 'https://ollama.com/download',
   claude: 'npm install -g @anthropic-ai/claude-code',
   opencode: 'curl -fsSL https://opencode.ai/install | bash',
+};
+
+export const BACKEND_COMMANDS: Record<string, string> = {
+  antigravity: 'agy',
+  claude: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  ollama: 'ollama',
+  opencode: 'opencode',
 };
 
 // ---------------------------------------------------------------------------
@@ -139,9 +159,9 @@ export function _resetRegistry(): void {
 // PATH detection
 // ---------------------------------------------------------------------------
 
-export function isInPath(name: string): boolean {
+export function isInPath(name: string, env?: Record<string, string>): boolean {
   try {
-    execFileSync('which', [name], { stdio: 'pipe' });
+    execFileSync('which', [name], { stdio: 'pipe', ...(env ? { env } : {}) });
     return true;
   } catch {
     return false;
@@ -153,7 +173,7 @@ export function checkBackends(
 ): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = whichFn(name);
+    result[name] = whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }
@@ -225,7 +245,7 @@ export function spawnCli(
       const stderr = Buffer.concat(stderrChunks).toString().trim();
 
       if (timedOut) {
-        reject(new BackendError(`${label} timed out after ${opts.timeoutMs / 1000}s`));
+        reject(new SpawnCliTimeoutError(`${label} timed out after ${opts.timeoutMs / 1000}s`, opts.timeoutMs));
         return;
       }
 

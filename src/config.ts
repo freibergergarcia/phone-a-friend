@@ -240,10 +240,14 @@ export function resolveConfig(
     env.PHONE_A_FRIEND_BACKEND ??
     cfg.defaults.backend;
 
-  const sandbox =
+  const sandboxFromCli = cliOpts.sandbox !== undefined;
+  const resolvedSandbox =
     cliOpts.sandbox ??
     env.PHONE_A_FRIEND_SANDBOX ??
     cfg.defaults.sandbox;
+  const sandbox = backend === 'antigravity' && !sandboxFromCli
+    ? 'read-only'
+    : resolvedSandbox;
 
   const timeoutRaw =
     cliOpts.timeout ??

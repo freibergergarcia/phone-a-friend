@@ -2,12 +2,12 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (codex/gemini/opencode), Local (ollama), plus host integrations
- * (claude/opencode/codex).
+ * backends: CLI (antigravity/codex/gemini/opencode), Local (ollama), plus
+ * host integrations (claude/opencode/codex).
  */
 
 import { execFileSync } from 'node:child_process';
-import { isInPath } from './backends/index.js';
+import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath } from './backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +48,10 @@ export interface DetectionReport {
 // Install hints
 // ---------------------------------------------------------------------------
 
-const CLI_BACKENDS: { name: string; installHint: string; label: string; optional?: boolean }[] = [
+const CLI_BACKENDS: { name: string; command?: string; installHint: string; label: string; optional?: boolean }[] = [
+  // Antigravity is the consumer replacement path for Gemini CLI, but it is
+  // optional so existing users without `agy` do not get failing doctor checks.
+  { name: 'antigravity', command: BACKEND_COMMANDS.antigravity, installHint: INSTALL_HINTS.antigravity, label: 'Google Antigravity CLI', optional: true },
   { name: 'codex', installHint: 'npm install -g @openai/codex', label: 'OpenAI Codex CLI' },
   { name: 'gemini', installHint: 'npm install -g @google/gemini-cli', label: 'Google Gemini CLI' },
   // OpenCode is a recent addition. Existing Claude-Code-only users who
@@ -81,13 +84,14 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<{ ok: boolean; json:
 export async function detectCliBackends(
   whichFn: WhichFn = isInPath,
 ): Promise<BackendStatus[]> {
-  return CLI_BACKENDS.map(({ name, installHint, label, optional }) => {
-    const found = whichFn(name);
+  return CLI_BACKENDS.map(({ name, command, installHint, label, optional }) => {
+    const executable = command ?? name;
+    const found = whichFn(executable);
     return {
       name,
       category: 'cli' as const,
       available: found,
-      detail: found ? `${label} (found in PATH)` : 'not found in PATH',
+      detail: found ? `${label} (${executable} found in PATH)` : `${executable} not found in PATH`,
       installHint,
       ...(optional ? { optional } : {}),
     };

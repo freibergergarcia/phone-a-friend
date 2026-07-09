@@ -1,6 +1,6 @@
 ---
 name: phone-a-friend
-description: Ask Codex, Gemini, Claude, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
+description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
 argument-hint: [optional review focus]
 ---
 
@@ -10,7 +10,7 @@ Use this skill after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to a backend (Codex, Gemini, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Antigravity, Codex, Gemini, Claude, OpenCode, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Execution rules
 
@@ -20,10 +20,10 @@ Send compact task context + the latest assistant reply to a backend (Codex, Gemi
 - If the user asks for a repo sanity check, architecture opinion, plan critique,
   or general second opinion, use normal prompt mode with `--repo "$PWD"`.
 - If the user says not to edit files, keep that instruction in `--prompt`.
-- From OpenCode, do not select `opencode` as the friend backend. Choose `codex`,
-  `gemini`, `claude`, or `ollama`.
+- From OpenCode, do not select `opencode` as the friend backend. Choose
+  `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
 - From Codex, do not select `codex` as the friend backend. Choose `claude`,
-  `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
+  `antigravity`, `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
   `PHONE_A_FRIEND_HOST` recursion guard used for OpenCode.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
   only include the diff when the user explicitly asked for a
@@ -86,10 +86,10 @@ install shims set the marker automatically; be explicit when constructing
 commands by hand. From Claude Code, the marker is not needed.
 
 When running from OpenCode, do not select `opencode` as the friend backend.
-Choose `codex`, `gemini`, `claude`, or `ollama`.
+Choose `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
 
 When running from Codex, do not select `codex` as the friend backend. Choose
-`claude`, `gemini`, `opencode`, or `ollama`.
+`claude`, `antigravity`, `gemini`, `opencode`, or `ollama`.
 
 ## Relay mode
 
@@ -116,12 +116,13 @@ If `PHONE_A_FRIEND_HOST=codex`, you are running inside Codex's shell-tool sandbo
 
 - Claude's OAuth tokens (stored in macOS Keychain under `claude-token-personal` / `claude-token-work`). A relay to Claude under workspace-write returns `Not logged in · Please run /login` even though the user is fully logged in. Reproducer: `codex exec --sandbox workspace-write "claude -p 'hi'"` fails; `codex exec --sandbox danger-full-access "claude -p 'hi'"` succeeds.
 - Gemini's OAuth refresh path. A relay to Gemini under workspace-write hangs (until the relay's `--timeout` fires) because Gemini cannot reach Google accounts to refresh the token.
+- Antigravity's Google auth path. A relay to Antigravity can also time out under workspace-write; PaF prints Codex-specific remediation when this happens.
 
 This is NOT a real auth issue. Telling the user to run `claude /login` is wrong — it would make things worse.
 
-When you detect `Not logged in` from a Claude relay OR a Gemini timeout, and the host is Codex, tell the user **exactly this**:
+When you detect `Not logged in` from a Claude relay OR a Gemini/Antigravity timeout, and the host is Codex, tell the user **exactly this**:
 
-> Codex is sandboxing the relay. Run Codex with `codex --sandbox danger-full-access` (or `codex --full-auto`) so subprocess CLIs can reach the keychain and refresh OAuth tokens. Your Claude/Gemini auth is fine; the sandbox is intercepting it.
+> Codex is sandboxing the relay. Run Codex with `codex --sandbox danger-full-access` (or `codex --full-auto`) so subprocess CLIs can reach the keychain and refresh OAuth tokens. Your Claude/Google CLI auth is fine; the sandbox is intercepting it.
 
 Alternatives the user can take:
 - Export an API key to skip OAuth entirely: `ANTHROPIC_API_KEY` for Claude, `GEMINI_API_KEY` for Gemini, `OPENAI_API_KEY` for Codex.
@@ -140,6 +141,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
+| **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 
@@ -159,9 +161,12 @@ Additional Context:
 <context-payload>
 ```
 
-In direct mode, also verify the backend CLI is available (`command -v codex` or
-`command -v gemini`) before calling it. If not found, tell the user how to
-install it and stop.
+In direct mode, also verify the backend CLI is available (`command -v agy`,
+`command -v codex`, or `command -v gemini`) before calling it. If not found,
+tell the user how to install it and stop. If Gemini CLI reports that
+individual Google sign-in is no longer supported, switch to
+`phone-a-friend --to antigravity` in binary mode or use Gemini CLI with an
+API key/Vertex flow.
 
 Note: do NOT pass PaF flags like `--no-include-diff`, `--fast`, or
 `--session` in direct mode. They are CLI flags on the `phone-a-friend`
@@ -172,7 +177,7 @@ binary; the underlying backend CLIs do not accept them.
 Do not generate `--context-file` or `--context-text` from repository files,
 `git show`, `git diff`, `git status`, or other local file/git output. Do
 not create temp files just to pass repo content. For repo-aware backends
-(codex, gemini, claude, opencode), pass `--repo "$PWD"` and let the
+(antigravity, codex, gemini, claude, opencode), pass `--repo "$PWD"` and let the
 backend inspect files with its own tools.
 
 `--context-file` and `--context-text` are reserved for **narrative
@@ -259,6 +264,8 @@ PAF_PROMPT_EOF
 PAF_CONTEXT_EOF
 
    "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   # Antigravity is read-only and one-shot; do not add --session.
+   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Gemini supports --session via native resume (see "Session continuity" below):
    "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
@@ -278,6 +285,8 @@ PAF_CONTEXT_EOF
 
    **Direct mode** (`RELAY_MODE = direct`):
    ```bash
+   # Antigravity:
+   agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"
    # Codex:
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
@@ -290,7 +299,7 @@ PAF_CONTEXT_EOF
 
    Note: `--fast`, `--session`, and `--no-include-diff` are PaF CLI flags
    only available in binary mode. Do not append them to direct-mode
-   invocations of `codex` or `gemini`.
+   invocations of `agy`, `codex`, or `gemini`.
 
 5. Return backend feedback in concise review format:
    - Critical issues
@@ -308,7 +317,7 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
 - The task does NOT need MCP tools (GitHub API, Slack, database queries)
 
 `--fast` maps to `--pure` for OpenCode, skipping external plugins. It is a
-no-op for Claude, Codex, Gemini, and Ollama. Claude intentionally does not
+no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not
 use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.
 
@@ -385,6 +394,8 @@ Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
 
 **Backend-specific behavior:**
+- **Antigravity**: no session support yet. Do not add `--session` or
+  `--backend-session` to Antigravity relay calls.
 - **Codex, Claude, OpenCode**: native session resume. Follow-up prompts
   can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt
@@ -424,6 +435,18 @@ phone-a-friend --to codex --repo "$PWD" --session <label> --backend-session <thr
 This is rarely the right move from inside a Claude Code conversation — the
 common case is `--session <label>` with a fresh label. Only use
 `--backend-session` when the user supplied a specific backend thread ID.
+
+## Antigravity vs Gemini CLI
+
+Use `--to antigravity` when the user has the Google Antigravity CLI (`agy`)
+or a consumer Google subscription path. PaF invokes it in read-only plan
+mode with `--sandbox --mode plan --add-dir "$PWD"`.
+
+Use `--to gemini` for Gemini CLI flows that are still valid for the user
+(API key, Vertex AI, or enterprise Gemini Code Assist). If Gemini CLI returns
+"This client is no longer supported for Gemini Code Assist for individuals",
+do not keep retrying Gemini OAuth; suggest Antigravity or API-key/Vertex
+Gemini setup.
 
 ## Gemini model selection
 
