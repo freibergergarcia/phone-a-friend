@@ -1,7 +1,7 @@
 ---
 name: curiosity-engine
 description: "Structured Q&A rally between the host orchestrating model and a backend model. Both sides must always reply with ANSWER and QUESTION prefixes. Seeded by topic, runs for N rounds."
-argument-hint: '--topic "<topic>" [--rounds N] [--backend codex|gemini|ollama]'
+argument-hint: '--topic "<topic>" [--rounds N] [--backend antigravity|codex|gemini|ollama]'
 ---
 
 # /curiosity-engine
@@ -29,14 +29,15 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   `PHONE_A_FRIEND_HOST=opencode` so PaF detects the host deterministically.
 - Inside Codex, prefix relay invocations with `PHONE_A_FRIEND_HOST=codex`
   for the same reason. Do not select `codex` as the friend backend from
-  Codex; PaF will refuse with a recursion-guard error.
+  Codex; choose `antigravity`, `gemini`, or `ollama` instead. PaF will
+  refuse recursive Codex calls.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
 - Do NOT dump repo files or git output (`git show`, `git diff`,
   `git status`, etc.) into the relay prompt. Curiosity rounds are seeded
   with self-contained prompts; if the round needs file context,
-  repo-aware backends (codex, gemini) can read the repo via
+  repo-aware backends (antigravity, codex, gemini) can read the repo via
   `--repo "$PWD"`. For `ollama` (no repo file access), pick a repo-aware
   backend instead, or ask before sending a minimal excerpt. Inlining
   repo content can leak uncommitted edits or committed secrets and is
@@ -67,6 +68,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
+| **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
@@ -122,9 +124,9 @@ Extract `--topic`, `--rounds`, and `--backend` from `$ARGUMENTS`.
 
 - `--topic <string>` — required. Everything after `--topic` up to the next flag. If missing, ask the user: "What topic should the Curiosity Engine explore?" Do not proceed until provided.
 - `--rounds N` — optional, default 3, clamp to [1, 6].
-- `--backend codex|gemini|ollama` — optional, default `codex`.
+- `--backend antigravity|codex|gemini|ollama` — optional, default `codex`.
 
-If `--backend` value is not `codex`, `gemini`, or `ollama`: report error and stop.
+If `--backend` value is not `antigravity`, `codex`, `gemini`, or `ollama`: report error and stop.
 
 Set:
 - TOPIC = parsed topic string
@@ -138,6 +140,7 @@ Set:
 ### CLI backends
 
 ```bash
+command -v agy     # if BACKEND=antigravity
 command -v codex   # if BACKEND=codex
 command -v gemini  # if BACKEND=gemini
 ```
@@ -158,6 +161,8 @@ If `RELAY_MODE = binary`, the binary handles model selection internally.
 
 | BACKEND  | Available | Action |
 |----------|-----------|--------|
+| antigravity | yes    | proceed |
+| antigravity | no     | abort: "Antigravity CLI not found. Install from https://antigravity.google/ or use Gemini CLI with API key/Vertex." |
 | codex    | yes       | proceed |
 | codex    | no        | abort: "codex CLI not found. Install: `npm install -g @openai/codex`" |
 | gemini   | yes       | proceed |
@@ -216,6 +221,8 @@ phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_D
 
 **Direct mode** (`RELAY_MODE = direct`):
 ```bash
+# Antigravity:
+agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"
 # Codex:
 codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
 # Gemini (always include -m):
@@ -270,6 +277,8 @@ phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_D
 
 **Direct mode** (`RELAY_MODE = direct`):
 ```bash
+# Antigravity:
+agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$REPROMPT_FILE")"
 # Codex:
 codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$REPROMPT_FILE")" < /dev/null
 # Gemini:
@@ -366,6 +375,11 @@ Present the full session summary:
 ```
 
 ## Gemini model selection
+
+For BACKEND=antigravity, omit `--model` by default. Antigravity model names
+are UI display names and PaF forwards explicit `--model` values unchanged
+only when the user asks for one. Antigravity is read-only and one-shot in
+PaF; do not add `--session`.
 
 By default, **omit `--model`** for `--to gemini` and let Gemini CLI's
 auto-routing pick. Set `--model` only when reproducibility, specific

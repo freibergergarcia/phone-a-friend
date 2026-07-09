@@ -305,6 +305,33 @@ describe('config', () => {
       expect(result.includeDiff).toBe(false);
     });
 
+    it('normalizes implicit antigravity sandbox to read-only', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), [
+        '[defaults]',
+        'backend = "antigravity"',
+        'sandbox = "workspace-write"',
+      ].join('\n'));
+
+      const result = config.resolveConfig({}, {}, undefined, tempDir);
+
+      expect(result.backend).toBe('antigravity');
+      expect(result.sandbox).toBe('read-only');
+    });
+
+    it('preserves explicit antigravity sandbox so relay can reject unsupported write modes', () => {
+      const result = config.resolveConfig(
+        { to: 'antigravity', sandbox: 'workspace-write' },
+        {},
+        undefined,
+        join(tempDir, 'nonexistent'),
+      );
+
+      expect(result.backend).toBe('antigravity');
+      expect(result.sandbox).toBe('workspace-write');
+    });
+
     it('include_diff: explicit cli false overrides config true', () => {
       const configDir = join(tempDir, 'phone-a-friend');
       mkdirSync(configDir, { recursive: true });

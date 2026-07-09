@@ -10,7 +10,7 @@ OpenCode-specific execution rules:
 
 - Run inside OpenCode means the current process IS OpenCode. Do not select
   `opencode` as the friend backend — PaF blocks that with a recursion guard.
-  Choose `codex`, `gemini`, `claude`, or `ollama` instead.
+  Choose `antigravity`, `codex`, `gemini`, `claude`, or `ollama` instead.
 - Prefix every relay invocation with `PHONE_A_FRIEND_HOST=opencode` so the
   recursion guard fires deterministically (the install shims set this for
   you, but be explicit when constructing commands).

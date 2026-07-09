@@ -381,19 +381,21 @@ describe('CLI', () => {
     expect(resolveCall[0].stream).toBeUndefined();
   });
 
-  it('passes schema, session, and fast flags through to relay', async () => {
+  it('passes schema, session, backend-session, and fast flags through to relay', async () => {
     await run([
       'relay',
       '--prompt', 'Review latest changes',
       '--repo', tmpDir,
       '--schema', '{"type":"object"}',
       '--session', 'codex-review',
+      '--backend-session', 'thread-123',
       '--fast',
     ]);
 
     const opts = mockRelay.mock.calls[0][0];
     expect(opts.schema).toBe('{"type":"object"}');
     expect(opts.session).toBe('codex-review');
+    expect(opts.backendSession).toBe('thread-123');
     expect(opts.fast).toBe(true);
   });
 
@@ -447,6 +449,12 @@ describe('CLI', () => {
     expect(opts.backend).toBe('gemini');
   });
 
+  it('relay dispatches to antigravity when --to antigravity', async () => {
+    await run(['relay', '--to', 'antigravity', '--prompt', 'Review', '--repo', tmpDir]);
+    const opts = mockRelay.mock.calls[0][0];
+    expect(opts.backend).toBe('antigravity');
+  });
+
   // --- Review mode ---
 
   it('--review flag routes to reviewRelay()', async () => {
@@ -495,6 +503,17 @@ describe('CLI', () => {
     const opts = mockReviewRelay.mock.calls[0][0];
     expect(opts.backend).toBe('gemini');
     expect(opts.model).toBe('gemini-2.5-flash');
+  });
+
+  it('--review passes antigravity backend through to reviewRelay()', async () => {
+    await run([
+      'relay', '--review', '--to', 'antigravity',
+      '--prompt', 'Review', '--repo', tmpDir,
+    ]);
+
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    const opts = mockReviewRelay.mock.calls[0][0];
+    expect(opts.backend).toBe('antigravity');
   });
 
   it('--review prints feedback to stdout', async () => {
@@ -826,16 +845,21 @@ describe('CLI', () => {
 
   describe('first-run TTY gate', () => {
     let origIsTTY: boolean | undefined;
+    let origTerm: string | undefined;
 
     beforeEach(() => {
       origIsTTY = process.stdout.isTTY;
+      origTerm = process.env.TERM;
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      process.env.TERM = 'xterm-256color';
       // Config file does not exist — existsSync returns false for the config path
       mockExistsSync.mockReturnValue(false);
     });
 
     afterEach(() => {
       Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
+      if (origTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = origTerm;
       // Restore default: existsSync returns true (config exists)
       mockExistsSync.mockReturnValue(true);
     });
@@ -870,10 +894,13 @@ describe('CLI', () => {
 
   describe('plugin-not-installed TTY prompt', () => {
     let origIsTTY: boolean | undefined;
+    let origTerm: string | undefined;
 
     beforeEach(() => {
       origIsTTY = process.stdout.isTTY;
+      origTerm = process.env.TERM;
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      process.env.TERM = 'xterm-256color';
       // Config exists but plugin is not installed
       mockExistsSync.mockReturnValue(true);
       mockIsPluginInstalled.mockReturnValue(false);
@@ -881,6 +908,8 @@ describe('CLI', () => {
 
     afterEach(() => {
       Object.defineProperty(process.stdout, 'isTTY', { value: origIsTTY, configurable: true });
+      if (origTerm === undefined) delete process.env.TERM;
+      else process.env.TERM = origTerm;
       mockExistsSync.mockReturnValue(true);
       mockIsPluginInstalled.mockReturnValue(true);
     });

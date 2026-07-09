@@ -37,6 +37,7 @@ vi.mock('../src/installer.js', () => ({
 function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
   return {
     cli: [
+      { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found in PATH', installHint: 'curl -fsSL https://antigravity.google/cli/install.sh | bash', optional: true },
       { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: 'npm install -g @openai/codex' },
       { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },
     ],
@@ -135,7 +136,8 @@ describe('doctor', () => {
       mockDetectAll.mockResolvedValue(makeReport());
       const result = await doctor.doctor();
 
-      // codex + ollama = 2 available out of 3 total relay backends
+      // codex + ollama = 2 available out of 3 countable relay backends.
+      // Missing optional Antigravity is shown but excluded from the denominator.
       expect(result.output).toContain('2');
     });
   });
@@ -146,6 +148,7 @@ describe('doctor', () => {
         cli: [
           { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
           { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: 'install antigravity', optional: true },
         ],
         local: [
           { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
@@ -168,6 +171,7 @@ describe('doctor', () => {
         cli: [
           { name: 'codex', category: 'cli', available: false, detail: 'not found', installHint: 'install codex' },
           { name: 'gemini', category: 'cli', available: false, detail: 'not found', installHint: 'install gemini' },
+          { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: 'install antigravity', optional: true },
         ],
         local: [
           { name: 'ollama', category: 'local', available: false, detail: 'not installed', installHint: 'install ollama' },
@@ -188,6 +192,7 @@ describe('doctor', () => {
         cli: [
           { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
           { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: 'install antigravity', optional: true },
           { name: 'opencode', category: 'cli', available: false, detail: 'not found', installHint: 'install opencode', optional: true },
         ],
         local: [
@@ -200,6 +205,24 @@ describe('doctor', () => {
       expect(result.output).toContain('3 of 3 relay backends ready');
     });
 
+    it('counts optional Antigravity toward the denominator when present', async () => {
+      const report = makeReport({
+        cli: [
+          { name: 'antigravity', category: 'cli', available: true, detail: 'agy found', installHint: '', optional: true },
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'opencode', category: 'cli', available: false, detail: 'not found', installHint: '', optional: true },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('4 of 4 relay backends ready');
+    });
+
     it('counts optional OpenCode toward the denominator when present', async () => {
       // If the user installs OpenCode, it joins the count. Optional-and-
       // available means "the user opted in; treat it like any other backend."
@@ -207,6 +230,7 @@ describe('doctor', () => {
         cli: [
           { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
           { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: '', optional: true },
           { name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', optional: true },
         ],
         local: [
@@ -228,6 +252,7 @@ describe('doctor', () => {
         cli: [
           { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
           { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: '', optional: true },
           { name: 'opencode', category: 'cli', available: false, detail: 'not found', installHint: '', optional: true },
         ],
         local: [

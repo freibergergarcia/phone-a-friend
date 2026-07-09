@@ -120,6 +120,7 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
   it('declares phone-a-friend in frontmatter with argument-hint', () => {
     expect(file).toMatch(/^---\nname: phone-a-friend\n/);
     expect(file).toMatch(/argument-hint:\s*\[optional review focus\]/);
+    expect(file).toMatch(/description:[^\n]*OpenCode/);
   });
 
   it('contains the rich workflow (not a thin shim)', () => {
@@ -155,6 +156,7 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
   it('does not hardcode a single backend in its example commands', () => {
     // The shim regression hardcoded `--to codex` in the only example.
     // Rich content shows multiple backends so the model routes by intent.
+    expect(file).toContain('--to antigravity');
     expect(file).toContain('--to gemini');
     expect(file).toContain('--to codex');
   });
@@ -223,6 +225,12 @@ describe('Claude /curiosity-engine rich command (commands/curiosity-engine.md)',
     expect(file.toLowerCase()).not.toContain('gemini model priority');
     expect(file).not.toMatch(/--model\s+gemini-2\.5-flash\b/);
   });
+
+  it('allows Antigravity as a read-only rally backend', () => {
+    expect(file).toContain('antigravity|codex|gemini|ollama');
+    expect(file).toContain('command -v agy');
+    expect(file).toContain('Antigravity CLI not found');
+  });
 });
 
 describe('phone-a-team skill is Claude+Codex only (not OpenCode)', () => {
@@ -248,6 +256,11 @@ describe('phone-a-team skill is Claude+Codex only (not OpenCode)', () => {
 
 describe('Phone-a-friend skill (skills/phone-a-friend/SKILL.md)', () => {
   const file = readFile('skills/phone-a-friend/SKILL.md');
+
+  it('frontmatter description lists every repo-aware CLI backend', () => {
+    expect(file).toMatch(/description:[^\n]*Antigravity/);
+    expect(file).toMatch(/description:[^\n]*OpenCode/);
+  });
 
   it('uses the version-tolerant probe and env-var fallback', () => {
     expect(file).toContain(PROBE);
@@ -307,6 +320,12 @@ describe('Curiosity-engine skill (skills/curiosity-engine/SKILL.md)', () => {
     expect(file).toContain(ENV_FALLBACK);
     expect(file).toContain('$PAF_NO_DIFF');
   });
+
+  it('allows Antigravity as a read-only rally backend', () => {
+    expect(file).toContain('antigravity|codex|gemini|ollama');
+    expect(file).toContain('command -v agy');
+    expect(file).toContain('Antigravity CLI not found');
+  });
 });
 
 describe('OpenCode command overlays (skills/<name>/COMMAND.opencode.md)', () => {
@@ -354,6 +373,15 @@ describe('OpenCode command overlays (skills/<name>/COMMAND.opencode.md)', () => 
         // The negative lookbehind ensures the flag isn't immediately preceded
         // by a backtick (markdown formatting).
         expect(file).not.toMatch(/(?<!`)--no-include-diff/);
+      });
+
+      it('does not carry a stale backend list that omits antigravity', () => {
+        const file = readFileSync(path, 'utf-8');
+        expect(file).not.toContain('codex|gemini|ollama');
+        expect(file).not.toContain('codex`, `gemini`, or `ollama`');
+        if (name === 'phone-a-friend') {
+          expect(file).toContain('antigravity');
+        }
       });
     });
   }

@@ -44,10 +44,10 @@ export class OpenCodeBackendError extends BackendError {
 // callers, so the message lives here and is reused in run() and runStream().
 const OPENCODE_NO_OUTPUT_MESSAGE =
   'opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. ' +
-  'Try a more direct prompt, or use codex/gemini/claude for one-shot relays.';
+  'Try a more direct prompt, or use antigravity/codex/gemini/claude for one-shot relays.';
 
 const OPENCODE_REVIEW_NO_OUTPUT_MESSAGE =
-  'opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (codex, gemini, claude) for this review.';
+  'opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (antigravity, codex, gemini, claude) for this review.';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,7 +88,7 @@ function assertNotOpenCodeHost(env: Record<string, string>): void {
   if (!isOpenCodeHostEnv(env)) return;
   throw new OpenCodeBackendError(
     'OpenCode is already the host for this Phone-a-Friend invocation. ' +
-      'Choose another friend backend such as codex, gemini, claude, or ollama.',
+      'Choose another friend backend such as antigravity, codex, gemini, claude, or ollama.',
   );
 }
 

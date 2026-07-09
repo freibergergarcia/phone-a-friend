@@ -4,6 +4,7 @@ import {
   registerBackend,
   checkBackends,
   _resetRegistry,
+  BACKEND_COMMANDS,
   INSTALL_HINTS,
   BackendError,
   type Backend,
@@ -38,11 +39,19 @@ function makeMockBackend(name: string): Backend {
 // ---------------------------------------------------------------------------
 
 describe('INSTALL_HINTS', () => {
-  it('contains hints for codex and gemini', () => {
+  it('contains hints for shipped backends', () => {
+    expect(INSTALL_HINTS).toHaveProperty('antigravity');
     expect(INSTALL_HINTS).toHaveProperty('codex');
     expect(INSTALL_HINTS).toHaveProperty('gemini');
+    expect(typeof INSTALL_HINTS.antigravity).toBe('string');
     expect(typeof INSTALL_HINTS.codex).toBe('string');
     expect(typeof INSTALL_HINTS.gemini).toBe('string');
+  });
+});
+
+describe('BACKEND_COMMANDS', () => {
+  it('maps Antigravity backend name to the agy executable', () => {
+    expect(BACKEND_COMMANDS.antigravity).toBe('agy');
   });
 });
 
@@ -116,26 +125,29 @@ describe('registerBackend / getBackend', () => {
 
 describe('checkBackends', () => {
   it('returns availability map for all backends in INSTALL_HINTS', () => {
-    const whichFn = (name: string) => name === 'codex';
+    const whichFn = (name: string) => name === 'codex' || name === 'agy';
 
     const result = checkBackends(whichFn);
+    expect(result).toHaveProperty('antigravity', true);
     expect(result).toHaveProperty('codex', true);
     expect(result).toHaveProperty('gemini', false);
   });
 
   it('returns all false when nothing is in PATH', () => {
     const result = checkBackends(() => false);
+    expect(result.antigravity).toBe(false);
     expect(result.codex).toBe(false);
     expect(result.gemini).toBe(false);
   });
 
   it('returns all true when everything is in PATH', () => {
     const result = checkBackends(() => true);
+    expect(result.antigravity).toBe(true);
     expect(result.codex).toBe(true);
     expect(result.gemini).toBe(true);
   });
 
-  it('checks every backend in INSTALL_HINTS', () => {
+  it('checks every backend command in INSTALL_HINTS', () => {
     const checked: string[] = [];
     checkBackends((name) => {
       checked.push(name);
@@ -143,7 +155,7 @@ describe('checkBackends', () => {
     });
 
     for (const name of Object.keys(INSTALL_HINTS)) {
-      expect(checked).toContain(name);
+      expect(checked).toContain(BACKEND_COMMANDS[name] ?? name);
     }
   });
 });

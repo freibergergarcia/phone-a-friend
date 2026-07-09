@@ -86,7 +86,9 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 - If no `--backend` flag is present: set BACKEND = `codex` (default)
 - If `--backend` is present but the value is not `codex`, `gemini`, `ollama`,
   `both`, or `all`: report an error and stop. Valid values: `codex`,
-  `gemini`, `ollama`, `both`, `all`.
+  `gemini`, `ollama`, `both`, `all`. `antigravity` is deliberately excluded
+  until the PaF backend supports session continuity; `/phone-a-friend`
+  supports one-shot Antigravity relays.
 
 Note: `both` means `codex + gemini` (the two CLI backends). Ollama is a
 separate single-backend option that runs alone. `all` includes every
