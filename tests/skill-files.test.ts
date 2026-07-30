@@ -53,8 +53,8 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toContain('TeamDelete');
   });
 
-  it('supports --backend all alongside the legacy values', () => {
-    expect(file).toMatch(/--backend codex\|gemini\|ollama\|both\|all/);
+  it('supports --backend opencode and --backend all alongside the legacy values', () => {
+    expect(file).toMatch(/--backend codex\|gemini\|ollama\|opencode\|both\|all/);
     expect(file).toContain('### Backend selection for `--backend all`');
   });
 
@@ -426,7 +426,9 @@ describe('Shell materialization hardening', () => {
     const file = readFile('commands/phone-a-team.md');
 
     it('validates model names before shell materialization', () => {
-      expect(file).toContain('^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$');
+      // The widened class allows `/` for OpenCode `provider/model` identifiers;
+      // `/` is not a shell metacharacter, so the injection guard is unchanged.
+      expect(file).toContain('^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$');
       expect(file).toContain('abort and ask the user for a safe model name');
     });
 

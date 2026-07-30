@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|ollama|both|all] [--max-rounds N] [--model <name>]
+argument-hint: <task description> [--backend codex|gemini|ollama|opencode|both|all] [--max-rounds N] [--model <name>]
 ---
 
 # /phone-a-team
@@ -81,19 +81,20 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 - If `$ARGUMENTS` contains `--backend codex`: set BACKEND = `codex`
 - If `$ARGUMENTS` contains `--backend gemini`: set BACKEND = `gemini`
 - If `$ARGUMENTS` contains `--backend ollama`: set BACKEND = `ollama`
+- If `$ARGUMENTS` contains `--backend opencode`: set BACKEND = `opencode`
 - If `$ARGUMENTS` contains `--backend both`: set BACKEND = `both`
 - If `$ARGUMENTS` contains `--backend all`: set BACKEND = `all`
 - If no `--backend` flag is present: set BACKEND = `codex` (default)
 - If `--backend` is present but the value is not `codex`, `gemini`, `ollama`,
-  `both`, or `all`: report an error and stop. Valid values: `codex`,
-  `gemini`, `ollama`, `both`, `all`. `antigravity` is deliberately excluded
-  until the PaF backend supports session continuity; `/phone-a-friend`
-  supports one-shot Antigravity relays.
+  `opencode`, `both`, or `all`: report an error and stop. Valid values:
+  `codex`, `gemini`, `ollama`, `opencode`, `both`, `all`. `antigravity` is
+  deliberately excluded until the PaF backend supports session continuity;
+  `/phone-a-friend` supports one-shot Antigravity relays.
 
-Note: `both` means `codex + gemini` (the two CLI backends). Ollama is a
-separate single-backend option that runs alone. `all` includes every
-available friend backend (see Step 2 — Backend selection for the resolution
-matrix and skip rules).
+Note: `both` means `codex + gemini` (the two CLI backends). Ollama and
+OpenCode are separate single-backend options that run alone. `all` includes
+every available friend backend (see Step 2 — Backend selection for the
+resolution matrix and skip rules).
 
 ### Max rounds parsing
 
@@ -115,19 +116,39 @@ matrix and skip rules).
 
 Extract a model name from the task arguments.
 
-**Explicit flag (highest priority, all backends):**
+**Explicit flag (highest priority):**
 - If `$ARGUMENTS` contains `--model <name>`: validate `<name>` against
-  `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`.
+  `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`.
 - If invalid (spaces, quotes, backticks, shell metacharacters, or a leading
   punctuation character): abort and ask the user for a safe model name.
 - If valid: set `MODEL_OVERRIDE = <name>` and remove the `--model <name>`
   pair from TASK_DESCRIPTION.
-- This applies to all backends (codex, gemini, ollama, both, all).
+- The character class allows `/` because OpenCode model identifiers are
+  `provider/model` (and can contain more than one slash, e.g.
+  `myprovider/vendor/model-name`). `/` is not a shell metacharacter, so
+  this does not weaken the injection guard.
 
-**Natural language extraction (Ollama only, lower priority):**
-- Only attempt NL extraction when BACKEND is exactly `ollama` and no
-  `--model` flag was found.
-- Do NOT attempt NL extraction for `codex`, `gemini`, or `both` backends.
+**Per-backend scoping (multi-backend rounds):**
+- `MODEL_OVERRIDE` is only safe to auto-apply to backends with an open,
+  passthrough model-naming scheme: `ollama` and `opencode`.
+- `codex`, `gemini`, and `claude` each have their own model-selection
+  mechanism (see the "Gemini model selection" section; Codex and Claude use
+  their CLI's own default unless a single-backend `--backend codex` or
+  `--backend gemini` run explicitly requested a model).
+- When BACKEND is a single backend, `MODEL_OVERRIDE` applies to that
+  backend directly.
+- When BACKEND is `both` or `all` and `--model` is present: apply the
+  override ONLY to `ollama` and `opencode` members of that round. Do NOT
+  pass it to `codex`, `gemini`, or `claude` relay calls in that case.
+- Report the scoping decision to the user in the preflight summary, e.g.:
+  `Model override "myprovider/mymodel" applied to: opencode. Not applied
+  to: codex, gemini (incompatible model-naming scheme).`
+
+**Natural language extraction (Ollama and OpenCode only, lower priority):**
+- Only attempt NL extraction when BACKEND is exactly `ollama` or `opencode`
+  and no `--model` flag was found.
+- Do NOT attempt NL extraction for `codex`, `gemini`, `both`, or `all`
+  backends.
 - Look for patterns: "use <name>", "with <name> model", "using <name>",
   "via <name>", "the <name> model".
 - Only extract when the phrase is clearly a meta-instruction about which
@@ -136,18 +157,21 @@ Extract a model name from the task arguments.
   TASK_DESCRIPTION.
 - If the candidate appears inside quotes, backticks, or code blocks, do
   NOT extract (it's an example or reference, not a meta-instruction).
-- Validate extracted names with `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`. If
+- Validate extracted names with `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`. If
   the extracted candidate fails validation, abort and ask the user for a
   safe model name.
 
 **Examples:**
 - "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
 - "analyze using qwen3-coder" (backend=ollama) → extract "qwen3-coder" ✓
+- "review this diff with myprovider/qwen3-coder" (backend=opencode) →
+  extract "myprovider/qwen3-coder" ✓
 - "debug the deepseek integration" → do NOT extract (task content) ✗
 - "Fix the domain model" → do NOT extract ("model" is task content) ✗
 - "Compare qwen3 vs llama3" → do NOT extract (multiple candidates) ✗
 - "Write docs showing --model qwen3 usage" → do NOT extract (inside example) ✗
-- "use deepseek" (backend=both) → do NOT extract (NL only for ollama) ✗
+- "use deepseek" (backend=both) → do NOT extract (NL only for
+  ollama/opencode) ✗
 - When in doubt, do not extract.
 
 ### Task description
@@ -252,28 +276,66 @@ If models are available, select using this precedence:
 
 Report the selected model to the user: "Ollama: using model `<name>`"
 
+### OpenCode backend
+
+OpenCode is a CLI backend — check binary presence:
+
+```bash
+command -v opencode
+```
+
+If not found, **abort** and tell user: "opencode CLI not found. Install:
+`curl -fsSL https://opencode.ai/install | bash`"
+
+**Model selection:**
+
+OpenCode has no discovery-and-select-first-available flow like Ollama does —
+there is no sensible "first available model" for an arbitrary custom
+provider set. An explicit model is required:
+
+1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
+   Step 1): use it as the OpenCode model. If it does not contain `/`,
+   **warn** (do not abort): a bare model name will be prefixed with the
+   `backends.opencode.provider` config value (default `ollama`) by
+   `phone-a-friend` itself — so a bare name almost always means the user
+   meant to target Ollama through OpenCode's own local-model pass-through,
+   not a custom provider. Suggest they either use `--backend ollama`
+   directly or pass the fully-qualified `provider/model` string.
+2. If no override: **abort** and tell the user to either pass
+   `--model <provider>/<model>` or run `opencode models` themselves to see
+   what's configured.
+
+Report the selected model to the user: "OpenCode: using model `<name>`"
+
 ### Decision table
 
-| BACKEND   | codex available | gemini available | ollama reachable | ollama models | Action                                                    |
-|-----------|-----------------|------------------|------------------|---------------|-----------------------------------------------------------|
-| `codex`   | yes             | —                | —                | —             | Proceed normally                                          |
-| `codex`   | no              | —                | —                | —             | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
-| `gemini`  | —               | yes              | —                | —             | Proceed normally                                          |
-| `gemini`  | —               | no               | —                | —             | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
-| `ollama`  | —               | —                | yes              | > 0           | Proceed with auto-selected model                          |
-| `ollama`  | —               | —                | yes              | 0             | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
-| `ollama`  | —               | —                | no               | —             | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
-| `both`    | yes             | yes              | —                | —             | Proceed with both backends                                |
-| `both`    | yes             | no               | —                | —             | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
-| `both`    | no              | yes              | —                | —             | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
-| `both`    | no              | no               | —                | —             | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
+| BACKEND   | codex available | gemini available | ollama reachable | ollama models | opencode available | Action                                                    |
+|-----------|-----------------|------------------|------------------|---------------|--------------------|-----------------------------------------------------------|
+| `codex`   | yes             | —                | —                | —             | —                  | Proceed normally                                          |
+| `codex`   | no              | —                | —                | —             | —                  | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
+| `gemini`  | —               | yes              | —                | —             | —                  | Proceed normally                                          |
+| `gemini`  | —               | no               | —                | —             | —                  | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
+| `ollama`  | —               | —                | yes              | > 0           | —                  | Proceed with auto-selected model                          |
+| `ollama`  | —               | —                | yes              | 0             | —                  | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
+| `ollama`  | —               | —                | no               | —             | —                  | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
+| `opencode` | —              | —                | —                | —             | yes                | Proceed with the validated `--model <provider>/<model>` (required — see OpenCode backend above) |
+| `opencode` | —              | —                | —                | —             | no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
+| `both`    | yes             | yes              | —                | —             | —                  | Proceed with both backends                                |
+| `both`    | yes             | no               | —                | —             | —                  | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
+| `both`    | no              | yes              | —                | —             | —                  | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
+| `both`    | no              | no               | —                | —             | —                  | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
 
 After degradation, update BACKEND to the single available backend and continue.
 
 ### Backend selection for `--backend all`
 
 When BACKEND is `all`, expand to every available friend backend, run probes,
-and report skipped backends with reasons. Never fail silently.
+and report skipped backends with reasons. Never fail silently. (`opencode`
+is also directly selectable as its own `--backend opencode` value — see
+Backend parsing in Step 1. When `all` includes opencode alongside other
+backends, the model-scoping rule from Step 1 applies: `MODEL_OVERRIDE` goes
+to `ollama` and `opencode` members only, never to `codex`, `gemini`, or
+`claude` relay calls.)
 
 Resolution matrix:
 
@@ -354,8 +416,8 @@ command:
    pick from a fixed list). Announce to the user as **Name** (role / backend),
    e.g. **Leila** (relay / codex), **Tomás** (relay / ollama:qwen3).
 
-   - **Single backend** (`codex`, `gemini`, or `ollama`): Spawn 1 teammate
-     via the `Task` tool with:
+   - **Single backend** (`codex`, `gemini`, `ollama`, or `opencode`): Spawn
+     1 teammate via the `Task` tool with:
      - `name`: a creative human first name
      - `team_name`: the TEAM_NAME from step 1
      - `subagent_type: "general-purpose"`
@@ -458,6 +520,9 @@ command:
      `OLLAMA_SELECTED_MODEL` discovered during preflight (Step 2). Never
      omit the model for Ollama — the API returns HTTP 400 when no model is
      specified and no server default is configured.
+   - For **opencode** workers: always include `--model` using the validated
+     `MODEL_OVERRIDE` from preflight (Step 2). OpenCode relays require an
+     explicit `provider/model`.
 
 4. **Seed first task immediately** after spawning — include the Round 1
    relay command directly in the teammate's spawn prompt. Do NOT just say
@@ -542,6 +607,9 @@ Different backends have different response times:
 - **Gemini**: 30-90 seconds typically. Faster but may hit capacity errors.
 - **Ollama**: Depends on model size and hardware. Small models (qwen3) are
   fast (10-30s). Large models (llama3.2:70b) can take minutes.
+- **OpenCode**: Depends on the configured provider/model. Custom
+  OpenAI-compatible providers typically respond in 5-30 seconds for
+  chat-style completions; large or slow providers can take longer.
 
 The relay timeout is 600 seconds by default. Do not intervene before that.
 
@@ -634,6 +702,7 @@ PAF_TEAM_CONTEXT_EOF
 
   For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
   For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
+  For opencode, always include `--model` using the validated `MODEL_OVERRIDE` from preflight.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
@@ -810,6 +879,8 @@ Reference table for handling backend failures during the loop:
 | Both requested, both fail mid-loop     | Stop loop. Synthesize using best prior result, or failure summary if no prior result exists |
 | Ollama server unreachable mid-loop     | Treat as round failure. Retry next round. If still unreachable, stop with failure summary |
 | Ollama model not found                 | Treat as round failure (no model fallback for Ollama — user should specify a valid model) |
+| OpenCode CLI not found                 | Abort with install hint (handled in Step 2)       |
+| OpenCode relay error (auth, model not found, provider unreachable) | Treat as round failure. Retry next round once; if it fails twice, drop the backend for the remainder of the run and note it in the synthesis |
 | Gemini retry-eligible HTTP status (429, 499, 500, 503, 504) | Try next model in priority list first. If all models exhausted, skip for this round, retry next round |
 | Backend timeout                        | Gemini: try next model in priority list first. If all models exhausted, treat as failure for this round, retry next |
 | Gemini "high demand" / capacity error  | Try next model in priority list. If all exhausted, treat as round failure |
