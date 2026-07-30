@@ -40,6 +40,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
+| **OpenCode** | `opencode run --dir "$PWD" --model <model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set (see OpenCode backend below) |
 
 Sandbox mapping for direct mode:
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
@@ -48,6 +49,8 @@ Sandbox mapping for direct mode:
   Use `--sandbox` for both read-only and workspace-write; omit it only for
   `danger-full-access`.
 - **Ollama**: no sandbox support. All context must be in the prompt.
+- **OpenCode**: no sandbox flag is passed. `--dir "$PWD"` scopes the
+  workspace OpenCode reads.
 
 In direct mode, build `PROMPT_FILE` from prompt + context + diff using this
 template and the quoted-heredoc rule:
@@ -291,7 +294,7 @@ If not found, **abort** and tell user: "opencode CLI not found. Install:
 
 OpenCode has no discovery-and-select-first-available flow like Ollama does —
 there is no sensible "first available model" for an arbitrary custom
-provider set. An explicit model is required:
+provider set. Resolve in this order, and never abort for a missing model:
 
 1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
    Step 1): use it as the OpenCode model. If it does not contain `/`,
@@ -301,11 +304,16 @@ provider set. An explicit model is required:
    meant to target Ollama through OpenCode's own local-model pass-through,
    not a custom provider. Suggest they either use `--backend ollama`
    directly or pass the fully-qualified `provider/model` string.
-2. If no override: **abort** and tell the user to either pass
-   `--model <provider>/<model>` or run `opencode models` themselves to see
-   what's configured.
+2. If no override: omit `--model` entirely. `phone-a-friend` resolves
+   `backends.opencode.model` from its own config, and OpenCode falls back
+   to its own configured default when that is unset. Do NOT abort — a
+   missing `--model` is a supported configuration, and aborting here would
+   break `--backend all` for every user who has not passed `--model`.
 
-Report the selected model to the user: "OpenCode: using model `<name>`"
+Report the resolved model to the user: "OpenCode: using model `<name>`", or
+"OpenCode: no model override — using config/OpenCode default" when none is
+set. If OpenCode itself cannot resolve a model, that surfaces as a relay
+error and is handled by the Backend Failure Handling table (Step 7).
 
 ### Decision table
 
@@ -318,7 +326,7 @@ Report the selected model to the user: "OpenCode: using model `<name>`"
 | `ollama`  | —               | —                | yes              | > 0           | —                  | Proceed with auto-selected model                          |
 | `ollama`  | —               | —                | yes              | 0             | —                  | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
 | `ollama`  | —               | —                | no               | —             | —                  | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
-| `opencode` | —              | —                | —                | —             | yes                | Proceed with the validated `--model <provider>/<model>` (required — see OpenCode backend above) |
+| `opencode` | —              | —                | —                | —             | yes                | Proceed. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply (see OpenCode backend above) |
 | `opencode` | —              | —                | —                | —             | no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
 | `both`    | yes             | yes              | —                | —             | —                  | Proceed with both backends                                |
 | `both`    | yes             | no               | —                | —             | —                  | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
@@ -520,9 +528,10 @@ command:
      `OLLAMA_SELECTED_MODEL` discovered during preflight (Step 2). Never
      omit the model for Ollama — the API returns HTTP 400 when no model is
      specified and no server default is configured.
-   - For **opencode** workers: always include `--model` using the validated
-     `MODEL_OVERRIDE` from preflight (Step 2). OpenCode relays require an
-     explicit `provider/model`.
+   - For **opencode** workers: include `--model` using the validated
+     `MODEL_OVERRIDE` from preflight (Step 2) when one was set. When no
+     override exists, omit `--model` and let `backends.opencode.model` or
+     OpenCode's own default apply.
 
 4. **Seed first task immediately** after spawning — include the Round 1
    relay command directly in the teammate's spawn prompt. Do NOT just say
@@ -702,7 +711,7 @@ PAF_TEAM_CONTEXT_EOF
 
   For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
   For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
-  For opencode, always include `--model` using the validated `MODEL_OVERRIDE` from preflight.
+  For opencode, include `--model` using `MODEL_OVERRIDE` when set; otherwise omit it and let config/OpenCode defaults apply.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
