@@ -140,12 +140,21 @@ Extract a model name from the task arguments.
   `--backend gemini` run explicitly requested a model).
 - When BACKEND is a single backend, `MODEL_OVERRIDE` applies to that
   backend directly.
-- When BACKEND is `both` or `all` and `--model` is present: apply the
-  override ONLY to `ollama` and `opencode` members of that round. Do NOT
-  pass it to `codex`, `gemini`, or `claude` relay calls in that case.
+- When BACKEND is `all` and `--model` is present: apply the override ONLY
+  to `ollama` and `opencode` members of that round. Do NOT pass it to
+  `codex`, `gemini`, or `claude` relay calls in that case. If no eligible
+  member is available on this machine, report that and continue — do not
+  abort, since which backends pass probes is a property of the machine,
+  not of the command.
+- When BACKEND is `both` and `--model` is present: **abort**. `both` is
+  codex + gemini, so no member can ever receive the override and the flag
+  would be silently inert. Tell the user: "`--model` has no effect with
+  `--backend both` — codex and gemini select their own models. Use a
+  single backend (`--backend codex` or `--backend gemini`) to set one."
+  This is the only empty-by-construction case.
 - Report the scoping decision to the user in the preflight summary, e.g.:
   `Model override "myprovider/mymodel" applied to: opencode. Not applied
-  to: codex, gemini (incompatible model-naming scheme).`
+  to: codex, gemini, claude (incompatible model-naming scheme).`
 
 **Natural language extraction (Ollama and OpenCode only, lower priority):**
 - Only attempt NL extraction when BACKEND is exactly `ollama` or `opencode`
@@ -315,23 +324,31 @@ Report the resolved model to the user: "OpenCode: using model `<name>`", or
 set. If OpenCode itself cannot resolve a model, that surfaces as a relay
 error and is handled by the Backend Failure Handling table (Step 7).
 
+**Decision table for `--backend opencode`:**
+
+| opencode available | Action |
+|--------------------|--------|
+| yes                | Proceed. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply |
+| no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
+
 ### Decision table
 
-| BACKEND   | codex available | gemini available | ollama reachable | ollama models | opencode available | Action                                                    |
-|-----------|-----------------|------------------|------------------|---------------|--------------------|-----------------------------------------------------------|
-| `codex`   | yes             | —                | —                | —             | —                  | Proceed normally                                          |
-| `codex`   | no              | —                | —                | —             | —                  | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
-| `gemini`  | —               | yes              | —                | —             | —                  | Proceed normally                                          |
-| `gemini`  | —               | no               | —                | —             | —                  | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
-| `ollama`  | —               | —                | yes              | > 0           | —                  | Proceed with auto-selected model                          |
-| `ollama`  | —               | —                | yes              | 0             | —                  | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
-| `ollama`  | —               | —                | no               | —             | —                  | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
-| `opencode` | —              | —                | —                | —             | yes                | Proceed. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply (see OpenCode backend above) |
-| `opencode` | —              | —                | —                | —             | no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
-| `both`    | yes             | yes              | —                | —             | —                  | Proceed with both backends                                |
-| `both`    | yes             | no               | —                | —             | —                  | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
-| `both`    | no              | yes              | —                | —             | —                  | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
-| `both`    | no              | no               | —                | —             | —                  | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
+`opencode` has its own two-row table in the OpenCode backend section above,
+since it shares no probe columns with the backends below.
+
+| BACKEND   | codex available | gemini available | ollama reachable | ollama models | Action                                                    |
+|-----------|-----------------|------------------|------------------|---------------|-----------------------------------------------------------|
+| `codex`   | yes             | —                | —                | —             | Proceed normally                                          |
+| `codex`   | no              | —                | —                | —             | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
+| `gemini`  | —               | yes              | —                | —             | Proceed normally                                          |
+| `gemini`  | —               | no               | —                | —             | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
+| `ollama`  | —               | —                | yes              | > 0           | Proceed with auto-selected model                          |
+| `ollama`  | —               | —                | yes              | 0             | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
+| `ollama`  | —               | —                | no               | —             | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
+| `both`    | yes             | yes              | —                | —             | Proceed with both backends                                |
+| `both`    | yes             | no               | —                | —             | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
+| `both`    | no              | yes              | —                | —             | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
+| `both`    | no              | no               | —                | —             | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
 
 After degradation, update BACKEND to the single available backend and continue.
 

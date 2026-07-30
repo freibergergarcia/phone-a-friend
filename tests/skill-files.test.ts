@@ -432,6 +432,31 @@ describe('Shell materialization hardening', () => {
       expect(file).toContain('abort and ask the user for a safe model name');
     });
 
+    it('keeps the strict no-slash pattern for config-sourced ollama models', () => {
+      // Before OpenCode widened the --model class, all three occurrences were
+      // the same string, so the assertion above covered this site too. They
+      // have diverged: backends.ollama.model never contains `/`, so it must
+      // keep the strict class. Anchor on the surrounding prose so this can
+      // never accidentally match the widened pattern.
+      expect(file).toMatch(
+        /backends\.ollama\.model[\s\S]{0,200}\^\[A-Za-z0-9]\[A-Za-z0-9\._:-]\{0,127}\$/,
+      );
+    });
+
+    it('scopes MODEL_OVERRIDE away from backends with closed model naming', () => {
+      // The override must never reach codex/gemini/claude in a multi-backend
+      // round -- they use incompatible model-naming schemes.
+      expect(file).toContain('**Per-backend scoping (multi-backend rounds):**');
+      expect(file).toMatch(
+        /apply the override ONLY[\s\S]{0,120}`ollama` and `opencode`/,
+      );
+      expect(file).toMatch(
+        /Do NOT pass it to\s+`codex`, `gemini`, or `claude`/,
+      );
+      // `both` is codex + gemini, so no member can ever receive the override.
+      expect(file).toMatch(/BACKEND is `both` and `--model` is present:\s+\*\*abort\*\*/);
+    });
+
     it('uses prompt/context files for dynamic relay payloads', () => {
       expect(file).toContain('Shell safety rule');
       expect(file).toContain('trap \'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"\' EXIT');
