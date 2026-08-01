@@ -40,7 +40,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
-| **OpenCode** | `opencode run --dir "$PWD" --model <model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set (see OpenCode backend below) |
+| **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
 
 Sandbox mapping for direct mode:
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
@@ -49,8 +49,9 @@ Sandbox mapping for direct mode:
   Use `--sandbox` for both read-only and workspace-write; omit it only for
   `danger-full-access`.
 - **Ollama**: no sandbox support. All context must be in the prompt.
-- **OpenCode**: no sandbox flag is passed. `--dir "$PWD"` scopes the
-  workspace OpenCode reads.
+- **OpenCode**: no sandbox flag is available. `--dir "$PWD"` scopes the
+  workspace OpenCode reads but does not prevent writes. The user's OpenCode
+  permission config controls file access.
 
 In direct mode, build `PROMPT_FILE` from prompt + context + diff using this
 template and the quoted-heredoc rule:
@@ -265,22 +266,33 @@ array. Store the list as `OLLAMA_AVAILABLE_MODELS` and select a model as
 
 **First, check for empty models — this takes priority over all selection
 rules.** If `OLLAMA_AVAILABLE_MODELS` is empty (server running but no models
-pulled): **Abort**, even if `MODEL_OVERRIDE` or config specifies a model.
-Tell user: "Ollama server is running but has no models pulled. Install one
-with: `ollama pull <model-name>`". Rationale: an empty model list means the
-server has nothing to run — proceeding would always fail.
+pulled), the server has nothing to run:
+- If BACKEND is exactly `ollama`, **abort**, even if `MODEL_OVERRIDE` or
+  config specifies a model. Tell user: "Ollama server is running but has no
+  models pulled. Install one with: `ollama pull <model-name>`".
+- If BACKEND is `all`, set
+  `OLLAMA_SKIP_REASON = server has no models pulled`, exclude `ollama` when
+  building `BACKENDS`, report the reason, and continue.
 
 If models are available, select using this precedence:
 1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
    Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
-   in `OLLAMA_AVAILABLE_MODELS`. If not found, **abort** and ask the user
-   to choose one of the discovered local models.
+   in `OLLAMA_AVAILABLE_MODELS`.
+   - If not found and BACKEND is exactly `ollama`, **abort** and ask the user
+     to choose one of the discovered local models.
+   - If not found and BACKEND is `all`, do not abort. Set
+     `OLLAMA_SKIP_REASON = model override "<name>" is not installed locally`,
+     exclude `ollama` when building `BACKENDS`, and report the reason in the
+     preflight summary. Continue with the other available backends. Do not
+     replace the explicit override with an arbitrary local model.
 2. If no override and `RELAY_MODE = binary`: check config by running
    `phone-a-friend config get backends.ollama.model`. If a value is
    returned, validate it against `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`,
    then set `OLLAMA_SELECTED_MODEL` to that value. Validate against
-   `OLLAMA_AVAILABLE_MODELS` — if not found, abort and ask the user to
-   choose one of the discovered local models.
+   `OLLAMA_AVAILABLE_MODELS`. If not found, abort and ask the user to choose
+   one of the discovered local models when BACKEND is exactly `ollama`; when
+   BACKEND is `all`, set `OLLAMA_SKIP_REASON`, exclude Ollama, report the
+   unavailable configured model, and continue.
    If `RELAY_MODE = direct`: skip this step (the binary is not available to
    query config). Fall through to option 3.
 3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
@@ -303,17 +315,25 @@ If not found, **abort** and tell user: "opencode CLI not found. Install:
 
 OpenCode has no discovery-and-select-first-available flow like Ollama does —
 there is no sensible "first available model" for an arbitrary custom
-provider set. Resolve in this order, and never abort for a missing model:
+provider set. Resolve in this order:
 
-1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
-   Step 1): use it as the OpenCode model. If it does not contain `/`,
-   **warn** (do not abort): a bare model name will be prefixed with the
-   `backends.opencode.provider` config value (default `ollama`) by
-   `phone-a-friend` itself — so a bare name almost always means the user
-   meant to target Ollama through OpenCode's own local-model pass-through,
-   not a custom provider. Suggest they either use `--backend ollama`
-   directly or pass the fully-qualified `provider/model` string.
-2. If no override: omit `--model` entirely. `phone-a-friend` resolves
+1. If `MODEL_OVERRIDE` contains `/`: use it as the OpenCode model.
+2. If `MODEL_OVERRIDE` is set but does not contain `/` and
+   `RELAY_MODE = binary`: use it, but **warn** that `phone-a-friend` will
+   prefix it with the `backends.opencode.provider` config value (default
+   `ollama`). Suggest using `--backend ollama` directly or passing the
+   fully-qualified `provider/model` string.
+3. If `MODEL_OVERRIDE` is set but does not contain `/` and
+   `RELAY_MODE = direct`: never pass it to `opencode run`; the PaF binary is
+   unavailable to normalize it.
+   - If BACKEND is exactly `opencode`, **abort** with: "OpenCode direct mode
+     requires `--model <provider/model>`; pass a fully-qualified model such
+     as `ollama/<model>`, or use `--backend ollama` for a bare local model."
+   - If BACKEND is `all`, set
+     `OPENCODE_SKIP_REASON = direct mode requires provider/model`, exclude
+     `opencode` when building `BACKENDS`, and report the reason. Continue so
+     the bare override can still select an installed Ollama model.
+4. If no override: omit `--model` entirely. `phone-a-friend` resolves
    `backends.opencode.model` from its own config, and OpenCode falls back
    to its own configured default when that is unset. Do NOT abort — a
    missing `--model` is a supported configuration, and aborting here would
@@ -321,14 +341,16 @@ provider set. Resolve in this order, and never abort for a missing model:
 
 Report the resolved model to the user: "OpenCode: using model `<name>`", or
 "OpenCode: no model override — using config/OpenCode default" when none is
-set. If OpenCode itself cannot resolve a model, that surfaces as a relay
-error and is handled by the Backend Failure Handling table (Step 7).
+set. When `all` skips OpenCode because a direct-mode override is bare, report
+`OPENCODE_SKIP_REASON` instead. If OpenCode itself cannot resolve a model,
+that surfaces as a relay error and is handled by the Backend Failure Handling
+table (Step 7).
 
 **Decision table for `--backend opencode`:**
 
 | opencode available | Action |
 |--------------------|--------|
-| yes                | Proceed. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply |
+| yes                | Proceed when the model passes the relay-mode rules above. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply |
 | no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
 
 ### Decision table
@@ -368,7 +390,7 @@ Resolution matrix:
 |----------------|--------------|
 | `codex`        | `command -v codex` AND `codex --version` succeeds |
 | `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini auto-routing) |
-| `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry |
+| `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry AND `OLLAMA_SKIP_REASON` is unset |
 | `claude`       | `command -v claude` AND `claude --version` succeeds. Claude is excluded by default when this skill is running inside Claude Code (we are already orchestrating with Claude). Include only when the user explicitly asked for Claude in addition |
 | `opencode`     | `command -v opencode` succeeds AND the host is NOT OpenCode (`PHONE_A_FRIEND_HOST=opencode` means we are inside OpenCode; relaying back to opencode is blocked by the recursion guard regardless) |
 
@@ -546,9 +568,10 @@ command:
      omit the model for Ollama — the API returns HTTP 400 when no model is
      specified and no server default is configured.
    - For **opencode** workers: include `--model` using the validated
-     `MODEL_OVERRIDE` from preflight (Step 2) when one was set. When no
-     override exists, omit `--model` and let `backends.opencode.model` or
-     OpenCode's own default apply.
+     `MODEL_OVERRIDE` from preflight (Step 2) when one was set and accepted
+     for the current relay mode. When no override exists, omit `--model` and
+     let `backends.opencode.model` or OpenCode's own default apply. Direct
+     mode must never pass a bare model name.
 
 4. **Seed first task immediately** after spawning — include the Round 1
    relay command directly in the teammate's spawn prompt. Do NOT just say
@@ -728,7 +751,10 @@ PAF_TEAM_CONTEXT_EOF
 
   For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
   For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
-  For opencode, include `--model` using `MODEL_OVERRIDE` when set; otherwise omit it and let config/OpenCode defaults apply.
+  For opencode, include `--model` using `MODEL_OVERRIDE` when set and
+  validated for the current relay mode; otherwise omit it and let
+  config/OpenCode defaults apply. Direct mode must never pass a bare model
+  name to `opencode run`.
 - **Both backends**: Relay to each backend (in parallel if using teams,
   sequentially otherwise). You may give them the same task or different
   sub-tasks.
@@ -879,6 +905,13 @@ Relay calls default to `--sandbox read-only`, but MUST escalate when the
 task requires writes.
 
 **Rules:**
+- OpenCode is an exception to the technical sandbox contract: neither the
+  PaF backend nor `opencode run` can enforce read-only access for OpenCode.
+  `--dir` scopes the workspace but does not prevent writes; the user's
+  OpenCode permission config is the enforcement boundary. For every
+  OpenCode review or other read-only round, add this explicit instruction
+  to the relay prompt: "Do not modify files. Review or advise only." This is
+  a behavioral instruction, not a sandbox guarantee.
 - If the task asks to **create or modify files** (e.g., "create .md files
   under /architecture", "refactor the backend", "apply these changes"),
   the relay call MUST use `--sandbox workspace-write` so the backend writes
@@ -1104,10 +1137,14 @@ The following precedence determines `OLLAMA_SELECTED_MODEL` during preflight:
 
 1. **`MODEL_OVERRIDE`** (from `--model` flag or NL extraction in Step 1) —
    highest priority. Validate against `OLLAMA_AVAILABLE_MODELS`. If not
-   found, abort and ask the user to choose one of the discovered models.
+   found, abort only when BACKEND is exactly `ollama`. When BACKEND is `all`,
+   set `OLLAMA_SKIP_REASON`, exclude Ollama from `BACKENDS`, report why it
+   was skipped, and continue with the other available backends.
 2. **Config `backends.ollama.model`** — set via TUI model picker or
    `phone-a-friend config set`. Validate against the safe model-name pattern
-   and available models; abort if invalid or unavailable.
+   and available models. If invalid or unavailable, abort for a single
+   Ollama run or set `OLLAMA_SKIP_REASON` and continue without Ollama for an
+   `all` run.
 3. **First model from `/api/tags`** — fallback auto-selection.
 
 - **Do NOT maintain a model priority list** for Ollama. Unlike Gemini, Ollama

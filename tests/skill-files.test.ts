@@ -457,6 +457,38 @@ describe('Shell materialization hardening', () => {
       expect(file).toMatch(/BACKEND is `both` and `--model` is present:\s+\*\*abort\*\*/);
     });
 
+    it('skips ollama in all-backend rounds when the override is unavailable', () => {
+      expect(file).toContain(
+        '`OLLAMA_SKIP_REASON = model override "<name>" is not installed locally`',
+      );
+      expect(file).toContain('exclude `ollama` when building `BACKENDS`');
+      expect(file).toMatch(
+        /If not found and BACKEND is exactly `ollama`, \*\*abort\*\*/,
+      );
+    });
+
+    it('never passes bare model names to opencode in direct mode', () => {
+      expect(file).toMatch(
+        /OpenCode direct mode\s+requires `--model <provider\/model>`/,
+      );
+      expect(file).toContain(
+        '`OPENCODE_SKIP_REASON = direct mode requires provider/model`',
+      );
+      expect(file).toMatch(
+        /Direct mode must never pass a bare model\s+name to `opencode run`\./,
+      );
+    });
+
+    it('documents the opencode sandbox limit and read-only prompt guard', () => {
+      expect(file).toMatch(
+        /neither the\s+PaF backend nor `opencode run` can enforce read-only access for OpenCode/,
+      );
+      expect(file).toMatch(
+        /the user's\s+OpenCode permission config is the enforcement boundary/,
+      );
+      expect(file).toContain('Do not modify files. Review or advise only.');
+    });
+
     it('uses prompt/context files for dynamic relay payloads', () => {
       expect(file).toContain('Shell safety rule');
       expect(file).toContain('trap \'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"\' EXIT');
