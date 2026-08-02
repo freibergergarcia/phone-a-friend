@@ -1,21 +1,23 @@
 name: Auto Label
 
+# pull_request_target is required so the token keeps write access on fork
+# PRs (plain pull_request demotes it to read-only). Safe here: this workflow
+# never checks out or executes PR code — it only reads the event payload and
+# calls the API.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened]
     branches: [main]
 
 permissions:
   pull-requests: write
   issues: write
-  statuses: write
 
 jobs:
   auto-label:
     runs-on: ubuntu-latest
     steps:
       - name: Add version label from branch prefix
-        id: label
         uses: actions/github-script@v9
         with:
           script: |
@@ -49,7 +51,6 @@ jobs:
                 labels: [label],
               });
               core.info(`Added "${label}" label for branch "${branch}"`);
-              core.setOutput('label', label);
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -64,25 +65,4 @@ jobs:
                 ].join('\n'),
               });
               core.warning(`Branch "${branch}" does not match any prefix — commented reminder.`);
-              core.setOutput('label', '');
             }
-
-      - name: Report label-check status
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const label = '${{ steps.label.outputs.label }}';
-            const sha = context.payload.pull_request.head.sha;
-            const state = label ? 'success' : 'pending';
-            const description = label
-              ? `Version label: ${label}`
-              : 'Waiting for version label (patch, minor, or major)';
-
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha,
-              state,
-              context: 'label-check',
-              description,
-            });
