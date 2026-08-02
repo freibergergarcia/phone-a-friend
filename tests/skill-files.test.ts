@@ -53,8 +53,8 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toContain('TeamDelete');
   });
 
-  it('supports --backend all alongside the legacy values', () => {
-    expect(file).toMatch(/--backend codex\|gemini\|ollama\|both\|all/);
+  it('supports --backend opencode and --backend all alongside the legacy values', () => {
+    expect(file).toMatch(/--backend codex\|gemini\|ollama\|opencode\|both\|all/);
     expect(file).toContain('### Backend selection for `--backend all`');
   });
 
@@ -426,8 +426,67 @@ describe('Shell materialization hardening', () => {
     const file = readFile('commands/phone-a-team.md');
 
     it('validates model names before shell materialization', () => {
-      expect(file).toContain('^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$');
+      // The widened class allows `/` for OpenCode `provider/model` identifiers;
+      // `/` is not a shell metacharacter, so the injection guard is unchanged.
+      expect(file).toContain('^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$');
       expect(file).toContain('abort and ask the user for a safe model name');
+    });
+
+    it('keeps the strict no-slash pattern for config-sourced ollama models', () => {
+      // Before OpenCode widened the --model class, all three occurrences were
+      // the same string, so the assertion above covered this site too. They
+      // have diverged: backends.ollama.model never contains `/`, so it must
+      // keep the strict class. Anchor on the surrounding prose so this can
+      // never accidentally match the widened pattern.
+      expect(file).toMatch(
+        /backends\.ollama\.model[\s\S]{0,200}\^\[A-Za-z0-9]\[A-Za-z0-9\._:-]\{0,127}\$/,
+      );
+    });
+
+    it('scopes MODEL_OVERRIDE away from backends with closed model naming', () => {
+      // The override must never reach codex/gemini/claude in a multi-backend
+      // round -- they use incompatible model-naming schemes.
+      expect(file).toContain('**Per-backend scoping (multi-backend rounds):**');
+      expect(file).toMatch(
+        /apply the override ONLY[\s\S]{0,120}`ollama` and `opencode`/,
+      );
+      expect(file).toMatch(
+        /Do NOT pass it to\s+`codex`, `gemini`, or `claude`/,
+      );
+      // `both` is codex + gemini, so no member can ever receive the override.
+      expect(file).toMatch(/BACKEND is `both` and `--model` is present:\s+\*\*abort\*\*/);
+    });
+
+    it('skips ollama in all-backend rounds when the override is unavailable', () => {
+      expect(file).toContain(
+        '`OLLAMA_SKIP_REASON = model override "<name>" is not installed locally`',
+      );
+      expect(file).toContain('exclude `ollama` when building `BACKENDS`');
+      expect(file).toMatch(
+        /If not found and BACKEND is exactly `ollama`, \*\*abort\*\*/,
+      );
+    });
+
+    it('never passes bare model names to opencode in direct mode', () => {
+      expect(file).toMatch(
+        /OpenCode direct mode\s+requires `--model <provider\/model>`/,
+      );
+      expect(file).toContain(
+        '`OPENCODE_SKIP_REASON = direct mode requires provider/model`',
+      );
+      expect(file).toMatch(
+        /Direct mode must never pass a bare model\s+name to `opencode run`\./,
+      );
+    });
+
+    it('documents the opencode sandbox limit and read-only prompt guard', () => {
+      expect(file).toMatch(
+        /neither the\s+PaF backend nor `opencode run` can enforce read-only access for OpenCode/,
+      );
+      expect(file).toMatch(
+        /the user's\s+OpenCode permission config is the enforcement boundary/,
+      );
+      expect(file).toContain('Do not modify files. Review or advise only.');
     });
 
     it('uses prompt/context files for dynamic relay payloads', () => {
