@@ -168,6 +168,14 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
     expect(file).not.toContain('when running from OpenCode');
   });
 
+  it('documents intentional Claude cross-session messaging', () => {
+    expect(file).toContain('## Claude cross-session messaging');
+    expect(file).toContain('--peer-messaging accept');
+    expect(file).toContain("Claude's `ListAgents` and `SendMessage` tools");
+    expect(file).toContain('backends.claude.peer_messaging accept');
+    expect(file).toContain('one-shot relays appear as\n`paf-relay`');
+  });
+
   it('does not direct-mode-leak PaF-only flags', () => {
     // PaF flags (--no-include-diff, --fast, --session) only exist on the
     // `phone-a-friend` binary. They must not appear in direct-mode codex/
@@ -300,6 +308,14 @@ describe('Phone-a-friend skill (skills/phone-a-friend/SKILL.md)', () => {
     // the smoke-test failure. Pin a host-aware steer.
     // (\s allows the prose line wrap between `$PAF_NO_DIFF` and "from OpenCode".)
     expect(file).toMatch(/Do (?:NOT|not) use[\s\S]{0,60}\$PAF_NO_DIFF[\s\S]{0,60}from OpenCode/);
+  });
+
+  it('documents intentional Claude cross-session messaging', () => {
+    expect(file).toContain('## Claude cross-session messaging');
+    expect(file).toContain('--peer-messaging accept');
+    expect(file).toContain("Claude's `ListAgents` and `SendMessage` tools");
+    expect(file).toContain('backends.claude.peer_messaging accept');
+    expect(file).toContain('one-shot relays appear as\n`paf-relay`');
   });
 });
 

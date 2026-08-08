@@ -12,6 +12,15 @@ import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
+/** How a Claude relay participates in Claude Code cross-session messaging. */
+export type ClaudePeerMessagingMode = 'native' | 'accept' | 'refuse';
+
+export const CLAUDE_PEER_MESSAGING_MODES: readonly ClaudePeerMessagingMode[] = [
+  'native',
+  'accept',
+  'refuse',
+];
+
 export type ResumeStrategy = 'native-session' | 'transcript-replay' | 'unsupported';
 
 export interface BackendCapabilities {
@@ -43,6 +52,10 @@ export interface BackendRunOptions {
   persistSession?: boolean;
   resumeSession?: boolean;
   fast?: boolean;
+  /** Claude-only cross-session messaging policy. Ignored by other backends. */
+  peerMessaging?: ClaudePeerMessagingMode;
+  /** Human-readable PaF label used to name a peer-visible backend session. */
+  sessionLabel?: string | null;
   sessionHistory?: SessionHistoryEntry[];
   onSessionCreated?: (sessionId: string) => void;
 }

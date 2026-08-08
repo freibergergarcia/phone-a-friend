@@ -49,6 +49,7 @@ const {
     timeout: cliOpts.timeout ? Number(cliOpts.timeout) : 600,
     includeDiff: cliOpts.includeDiff === 'true',
     model: cliOpts.model,
+    claudePeerMessaging: cliOpts.peerMessaging ?? 'native',
   })),
   mockInquirerSelect: vi.fn(),
   mockExistsSync: vi.fn(() => true),
@@ -248,6 +249,7 @@ describe('CLI', () => {
       timeout: cliOpts.timeout ? Number(cliOpts.timeout) : 600,
       includeDiff: cliOpts.includeDiff === 'true',
       model: cliOpts.model,
+      claudePeerMessaging: cliOpts.peerMessaging ?? 'native',
     }));
     tmpDir = makeTempDir();
   });
@@ -397,6 +399,69 @@ describe('CLI', () => {
     expect(opts.session).toBe('codex-review');
     expect(opts.backendSession).toBe('thread-123');
     expect(opts.fast).toBe(true);
+  });
+
+  it('passes Claude peer messaging through config resolution to relay', async () => {
+    await run([
+      'relay',
+      '--to', 'claude',
+      '--repo', tmpDir,
+      '--prompt', 'Coordinate this review',
+      '--peer-messaging', 'accept',
+      '--no-stream',
+    ]);
+
+    expect(mockResolveConfig.mock.calls.at(-1)?.[0].peerMessaging).toBe('accept');
+    expect(mockRelay.mock.calls.at(-1)?.[0].peerMessaging).toBe('accept');
+  });
+
+  it('uses configured Claude peer messaging when the CLI flag is omitted', async () => {
+    mockResolveConfig.mockImplementation((cliOpts: Record<string, string | undefined>) => ({
+      backend: cliOpts.to ?? 'codex',
+      sandbox: 'read-only',
+      timeout: 600,
+      includeDiff: false,
+      model: undefined,
+      claudePeerMessaging: 'accept',
+    }));
+
+    await run([
+      'relay',
+      '--to', 'claude',
+      '--repo', tmpDir,
+      '--prompt', 'Coordinate this review',
+    ]);
+
+    expect(mockResolveConfig.mock.calls.at(-1)?.[0].peerMessaging).toBeUndefined();
+    expect(mockRelay.mock.calls.at(-1)?.[0].peerMessaging).toBe('accept');
+  });
+
+  it('rejects --peer-messaging for non-Claude backends', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run([
+        'relay',
+        '--to', 'codex',
+        '--repo', tmpDir,
+        '--prompt', 'Review',
+        '--peer-messaging', 'accept',
+      ]);
+    });
+
+    expect(result).toBe(1);
+    expect(stderr).toContain('--peer-messaging is only supported by the Claude backend');
+    expect(mockRelay).not.toHaveBeenCalled();
+  });
+
+  it('passes Claude peer messaging to review mode', async () => {
+    await run([
+      'relay',
+      '--to', 'claude',
+      '--repo', tmpDir,
+      '--review',
+      '--peer-messaging', 'refuse',
+    ]);
+
+    expect(mockReviewRelay.mock.calls.at(-1)?.[0].peerMessaging).toBe('refuse');
   });
 
   it('relay with --context-file passes contextFile', async () => {

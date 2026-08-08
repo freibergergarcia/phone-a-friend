@@ -9,12 +9,13 @@
  * Claude has no `-C` flag — use `cwd` in spawn/exec options instead.
  */
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import {
   type BackendCapabilities,
   type BackendRunOptions,
   BackendError,
+  type ClaudePeerMessagingMode,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
@@ -30,6 +31,8 @@ import { parseClaudeStreamJSON } from '../stream-parsers.js';
 
 const READ_ONLY_TOOLS = 'Read,Grep,Glob,LS,WebFetch,WebSearch';
 const WORKSPACE_WRITE_TOOLS = 'Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch';
+const PEER_MESSAGING_TOOLS = 'ListAgents,SendMessage';
+const CLAUDE_PEER_MESSAGING_MIN_VERSION = [2, 1, 224] as const;
 
 /** Env vars that trigger Claude's nested-session guard. Strip before spawning. */
 const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'] as const;
@@ -97,6 +100,29 @@ export function isClaudeAuthError(msg: string): boolean {
   //   "You are not logged in."
   const text = msg.toLowerCase();
   return text.includes('not logged in') || text.includes('please run /login');
+}
+
+/** Whether a `claude --version` response supports cross-session messaging. */
+export function supportsClaudePeerMessaging(versionOutput: string): boolean {
+  const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const version = match.slice(1).map(Number);
+  for (let i = 0; i < CLAUDE_PEER_MESSAGING_MIN_VERSION.length; i++) {
+    if (version[i] > CLAUDE_PEER_MESSAGING_MIN_VERSION[i]) return true;
+    if (version[i] < CLAUDE_PEER_MESSAGING_MIN_VERSION[i]) return false;
+  }
+  return true;
+}
+
+/** Stable, human-readable name shown by Claude's `/list-agents`. */
+export function claudePeerName(sessionLabel?: string | null, sessionId?: string | null): string {
+  const source = sessionLabel?.trim() || sessionId?.slice(0, 8) || 'relay';
+  const slug = source
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  if (!slug) return 'paf-relay';
+  return slug.startsWith('paf-') ? slug : `paf-${slug}`;
 }
 
 /**
@@ -178,6 +204,9 @@ export class ClaudeBackend implements Backend {
     fast?: boolean;
     sessionId?: string | null;
     resumeSession?: boolean;
+    peerMessaging?: ClaudePeerMessagingMode;
+    peerMessagingSupported?: boolean;
+    sessionLabel?: string | null;
   }): string[] {
     const args: string[] = ['-p', opts.prompt];
 
@@ -216,20 +245,38 @@ export class ClaudeBackend implements Backend {
       args.push('--max-budget-usd', maxBudget);
     }
 
+    const peerMessaging = opts.peerMessaging ?? 'native';
+    const peerMessagingEnabled = opts.peerMessagingSupported && peerMessaging !== 'refuse';
+
     // Sandbox → tool policy
     if (opts.sandbox === 'danger-full-access') {
       args.push('--dangerously-skip-permissions');
     } else {
-      const tools = opts.sandbox === 'read-only'
+      let tools = opts.sandbox === 'read-only'
         ? READ_ONLY_TOOLS
         : WORKSPACE_WRITE_TOOLS;
+      if (peerMessagingEnabled) {
+        tools += `,${PEER_MESSAGING_TOOLS}`;
+      }
       args.push('--tools', tools);
       args.push('--allowedTools', tools);
     }
 
+    if (opts.peerMessagingSupported) {
+      if (peerMessaging === 'accept' || peerMessaging === 'refuse') {
+        args.push('--settings', JSON.stringify({ crossSessionInbound: peerMessaging }));
+      }
+      if (peerMessagingEnabled) {
+        args.push('--name', claudePeerName(opts.sessionLabel, opts.sessionId));
+      }
+    }
+
     // Depth guard: prevent recursion via skills and subagents
     args.push('--disable-slash-commands');
-    args.push('--disallowedTools', 'Task');
+    const disallowedTools = opts.peerMessagingSupported && peerMessaging === 'refuse'
+      ? 'Task,SendMessage,ListAgents'
+      : 'Task';
+    args.push('--disallowedTools', disallowedTools);
 
     // Intentionally ignore opts.fast for Claude. `--bare` skips OAuth/keychain
     // reads and breaks subscription auth; API-key users may be fine, but PaF
@@ -250,9 +297,13 @@ export class ClaudeBackend implements Backend {
       );
     }
 
+    const peerMessagingSupported = this.peerMessagingSupported();
+    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+
     const args = this.buildArgs({
       ...opts,
       outputFormat: opts.schema ? undefined : 'text',
+      peerMessagingSupported,
     });
 
     try {
@@ -290,9 +341,13 @@ export class ClaudeBackend implements Backend {
       );
     }
 
+    const peerMessagingSupported = this.peerMessagingSupported();
+    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+
     const args = this.buildArgs({
       ...opts,
       outputFormat: 'stream-json',
+      peerMessagingSupported,
     });
 
     // --output-format stream-json requires --verbose in print mode
@@ -367,6 +422,30 @@ export class ClaudeBackend implements Backend {
       if (!child.killed) {
         child.kill('SIGTERM');
       }
+    }
+  }
+
+  private peerMessagingSupported(): boolean {
+    try {
+      const version = execFileSync('claude', ['--version'], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      return supportsClaudePeerMessaging(version);
+    } catch {
+      return false;
+    }
+  }
+
+  private assertPeerMessagingSupport(
+    mode: ClaudePeerMessagingMode | undefined,
+    supported: boolean,
+  ): void {
+    if (mode === 'accept' && !supported) {
+      throw new ClaudeBackendError(
+        'Claude peer messaging requires Claude Code v2.1.224 or later. ' +
+          'Upgrade Claude Code or use --peer-messaging native.',
+      );
     }
   }
 }

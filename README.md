@@ -173,6 +173,7 @@ phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silentl
 phone-a-friend --to opencode --prompt "Explain this" --fast        # Skip OpenCode plugins (faster)
 phone-a-friend --to codex --prompt "Review my fix" --include-diff   # Append `git diff HEAD` to the prompt
 phone-a-friend --to codex --prompt "Quick question" --no-include-diff  # Override defaults.include_diff = true
+phone-a-friend --to claude --prompt "Coordinate with the migration session" --peer-messaging accept
 ```
 
 ### Structured output
@@ -197,6 +198,38 @@ phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
 Sessions work reliably with Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations). Antigravity is one-shot only in this release, so `--session` is rejected for `--to antigravity`.
+
+### Claude peer messaging
+
+On supported macOS and Linux setups, Claude Code 2.1.224+ can list and message
+other live Claude Code sessions on the same machine. PaF exposes that
+capability deliberately for Claude relays:
+
+```bash
+# Use Claude's native inbound policy while allowing peer discovery/messages (default)
+phone-a-friend --to claude --prompt "Ask the payments session for its status" \
+  --peer-messaging native --session payments-coordinator
+
+# Deliver peer messages to the unattended PaF worker immediately
+phone-a-friend --to claude --prompt "Coordinate the migration" \
+  --peer-messaging accept --session migration-coordinator
+
+# Isolate this relay from peer messaging in both directions
+phone-a-friend --to claude --prompt "Review privately" --peer-messaging refuse
+```
+
+`native` is the default: PaF makes `ListAgents` and `SendMessage` available but
+leaves inbound delivery to Claude Code's own permission-mode rules. `accept`
+sets `crossSessionInbound` to `accept`, which is the autonomy-first choice for
+unattended workers. `refuse` rejects inbound messages and removes the peer
+tools. Peer-visible workers are named from the PaF session label, such as
+`paf-migration-coordinator`; one-shot relays use `paf-relay`.
+
+Set your preferred mode once:
+
+```bash
+phone-a-friend config set backends.claude.peer_messaging accept
+```
 
 ### Job tracking
 
@@ -298,8 +331,16 @@ Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
 
+Claude configuration via TOML:
+
+```toml
+[backends.claude]
+peer_messaging = "native" # native (default), accept, or refuse
+```
+
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
+- `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` -- override Claude peer messaging for the current process.
 - `PHONE_A_FRIEND_HOST=opencode|codex` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Set automatically by the install shims.
 - `CODEX_HOME` -- override the Codex config root (default: `~/.codex`). Honored by the Codex skill installer.
 - `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).

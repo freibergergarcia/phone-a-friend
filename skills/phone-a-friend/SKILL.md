@@ -325,6 +325,37 @@ Most `/phone-a-friend` relay calls are self-contained reviews where the
 context is already in the prompt. Default to including `--fast` when the
 backend may be OpenCode; it is harmless elsewhere.
 
+## Claude cross-session messaging
+
+When the backend is Claude and the user asks it to coordinate with another
+live Claude Code session, report status across sessions, or work autonomously
+with peer sessions, use PaF's peer-messaging mode:
+
+```bash
+phone-a-friend --to claude --repo "$PWD" \
+  --prompt "<prompt>" --peer-messaging accept --session <descriptive-label>
+```
+
+Modes:
+
+- `native` (default): expose Claude's `ListAgents` and `SendMessage` tools and
+  defer inbound delivery to Claude Code's native permission-mode rules.
+- `accept`: expose the peer tools and set `crossSessionInbound` to `accept` so
+  a non-interactive worker receives messages without an approval dialog.
+- `refuse`: reject inbound messages and remove outbound peer tools.
+
+Peer messaging is Claude-only and requires Claude Code 2.1.224+ on a supported
+macOS or Linux setup. PaF fails clearly when `accept` is requested on an older
+CLI; `native` degrades to the legacy isolated tool surface. Never pass
+`--peer-messaging` to another backend. Prefer a descriptive `--session` label:
+PaF exposes it as `paf-<label>` in `/list-agents`; one-shot relays appear as
+`paf-relay`. If the user wants unattended peer collaboration routinely, point
+them to the one-time setting:
+
+```bash
+phone-a-friend config set backends.claude.peer_messaging accept
+```
+
 ## Multi-backend parallel
 
 When the user asks more than one backend in the same request (e.g. "ask claude and gemini X", "what does codex and ollama think about Y"), run all relays **in parallel**, not sequentially. Sequential calls feel slow even when each one is fast, and a single hung backend should not block the others.
