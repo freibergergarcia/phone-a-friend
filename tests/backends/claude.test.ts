@@ -21,7 +21,14 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
 });
 
-import { CLAUDE_BACKEND, ClaudeBackendError, ClaudeAuthError, isClaudeAuthError } from '../../src/backends/claude.js';
+import {
+  CLAUDE_BACKEND,
+  ClaudeBackendError,
+  ClaudeAuthError,
+  claudePeerName,
+  isClaudeAuthError,
+  supportsClaudePeerMessaging,
+} from '../../src/backends/claude.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +44,14 @@ function makeOpts(overrides: Record<string, unknown> = {}) {
     env: {} as Record<string, string>,
     ...overrides,
   };
+}
+
+function mockClaudeVersion(version: string): void {
+  mockExecFileSync.mockImplementation((command: string) => {
+    if (command === 'which') return '/usr/local/bin/claude';
+    if (command === 'claude') return `${version} (Claude Code)`;
+    return '';
+  });
 }
 
 /** Create a mock child process for spawn() */
@@ -116,6 +131,75 @@ describe('ClaudeBackend', () => {
     expect(CLAUDE_BACKEND.allowedSandboxes.has('read-only')).toBe(true);
     expect(CLAUDE_BACKEND.allowedSandboxes.has('workspace-write')).toBe(true);
     expect(CLAUDE_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(true);
+  });
+
+  it('detects the Claude peer-messaging version boundary', () => {
+    expect(supportsClaudePeerMessaging('2.1.223 (Claude Code)')).toBe(false);
+    expect(supportsClaudePeerMessaging('2.1.224 (Claude Code)')).toBe(true);
+    expect(supportsClaudePeerMessaging('2.2.0')).toBe(true);
+    expect(supportsClaudePeerMessaging('not-a-version')).toBe(false);
+  });
+
+  it('builds stable peer names from PaF labels and session IDs', () => {
+    expect(claudePeerName('auth review')).toBe('paf-auth-review');
+    expect(claudePeerName('paf-claude-review-a3f2')).toBe('paf-claude-review-a3f2');
+    expect(claudePeerName(null, '019dd45f-1234')).toBe('paf-019dd45f');
+    expect(claudePeerName()).toBe('paf-relay');
+  });
+
+  it('exposes native peer messaging through the read-only tool policy', async () => {
+    mockClaudeVersion('2.1.224');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({
+      peerMessaging: 'native',
+      sessionLabel: 'auth-review',
+    }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args[args.indexOf('--tools') + 1]).toBe(
+      'Read,Grep,Glob,LS,WebFetch,WebSearch,ListAgents,SendMessage',
+    );
+    expect(args[args.indexOf('--allowedTools') + 1]).toContain('ListAgents,SendMessage');
+    expect(args[args.indexOf('--name') + 1]).toBe('paf-auth-review');
+    expect(args).not.toContain('--settings');
+  });
+
+  it('accepts inbound peer messages unattended when configured', async () => {
+    mockClaudeVersion('2.1.226');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({
+      peerMessaging: 'accept',
+      sessionLabel: 'migration',
+    }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args[args.indexOf('--settings') + 1]).toBe('{"crossSessionInbound":"accept"}');
+    expect(args[args.indexOf('--name') + 1]).toBe('paf-migration');
+    expect(args[args.indexOf('--disallowedTools') + 1]).toBe('Task');
+  });
+
+  it('refuses inbound and outbound peer messaging when configured', async () => {
+    mockClaudeVersion('2.1.226');
+    mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+
+    await CLAUDE_BACKEND.run(makeOpts({ peerMessaging: 'refuse' }));
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args[args.indexOf('--settings') + 1]).toBe('{"crossSessionInbound":"refuse"}');
+    expect(args[args.indexOf('--tools') + 1]).not.toContain('ListAgents');
+    expect(args[args.indexOf('--disallowedTools') + 1]).toBe('Task,SendMessage,ListAgents');
+    expect(args).not.toContain('--name');
+  });
+
+  it('rejects accept mode on Claude versions without peer messaging', async () => {
+    mockClaudeVersion('2.1.223');
+
+    await expect(
+      CLAUDE_BACKEND.run(makeOpts({ peerMessaging: 'accept' })),
+    ).rejects.toThrow(/requires Claude Code v2\.1\.224/);
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 
   it('builds correct args for read-only sandbox', async () => {
@@ -329,19 +413,23 @@ describe('ClaudeBackend', () => {
   });
 
   it('resumes a persisted session with -r', async () => {
-    mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+    mockClaudeVersion('2.1.226');
     mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
 
     await CLAUDE_BACKEND.run(makeOpts({
       sessionId: 'uuid-1',
       persistSession: true,
       resumeSession: true,
+      peerMessaging: 'accept',
+      sessionLabel: 'codex-review',
     }));
 
     const args = mockSpawn.mock.calls[0][1] as string[];
     expect(args).toContain('-r');
     expect(args[args.indexOf('-r') + 1]).toBe('uuid-1');
     expect(args).not.toContain('--add-dir');
+    expect(args[args.indexOf('--settings') + 1]).toBe('{"crossSessionInbound":"accept"}');
+    expect(args[args.indexOf('--name') + 1]).toBe('paf-codex-review');
   });
 
   it('does not pass --model when model is null', async () => {
@@ -506,6 +594,27 @@ describe('ClaudeBackend', () => {
       expect(args).toContain('--output-format');
       expect(args[args.indexOf('--output-format') + 1]).toBe('stream-json');
       expect(args).toContain('--include-partial-messages');
+    });
+
+    it('applies peer messaging to streaming relays', async () => {
+      const lines = [
+        JSON.stringify({ type: 'result', result: 'hi' }),
+        '',
+      ].join('\n');
+
+      mockClaudeVersion('2.1.226');
+      mockSpawn.mockReturnValue(mockChildProcess(lines, 0));
+
+      for await (const _ of CLAUDE_BACKEND.runStream!(makeOpts({
+        peerMessaging: 'accept',
+        sessionLabel: 'stream-review',
+      }))) {
+        // consume
+      }
+
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('--settings') + 1]).toBe('{"crossSessionInbound":"accept"}');
+      expect(args[args.indexOf('--name') + 1]).toBe('paf-stream-review');
     });
 
     it('throws ClaudeBackendError when claude not found (stream)', async () => {

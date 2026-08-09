@@ -17,6 +17,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 import {
   relay,
+  relayStream,
   reviewRelay,
   detectDefaultBranch,
   gitDiffBase,
@@ -158,6 +159,35 @@ describe('relay', () => {
     await relay({ prompt: 'Review', repoPath: repo, fast: true });
     const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.fast).toBe(true);
+  });
+
+  it('passes peer messaging and the PaF session label to the backend', async () => {
+    await relay({
+      prompt: 'Coordinate the review',
+      repoPath: repo,
+      peerMessaging: 'accept',
+      session: 'paf-claude-auth-a3f2',
+      sessionStore: new SessionStore(path.join(repo, 'peer-sessions.json')),
+    });
+
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.peerMessaging).toBe('accept');
+    expect(callArgs.sessionLabel).toBe('paf-claude-auth-a3f2');
+  });
+
+  it('passes peer messaging through streaming relays', async () => {
+    const chunks: string[] = [];
+    for await (const chunk of relayStream({
+      prompt: 'Coordinate the review',
+      repoPath: repo,
+      peerMessaging: 'native',
+    })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual(['mock feedback']);
+    const callArgs = (mockBackend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.peerMessaging).toBe('native');
   });
 
   it('persists relay session history and backend session id', async () => {
@@ -721,6 +751,26 @@ describe('reviewRelay', () => {
     const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Check for bugs');
     expect(callArgs.prompt).toContain('Git Diff:');
+  });
+
+  it('passes peer messaging and a review name through the generic review path', async () => {
+    const backend = makeMockBackend('claude');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff') && args.some((a: string) => a.includes('...'))) return 'some diff';
+      return '';
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'claude',
+      base: 'main',
+      peerMessaging: 'accept',
+    });
+
+    const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArgs.peerMessaging).toBe('accept');
+    expect(callArgs.sessionLabel).toBe('review');
   });
 
   it('falls back to run() with diff when review() is not available', async () => {

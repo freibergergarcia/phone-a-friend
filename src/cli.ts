@@ -18,7 +18,7 @@ import {
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
-import type { SandboxMode } from './backends/index.js';
+import type { ClaudePeerMessagingMode, SandboxMode } from './backends/index.js';
 import {
   installHosts,
   uninstallHosts,
@@ -429,6 +429,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--timeout <seconds>', 'Max runtime in seconds')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
+    .option('--peer-messaging <mode>', 'Claude peer messaging: native, accept, refuse')
     .option('--schema <json>', 'Request structured JSON output matching this schema')
     .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
     .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
@@ -463,6 +464,7 @@ export async function run(argv: string[]): Promise<number> {
       // 'cli') from an unset value, so absent CLI flags fall through to env/config.
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
       const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
+      const peerMessagingExplicit = command.getOptionValueSource('peerMessaging') === 'cli';
 
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig(
@@ -474,12 +476,19 @@ export async function run(argv: string[]): Promise<number> {
           stream: streamExplicit ? String(opts.stream) : undefined,
           model: opts.model,
           base: opts.base,
+          peerMessaging: peerMessagingExplicit ? opts.peerMessaging : undefined,
         },
         process.env,
         opts.repo,
       );
 
       const backendName = resolved.backend;
+      if (peerMessagingExplicit && backendName !== 'claude') {
+        throw new RelayError('--peer-messaging is only supported by the Claude backend');
+      }
+      const peerMessaging = backendName === 'claude'
+        ? resolved.claudePeerMessaging as ClaudePeerMessagingMode
+        : undefined;
 
       if (isReview) {
         const baseLabel = opts.base ?? resolved.reviewBase ?? 'auto-detect';
@@ -504,6 +513,7 @@ export async function run(argv: string[]): Promise<number> {
             schema: opts.schema ?? null,
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
+            peerMessaging,
           });
           if (isVerdictJson) {
             try {
@@ -546,6 +556,7 @@ export async function run(argv: string[]): Promise<number> {
         session: opts.session ?? null,
         backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
+        peerMessaging,
       };
 
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;

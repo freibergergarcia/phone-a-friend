@@ -12,6 +12,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
+import {
+  CLAUDE_PEER_MESSAGING_MODES,
+  type ClaudePeerMessagingMode,
+} from './backends/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +24,7 @@ import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
 export interface BackendConfig {
   model?: string;
   host?: string;
+  peer_messaging?: ClaudePeerMessagingMode;
 
   [key: string]: unknown;
 }
@@ -48,6 +53,7 @@ export interface ResolvedConfig {
   reviewBase?: string;
   opencodeProvider: string;
   opencodePure: boolean;
+  claudePeerMessaging: ClaudePeerMessagingMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +69,25 @@ export const DEFAULT_CONFIG: PafConfig = {
     stream: true,
     update_check: true,
   },
+  backends: {
+    claude: {
+      peer_messaging: 'native',
+    },
+  },
 };
+
+function cloneDefaultConfig(): PafConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    defaults: { ...DEFAULT_CONFIG.defaults },
+    backends: Object.fromEntries(
+      Object.entries(DEFAULT_CONFIG.backends ?? {}).map(([name, config]) => [
+        name,
+        { ...config },
+      ]),
+    ),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -115,19 +139,19 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 
 export function loadConfigFromFile(filePath: string): PafConfig {
   if (!existsSync(filePath)) {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+    return cloneDefaultConfig();
   }
   try {
     const content = readFileSync(filePath, 'utf-8');
     const parsed = tomlParse(content) as Record<string, unknown>;
     // Merge parsed over defaults
     const merged = deepMerge(
-      { defaults: { ...DEFAULT_CONFIG.defaults } } as Record<string, unknown>,
+      cloneDefaultConfig() as unknown as Record<string, unknown>,
       parsed,
     );
     return merged as unknown as PafConfig;
   } catch {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+    return cloneDefaultConfig();
   }
 }
 
@@ -139,7 +163,7 @@ export function loadConfig(
   const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
 
   // Start with defaults
-  let config: PafConfig = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+  let config: PafConfig = cloneDefaultConfig();
 
   // Layer 1: user config
   config = loadConfigFromFile(paths.user) as PafConfig;
@@ -283,5 +307,29 @@ export function resolveConfig(
   const opencodePure =
     (cfg.backends?.opencode?.pure as boolean | undefined) ?? false;
 
-  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase, opencodeProvider, opencodePure };
+  const peerMessagingRaw =
+    cliOpts.peerMessaging ??
+    env.PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING ??
+    cfg.backends?.claude?.peer_messaging ??
+    'native';
+  if (!CLAUDE_PEER_MESSAGING_MODES.includes(peerMessagingRaw as ClaudePeerMessagingMode)) {
+    throw new Error(
+      `Invalid Claude peer messaging mode: ${String(peerMessagingRaw)}. ` +
+        `Allowed values: ${CLAUDE_PEER_MESSAGING_MODES.join(', ')}`,
+    );
+  }
+  const claudePeerMessaging = peerMessagingRaw as ClaudePeerMessagingMode;
+
+  return {
+    backend,
+    sandbox,
+    timeout,
+    includeDiff,
+    stream,
+    model,
+    reviewBase,
+    opencodeProvider,
+    opencodePure,
+    claudePeerMessaging,
+  };
 }

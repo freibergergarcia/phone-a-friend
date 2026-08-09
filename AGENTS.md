@@ -76,7 +76,7 @@ dist/                Built bundle (committed, self-contained)
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
 - Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, no sessions yet)
-- Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser)
+- Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
@@ -181,6 +181,7 @@ phone-a-friend --prompt "..."               # Uses default backend from config
 phone-a-friend --to claude --prompt "..." --stream     # Stream tokens as they arrive
 phone-a-friend --to claude --prompt "..." --no-stream  # Disable streaming (batch mode)
 phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scoped)
+phone-a-friend --to claude --prompt "..." --peer-messaging accept --session coordinator # Unattended cross-session coordination
 phone-a-friend --to codex --review                     # Review mode (--prompt optional, defaults to generic review)
 phone-a-friend --to opencode --review                  # Review with local model (reads repo via tools)
 phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
@@ -320,9 +321,23 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 
 Environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
+- `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` — overrides `backends.claude.peer_messaging`. `native` exposes `ListAgents`/`SendMessage` while respecting Claude's inbound rules; `accept` enables unattended inbound delivery; `refuse` disables both directions.
 - `PHONE_A_FRIEND_HOST=opencode|codex` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
+
+Claude peer messaging configuration:
+
+```toml
+[backends.claude]
+peer_messaging = "native" # native (default), accept, or refuse
+```
+
+The per-call override is `--peer-messaging <mode>` and is valid only with
+`--to claude`. PaF requires Claude Code 2.1.224+ for `accept`; older versions
+keep the legacy isolated tool surface in `native` mode. Peer-enabled workers
+are named `paf-<session-label>` (or `paf-relay` without `--session`) so other
+Claude sessions can target them predictably.
 
 ## Update notification
 

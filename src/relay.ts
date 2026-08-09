@@ -8,7 +8,13 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getBackend, BackendError, type Backend, type SandboxMode } from './backends/index.js';
+import {
+  getBackend,
+  BackendError,
+  type Backend,
+  type ClaudePeerMessagingMode,
+  type SandboxMode,
+} from './backends/index.js';
 import { JobManager, type Job } from './jobs.js';
 import { SessionStore } from './sessions.js';
 import { VERDICT_SCHEMA_JSON, buildVerdictPrompt } from './verdict.js';
@@ -225,6 +231,8 @@ export interface ReviewRelayOptions {
   sandbox?: SandboxMode;
   schema?: string | null;
   fast?: boolean;
+  /** Claude-only cross-session messaging behavior. */
+  peerMessaging?: ClaudePeerMessagingMode;
   /**
    * Request a verdict JSON envelope (see src/verdict.ts). When true, the
    * caller's prompt is replaced with the canonical verdict prompt, the
@@ -252,6 +260,8 @@ export interface RelayOptions {
    *  start tracking that backend session under a PaF label (adoption). */
   backendSession?: string | null;
   fast?: boolean;
+  /** Claude-only cross-session messaging behavior. */
+  peerMessaging?: ClaudePeerMessagingMode;
   sessionStore?: SessionStore;
 }
 
@@ -271,6 +281,7 @@ interface PreparedRelay {
   session: string | null;
   backendSession: string | null;
   fast: boolean;
+  peerMessaging: ClaudePeerMessagingMode;
   sessionStore?: SessionStore;
 }
 
@@ -289,6 +300,7 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     session = null,
     backendSession = null,
     fast = false,
+    peerMessaging = 'native',
   } = opts;
 
   if (!prompt.trim()) {
@@ -357,6 +369,7 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore: opts.sessionStore,
   };
 }
@@ -374,6 +387,7 @@ export async function relay(opts: RelayOptions): Promise<string> {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore,
   } = prepareRelay(opts);
 
@@ -415,6 +429,8 @@ export async function relay(opts: RelayOptions): Promise<string> {
         persistSession: Boolean(session),
         resumeSession: true,
         fast,
+        peerMessaging,
+        sessionLabel: session,
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId = newSessionId;
@@ -483,6 +499,8 @@ export async function relay(opts: RelayOptions): Promise<string> {
       persistSession: Boolean(session),
       resumeSession: Boolean(session && storedSession),
       fast,
+      peerMessaging,
+      sessionLabel: session,
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
@@ -572,6 +590,7 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore,
   } = prepareRelay(opts);
 
@@ -589,6 +608,8 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     env,
     schema,
     fast,
+    peerMessaging,
+    sessionLabel: session,
     sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
     resumeSession: Boolean(backendSession || (session && storedSession)),
@@ -627,6 +648,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     model = null,
     sandbox = DEFAULT_SANDBOX,
     fast = false,
+    peerMessaging = 'native',
   } = opts;
   const prompt = effectivePrompt;
   const schema = effectiveSchema;
@@ -709,6 +731,8 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
       env,
       schema,
       fast,
+      peerMessaging,
+      sessionLabel: 'review',
     });
   } catch (err) {
     if (err instanceof RelayError) throw err;

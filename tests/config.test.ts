@@ -52,6 +52,10 @@ describe('config', () => {
     it('enables update_check by default', () => {
       expect(config.DEFAULT_CONFIG.defaults.update_check).toBe(true);
     });
+
+    it('uses Claude native peer messaging by default', () => {
+      expect(config.DEFAULT_CONFIG.backends?.claude?.peer_messaging).toBe('native');
+    });
   });
 
   describe('update_check config key', () => {
@@ -172,6 +176,7 @@ describe('config', () => {
 
       const loaded = config.loadConfigFromFile(configPath);
       expect(loaded.defaults.backend).toBe('codex');
+      expect(loaded.backends?.claude?.peer_messaging).toBe('native');
     });
 
     it('throws when config already exists (no --force)', () => {
@@ -303,6 +308,46 @@ describe('config', () => {
       expect(result.sandbox).toBe('read-only');
       expect(result.timeout).toBe(600);
       expect(result.includeDiff).toBe(false);
+      expect(result.claudePeerMessaging).toBe('native');
+    });
+
+    it('resolves Claude peer messaging with CLI, env, repo, and user precedence', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), [
+        '[backends.claude]',
+        'peer_messaging = "refuse"',
+      ].join('\n'));
+
+      const repoDir = join(tempDir, 'repo');
+      mkdirSync(repoDir, { recursive: true });
+      writeFileSync(join(repoDir, '.phone-a-friend.toml'), [
+        '[backends.claude]',
+        'peer_messaging = "native"',
+      ].join('\n'));
+
+      expect(config.resolveConfig({}, {}, repoDir, tempDir).claudePeerMessaging).toBe('native');
+      expect(config.resolveConfig(
+        {},
+        { PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING: 'accept' },
+        repoDir,
+        tempDir,
+      ).claudePeerMessaging).toBe('accept');
+      expect(config.resolveConfig(
+        { peerMessaging: 'refuse' },
+        { PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING: 'accept' },
+        repoDir,
+        tempDir,
+      ).claudePeerMessaging).toBe('refuse');
+    });
+
+    it('rejects an invalid Claude peer messaging mode', () => {
+      expect(() => config.resolveConfig(
+        { peerMessaging: 'autonomous-ish' },
+        {},
+        undefined,
+        join(tempDir, 'nonexistent'),
+      )).toThrow('Allowed values: native, accept, refuse');
     });
 
     it('normalizes implicit antigravity sandbox to read-only', () => {

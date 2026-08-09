@@ -117,10 +117,15 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
+    CLAUDE_PEER_MESSAGING_MODES = [
+      "native",
+      "accept",
+      "refuse"
+    ];
     BackendError = class extends Error {
       constructor(message) {
         super(message);
@@ -1063,6 +1068,18 @@ var init_dist = __esm({
 import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
 import { homedir as homedir2 } from "os";
 import { join as join3, dirname as dirname2 } from "path";
+function cloneDefaultConfig() {
+  return {
+    ...DEFAULT_CONFIG,
+    defaults: { ...DEFAULT_CONFIG.defaults },
+    backends: Object.fromEntries(
+      Object.entries(DEFAULT_CONFIG.backends ?? {}).map(([name, config]) => [
+        name,
+        { ...config }
+      ])
+    )
+  };
+}
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
   const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? homedir2(), ".config");
   return {
@@ -1085,23 +1102,23 @@ function deepMerge(target, source) {
 }
 function loadConfigFromFile(filePath) {
   if (!existsSync3(filePath)) {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+    return cloneDefaultConfig();
   }
   try {
     const content = readFileSync3(filePath, "utf-8");
     const parsed = parse(content);
     const merged = deepMerge(
-      { defaults: { ...DEFAULT_CONFIG.defaults } },
+      cloneDefaultConfig(),
       parsed
     );
     return merged;
   } catch {
-    return { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+    return cloneDefaultConfig();
   }
 }
 function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   const paths = configPaths(repoRoot, xdgConfigHome, homeDir);
-  let config = { ...DEFAULT_CONFIG, defaults: { ...DEFAULT_CONFIG.defaults } };
+  let config = cloneDefaultConfig();
   config = loadConfigFromFile(paths.user);
   if (paths.repo && existsSync3(paths.repo)) {
     const repoConfig = parse(readFileSync3(paths.repo, "utf-8"));
@@ -1177,13 +1194,32 @@ function resolveConfig(cliOpts, env3 = process.env, repoRoot, xdgConfigHome) {
   const reviewBase = cliOpts.base ?? env3.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
   const opencodeProvider = cfg.backends?.opencode?.provider ?? "ollama";
   const opencodePure = cfg.backends?.opencode?.pure ?? false;
-  return { backend, sandbox, timeout, includeDiff, stream, model, reviewBase, opencodeProvider, opencodePure };
+  const peerMessagingRaw = cliOpts.peerMessaging ?? env3.PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING ?? cfg.backends?.claude?.peer_messaging ?? "native";
+  if (!CLAUDE_PEER_MESSAGING_MODES.includes(peerMessagingRaw)) {
+    throw new Error(
+      `Invalid Claude peer messaging mode: ${String(peerMessagingRaw)}. Allowed values: ${CLAUDE_PEER_MESSAGING_MODES.join(", ")}`
+    );
+  }
+  const claudePeerMessaging = peerMessagingRaw;
+  return {
+    backend,
+    sandbox,
+    timeout,
+    includeDiff,
+    stream,
+    model,
+    reviewBase,
+    opencodeProvider,
+    opencodePure,
+    claudePeerMessaging
+  };
 }
 var DEFAULT_CONFIG;
 var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_dist();
+    init_backends();
     DEFAULT_CONFIG = {
       defaults: {
         backend: "codex",
@@ -1192,6 +1228,11 @@ var init_config = __esm({
         include_diff: false,
         stream: true,
         update_check: true
+      },
+      backends: {
+        claude: {
+          peer_messaging: "native"
+        }
       }
     };
   }
@@ -2686,7 +2727,7 @@ __export(relay_exports, {
   relayStream: () => relayStream,
   reviewRelay: () => reviewRelay
 });
-import { execFileSync as execFileSync2 } from "child_process";
+import { execFileSync as execFileSync3 } from "child_process";
 import { randomUUID as randomUUID2 } from "crypto";
 import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
 import { resolve } from "path";
@@ -2741,7 +2782,7 @@ function resolveContextText(contextFile, contextText) {
 }
 function tryGitDiff(repoPath, args) {
   try {
-    const result = execFileSync2("git", ["-C", repoPath, "diff", ...args], {
+    const result = execFileSync3("git", ["-C", repoPath, "diff", ...args], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -2761,7 +2802,7 @@ function gitDiff(repoPath) {
 function detectDefaultBranch(repoPath) {
   for (const branch of ["main", "master"]) {
     try {
-      execFileSync2("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
+      execFileSync3("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"]
       });
@@ -2773,7 +2814,7 @@ function detectDefaultBranch(repoPath) {
 }
 function gitDiffBase(repoPath, base) {
   try {
-    const result = execFileSync2("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
+    const result = execFileSync3("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -2838,7 +2879,8 @@ function prepareRelay(opts) {
     schema = null,
     session = null,
     backendSession = null,
-    fast = false
+    fast = false,
+    peerMessaging = "native"
   } = opts;
   if (!prompt.trim()) {
     throw new RelayError("Prompt is required");
@@ -2895,6 +2937,7 @@ function prepareRelay(opts) {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore: opts.sessionStore
   };
 }
@@ -2911,6 +2954,7 @@ async function relay(opts) {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore
   } = prepareRelay(opts);
   try {
@@ -2947,6 +2991,8 @@ async function relay(opts) {
         persistSession: Boolean(session),
         resumeSession: true,
         fast,
+        peerMessaging,
+        sessionLabel: session,
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId2 = newSessionId;
@@ -3003,6 +3049,8 @@ async function relay(opts) {
       persistSession: Boolean(session),
       resumeSession: Boolean(session && storedSession),
       fast,
+      peerMessaging,
+      sessionLabel: session,
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
@@ -3064,6 +3112,7 @@ async function* relayStream(opts) {
     session,
     backendSession,
     fast,
+    peerMessaging,
     sessionStore
   } = prepareRelay(opts);
   const store = session && !backendSession ? sessionStore ?? new SessionStore() : null;
@@ -3077,6 +3126,8 @@ async function* relayStream(opts) {
     env: env3,
     schema,
     fast,
+    peerMessaging,
+    sessionLabel: session,
     sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
     resumeSession: Boolean(backendSession || session && storedSession),
@@ -3106,7 +3157,8 @@ async function reviewRelay(opts) {
     timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
     model = null,
     sandbox = DEFAULT_SANDBOX,
-    fast = false
+    fast = false,
+    peerMessaging = "native"
   } = opts;
   const prompt = effectivePrompt;
   const schema = effectiveSchema;
@@ -3168,7 +3220,9 @@ async function reviewRelay(opts) {
       model,
       env: env3,
       schema,
-      fast
+      fast,
+      peerMessaging,
+      sessionLabel: "review"
     });
   } catch (err) {
     if (err instanceof RelayError) throw err;
@@ -3245,7 +3299,7 @@ var init_version = __esm({
 });
 
 // src/installer.ts
-import { execFileSync as execFileSync3 } from "child_process";
+import { execFileSync as execFileSync4 } from "child_process";
 import {
   existsSync as existsSync7,
   lstatSync,
@@ -3311,7 +3365,7 @@ function isSymlink(filePath) {
 }
 function runClaudeCommand(args) {
   try {
-    const result = execFileSync3(args[0], args.slice(1), {
+    const result = execFileSync4(args[0], args.slice(1), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -3339,7 +3393,7 @@ function looksLikeOkIfAlready(output) {
 function cleanupLegacyMarketplace() {
   const lines = [];
   try {
-    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync4("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     return lines;
   }
@@ -3359,7 +3413,7 @@ function cleanupLegacyMarketplace() {
 function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, scope = "user") {
   const lines = [];
   try {
-    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync4("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -3387,7 +3441,7 @@ function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME
 function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, pluginName = PLUGIN_NAME, _claudeHome) {
   const lines = [];
   try {
-    execFileSync3("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync4("which", ["claude"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- claude_cli: skipped (claude binary not found)");
     return lines;
@@ -3530,7 +3584,7 @@ function isCodexInstalled(codexHome) {
 }
 function runCodexCommand(args) {
   try {
-    const result = execFileSync3(args[0], args.slice(1), {
+    const result = execFileSync4(args[0], args.slice(1), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -3560,7 +3614,7 @@ function codexMarketplaceSource(resolvedRepo) {
 function syncCodexPluginRegistration(source) {
   const lines = [];
   try {
-    execFileSync3("which", ["codex"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync4("which", ["codex"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- codex_cli: skipped (codex binary not found)");
     return lines;
@@ -3585,7 +3639,7 @@ function syncCodexPluginRegistration(source) {
 function unsyncCodexPluginRegistration() {
   const lines = [];
   try {
-    execFileSync3("which", ["codex"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync4("which", ["codex"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
   } catch {
     lines.push("- codex_cli: skipped (codex binary not found)");
     return lines;
@@ -16353,7 +16407,7 @@ var init_dist18 = __esm({
 });
 
 // src/detection.ts
-import { execFileSync as execFileSync4 } from "child_process";
+import { execFileSync as execFileSync5 } from "child_process";
 async function detectCliBackends(whichFn = isInPath) {
   return CLI_BACKENDS.map(({ name, command, installHint, label, optional }) => {
     const executable = command ?? name;
@@ -16468,7 +16522,7 @@ function detectEnvironment(whichFn = isInPath) {
 function discoverOpenCodeModels(whichFn = isInPath) {
   if (!whichFn("opencode")) return [];
   try {
-    const output = execFileSync4("opencode", ["models"], {
+    const output = execFileSync5("opencode", ["models"], {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 5e3
     }).toString().trim();
@@ -20775,7 +20829,7 @@ var init_wrap_ansi = __esm({
 
 // node_modules/terminal-size/index.js
 import process12 from "process";
-import { execFileSync as execFileSync5 } from "child_process";
+import { execFileSync as execFileSync6 } from "child_process";
 import fs2 from "fs";
 import tty3 from "tty";
 function terminalSize() {
@@ -20807,7 +20861,7 @@ var init_terminal_size = __esm({
     "use strict";
     defaultColumns = 80;
     defaultRows = 24;
-    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync5(command, arguments_, {
+    exec3 = (command, arguments_, { shell, env: env3 } = {}) => execFileSync6(command, arguments_, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 500,
@@ -74935,9 +74989,11 @@ registerBackend(OLLAMA_BACKEND);
 
 // src/backends/claude.ts
 init_backends();
-import { spawn } from "child_process";
+import { execFileSync as execFileSync2, spawn } from "child_process";
 var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
 var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
+var PEER_MESSAGING_TOOLS = "ListAgents,SendMessage";
+var CLAUDE_PEER_MESSAGING_MIN_VERSION = [2, 1, 224];
 var NESTED_SESSION_VARS = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
 var ClaudeBackendError = class extends BackendError {
   constructor(message) {
@@ -74963,6 +75019,22 @@ function defaultClaudeRemediation(host = process.env.PHONE_A_FRIEND_HOST ?? "") 
 function isClaudeAuthError(msg) {
   const text = msg.toLowerCase();
   return text.includes("not logged in") || text.includes("please run /login");
+}
+function supportsClaudePeerMessaging(versionOutput) {
+  const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const version = match.slice(1).map(Number);
+  for (let i = 0; i < CLAUDE_PEER_MESSAGING_MIN_VERSION.length; i++) {
+    if (version[i] > CLAUDE_PEER_MESSAGING_MIN_VERSION[i]) return true;
+    if (version[i] < CLAUDE_PEER_MESSAGING_MIN_VERSION[i]) return false;
+  }
+  return true;
+}
+function claudePeerName(sessionLabel, sessionId) {
+  const source = sessionLabel?.trim() || sessionId?.slice(0, 8) || "relay";
+  const slug = source.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  if (!slug) return "paf-relay";
+  return slug.startsWith("paf-") ? slug : `paf-${slug}`;
 }
 function extractClaudeSchemaOutput(stdout) {
   let parsed;
@@ -75029,15 +75101,29 @@ var ClaudeBackend = class {
     if (maxBudget) {
       args.push("--max-budget-usd", maxBudget);
     }
+    const peerMessaging = opts.peerMessaging ?? "native";
+    const peerMessagingEnabled = opts.peerMessagingSupported && peerMessaging !== "refuse";
     if (opts.sandbox === "danger-full-access") {
       args.push("--dangerously-skip-permissions");
     } else {
-      const tools = opts.sandbox === "read-only" ? READ_ONLY_TOOLS : WORKSPACE_WRITE_TOOLS;
+      let tools = opts.sandbox === "read-only" ? READ_ONLY_TOOLS : WORKSPACE_WRITE_TOOLS;
+      if (peerMessagingEnabled) {
+        tools += `,${PEER_MESSAGING_TOOLS}`;
+      }
       args.push("--tools", tools);
       args.push("--allowedTools", tools);
     }
+    if (opts.peerMessagingSupported) {
+      if (peerMessaging === "accept" || peerMessaging === "refuse") {
+        args.push("--settings", JSON.stringify({ crossSessionInbound: peerMessaging }));
+      }
+      if (peerMessagingEnabled) {
+        args.push("--name", claudePeerName(opts.sessionLabel, opts.sessionId));
+      }
+    }
     args.push("--disable-slash-commands");
-    args.push("--disallowedTools", "Task");
+    const disallowedTools = opts.peerMessagingSupported && peerMessaging === "refuse" ? "Task,SendMessage,ListAgents" : "Task";
+    args.push("--disallowedTools", disallowedTools);
     if (!opts.sessionId) {
       args.push("--no-session-persistence");
     }
@@ -75049,9 +75135,12 @@ var ClaudeBackend = class {
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
       );
     }
+    const peerMessagingSupported = this.peerMessagingSupported();
+    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
     const args = this.buildArgs({
       ...opts,
-      outputFormat: opts.schema ? void 0 : "text"
+      outputFormat: opts.schema ? void 0 : "text",
+      peerMessagingSupported
     });
     try {
       const result = await spawnCli("claude", args, {
@@ -75082,9 +75171,12 @@ var ClaudeBackend = class {
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
       );
     }
+    const peerMessagingSupported = this.peerMessagingSupported();
+    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
     const args = this.buildArgs({
       ...opts,
-      outputFormat: "stream-json"
+      outputFormat: "stream-json",
+      peerMessagingSupported
     });
     args.push("--verbose");
     args.push("--include-partial-messages");
@@ -75147,6 +75239,24 @@ var ClaudeBackend = class {
       if (!child.killed) {
         child.kill("SIGTERM");
       }
+    }
+  }
+  peerMessagingSupported() {
+    try {
+      const version = execFileSync2("claude", ["--version"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"]
+      });
+      return supportsClaudePeerMessaging(version);
+    } catch {
+      return false;
+    }
+  }
+  assertPeerMessagingSupport(mode, supported) {
+    if (mode === "accept" && !supported) {
+      throw new ClaudeBackendError(
+        "Claude peer messaging requires Claude Code v2.1.224 or later. Upgrade Claude Code or use --peer-messaging native."
+      );
     }
   }
 };
@@ -82282,7 +82392,7 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (!opts.prompt && !isReview) {
@@ -82297,6 +82407,7 @@ ${banner("AI coding agent relay")}
       }
       const streamExplicit = command.getOptionValueSource("stream") === "cli";
       const includeDiffExplicit = command.getOptionValueSource("includeDiff") === "cli";
+      const peerMessagingExplicit = command.getOptionValueSource("peerMessaging") === "cli";
       const resolved = resolveConfig(
         {
           to: opts.to,
@@ -82305,12 +82416,17 @@ ${banner("AI coding agent relay")}
           includeDiff: includeDiffExplicit ? String(opts.includeDiff) : void 0,
           stream: streamExplicit ? String(opts.stream) : void 0,
           model: opts.model,
-          base: opts.base
+          base: opts.base,
+          peerMessaging: peerMessagingExplicit ? opts.peerMessaging : void 0
         },
         process.env,
         opts.repo
       );
       const backendName = resolved.backend;
+      if (peerMessagingExplicit && backendName !== "claude") {
+        throw new RelayError("--peer-messaging is only supported by the Claude backend");
+      }
+      const peerMessaging = backendName === "claude" ? resolved.claudePeerMessaging : void 0;
       if (isReview) {
         const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
         const spinner = isVerdictJson ? null : ora({
@@ -82330,7 +82446,8 @@ ${banner("AI coding agent relay")}
             sandbox: resolved.sandbox,
             schema: opts.schema ?? null,
             fast: Boolean(opts.fast),
-            verdictJson: isVerdictJson
+            verdictJson: isVerdictJson,
+            peerMessaging
           });
           if (isVerdictJson) {
             try {
@@ -82374,7 +82491,8 @@ RAW_END>>>
         schema: opts.schema ?? null,
         session: opts.session ?? null,
         backendSession: opts.backendSession ?? null,
-        fast: Boolean(opts.fast)
+        fast: Boolean(opts.fast),
+        peerMessaging
       };
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
       if (opts.quiet) {
