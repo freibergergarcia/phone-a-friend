@@ -20,6 +20,7 @@ import {
   isInPath,
   registerBackend,
   spawnCli,
+  SpawnCliError,
   type Backend,
   type SandboxMode,
 } from './index.js';
@@ -59,6 +60,46 @@ export function normalizeOpenCodeModel(
 ): string | null {
   if (!model) return null;
   return model.includes('/') ? model : `${provider}/${model}`;
+}
+
+/**
+ * Render an opencode `{"type":"error"}` event as a single message.
+ *
+ * Shape (observed on 1.18.15):
+ *   { type: 'error', error: { name, data: { message, ref } } }
+ *
+ * The ref is worth keeping — it is the handle for correlating against
+ * opencode's own server logs.
+ */
+function formatOpenCodeErrorEvent(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const err = raw as { name?: unknown; data?: unknown };
+  const data =
+    err.data && typeof err.data === 'object'
+      ? (err.data as { message?: unknown; ref?: unknown })
+      : undefined;
+  const message = typeof data?.message === 'string' ? data.message : undefined;
+  const name = typeof err.name === 'string' ? err.name : undefined;
+  const base = message ?? (name ? `opencode reported ${name}` : undefined);
+  if (!base) return undefined;
+  const ref = typeof data?.ref === 'string' ? data.ref : undefined;
+  return ref ? `${base} (opencode ref: ${ref})` : base;
+}
+
+/**
+ * Attach model context to an opencode error.
+ *
+ * opencode answers a model that is missing from its provider catalog with a
+ * generic server error that names neither the model nor a way to enumerate the
+ * valid ones. Since a stale `[backends.opencode] model` in config is the most
+ * likely cause, say which model was sent and how to list the real ones.
+ */
+export function describeOpenCodeError(message: string, model: string | null): string {
+  if (!model) return message;
+  return (
+    `${message} Model "${model}" may not exist for its provider — ` +
+    'run `opencode models` to list valid provider/model ids.'
+  );
 }
 
 interface OpenCodeRunArgsOptions {
@@ -126,6 +167,7 @@ export function parseOpenCodeTranscript(jsonl: string): {
   error?: string;
 } {
   let sessionId: string | undefined;
+  let error: string | undefined;
   const textParts: string[] = [];
 
   for (const line of jsonl.split('\n')) {
@@ -147,9 +189,14 @@ export function parseOpenCodeTranscript(jsonl: string): {
         textParts.push(part.text as string);
       }
     }
+
+    // Keep the first error; later events are usually downstream noise.
+    if (event.type === 'error' && !error) {
+      error = formatOpenCodeErrorEvent(event.error);
+    }
   }
 
-  return { text: textParts.join('\n').trim(), sessionId };
+  return { text: textParts.join('\n').trim(), sessionId, error };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +265,9 @@ export class OpenCodeBackend implements Backend {
       }
 
       if (parsed.error) {
-        throw new OpenCodeBackendError(parsed.error);
+        throw new OpenCodeBackendError(
+          describeOpenCodeError(parsed.error, normalizeOpenCodeModel(opts.model, provider)),
+        );
       }
 
       if (!parsed.text) {
@@ -228,6 +277,18 @@ export class OpenCodeBackend implements Backend {
       return parsed.text;
     } catch (err: unknown) {
       if (err instanceof OpenCodeBackendError) throw err;
+      // opencode writes its error event to stdout and *also* exits non-zero,
+      // so spawnCli throws before the transcript above is ever parsed. Recover
+      // the structured error from the captured stdout; otherwise the caller
+      // gets the raw JSON blob as an error message.
+      if (err instanceof SpawnCliError) {
+        const failed = parseOpenCodeTranscript(err.stdout);
+        if (failed.error) {
+          throw new OpenCodeBackendError(
+            describeOpenCodeError(failed.error, normalizeOpenCodeModel(opts.model, provider)),
+          );
+        }
+      }
       if (err instanceof BackendError) {
         throw new OpenCodeBackendError(err.message);
       }
@@ -313,16 +374,17 @@ export class OpenCodeBackend implements Backend {
       if (signal) {
         throw new OpenCodeBackendError(`opencode killed by signal ${signal}`);
       }
+      const erroredModel = normalizeOpenCodeModel(opts.model, provider);
       if (code !== 0 && code !== null) {
         const stderr = Buffer.concat(stderrChunks).toString().trim();
-        throw new OpenCodeBackendError(
-          stderr || streamError || `opencode exited with code ${code}`,
-        );
+        const detail =
+          stderr || (streamError ? describeOpenCodeError(streamError, erroredModel) : null);
+        throw new OpenCodeBackendError(detail || `opencode exited with code ${code}`);
       }
       // Clean exit. An error event on a clean exit must still surface, and
       // must be checked BEFORE the silent-output guard so it is not masked.
       if (streamError) {
-        throw new OpenCodeBackendError(streamError);
+        throw new OpenCodeBackendError(describeOpenCodeError(streamError, erroredModel));
       }
       // Zero text chunks on a clean exit: opencode emitted only
       // step_start/tool events — the silent-output case. Surface the same
