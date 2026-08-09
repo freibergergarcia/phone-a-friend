@@ -5,7 +5,9 @@ on:
     types: [opened, labeled, unlabeled, synchronize, reopened]
     branches: [main]
 
-permissions: {}
+# Read-only: this job only queries the labels currently on the PR.
+permissions:
+  pull-requests: read
 
 jobs:
   label-check:
@@ -16,8 +18,36 @@ jobs:
         with:
           script: |
             const VERSION_LABELS = ['patch', 'minor', 'major'];
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            const found = labels.filter(l => VERSION_LABELS.includes(l));
+
+            // Labels must come from the API, not context.payload. The payload is
+            // a snapshot taken when the event fired, and on `opened` that is
+            // always before auto-label has had a chance to write. Worse, GitHub
+            // never dispatches a follow-up `labeled` event for a label applied
+            // with GITHUB_TOKEN, so a payload read leaves every auto-labelled PR
+            // permanently red with no event left to correct it.
+            async function versionLabels() {
+              const { data } = await github.rest.issues.listLabelsOnIssue({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                per_page: 100,
+              });
+              return data.map(l => l.name).filter(l => VERSION_LABELS.includes(l));
+            }
+
+            // auto-label is dispatched by the same event as this job, so on
+            // `opened`/`reopened` the two race. Poll briefly to let it land.
+            // Label-mutation events have no such write in flight — decide at once.
+            const racesAutoLabel = ['opened', 'reopened'].includes(context.payload.action);
+            const attempts = racesAutoLabel ? 6 : 1;
+            const delayMs = 10000;
+
+            let found = await versionLabels();
+            for (let i = 1; i < attempts && found.length === 0; i++) {
+              core.info(`No version label yet — retrying in ${delayMs / 1000}s (${i}/${attempts - 1})`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+              found = await versionLabels();
+            }
 
             if (found.length === 1) {
               core.info(`Version label: ${found[0]}`);
