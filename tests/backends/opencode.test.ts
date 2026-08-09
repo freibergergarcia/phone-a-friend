@@ -15,6 +15,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 import {
   buildOpenCodeArgs,
+  describeOpenCodeError,
   isOpenCodeHostEnv,
   OPENCODE_BACKEND,
   parseOpenCodeTranscript,
@@ -124,6 +125,138 @@ describe('OpenCode backend', () => {
     const parsed = parseOpenCodeTranscript(jsonl);
     expect(parsed.text).toBe('4');
     expect(parsed.sessionId).toBe('ses_y');
+  });
+
+  describe('error event extraction', () => {
+    // Captured verbatim from `opencode run --format json --model <retired-model>`
+    // on opencode 1.18.15. The model had been removed from the provider's
+    // catalog; opencode reports it as a generic UnknownError on stdout and
+    // exits 1, naming neither the model nor how to list valid ones.
+    const ERROR_EVENT =
+      '{"type":"error","timestamp":1786280575246,"sessionID":"ses_0196187cfffePSBET63aaVLiQX",' +
+      '"error":{"name":"UnknownError","data":{"message":"Unexpected server error. ' +
+      'Check server logs for details.","ref":"err_80583ae1"}}}';
+
+    it('surfaces the message from an error event instead of dropping it', () => {
+      const parsed = parseOpenCodeTranscript(ERROR_EVENT);
+      expect(parsed.error).toContain('Unexpected server error');
+      expect(parsed.text).toBe('');
+    });
+
+    it('includes the opencode ref so server logs can be correlated', () => {
+      const parsed = parseOpenCodeTranscript(ERROR_EVENT);
+      expect(parsed.error).toContain('err_80583ae1');
+    });
+
+    it('still captures the session id from an error-only transcript', () => {
+      const parsed = parseOpenCodeTranscript(ERROR_EVENT);
+      expect(parsed.sessionId).toBe('ses_0196187cfffePSBET63aaVLiQX');
+    });
+
+    it('falls back to the error name when no message is present', () => {
+      const jsonl = '{"type":"error","sessionID":"ses_z","error":{"name":"ProviderAuthError"}}';
+      const parsed = parseOpenCodeTranscript(jsonl);
+      expect(parsed.error).toContain('ProviderAuthError');
+    });
+
+    it('leaves error unset for a healthy transcript', () => {
+      const jsonl = '{"type":"text","sessionID":"ses_ok","part":{"text":"hi"}}';
+      expect(parseOpenCodeTranscript(jsonl).error).toBeUndefined();
+    });
+  });
+
+  describe('describeOpenCodeError()', () => {
+    it('names the model and points at `opencode models` when a model was passed', () => {
+      const msg = describeOpenCodeError('Unexpected server error.', 'wpcom-ai/qwen3-next-80b-a3b');
+      expect(msg).toContain('Unexpected server error.');
+      expect(msg).toContain('wpcom-ai/qwen3-next-80b-a3b');
+      expect(msg).toContain('opencode models');
+    });
+
+    it('leaves the message alone when no model was passed', () => {
+      const msg = describeOpenCodeError('Unexpected server error.', null);
+      expect(msg).toBe('Unexpected server error.');
+    });
+  });
+
+  describe('run() — structured error surfacing on non-zero exit', () => {
+    it('surfaces the error event from a failed run instead of a bare exit message', async () => {
+      // opencode writes the error event to stdout AND exits 1, so spawnCli
+      // throws before the transcript is parsed. The failure path must still
+      // read the captured stdout, or the user gets an opaque exit error.
+      const errorEvent =
+        '{"type":"error","timestamp":1,"sessionID":"ses_e","error":{"name":"UnknownError",' +
+        '"data":{"message":"Unexpected server error. Check server logs for details.",' +
+        '"ref":"err_deadbeef"}}}\n';
+
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 1));
+
+      await expect(
+        OPENCODE_BACKEND.run(makeOpts({ model: 'wpcom-ai/qwen3-next-80b-a3b' })),
+      ).rejects.toThrow(/wpcom-ai\/qwen3-next-80b-a3b/);
+    });
+
+    it('mentions `opencode models` so an invalid model id is self-diagnosing', async () => {
+      const errorEvent =
+        '{"type":"error","timestamp":1,"sessionID":"ses_e","error":{"name":"UnknownError",' +
+        '"data":{"message":"Unexpected server error.","ref":"err_1"}}}\n';
+
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 1));
+
+      await expect(
+        OPENCODE_BACKEND.run(makeOpts({ model: 'ollama/qwen3-coder' })),
+      ).rejects.toThrow(/opencode models/);
+    });
+  });
+
+  describe('runStream() — structured error surfacing', () => {
+    // Streaming is the DEFAULT path (defaults.stream = true), so this is the
+    // path a normal `--to opencode` relay actually takes. A model missing from
+    // the provider catalog must be as self-diagnosing here as in run().
+    const errorEvent =
+      '{"type":"error","timestamp":1,"sessionID":"ses_s","error":{"name":"UnknownError",' +
+      '"data":{"message":"Unexpected server error. Check server logs for details.",' +
+      '"ref":"err_stream1"}}}\n';
+
+    async function streamError(opts: Record<string, unknown>): Promise<Error | null> {
+      try {
+        for await (const _chunk of OPENCODE_BACKEND.runStream!(makeOpts(opts))) {
+          // drain
+        }
+        return null;
+      } catch (e) {
+        return e as Error;
+      }
+    }
+
+    it('adds model context on a non-zero exit', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 1));
+
+      const err = await streamError({ model: 'wpcom-ai/qwen3-next-80b-a3b' });
+      expect(err?.message).toMatch(/wpcom-ai\/qwen3-next-80b-a3b/);
+      expect(err?.message).toMatch(/opencode models/);
+    });
+
+    it('adds model context on a clean exit carrying an error event', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 0));
+
+      const err = await streamError({ model: 'ollama/qwen3-coder' });
+      expect(err?.message).toMatch(/ollama\/qwen3-coder/);
+      expect(err?.message).toMatch(/opencode models/);
+    });
+
+    it('leaves the message unadorned when no model was passed', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(errorEvent, 1));
+
+      const err = await streamError({});
+      expect(err?.message).toMatch(/Unexpected server error/);
+      expect(err?.message).not.toMatch(/opencode models/);
+    });
   });
 
   describe('runStream() — silent-output guard', () => {
