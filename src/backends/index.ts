@@ -12,6 +12,13 @@ import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
 
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 
+export const REVIEW_SCOPES = ['branch', 'working-tree', 'all'] as const;
+export type ReviewScope = typeof REVIEW_SCOPES[number];
+
+export function isReviewScope(value: unknown): value is ReviewScope {
+  return typeof value === 'string' && REVIEW_SCOPES.includes(value as ReviewScope);
+}
+
 /** How a Claude relay participates in Claude Code cross-session messaging. */
 export type ClaudePeerMessagingMode = 'native' | 'accept' | 'refuse';
 
@@ -67,6 +74,7 @@ export interface ReviewOptions {
   model: string | null;
   env: Record<string, string>;
   base: string;
+  scope?: ReviewScope;
   prompt?: string;
 }
 
@@ -75,6 +83,8 @@ export interface Backend {
   localFileAccess: boolean;
   allowedSandboxes: ReadonlySet<SandboxMode>;
   capabilities: BackendCapabilities;
+  /** Review scopes handled by the backend's native review() implementation. Defaults to branch only. */
+  nativeReviewScopes?: ReadonlySet<ReviewScope>;
   run(opts: BackendRunOptions): Promise<string>;
   review?(opts: ReviewOptions): Promise<string>;
   runStream?(opts: BackendRunOptions): AsyncIterable<string>;

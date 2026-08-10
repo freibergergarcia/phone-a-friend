@@ -41,6 +41,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/backends/index.ts
 import { execFileSync, spawn as nodeSpawn } from "child_process";
+function isReviewScope(value) {
+  return typeof value === "string" && REVIEW_SCOPES.includes(value);
+}
 function registerBackend(backend) {
   registry.set(backend.name, backend);
 }
@@ -117,10 +120,11 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
+    REVIEW_SCOPES = ["branch", "working-tree", "all"];
     CLAUDE_PEER_MESSAGING_MODES = [
       "native",
       "accept",
@@ -2231,6 +2235,13 @@ function ensureSizeLimit(label, text, maxBytes) {
     throw new RelayError(`${label} is too large (${size} bytes; max ${maxBytes} bytes)`);
   }
 }
+function isGitBufferOverflow(err) {
+  const execErr = err;
+  return execErr.code === "ENOBUFS" || execErr.message?.includes("ENOBUFS") === true;
+}
+function gitDiffTooLargeError() {
+  return new RelayError(`Git diff is too large (exceeds max ${MAX_DIFF_BYTES} bytes)`);
+}
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
   const resolved = resolve(contextFile);
@@ -2262,17 +2273,45 @@ function resolveContextText(contextFile, contextText) {
   }
   return fileText;
 }
+function resolveGitWorktreeRoot(repoPath) {
+  try {
+    const root = execFileSync3(
+      "git",
+      ["-C", repoPath, "rev-parse", "--show-toplevel"],
+      {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"]
+      }
+    ).trim();
+    return root ? resolve(root) : repoPath;
+  } catch {
+    return repoPath;
+  }
+}
+function workingTreeBase(repoPath) {
+  try {
+    const head = execFileSync3("git", ["-C", repoPath, "rev-parse", "--verify", "HEAD"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    return head ? "HEAD" : EMPTY_GIT_TREE_SHA;
+  } catch {
+    return EMPTY_GIT_TREE_SHA;
+  }
+}
 function tryGitDiff(repoPath, args) {
   try {
     const result = execFileSync3("git", ["-C", repoPath, "diff", ...args], {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
     });
     const diffText = result.trim();
     ensureSizeLimit("Git diff", diffText, MAX_DIFF_BYTES);
     return diffText;
   } catch (err) {
     if (err instanceof RelayError) throw err;
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
     return "";
   }
 }
@@ -2298,17 +2337,152 @@ function gitDiffBase(repoPath, base) {
   try {
     const result = execFileSync3("git", ["-C", repoPath, "diff", `${base}...HEAD`, "--"], {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
     });
     const diffText = result.trim();
     ensureSizeLimit("Git diff", diffText, MAX_DIFF_BYTES);
     return diffText;
   } catch (err) {
     if (err instanceof RelayError) throw err;
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
     const execErr = err;
     const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || "git diff failed";
     throw new RelayError(`Failed to collect git diff against ${base}: ${detail}`);
   }
+}
+function gitUntrackedDiff(repoPath) {
+  let untrackedOutput;
+  try {
+    untrackedOutput = execFileSync3(
+      "git",
+      ["-C", repoPath, "ls-files", "--others", "--exclude-standard", "-z"],
+      {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
+      }
+    );
+  } catch (err) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err;
+    const detail = execErr.stderr?.toString().trim() || "git ls-files failed";
+    throw new RelayError(`Failed to collect untracked files: ${detail}`);
+  }
+  const diffs = [];
+  let diffBytes = 0;
+  const appendDiff = (raw) => {
+    const output = raw.trim();
+    if (!output) return;
+    const nextBytes = diffBytes + (diffs.length > 0 ? 1 : 0) + sizeBytes(output);
+    if (nextBytes > MAX_DIFF_BYTES) {
+      throw new RelayError(
+        `Git diff is too large (${nextBytes} bytes; max ${MAX_DIFF_BYTES} bytes)`
+      );
+    }
+    diffs.push(output);
+    diffBytes = nextBytes;
+  };
+  for (const relativePath of untrackedOutput.split("\0").filter(Boolean)) {
+    try {
+      const output = execFileSync3(
+        "git",
+        ["-C", repoPath, "diff", "--no-index", "--", "/dev/null", relativePath],
+        {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
+        }
+      );
+      appendDiff(output);
+    } catch (err) {
+      const execErr = err;
+      if (err instanceof RelayError) throw err;
+      if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+      if (execErr.status === 1) {
+        const output = execErr.stdout?.toString().trim() ?? "";
+        appendDiff(output);
+        continue;
+      }
+      const detail = execErr.stderr?.toString().trim() || "git diff --no-index failed";
+      throw new RelayError(`Failed to collect untracked diff for ${relativePath}: ${detail}`);
+    }
+  }
+  return diffs.join("\n");
+}
+function gitDiffWorkingTree(repoPath) {
+  let tracked;
+  try {
+    tracked = execFileSync3("git", ["-C", repoPath, "diff", workingTreeBase(repoPath), "--"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
+    }).trim();
+  } catch (err) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err;
+    const detail = execErr.stderr?.toString().trim() || "git diff failed";
+    throw new RelayError(`Failed to collect working-tree diff: ${detail}`);
+  }
+  const combined = [tracked, gitUntrackedDiff(repoPath)].filter(Boolean).join("\n");
+  ensureSizeLimit("Git diff", combined, MAX_DIFF_BYTES);
+  return combined;
+}
+function gitDiffAll(repoPath, base) {
+  if (workingTreeBase(repoPath) === EMPTY_GIT_TREE_SHA) {
+    return gitDiffWorkingTree(repoPath);
+  }
+  let mergeBase;
+  try {
+    mergeBase = execFileSync3("git", ["-C", repoPath, "merge-base", base, "HEAD"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+  } catch (err) {
+    const execErr = err;
+    const detail = execErr.stderr?.toString().trim() || "git merge-base failed";
+    throw new RelayError(`Failed to resolve merge base against ${base}: ${detail}`);
+  }
+  let tracked;
+  try {
+    tracked = execFileSync3("git", ["-C", repoPath, "diff", mergeBase, "--"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES
+    }).trim();
+  } catch (err) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err;
+    const detail = execErr.stderr?.toString().trim() || "git diff failed";
+    throw new RelayError(`Failed to collect all changes against ${base}: ${detail}`);
+  }
+  const combined = [tracked, gitUntrackedDiff(repoPath)].filter(Boolean).join("\n");
+  ensureSizeLimit("Git diff", combined, MAX_DIFF_BYTES);
+  return combined;
+}
+function collectReviewDiff(repoPath, base, scope) {
+  if (scope === "branch") return gitDiffBase(repoPath, base);
+  if (scope === "working-tree") return gitDiffWorkingTree(repoPath);
+  return gitDiffAll(repoPath, base);
+}
+function defaultReviewRequest(scope) {
+  if (scope === "working-tree") {
+    return "Review the staged, unstaged, and untracked working-tree changes. Flag correctness, security, regression, and quality concerns; ignore style preferences unless they obscure intent.";
+  }
+  if (scope === "all") {
+    return "Review the committed branch changes plus staged, unstaged, and untracked working-tree changes. Flag correctness, security, regression, and quality concerns; ignore style preferences unless they obscure intent.";
+  }
+  return DEFAULT_REVIEW_REQUEST;
+}
+function noChangesReviewResponse(scope, verdictJson) {
+  const summary = `No changes found for review scope "${scope}".`;
+  if (!verdictJson) return summary;
+  return serializeVerdict({
+    schema_version: VERDICT_SCHEMA_VERSION,
+    verdict: "abstain",
+    summary,
+    findings: []
+  });
 }
 function buildPrompt(opts) {
   const sections = [
@@ -2630,8 +2804,12 @@ async function* relayStream(opts) {
   }
 }
 async function reviewRelay(opts) {
+  const scope = opts.scope ?? "branch";
+  if (!isReviewScope(scope)) {
+    throw new RelayError(`Invalid review scope: ${String(scope)}`);
+  }
   const verdictJson = Boolean(opts.verdictJson);
-  const effectivePrompt = verdictJson ? buildVerdictPrompt(opts.prompt ?? null) : opts.prompt;
+  const effectivePrompt = verdictJson ? buildVerdictPrompt(opts.prompt?.trim() ? opts.prompt : defaultReviewRequest(scope)) : opts.prompt;
   const effectiveSchema = verdictJson ? VERDICT_SCHEMA_JSON : opts.schema ?? null;
   const {
     repoPath,
@@ -2647,12 +2825,13 @@ async function reviewRelay(opts) {
   if (timeoutSeconds <= 0) {
     throw new RelayError("Timeout must be greater than zero");
   }
-  const resolvedRepo = resolve(repoPath);
-  if (!existsSync6(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  const requestedRepo = resolve(repoPath);
+  if (!existsSync6(requestedRepo) || !statSync(requestedRepo).isDirectory()) {
     throw new RelayError(
-      `Repository path does not exist or is not a directory: ${resolvedRepo}`
+      `Repository path does not exist or is not a directory: ${requestedRepo}`
     );
   }
+  const resolvedRepo = resolveGitWorktreeRoot(requestedRepo);
   let selectedBackend;
   try {
     selectedBackend = getBackend(backend);
@@ -2665,7 +2844,10 @@ async function reviewRelay(opts) {
   }
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env5 = nextRelayEnv();
-  if (typeof selectedBackend.review === "function" && !prompt && !schema) {
+  const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
+  if (!collectedDiff) return noChangesReviewResponse(scope, verdictJson);
+  const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? /* @__PURE__ */ new Set(["branch"]);
+  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -2674,6 +2856,7 @@ async function reviewRelay(opts) {
         model,
         env: env5,
         base,
+        scope,
         prompt
       });
     } catch (err) {
@@ -2683,8 +2866,8 @@ async function reviewRelay(opts) {
       console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${err.message}`);
     }
   }
-  const diffText = gitDiffBase(resolvedRepo, base);
-  const reviewPrompt = prompt ?? "Review the following changes.";
+  const diffText = collectedDiff;
+  const reviewPrompt = prompt ?? defaultReviewRequest(scope);
   const fullPrompt = buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
@@ -2733,7 +2916,7 @@ function relayBackground(opts) {
   });
   return { job, promise };
 }
-var DEFAULT_TIMEOUT_SECONDS, DEFAULT_BACKEND, DEFAULT_SANDBOX, MAX_RELAY_DEPTH, MAX_CONTEXT_FILE_BYTES, MAX_DIFF_BYTES, MAX_PROMPT_BYTES, RelayError;
+var DEFAULT_TIMEOUT_SECONDS, DEFAULT_BACKEND, DEFAULT_SANDBOX, MAX_RELAY_DEPTH, MAX_CONTEXT_FILE_BYTES, MAX_DIFF_BYTES, MAX_PROMPT_BYTES, EMPTY_GIT_TREE_SHA, GIT_DIFF_MAX_BUFFER_BYTES, RelayError;
 var init_relay = __esm({
   "src/relay.ts"() {
     "use strict";
@@ -2748,6 +2931,8 @@ var init_relay = __esm({
     MAX_CONTEXT_FILE_BYTES = 2e5;
     MAX_DIFF_BYTES = 3e5;
     MAX_PROMPT_BYTES = 5e5;
+    EMPTY_GIT_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+    GIT_DIFF_MAX_BUFFER_BYTES = MAX_DIFF_BYTES + 65536;
     RelayError = class extends Error {
       constructor(message) {
         super(message);
@@ -73943,6 +74128,7 @@ var CodexBackend = class {
     resumeStrategy: "native-session",
     requiresClientSessionId: false
   };
+  nativeReviewScopes = /* @__PURE__ */ new Set(["branch", "working-tree"]);
   async run(opts) {
     assertNotCodexHost(opts.env);
     if (!isInPath("codex")) {
@@ -74013,11 +74199,11 @@ var CodexBackend = class {
     const tmpDir = mkdtempSync(join(tmpdir(), "phone-a-friend-"));
     const outputPath = join(tmpDir, "codex-last-message.txt");
     try {
+      const reviewTargetArgs = opts.scope === "working-tree" ? ["--uncommitted"] : ["--base", opts.base];
       const args = [
         "exec",
         "review",
-        "--base",
-        opts.base,
+        ...reviewTargetArgs,
         "--output-last-message",
         outputPath,
         "--skip-git-repo-check"
@@ -75357,6 +75543,7 @@ var OpenCodeBackend = class {
     resumeStrategy: "native-session",
     requiresClientSessionId: false
   };
+  nativeReviewScopes = /* @__PURE__ */ new Set(["branch"]);
   getConfig() {
     const cfg = loadConfig();
     return {
@@ -82496,6 +82683,7 @@ function banner(title) {
 }
 
 // src/cli.ts
+init_backends();
 init_installer();
 
 // src/setup.ts
@@ -83478,11 +83666,19 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless --review or --base is used)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (scoped to diff against base branch)").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
-      const isReview = opts.review || opts.base !== void 0 || opts.verdictJson;
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+      const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
+      if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error(`Invalid review scope: ${String(opts.reviewScope)}. Allowed values: ${REVIEW_SCOPES.join(", ")}`)}`
+        );
+        exitCode = 1;
+        return;
+      }
+      const reviewScope = opts.reviewScope ?? "branch";
       if (!opts.prompt && !isReview) {
-        console.error(`  ${theme.crossmark} ${theme.error("--prompt is required (unless using --review or --base)")}`);
+        console.error(`  ${theme.crossmark} ${theme.error("--prompt is required unless review mode is selected")}`);
         exitCode = 1;
         return;
       }
@@ -83494,6 +83690,13 @@ ${banner("AI coding agent relay")}
       const streamExplicit = command.getOptionValueSource("stream") === "cli";
       const includeDiffExplicit = command.getOptionValueSource("includeDiff") === "cli";
       const peerMessagingExplicit = command.getOptionValueSource("peerMessaging") === "cli";
+      if (isReview && includeDiffExplicit && opts.includeDiff === true) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error("--include-diff cannot be combined with review mode. Use --review-scope working-tree or --review-scope all.")}`
+        );
+        exitCode = 1;
+        return;
+      }
       const resolved = resolveConfig(
         {
           to: opts.to,
@@ -83515,8 +83718,9 @@ ${banner("AI coding agent relay")}
       const peerMessaging = backendName === "claude" ? resolved.claudePeerMessaging : void 0;
       if (isReview) {
         const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
+        const reviewTarget = reviewScope === "working-tree" ? "working-tree changes" : `${reviewScope} changes against ${baseLabel}`;
         const spinner = isVerdictJson ? null : ora({
-          text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+          text: `Reviewing ${theme.bold(reviewTarget)} via ${theme.bold(backendName)}...`,
           spinner: "dots",
           color: "cyan",
           stream: process.stderr
@@ -83526,6 +83730,7 @@ ${banner("AI coding agent relay")}
             repoPath: opts.repo,
             backend: backendName,
             base: opts.base ?? resolved.reviewBase,
+            scope: reviewScope,
             prompt: opts.prompt,
             timeoutSeconds: resolved.timeout,
             model: resolved.model ?? null,

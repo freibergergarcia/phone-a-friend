@@ -184,6 +184,8 @@ phone-a-friend --to claude --prompt "..." --review     # Review mode (diff-scope
 phone-a-friend --to claude --prompt "..." --peer-messaging accept --session coordinator # Unattended cross-session coordination
 phone-a-friend --to codex --review                     # Review mode (--prompt optional, defaults to generic review)
 phone-a-friend --to opencode --review                  # Review with local model (reads repo via tools)
+phone-a-friend --to codex --review --review-scope working-tree # Review staged, unstaged, and untracked files
+phone-a-friend --to codex --review --review-scope all          # Review branch commits plus working-tree changes
 phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
@@ -409,6 +411,24 @@ The `--quiet` flag runs a relay without interactive output and persists the resu
 - `--quiet` keeps the process alive until the job finishes (not truly detached). For detached execution, users can combine with `nohup` or `&`.
 - `job cancel` marks the job as cancelled in the store but cannot kill the subprocess (PID tracking is not yet implemented)
 
+## Review scopes
+
+`--review-scope branch|working-tree|all` is valid in review mode and implies `--review` when used alone.
+
+| Scope | Diff contract |
+|---|---|
+| `branch` (default) | Committed changes from the merge base with `--base` through `HEAD` |
+| `working-tree` | Staged, unstaged, and non-ignored untracked files relative to `HEAD` |
+| `all` | Branch changes plus staged, unstaged, and non-ignored untracked files |
+
+- `--repo <path>` may point at a worktree root or any directory inside one; review mode normalizes it to the containing worktree root.
+- Before the first commit, `working-tree` and `all` compare pending files against Git's empty tree.
+- PaF collects and bounds the selected scope before any backend call. The combined diff is subject to `MAX_DIFF_BYTES`; generic diffs represent untracked binary files with a binary marker rather than embedded bytes.
+- A clean scope does not invoke a backend. Plain review returns a no-changes message; `--verdict-json` returns `abstain` with no findings.
+- Codex handles `branch` with native `--base` and `working-tree` with native `--uncommitted`. Unsupported native scopes use PaF's generic diff path.
+- `--verdict-json`, custom prompts, and schemas use the generic path and preserve the selected scope.
+- `--include-diff` is for normal relay mode and is rejected when combined with review mode; use `working-tree` or `all`.
+
 ## Structured output
 
 The `--schema` flag requests JSON output matching a JSON Schema from backends that support it.
@@ -427,12 +447,13 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 Opinionated review-mode flag that activates a built-in JSON envelope so callers (especially `/phone-a-team` and downstream skills) can decide iterate-or-stop deterministically without regexing free text.
 
 ```bash
-phone-a-friend --to codex --review --verdict-json                       # default review focus
+phone-a-friend --to codex --review --verdict-json                       # branch scope (default)
+phone-a-friend --to codex --review --review-scope all --verdict-json    # all current branch/worktree changes
 phone-a-friend --to codex --review --verdict-json --prompt "auth only"  # scoped review focus
 ```
 
 - Implies `--review`. Cannot be combined with `--schema` (PaF sets the schema itself; conflicting input errors out).
-- The caller's `--prompt` is preserved as the review request and combined with the canonical envelope instructions; omit `--prompt` to use the default ("Review the changes in this branch...").
+- The caller's `--prompt` is preserved as the review request and combined with the canonical envelope instructions; omitting it uses a scope-specific branch, working-tree, or all-changes request.
 - The envelope shape:
   ```json
   {
@@ -505,7 +526,7 @@ phone-a-friend session prune --all             # drop everything
 
 - **Codex resume + schema**: `codex exec resume` does not accept `--output-schema`. Schema is enforced on turn 1 only; subsequent turns rely on model conversation context to maintain the format, with no server-side validation.
 - **Gemini sessions**: supported via `native-session` resume. PaF generates the session UUID client-side, pins it with `--session-id <uuid>` on the first call, and resumes with `--resume <uuid>` on later calls (same model as Claude). History is not replayed (server-side session state), so `run()` does not use `sessionHistory`. Resume depends on Gemini's session retention (`general.sessionRetention.*`); if retention has pruned the session, `--resume` fails loudly rather than silently starting fresh. A Gemini CLI too old to recognize `--session-id`/`--resume` surfaces an actionable upgrade error.
-- **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the diff inlined.
+- **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the selected scope inlined.
 - **Streaming + sessions**: `relayStream()` forwards session options to backends but does not implement session lifecycle (validation, history persistence). The CLI gates this combination off; only programmatic callers are affected.
 
 ## Fast spawn

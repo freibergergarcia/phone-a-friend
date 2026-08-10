@@ -244,15 +244,36 @@ phone-a-friend job cancel <id>                               # Cancel a pending/
 
 ### Review
 
-Context-aware code reviews — automatically pulls the current `git diff` so you don't have to paste code:
+Context-aware code reviews collect an explicit Git scope so you don't have to paste code:
 
 ```bash
-phone-a-friend --to claude --review               # Review current diff
-phone-a-friend --to codex --review --base develop  # Review against a specific branch
-phone-a-friend --to opencode --review              # Review with local model (reads repo via tools)
+phone-a-friend --to claude --review                           # Committed branch changes (default)
+phone-a-friend --to codex --review --review-scope working-tree # Staged, unstaged, and untracked
+phone-a-friend --to opencode --review --review-scope all       # Branch plus working-tree changes
+phone-a-friend --to codex --review --base develop              # Use a specific comparison branch
 ```
 
-`--review` is the diff-scoped review mode (uses the backend's native review path when available). For ad-hoc prompts where you want the working-tree diff appended, use `--include-diff` with normal prompt mode. To override a `defaults.include_diff = true` config setting on a single call, use `--no-include-diff` (or set `PHONE_A_FRIEND_INCLUDE_DIFF=false` in the environment for older binaries).
+| `--review-scope` | Included changes |
+|---|---|
+| `branch` (default) | Committed changes from the merge base with `--base` through `HEAD` |
+| `working-tree` | Staged, unstaged, and non-ignored untracked files relative to `HEAD` |
+| `all` | Branch changes plus staged, unstaged, and non-ignored untracked files |
+
+Pass a repository root, linked Git worktree, or any directory inside one through
+`--repo <path>`; review mode normalizes it to the containing worktree root before
+collecting changes. Before the first commit, `working-tree` and `all` compare
+pending files against Git's empty tree. PaF collects and bounds the selected
+scope before any native or generic backend call, so the normal diff size limit
+always applies. When PaF supplies a generic diff, untracked binary files use a
+binary-change marker instead of raw bytes.
+
+If the selected scope is clean, PaF does not invoke a backend. Plain review
+returns `No changes found for review scope "<scope>".`; `--verdict-json` returns
+a valid `abstain` envelope with no findings. Native review is used only when the
+backend supports the selected non-empty scope; otherwise PaF supplies the
+deterministic diff through the generic path.
+
+`--include-diff` remains available for normal prompt mode. It cannot be combined with review mode; select `working-tree` or `all` instead. To override a `defaults.include_diff = true` config setting on a normal relay, use `--no-include-diff` (or set `PHONE_A_FRIEND_INCLUDE_DIFF=false` in the environment for older binaries).
 
 > [!TIP]
 > Don't paste code into `--prompt` just to review it — the backend can read the repo directly via `--repo "$PWD"` (default: current working directory). Pasting risks leaking uncommitted edits and burns tokens for content the backend can fetch itself.

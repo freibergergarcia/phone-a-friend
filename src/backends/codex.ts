@@ -18,6 +18,7 @@ import {
   spawnCli,
   type Backend,
   type ReviewOptions,
+  type ReviewScope,
   type SandboxMode,
 } from './index.js';
 
@@ -61,6 +62,7 @@ export class CodexBackend implements Backend {
     resumeStrategy: 'native-session',
     requiresClientSessionId: false,
   };
+  readonly nativeReviewScopes: ReadonlySet<ReviewScope> = new Set(['branch', 'working-tree']);
 
   async run(opts: BackendRunOptions): Promise<string> {
     assertNotCodexHost(opts.env);
@@ -150,11 +152,13 @@ export class CodexBackend implements Backend {
 
     try {
       // codex exec review does not accept -C or --sandbox; use cwd instead
+      const reviewTargetArgs = opts.scope === 'working-tree'
+        ? ['--uncommitted']
+        : ['--base', opts.base];
       const args = [
         'exec',
         'review',
-        '--base',
-        opts.base,
+        ...reviewTargetArgs,
         '--output-last-message',
         outputPath,
         '--skip-git-repo-check',
