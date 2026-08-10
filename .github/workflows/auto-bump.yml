@@ -52,7 +52,7 @@ jobs:
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "Found label: $label (PR #$pr_number)"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: steps.pr.outputs.skip != 'true'
         with:
           node-version: "22"
