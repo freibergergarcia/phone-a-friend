@@ -558,6 +558,44 @@ describe('CLI', () => {
     expect(opts.base).toBe('develop');
   });
 
+  it('--review-scope working-tree implies review mode and passes the scope', async () => {
+    const code = await run([
+      '--review-scope', 'working-tree', '--repo', tmpDir,
+    ]);
+
+    expect(code).toBe(0);
+    expect(mockReviewRelay).toHaveBeenCalledOnce();
+    expect(mockRelay).not.toHaveBeenCalled();
+    expect(mockReviewRelay.mock.calls[0][0].scope).toBe('working-tree');
+  });
+
+  it('rejects an invalid --review-scope before starting a review', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run([
+        'relay', '--review-scope', 'everything', '--repo', tmpDir,
+      ]);
+    });
+
+    expect(result).toBe(1);
+    expect(stderr).toContain('Invalid review scope: everything');
+    expect(stderr).toContain('branch, working-tree, all');
+    expect(mockReviewRelay).not.toHaveBeenCalled();
+  });
+
+  it('rejects --include-diff in review mode with review-scope guidance', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run([
+        'relay', '--review', '--include-diff', '--repo', tmpDir,
+      ]);
+    });
+
+    expect(result).toBe(1);
+    expect(stderr).toContain('--include-diff cannot be combined with review mode');
+    expect(stderr).toContain('--review-scope working-tree');
+    expect(stderr).toContain('--review-scope all');
+    expect(mockReviewRelay).not.toHaveBeenCalled();
+  });
+
   it('--review passes backend and model through', async () => {
     await run([
       'relay', '--review', '--to', 'gemini', '--model', 'gemini-2.5-flash',

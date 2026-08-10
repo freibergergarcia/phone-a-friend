@@ -31,7 +31,8 @@ import {
   MAX_RELAY_DEPTH,
 } from '../src/relay.js';
 import { registerBackend, _resetRegistry } from '../src/backends/index.js';
-import type { ReviewOptions } from '../src/backends/index.js';
+import type { ReviewOptions, ReviewScope } from '../src/backends/index.js';
+import { DEFAULT_REVIEW_REQUEST } from '../src/verdict.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -711,6 +712,10 @@ describe('reviewRelay', () => {
   it('calls backend.review() when available and no custom prompt', async () => {
     const backend = makeMockBackendWithReview('codex');
     registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff')) return 'branch diff';
+      return '';
+    });
 
     const result = await reviewRelay({
       repoPath: repo,
@@ -725,6 +730,69 @@ describe('reviewRelay', () => {
     const callArgs = backend.review.mock.calls[0][0] as ReviewOptions;
     expect(callArgs.base).toBe('main');
     expect(callArgs.repoPath).toBe(repo);
+  });
+
+  it('passes the selected scope to a native review backend', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    (backend as typeof backend & { nativeReviewScopes: ReadonlySet<ReviewScope> }).nativeReviewScopes =
+      new Set<ReviewScope>(['branch', 'working-tree']);
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('rev-parse') && args.includes('--verify')) return 'head-sha\n';
+      if (args.includes('diff')) return 'pending working-tree diff';
+      if (args.includes('ls-files')) return '';
+      return '';
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      scope: 'working-tree',
+    });
+
+    const callArgs = backend.review.mock.calls[0][0] as ReviewOptions;
+    expect(callArgs.scope).toBe('working-tree');
+  });
+
+  it('uses the generic diff path when a backend does not natively support all scope', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    (backend as typeof backend & { nativeReviewScopes: ReadonlySet<ReviewScope> }).nativeReviewScopes =
+      new Set<ReviewScope>(['branch', 'working-tree']);
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('merge-base')) return 'merge-base-sha\n';
+      if (args.includes('diff')) return 'all-scope diff';
+      if (args.includes('ls-files')) return '';
+      return '';
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      scope: 'all',
+    });
+
+    expect(backend.review.mock.calls.length).toBe(0);
+    expect((backend.run as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(runArgs.prompt).toContain('all-scope diff');
+  });
+
+  it('rejects an invalid programmatic review scope', async () => {
+    const backend = makeMockBackend('gemini');
+    registerBackend(backend);
+
+    await expect(reviewRelay({
+      repoPath: repo,
+      backend: 'gemini',
+      base: 'main',
+      scope: 'everything' as ReviewScope,
+    })).rejects.toThrow('Invalid review scope: everything');
+
+    expect((backend.run as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 
   it('skips backend.review() and uses run() when custom prompt is provided', async () => {
@@ -868,6 +936,7 @@ describe('reviewRelay', () => {
     // Mock git rev-parse --verify main to succeed
     mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
       if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      if (args.includes('diff')) return 'branch diff';
       throw new Error('not found');
     });
 
@@ -891,7 +960,7 @@ describe('reviewRelay', () => {
     await reviewRelay({ repoPath: repo, backend: 'gemini', base: 'main' });
 
     const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(callArgs.prompt).toContain('Review the following changes.');
+    expect(callArgs.prompt).toContain(DEFAULT_REVIEW_REQUEST);
   });
 
   it('respects depth guard', async () => {
@@ -1002,6 +1071,30 @@ describe('reviewRelay', () => {
     const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(runArgs.prompt).toMatch(/Review the changes in this branch/);
     expect(runArgs.prompt).toMatch(/JSON object/);
+  });
+
+  it('verdictJson describes all scope accurately when the caller omits --prompt', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('merge-base')) return 'merge-base-sha\n';
+      if (args.includes('diff')) return 'some diff';
+      if (args.includes('ls-files')) return '';
+      return '';
+    });
+
+    await reviewRelay({
+      repoPath: repo,
+      backend: 'codex',
+      base: 'main',
+      scope: 'all',
+      verdictJson: true,
+    });
+
+    const runArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(runArgs.prompt).toContain('committed branch changes');
+    expect(runArgs.prompt).toContain('staged, unstaged, and untracked working-tree changes');
   });
 });
 

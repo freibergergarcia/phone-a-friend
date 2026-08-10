@@ -10,14 +10,22 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   getBackend,
+  isReviewScope,
   BackendError,
   type Backend,
   type ClaudePeerMessagingMode,
+  type ReviewScope,
   type SandboxMode,
 } from './backends/index.js';
 import { JobManager, type Job } from './jobs.js';
 import { SessionStore } from './sessions.js';
-import { VERDICT_SCHEMA_JSON, buildVerdictPrompt } from './verdict.js';
+import {
+  DEFAULT_REVIEW_REQUEST,
+  VERDICT_SCHEMA_VERSION,
+  VERDICT_SCHEMA_JSON,
+  buildVerdictPrompt,
+  serializeVerdict,
+} from './verdict.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,6 +38,8 @@ export const MAX_RELAY_DEPTH = 1;
 export const MAX_CONTEXT_FILE_BYTES = 200_000;
 export const MAX_DIFF_BYTES = 300_000;
 export const MAX_PROMPT_BYTES = 500_000;
+const EMPTY_GIT_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const GIT_DIFF_MAX_BUFFER_BYTES = MAX_DIFF_BYTES + 65_536;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -72,6 +82,15 @@ function ensureSizeLimit(label: string, text: string, maxBytes: number): void {
   }
 }
 
+function isGitBufferOverflow(err: unknown): boolean {
+  const execErr = err as NodeJS.ErrnoException;
+  return execErr.code === 'ENOBUFS' || execErr.message?.includes('ENOBUFS') === true;
+}
+
+function gitDiffTooLargeError(): RelayError {
+  return new RelayError(`Git diff is too large (exceeds max ${MAX_DIFF_BYTES} bytes)`);
+}
+
 function readContextFile(contextFile: string | null): string {
   if (contextFile === null) return '';
   const resolved = resolve(contextFile);
@@ -105,17 +124,48 @@ function resolveContextText(contextFile: string | null, contextText: string | nu
   return fileText;
 }
 
+function resolveGitWorktreeRoot(repoPath: string): string {
+  try {
+    const root = execFileSync(
+      'git',
+      ['-C', repoPath, 'rev-parse', '--show-toplevel'],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+    return root ? resolve(root) : repoPath;
+  } catch {
+    // Preserve the existing backend/git error path for non-repository directories.
+    return repoPath;
+  }
+}
+
+function workingTreeBase(repoPath: string): string {
+  try {
+    const head = execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return head ? 'HEAD' : EMPTY_GIT_TREE_SHA;
+  } catch {
+    return EMPTY_GIT_TREE_SHA;
+  }
+}
+
 function tryGitDiff(repoPath: string, args: string[]): string {
   try {
     const result = execFileSync('git', ['-C', repoPath, 'diff', ...args], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
     });
     const diffText = result.trim();
     ensureSizeLimit('Git diff', diffText, MAX_DIFF_BYTES);
     return diffText;
   } catch (err: unknown) {
     if (err instanceof RelayError) throw err; // size limit — propagate
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
     return ''; // git failure — treat as empty
   }
 }
@@ -149,12 +199,14 @@ export function gitDiffBase(repoPath: string, base: string): string {
     const result = execFileSync('git', ['-C', repoPath, 'diff', `${base}...HEAD`, '--'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
     });
     const diffText = result.trim();
     ensureSizeLimit('Git diff', diffText, MAX_DIFF_BYTES);
     return diffText;
   } catch (err: unknown) {
     if (err instanceof RelayError) throw err;
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
     const execErr = err as NodeJS.ErrnoException & {
       stderr?: Buffer | string;
       stdout?: Buffer | string;
@@ -162,6 +214,156 @@ export function gitDiffBase(repoPath: string, base: string): string {
     const detail = execErr.stderr?.toString().trim() || execErr.stdout?.toString().trim() || 'git diff failed';
     throw new RelayError(`Failed to collect git diff against ${base}: ${detail}`);
   }
+}
+
+function gitUntrackedDiff(repoPath: string): string {
+  let untrackedOutput: string;
+  try {
+    untrackedOutput = execFileSync(
+      'git',
+      ['-C', repoPath, 'ls-files', '--others', '--exclude-standard', '-z'],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
+      },
+    );
+  } catch (err: unknown) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const detail = execErr.stderr?.toString().trim() || 'git ls-files failed';
+    throw new RelayError(`Failed to collect untracked files: ${detail}`);
+  }
+
+  const diffs: string[] = [];
+  let diffBytes = 0;
+  const appendDiff = (raw: string): void => {
+    const output = raw.trim();
+    if (!output) return;
+    const nextBytes = diffBytes + (diffs.length > 0 ? 1 : 0) + sizeBytes(output);
+    if (nextBytes > MAX_DIFF_BYTES) {
+      throw new RelayError(
+        `Git diff is too large (${nextBytes} bytes; max ${MAX_DIFF_BYTES} bytes)`,
+      );
+    }
+    diffs.push(output);
+    diffBytes = nextBytes;
+  };
+  for (const relativePath of untrackedOutput.split('\0').filter(Boolean)) {
+    try {
+      const output = execFileSync(
+        'git',
+        ['-C', repoPath, 'diff', '--no-index', '--', '/dev/null', relativePath],
+        {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+          maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
+        },
+      );
+      appendDiff(output);
+    } catch (err: unknown) {
+      const execErr = err as NodeJS.ErrnoException & {
+        status?: number;
+        stderr?: Buffer | string;
+        stdout?: Buffer | string;
+      };
+      if (err instanceof RelayError) throw err;
+      if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+      // `git diff --no-index` uses exit code 1 to report an ordinary diff.
+      if (execErr.status === 1) {
+        const output = execErr.stdout?.toString().trim() ?? '';
+        appendDiff(output);
+        continue;
+      }
+      const detail = execErr.stderr?.toString().trim() || 'git diff --no-index failed';
+      throw new RelayError(`Failed to collect untracked diff for ${relativePath}: ${detail}`);
+    }
+  }
+
+  return diffs.join('\n');
+}
+
+function gitDiffWorkingTree(repoPath: string): string {
+  let tracked: string;
+  try {
+    tracked = execFileSync('git', ['-C', repoPath, 'diff', workingTreeBase(repoPath), '--'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
+    }).trim();
+  } catch (err: unknown) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const detail = execErr.stderr?.toString().trim() || 'git diff failed';
+    throw new RelayError(`Failed to collect working-tree diff: ${detail}`);
+  }
+
+  const combined = [tracked, gitUntrackedDiff(repoPath)].filter(Boolean).join('\n');
+  ensureSizeLimit('Git diff', combined, MAX_DIFF_BYTES);
+  return combined;
+}
+
+function gitDiffAll(repoPath: string, base: string): string {
+  if (workingTreeBase(repoPath) === EMPTY_GIT_TREE_SHA) {
+    return gitDiffWorkingTree(repoPath);
+  }
+
+  let mergeBase: string;
+  try {
+    mergeBase = execFileSync('git', ['-C', repoPath, 'merge-base', base, 'HEAD'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch (err: unknown) {
+    const execErr = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const detail = execErr.stderr?.toString().trim() || 'git merge-base failed';
+    throw new RelayError(`Failed to resolve merge base against ${base}: ${detail}`);
+  }
+
+  let tracked: string;
+  try {
+    tracked = execFileSync('git', ['-C', repoPath, 'diff', mergeBase, '--'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: GIT_DIFF_MAX_BUFFER_BYTES,
+    }).trim();
+  } catch (err: unknown) {
+    if (isGitBufferOverflow(err)) throw gitDiffTooLargeError();
+    const execErr = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const detail = execErr.stderr?.toString().trim() || 'git diff failed';
+    throw new RelayError(`Failed to collect all changes against ${base}: ${detail}`);
+  }
+
+  const combined = [tracked, gitUntrackedDiff(repoPath)].filter(Boolean).join('\n');
+  ensureSizeLimit('Git diff', combined, MAX_DIFF_BYTES);
+  return combined;
+}
+
+function collectReviewDiff(repoPath: string, base: string, scope: ReviewScope): string {
+  if (scope === 'branch') return gitDiffBase(repoPath, base);
+  if (scope === 'working-tree') return gitDiffWorkingTree(repoPath);
+  return gitDiffAll(repoPath, base);
+}
+
+function defaultReviewRequest(scope: ReviewScope): string {
+  if (scope === 'working-tree') {
+    return 'Review the staged, unstaged, and untracked working-tree changes. Flag correctness, security, regression, and quality concerns; ignore style preferences unless they obscure intent.';
+  }
+  if (scope === 'all') {
+    return 'Review the committed branch changes plus staged, unstaged, and untracked working-tree changes. Flag correctness, security, regression, and quality concerns; ignore style preferences unless they obscure intent.';
+  }
+  return DEFAULT_REVIEW_REQUEST;
+}
+
+function noChangesReviewResponse(scope: ReviewScope, verdictJson: boolean): string {
+  const summary = `No changes found for review scope "${scope}".`;
+  if (!verdictJson) return summary;
+  return serializeVerdict({
+    schema_version: VERDICT_SCHEMA_VERSION,
+    verdict: 'abstain',
+    summary,
+    findings: [],
+  });
 }
 
 function buildPrompt(opts: {
@@ -225,6 +427,7 @@ export interface ReviewRelayOptions {
   repoPath: string;
   backend?: string;
   base?: string;
+  scope?: ReviewScope;
   prompt?: string;
   timeoutSeconds?: number;
   model?: string | null;
@@ -632,12 +835,17 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
 }
 
 export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
+  const scope = opts.scope ?? 'branch';
+  if (!isReviewScope(scope)) {
+    throw new RelayError(`Invalid review scope: ${String(scope)}`);
+  }
+
   const verdictJson = Boolean(opts.verdictJson);
   // For verdict mode, compose the caller's review request with the envelope
   // instructions instead of replacing the request outright. The caller's
   // intent (e.g. "focus on the auth module") must survive structured output.
   const effectivePrompt = verdictJson
-    ? buildVerdictPrompt(opts.prompt ?? null)
+    ? buildVerdictPrompt(opts.prompt?.trim() ? opts.prompt : defaultReviewRequest(scope))
     : opts.prompt;
   const effectiveSchema = verdictJson ? VERDICT_SCHEMA_JSON : (opts.schema ?? null);
 
@@ -657,12 +865,13 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     throw new RelayError('Timeout must be greater than zero');
   }
 
-  const resolvedRepo = resolve(repoPath);
-  if (!existsSync(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  const requestedRepo = resolve(repoPath);
+  if (!existsSync(requestedRepo) || !statSync(requestedRepo).isDirectory()) {
     throw new RelayError(
-      `Repository path does not exist or is not a directory: ${resolvedRepo}`,
+      `Repository path does not exist or is not a directory: ${requestedRepo}`,
     );
   }
+  const resolvedRepo = resolveGitWorktreeRoot(requestedRepo);
 
   let selectedBackend;
   try {
@@ -679,15 +888,28 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env = nextRelayEnv();
 
+  // Resolve and bound the selected scope before any backend call. This keeps
+  // empty-scope and size-limit behavior deterministic even when a backend has
+  // native review support. Generic reviews reuse the already-collected diff.
+  const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
+  if (!collectedDiff) return noChangesReviewResponse(scope, verdictJson);
+
   // If backend supports review(), use it directly.
   // Skip native review when:
+  //   - the backend does not declare support for the selected review scope;
   //   - a custom prompt is provided — Codex exec review cannot combine
   //     --base with a positional prompt, so the generic run() path (which
   //     includes the prompt alongside the diff) gives better results.
   //   - a schema is set — native review() does not forward schema to the
   //     backend's structured output enforcement, so the schema would be
   //     silently dropped. Use the generic run() path which honors schema.
-  if (typeof selectedBackend.review === 'function' && !prompt && !schema) {
+  const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? new Set<ReviewScope>(['branch']);
+  if (
+    typeof selectedBackend.review === 'function'
+    && nativeReviewScopes.has(scope)
+    && !prompt
+    && !schema
+  ) {
     try {
       return await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -696,6 +918,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
         model,
         env,
         base,
+        scope,
         prompt,
       });
     } catch (err) {
@@ -710,8 +933,8 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   }
 
   // Generic path: get diff and build prompt with it
-  const diffText = gitDiffBase(resolvedRepo, base);
-  const reviewPrompt = prompt ?? 'Review the following changes.';
+  const diffText = collectedDiff;
+  const reviewPrompt = prompt ?? defaultReviewRequest(scope);
   const fullPrompt = buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,

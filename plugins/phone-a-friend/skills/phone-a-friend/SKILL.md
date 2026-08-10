@@ -17,6 +17,9 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
 - Preserve the user's actual request in `--prompt`. Do not drop it.
 - Do not run a bare `phone-a-friend --to <backend> --review` unless the user
   explicitly asks to review the current diff, branch changes, or staged changes.
+- For code review, map the requested surface explicitly: `branch` for committed
+  branch changes, `working-tree` for staged/unstaged/untracked files, and `all`
+  when both are in scope.
 - If the user asks for a repo sanity check, architecture opinion, plan critique,
   or general second opinion, use normal prompt mode with `--repo "$PWD"`.
 - If the user says not to edit files, keep that instruction in `--prompt`.
@@ -218,9 +221,21 @@ Append `$PAF_NO_DIFF` to every binary-mode `phone-a-friend` invocation. The
 env var fallback works in v1.7.2 and later; the explicit flag is preferred
 when available.
 
-Only when the user explicitly asked to review the diff, branch changes, or
-staged changes, swap `$PAF_NO_DIFF` for `--include-diff` (and prefer
-`phone-a-friend ... --review` for branch-level reviews).
+When the user explicitly asks for code review, use `--review` and select
+`--review-scope branch|working-tree|all` from the requested surface. Use
+`--include-diff` only for a normal prompt-mode relay, never with review mode.
+
+Probe `phone-a-friend relay --help` for `--review-scope` before the first such
+call. On an older binary, a branch review may omit the scope flag. A
+`working-tree` or `all` review requires the newer CLI; report the upgrade need
+instead of silently falling back because legacy `--include-diff` omits
+untracked files and cannot represent the combined scope.
+
+Review mode normalizes `--repo` to the containing Git worktree root and supports
+`working-tree`/`all` before the first commit. A clean selected scope never calls
+the backend: plain mode returns `No changes found for review scope "<scope>".`,
+while `--verdict-json` returns `abstain` with no findings. Treat that envelope as
+"nothing to review", not as model uncertainty that should be retried.
 
 ## Workflow
 
@@ -275,10 +290,9 @@ PAF_CONTEXT_EOF
    marker (`<<'PAF_PROMPT_EOF'`) is intentional: it makes shell treat the
    body as data, not executable text.
 
-   `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. Swap
-   for `--include-diff` only when the user explicitly asked to review the
-   diff, branch changes, or staged changes (and prefer
-   `phone-a-friend ... --review` for branch-level reviews).
+   `$PAF_NO_DIFF` comes from the probe in "Diff suppression" above. For code
+   review, use `--review --review-scope branch|working-tree|all` based on the
+   requested surface. Use `--include-diff` only for normal prompt mode.
 
    See "Speed optimization" and "Session continuity" below for when to
    include `--fast` and `--session`.

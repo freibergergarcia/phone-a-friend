@@ -443,6 +443,35 @@ describe('CodexBackend', () => {
       expect(spawnOpts.cwd).toBe('/tmp/repo');
     });
 
+    it('maps working-tree review scope to codex exec review --uncommitted', async () => {
+      mockExecFileSync.mockImplementation((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/codex';
+        return '';
+      });
+
+      mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+        const child = fakeChild();
+        const outputIdx = args.indexOf('--output-last-message') + 1;
+        process.nextTick(() => {
+          if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'Review feedback');
+          child.emit('close', 0, null);
+        });
+        return child;
+      });
+
+      await CODEX_BACKEND.review!({
+        ...baseReviewOpts,
+        scope: 'working-tree',
+      });
+
+      const codexCall = mockSpawn.mock.calls.find(
+        (c: unknown[]) => c[0] === 'codex',
+      );
+      const args = codexCall![1] as string[];
+      expect(args).toContain('--uncommitted');
+      expect(args).not.toContain('--base');
+    });
+
     it('drops custom prompt when --base is present (mutually exclusive in codex exec review)', async () => {
       mockExecFileSync.mockImplementation((cmd: string) => {
         if (cmd === 'which') return '/usr/local/bin/codex';

@@ -640,6 +640,35 @@ describe('Context hygiene rule prevents repo-content dumping', () => {
   }
 });
 
+describe('Review scope guidance', () => {
+  for (const rel of ['commands/phone-a-friend.md', 'skills/phone-a-friend/SKILL.md']) {
+    it(`${rel} maps code-review surfaces to explicit scopes`, () => {
+      const file = readFile(rel);
+      expect(file).toContain('`--review-scope branch|working-tree|all`');
+      expect(file).toMatch(/`branch` for committed/);
+      expect(file).toMatch(/`working-tree` for staged\/unstaged\/untracked/);
+      expect(file).toMatch(/`all`[\s\S]{0,80}both/);
+      expect(file).toContain('never with review mode');
+      expect(file).toContain('phone-a-friend relay --help` for `--review-scope`');
+      expect(file).toMatch(/legacy `--include-diff` omits[\s\S]{0,40}untracked/);
+      expect(file).toContain('No changes found for review scope');
+      expect(file).toMatch(/clean selected scope[\s\S]{0,120}never calls[\s\S]{0,120}backend/);
+      expect(file).toMatch(/`--verdict-json` returns `abstain`/);
+    });
+  }
+
+  it('phone-a-team selects a review scope instead of mixing review with include-diff', () => {
+    const file = readFile('commands/phone-a-team.md');
+    expect(file).toContain('`--review-scope branch`');
+    expect(file).toContain('`working-tree` for staged/unstaged/untracked');
+    expect(file).toMatch(/`all` for both/);
+    expect(file).toContain('--review --review-scope <scope> --verdict-json');
+    expect(file).toContain('phone-a-friend relay --help` for `--review-scope`');
+    expect(file).toContain('No changes found for review scope');
+    expect(file).toMatch(/not reviewer uncertainty/);
+  });
+});
+
 describe('Probe pattern uses subcommand help, not top-level help', () => {
   // Top-level `phone-a-friend --help` lists subcommands but NOT relay flags
   // (relay-specific flags live under `phone-a-friend relay --help`).

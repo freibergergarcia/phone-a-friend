@@ -18,7 +18,13 @@ import {
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
-import type { ClaudePeerMessagingMode, SandboxMode } from './backends/index.js';
+import {
+  REVIEW_SCOPES,
+  isReviewScope,
+  type ClaudePeerMessagingMode,
+  type ReviewScope,
+  type SandboxMode,
+} from './backends/index.js';
 import {
   installHosts,
   uninstallHosts,
@@ -419,7 +425,7 @@ export async function run(argv: string[]): Promise<number> {
   program
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
-    .option('--prompt <text>', 'Prompt to relay (required unless --review or --base is used)')
+    .option('--prompt <text>', 'Prompt to relay (required unless review mode is selected)')
     .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context')
@@ -436,17 +442,27 @@ export async function run(argv: string[]): Promise<number> {
     .option('--fast', 'Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
-    .option('--review', 'Use review mode (scoped to diff against base branch)')
+    .option('--review', 'Use review mode (default scope: branch)')
+    .option('--review-scope <scope>', 'Review scope: branch, working-tree, all')
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
     .option('--verdict-json', 'Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.')
     .option('--quiet', 'Run silently, save result to job store')
     .action(async (opts, command) => {
       // --base without --review implies review mode. So does --verdict-json.
-      const isReview = opts.review || opts.base !== undefined || opts.verdictJson;
+      const isReview = opts.review || opts.base !== undefined || opts.reviewScope !== undefined || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
 
+      if (opts.reviewScope !== undefined && !isReviewScope(opts.reviewScope)) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error(`Invalid review scope: ${String(opts.reviewScope)}. Allowed values: ${REVIEW_SCOPES.join(', ')}`)}`,
+        );
+        exitCode = 1;
+        return;
+      }
+      const reviewScope = (opts.reviewScope ?? 'branch') as ReviewScope;
+
       if (!opts.prompt && !isReview) {
-        console.error(`  ${theme.crossmark} ${theme.error('--prompt is required (unless using --review or --base)')}`);
+        console.error(`  ${theme.crossmark} ${theme.error('--prompt is required unless review mode is selected')}`);
         exitCode = 1;
         return;
       }
@@ -465,6 +481,14 @@ export async function run(argv: string[]): Promise<number> {
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
       const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
       const peerMessagingExplicit = command.getOptionValueSource('peerMessaging') === 'cli';
+
+      if (isReview && includeDiffExplicit && opts.includeDiff === true) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error('--include-diff cannot be combined with review mode. Use --review-scope working-tree or --review-scope all.')}`,
+        );
+        exitCode = 1;
+        return;
+      }
 
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig(
@@ -492,10 +516,13 @@ export async function run(argv: string[]): Promise<number> {
 
       if (isReview) {
         const baseLabel = opts.base ?? resolved.reviewBase ?? 'auto-detect';
+        const reviewTarget = reviewScope === 'working-tree'
+          ? 'working-tree changes'
+          : `${reviewScope} changes against ${baseLabel}`;
         const spinner = isVerdictJson
           ? null
           : ora({
-              text: `Reviewing against ${theme.bold(baseLabel)} via ${theme.bold(backendName)}...`,
+              text: `Reviewing ${theme.bold(reviewTarget)} via ${theme.bold(backendName)}...`,
               spinner: 'dots',
               color: 'cyan',
               stream: process.stderr,
@@ -506,6 +533,7 @@ export async function run(argv: string[]): Promise<number> {
             repoPath: opts.repo,
             backend: backendName,
             base: opts.base ?? resolved.reviewBase,
+            scope: reviewScope,
             prompt: opts.prompt,
             timeoutSeconds: resolved.timeout,
             model: resolved.model ?? null,

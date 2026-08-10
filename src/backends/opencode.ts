@@ -15,6 +15,7 @@ import {
   type BackendCapabilities,
   type BackendRunOptions,
   type ReviewOptions,
+  type ReviewScope,
   BackendError,
   INSTALL_HINTS,
   isInPath,
@@ -215,6 +216,7 @@ export class OpenCodeBackend implements Backend {
     resumeStrategy: 'native-session',
     requiresClientSessionId: false,
   };
+  readonly nativeReviewScopes: ReadonlySet<ReviewScope> = new Set(['branch']);
 
   private getConfig(): { provider: string; pure: boolean } {
     const cfg = loadConfig();

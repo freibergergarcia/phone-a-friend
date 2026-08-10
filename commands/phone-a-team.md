@@ -210,8 +210,12 @@ explicitly asked for one of:
 - a sanity check against the diff
 - "what's wrong with my changes?" or similar
 
-When the user did ask for a diff-scoped review, swap suppression for
-`--include-diff` instead (and prefer `--review` for branch-level reviews).
+When the user asks for code review, use `--review` with `--review-scope branch`
+for committed branch changes, `working-tree` for staged/unstaged/untracked
+files, or `all` for both. Use `--include-diff` only for normal prompt mode.
+Probe `phone-a-friend relay --help` for `--review-scope` first. An older binary
+may omit the flag only for branch review; `working-tree` and `all` require the
+newer CLI because the legacy diff path cannot represent those contracts.
 
 The cleanest suppression flag is `--no-include-diff`, added in
 phone-a-friend v2.2.0. Older binaries reject the flag with `unknown option
@@ -636,7 +640,7 @@ Two ways to source the verdict envelope per round:
    tasks.
 2. **Backend-judged (optional, file-change rounds)**: when the round
    produced file changes that exist as a git diff, the lead MAY also
-   run `phone-a-friend --to <backend> --review --verdict-json` for an
+   run `phone-a-friend --to <backend> --review --review-scope <scope> --verdict-json` for an
    independent third-party verdict. If used, merge it conservatively with
    the lead-judged envelope: any blocker or important finding from either
    source makes the trace verdict `iterate`, and a backend `ship` verdict
@@ -644,6 +648,11 @@ Two ways to source the verdict envelope per round:
    Prefer the backend envelope only when it is stricter than the lead, or
    when the lead abstained and the backend produced a concrete verdict.
    Cap at one verdict-json relay call per round.
+
+   A backend envelope with `verdict: "abstain"` and a summary beginning
+   `No changes found for review scope` is deterministic PaF output for an
+   empty selected scope, not reviewer uncertainty. Do not retry the same
+   scope; keep the lead verdict or correct the scope before another call.
 
 Both sources produce the same envelope shape, so CONVERGENCE_TRACE is uniform
 either way.
