@@ -71,7 +71,7 @@
     "smol-toml": "^1.6.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.0.1",
     "@types/react": "^19.2.16",
     "ink-testing-library": "^4.0.0",
