@@ -339,6 +339,18 @@ minutes; do not block the conversation on it.
 Hosts without background shell tasks run the relay synchronously; the task
 record is still written and the same `task` commands work.
 
+**Answer shape.** When the review finishes, lead with a one-line receipt
+taken from the command output or `"$RELAY_BIN" task show <id>`: task id,
+backend, scope, duration, and whether the tree changed during the review.
+Then the findings, then the next action. If the user asks how the review is
+going, run `task show <id>` and answer with elapsed time and the last
+reported event; the background output also carries progress lines
+(`◇ 00:12 Running: git diff`), so read that file rather than re-running
+anything. Never invent progress the backend did not report. If the user has
+the PaF status line configured (`phone-a-friend task status-line`), they can
+already see elapsed time and the last event, so keep unprompted chat updates
+sparse.
+
 **Finding earlier work.** When the user asks what happened to a review, or
 wants to continue one:
 

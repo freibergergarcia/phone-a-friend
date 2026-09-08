@@ -190,6 +190,35 @@ if (outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one fin
     expect(JSON.parse(run(['task', 'list', '--json']).stdout)).toEqual([]);
   });
 
+  it('prints progress lines and a receipt on stderr for a review', () => {
+    const result = run(['--to', 'codex', '--repo', repo, '--review', '--review-scope', 'working-tree']);
+    expect(result.status, result.stderr).toBe(0);
+    const id = taskId(result.stderr);
+    expect(result.stderr).toMatch(/◇ scope: 1 file\(s\) · \d+ bytes \(working-tree against main\)/);
+    expect(result.stderr).toContain('◇ session: fixture-thread');
+    expect(result.stderr).toMatch(/◇ \d\d:\d\d Running: git diff/);
+    expect(result.stderr).toMatch(new RegExp(`◇ Task ${id} completed · \\d+s · scope unchanged`));
+  });
+
+  it('renders a status line row for the repo from the Claude status line JSON', () => {
+    const store = new TaskStore(join(root, 'config', 'phone-a-friend', 'tasks.db'));
+    const repoRoot = git('rev-parse', '--show-toplevel');
+    const live = store.create({ kind: 'review', backend: 'codex', repoPath: repoRoot, reviewScope: 'working-tree' });
+    store.start(live.id, process.pid);
+    store.addEvent(live.id, 'activity', 'Running: git diff');
+    store.close();
+
+    const statusLine = (cwd: string) => spawnSync(process.execPath, [entry, 'task', 'status-line'], {
+      cwd: repo, env, encoding: 'utf8', input: JSON.stringify({ cwd, session_id: 's1' }), timeout: 20_000, killSignal: 'SIGKILL',
+    });
+    const active = statusLine(repo);
+    expect(active.status, active.stderr).toBe(0);
+    expect(active.stdout.trim()).toMatch(new RegExp(`^◇ PaF codex review ${live.id} · \\d\\d:\\d\\d · Running: git diff$`));
+    const idle = statusLine('/nowhere/else');
+    expect(idle.status, idle.stderr).toBe(0);
+    expect(idle.stdout).toBe('');
+  });
+
   it('reports a running task through task result with a distinct exit code', () => {
     const store = new TaskStore(join(root, 'config', 'phone-a-friend', 'tasks.db'));
     const live = store.create({ kind: 'review', backend: 'codex', repoPath: repo });

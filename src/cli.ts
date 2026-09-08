@@ -6,7 +6,7 @@
  */
 
 import { resolve, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { Command } from 'commander';
@@ -15,6 +15,7 @@ import {
   relay,
   relayStream,
   reviewRelay,
+  mergeObservers,
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
@@ -48,6 +49,8 @@ import { getVersion, getPackageRoot } from './version.js';
 import { parseVerdict, serializeVerdict, VerdictParseError } from './verdict.js';
 import { beginTrackedRun, describeRepo, type TrackedRun } from './task-tracking.js';
 import { TASK_STATUSES, type TaskEvent, type TaskRecord, type TaskStatus } from './tasks.js';
+import { createProgressReporter } from './progress.js';
+import { DEFAULT_RECENT_MINUTES, parseStatusLineStdin, statusLineForCwd } from './status-line.js';
 import {
   buildSuppressionContext,
   decideBanner,
@@ -105,14 +108,28 @@ function announceTaskStart(tracked: TrackedRun): void {
   process.stderr.write(`  ${theme.hint('◇')} Task ${tracked.id} started ${theme.hint(`· phone-a-friend task show ${tracked.id}`)}\n`);
 }
 
-function announceTaskEnd(tracked: TrackedRun, status: 'completed' | 'failed'): void {
-  if (!tracked.id) return;
-  process.stderr.write(`  ${theme.hint('◇')} Task ${tracked.id} ${status}\n`);
-  if (tracked.drift?.drifted === true) {
-    process.stderr.write(
-      `  ${theme.warning('!')} Working tree changed during the review. ` +
-        'The result covers the original snapshot; re-run the review for the new changes.\n',
-    );
+function writeStderrLine(line: string): void {
+  process.stderr.write(`${line}\n`);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Progress goes to stderr; in a TTY the spinner text is updated instead of printing lines. */
+function progressFor(spinner: { text: string } | null) {
+  return createProgressReporter({
+    write: writeStderrLine,
+    interactive: Boolean(process.stderr.isTTY),
+    spinner,
+  });
+}
+
+function readStdinNow(): string {
+  try {
+    return readFileSync(0, 'utf8');
+  } catch {
+    return '';
   }
 }
 
@@ -610,6 +627,7 @@ export async function run(argv: string[]): Promise<number> {
               color: 'cyan',
               stream: process.stderr,
             }).start();
+        const progress = progressFor(spinner);
 
         try {
           const feedback = await reviewRelay({
@@ -625,7 +643,7 @@ export async function run(argv: string[]): Promise<number> {
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
-            observer: tracked.observer,
+            observer: mergeObservers(tracked.observer, progress.observer),
           });
           if (isVerdictJson) {
             try {
@@ -636,7 +654,7 @@ export async function run(argv: string[]): Promise<number> {
             } catch (err) {
               if (err instanceof VerdictParseError) {
                 tracked.fail(new Error(`Verdict parse failed: ${err.message}`));
-                announceTaskEnd(tracked, 'failed');
+                progress.finish({ taskId: tracked.id, status: 'failed', error: `Verdict parse failed: ${err.message}` });
                 process.stderr.write(
                   `  ${theme.crossmark} ${theme.error('Verdict parse failed')}: ${err.message}\n` +
                     `  ${theme.hint('Raw response (between markers):')}\n` +
@@ -652,11 +670,11 @@ export async function run(argv: string[]): Promise<number> {
             spinner?.succeed(`${theme.bold(backendName)} reviewed`);
             process.stdout.write(feedback + '\n');
           }
-          announceTaskEnd(tracked, 'completed');
+          progress.finish({ taskId: tracked.id, status: 'completed' });
         } catch (err) {
           tracked.fail(err);
-          announceTaskEnd(tracked, 'failed');
           spinner?.fail(`${theme.bold(backendName)} review failed`);
+          progress.finish({ taskId: tracked.id, status: 'failed', error: errorMessage(err) });
           throw err;
         }
         return;
@@ -689,7 +707,6 @@ export async function run(argv: string[]): Promise<number> {
         backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
         peerMessaging,
-        observer: tracked.observer,
       };
 
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
@@ -698,7 +715,8 @@ export async function run(argv: string[]): Promise<number> {
         const { relayBackground } = await import('./relay.js');
         const { JobManager } = await import('./jobs.js');
         const manager = new JobManager();
-        const { job, promise } = relayBackground({ ...relayOpts, jobManager: manager });
+        const progress = progressFor(null);
+        const { job, promise } = relayBackground({ ...relayOpts, observer: tracked.observer, jobManager: manager });
         console.log(`  ${theme.success('\u2713')} ${theme.bold('Job started')} ${theme.info(job.id)}`);
         console.log(`  ${theme.hint('Check status:')} phone-a-friend job status`);
         console.log(`  ${theme.hint('Get result:')}  phone-a-friend job result ${job.id}`);
@@ -714,11 +732,12 @@ export async function run(argv: string[]): Promise<number> {
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
-          announceTaskEnd(tracked, 'completed');
+          progress.finish({ taskId: tracked.id, status: 'completed' });
         } else {
-          tracked.fail(completed?.error ?? `job ${completed?.status ?? 'unknown'}`);
+          const failure = completed?.error ?? `job ${completed?.status ?? 'unknown'}`;
+          tracked.fail(failure);
           console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? 'unknown'}: ${completed?.error ?? ''}`);
-          announceTaskEnd(tracked, 'failed');
+          progress.finish({ taskId: tracked.id, status: 'failed', error: failure });
           exitCode = 1;
         }
         return;
@@ -732,11 +751,12 @@ export async function run(argv: string[]): Promise<number> {
           stream: process.stderr,
         }).start();
 
+        const progress = progressFor(spinner);
         let firstChunk = true;
         let hasOutput = false;
         let collected = '';
         try {
-          for await (const chunk of relayStream(relayOpts)) {
+          for await (const chunk of relayStream({ ...relayOpts, observer: mergeObservers(tracked.observer, progress.observer) })) {
             if (firstChunk) {
               spinner.stop();
               firstChunk = false;
@@ -750,7 +770,7 @@ export async function run(argv: string[]): Promise<number> {
           }
           tracked.complete(collected);
           process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded\n`);
-          announceTaskEnd(tracked, 'completed');
+          progress.finish({ taskId: tracked.id, status: 'completed' });
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
@@ -761,7 +781,7 @@ export async function run(argv: string[]): Promise<number> {
           } else {
             process.stderr.write(`\n  ${theme.crossmark} ${theme.error(`${backendName} stream error`)}\n`);
           }
-          announceTaskEnd(tracked, 'failed');
+          progress.finish({ taskId: tracked.id, status: 'failed', error: errorMessage(err) });
           throw err;
         }
       } else {
@@ -772,19 +792,20 @@ export async function run(argv: string[]): Promise<number> {
           stream: process.stderr,
         }).start();
 
+        const progress = progressFor(spinner);
         try {
-          const feedback = await relay(relayOpts);
+          const feedback = await relay({ ...relayOpts, observer: mergeObservers(tracked.observer, progress.observer) });
           tracked.complete(feedback);
           spinner.succeed(`${theme.bold(backendName)} responded`);
           process.stdout.write(feedback + '\n');
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
-          announceTaskEnd(tracked, 'completed');
+          progress.finish({ taskId: tracked.id, status: 'completed' });
         } catch (err) {
           tracked.fail(err);
           spinner.fail(`${theme.bold(backendName)} failed`);
-          announceTaskEnd(tracked, 'failed');
+          progress.finish({ taskId: tracked.id, status: 'failed', error: errorMessage(err) });
           throw err;
         }
       }
@@ -1348,6 +1369,30 @@ export async function run(argv: string[]): Promise<number> {
         }
         console.error(`  ${theme.hint(`Task ${task.id} is ${task.status}; no result yet.`)}`);
         exitCode = 3;
+      } finally {
+        store.close();
+      }
+    });
+
+  taskCmd
+    .command('status-line')
+    .description('One line for a Claude Code status line: the running or most recent task for the current repository (reads the status line JSON on stdin)')
+    .option('--repo <path>', 'Repository to report on (default: cwd from the stdin JSON, else the current directory)')
+    .option('--recent <minutes>', 'Also show tasks that finished within this many minutes', String(DEFAULT_RECENT_MINUTES))
+    .action(async (opts) => {
+      const recent = Number(opts.recent);
+      if (!Number.isFinite(recent) || recent < 0) {
+        console.error(`  ${theme.crossmark} --recent must be a non-negative number of minutes, got "${opts.recent}"`);
+        exitCode = 1;
+        return;
+      }
+      const stdin = process.stdin.isTTY ? '' : readStdinNow();
+      const cwd = opts.repo ?? parseStatusLineStdin(stdin).cwd ?? process.cwd();
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        const line = statusLineForCwd(store, cwd, new Date(), recent);
+        if (line) console.log(line);
       } finally {
         store.close();
       }

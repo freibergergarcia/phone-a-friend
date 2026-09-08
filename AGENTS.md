@@ -28,6 +28,8 @@ src/
   sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   tasks.ts           Task store (SQLite at ~/.config/phone-a-friend/tasks.db): durable records + events for every relay/review
   task-tracking.ts   Bridges one CLI run to the task store (RelayObserver, retention modes, drift warning)
+  progress.ts        Progress reporter: observer hooks -> stderr lines or spinner text, plus the end-of-run receipt
+  status-line.ts     One-row status for Claude Code's status line (running or recently finished task for the cwd repo)
   backends/
     index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
     antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, one-shot)
@@ -243,6 +245,7 @@ phone-a-friend task list                   # Newest tracked tasks across reposit
 phone-a-friend task list --repo . --json   # Tasks for this worktree, machine-readable
 phone-a-friend task show <id>              # Scope, session, drift, and event log (id prefix accepted)
 phone-a-friend task result <id>            # Stored result; exit 3 while running, 1 when failed/interrupted
+phone-a-friend task status-line            # One row for a Claude Code status line (reads the status line JSON on stdin)
 phone-a-friend task delete <id>            # Remove one task and its events
 phone-a-friend task prune --older-than 30  # Drop tasks older than N days (--all drops everything)
 ```
@@ -467,6 +470,8 @@ Every CLI relay and review is recorded as a task so delegated work stays findabl
 - **Status.** `queued`, `running`, `completed`, `failed`, `interrupted`. `task list|show|result` call `reconcileInterrupted()`, which marks running tasks whose owner pid is gone as `interrupted` (event `owner_lost`). Silence never changes a status; only a dead owner does. Cancellation, follow-up routing, and forks are not implemented.
 - **Retention.** `defaults.task_history` (`results` default, `metadata`, `off`), `PHONE_A_FRIEND_TASK_HISTORY`, or `--no-task-history` for one run. `results` stores the result text, a 200-character prompt preview, prompt and diff hashes, and events. `metadata` drops the preview and result text. `off` writes nothing. `task delete` and `task prune` remove PaF records only; backend-native sessions are not erased.
 - Resolution key for hosts: worktree root (`task list --repo .`), then branch, backend session id, and recency. Ids accept unique prefixes of four or more characters.
+- **Progress on stderr.** `createProgressReporter()` in `src/progress.ts` is merged with the tracking observer (`mergeObservers()` in `src/relay.ts`) on every relay path except `--quiet`. When stderr is a TTY the spinner text is updated (`Reviewing … · 00:12 Running: git diff`); otherwise one line per `activity`/`message`/`turn_failed`/`error` event is printed (`◇ 00:12 Running: git diff`), preceded by `◇ scope: …` and `◇ session: …`. Every path ends with a receipt, `◇ Task <id> completed · 23s · scope unchanged`, which keeps the `Task <id> completed|failed` marker hosts match on. Turn markers are never printed.
+- **Status line.** `task status-line` (`src/status-line.ts`) reads Claude Code's status line JSON on stdin (`workspace.current_dir`, then `cwd`), reconciles dead owners, and prints one row for the repository: the most recently started running task with elapsed time and last reported event, else the most recently finished task within `--recent` minutes (default 30) with age and drift or error. Prints nothing when idle. Intended for `settings.json` `statusLine` with a `refreshInterval`; each invocation is one SQLite read.
 
 ## Review scopes
 

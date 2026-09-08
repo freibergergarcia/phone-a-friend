@@ -371,6 +371,28 @@ export interface RelayObserver {
   onSessionLinked?(backendSessionId: string): void;
 }
 
+/** Fan every hook out to each listening observer. Undefined when nobody listens. */
+export function mergeObservers(...observers: Array<RelayObserver | undefined>): RelayObserver | undefined {
+  const active = observers.filter((o): o is RelayObserver => Boolean(o));
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  const merged: RelayObserver = {};
+  const fanOut = <K extends keyof RelayObserver>(hook: K): void => {
+    const targets = active.filter((o) => typeof o[hook] === 'function');
+    if (targets.length === 0) return;
+    merged[hook] = ((arg: never) => {
+      for (const target of targets) {
+        safeObserve(() => (target[hook] as (value: never) => void)(arg));
+      }
+    }) as RelayObserver[K];
+  };
+  fanOut('onScope');
+  fanOut('onDrift');
+  fanOut('onEvent');
+  fanOut('onSessionLinked');
+  return merged;
+}
+
 function safeObserve(fn: () => void): void {
   try {
     fn();

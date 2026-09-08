@@ -273,6 +273,33 @@ Retention is a setting: `defaults.task_history = "results"` (default) keeps the 
 
 From Claude Code, the `/phone-a-friend` skill runs reviews as background shell tasks so you can keep working; the result returns to the conversation when the command exits, and the task record is the fallback when that context is gone.
 
+While a relay runs, PaF reports progress on stderr: one line per backend-reported event when stderr is not a terminal (`◇ 00:12 Running: git diff`), or folded into the spinner text when it is. Every run ends with a receipt such as `◇ Task 3f9a2c1d completed · 23s · scope unchanged`.
+
+#### Status line
+
+`phone-a-friend task status-line` prints one row for the repository your Claude Code session is in: the running task with elapsed time and the last reported event, or the most recent task that finished in the last 30 minutes. It reads Claude Code's status line JSON on stdin, so it drops straight into `settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "phone-a-friend task status-line",
+    "refreshInterval": 5
+  }
+}
+```
+
+If you already have a status line script, feed both commands the same stdin from a small wrapper:
+
+```bash
+#!/usr/bin/env bash
+input=$(cat)
+printf '%s' "$input" | bash ~/.claude/my-statusline.sh
+printf '%s' "$input" | phone-a-friend task status-line
+```
+
+It prints nothing when no task is running or recently finished, so the row only appears when there is something to say.
+
 ### Review
 
 Context-aware code reviews collect an explicit Git scope so you don't have to paste code:
