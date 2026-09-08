@@ -1,9 +1,17 @@
 /**
  * Session manager for agentic mode.
  *
- * Wraps backend CLIs with session persistence. Claude is the primary
- * backend (UUID-based sessions). Other backends fall back to transcript
- * replay via run().
+ * Wraps backend CLIs with session persistence. Agentic mode is Claude-only
+ * today: dispatch is keyed on backend identity, never on a declared resume
+ * strategy. Codex, Gemini, and OpenCode also declare `native-session`, so a
+ * strategy-based branch would silently run `claude` for them. That request
+ * now fails explicitly (see `assertAgenticBackendSupported`).
+ *
+ * Known discrepancy, kept on purpose: the transcript-replay route below
+ * (`statelessRun` / `statelessResume`) is scaffolding. `execBackend` rejects
+ * every backend, so replay-strategy and unsupported-strategy backends fail
+ * with the same "not yet supported" error they always have. Real adapters
+ * are a separate change.
  */
 
 import { spawn } from 'node:child_process';
@@ -13,6 +21,45 @@ import type { AgentConfig } from './types.js';
 
 // Env vars that trigger Claude's nested-session guard
 const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'];
+
+/** The only backend with an agentic adapter. Dispatch is keyed on this name. */
+const AGENTIC_NATIVE_BACKEND = 'claude';
+
+/**
+ * Raised when an agentic request names a backend PaF cannot drive in agentic
+ * mode. Carries the backend so consumers can report it without regexing.
+ */
+export class AgenticBackendError extends Error {
+  readonly backend: string;
+  constructor(backend: string, message: string) {
+    super(message);
+    this.name = 'AgenticBackendError';
+    this.backend = backend;
+  }
+}
+
+/**
+ * Guard for both spawn() and resume(). Runs before any subprocess is started
+ * or session state is touched.
+ *
+ * - `claude` passes through to the native Claude session path.
+ * - Any other backend that declares `native-session` is rejected explicitly.
+ *   PaF neither substitutes Claude nor downgrades the request to replay.
+ * - Other strategies fall through to the (currently rejecting) replay route.
+ */
+export function assertAgenticBackendSupported(backendName: string): void {
+  if (backendName === AGENTIC_NATIVE_BACKEND) return;
+  const { resumeStrategy } = getBackend(backendName).capabilities;
+  if (resumeStrategy === 'native-session') {
+    throw new AgenticBackendError(
+      backendName,
+      `Backend "${backendName}" is not yet supported in agentic mode: it declares native-session resume ` +
+        `but PaF has no agentic adapter for it, and PaF will not substitute ${AGENTIC_NATIVE_BACKEND}. ` +
+        `Use ${AGENTIC_NATIVE_BACKEND} for agentic runs, or relay to ${backendName} directly with ` +
+        `"phone-a-friend --to ${backendName}".`,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,10 +93,12 @@ export class SessionManager {
     initialPrompt: string,
     repoPath: string,
   ): Promise<SpawnResult> {
+    // Guard first: no UUID reuse concerns, but no subprocess and no session
+    // record may exist for a rejected backend.
+    assertAgenticBackendSupported(agent.backend);
     const sessionId = randomUUID();
-    const { resumeStrategy } = getBackend(agent.backend).capabilities;
 
-    if (resumeStrategy === 'native-session') {
+    if (agent.backend === AGENTIC_NATIVE_BACKEND) {
       const output = await this.spawnClaude(
         sessionId, systemPrompt, initialPrompt, repoPath, agent.model,
       );
@@ -82,10 +131,12 @@ export class SessionManager {
     const session = this.sessions.get(agentName);
     if (!session) throw new Error(`No session for agent: ${agentName}`);
 
-    // Don't mutate history until backend succeeds — avoids phantom messages on failure
-    const { resumeStrategy } = getBackend(session.backend).capabilities;
+    // Don't mutate history until backend succeeds — avoids phantom messages on failure.
+    // Re-check identity here too: a session record must never be resumed through
+    // the Claude path just because its backend declares native-session.
+    assertAgenticBackendSupported(session.backend);
 
-    if (resumeStrategy === 'native-session') {
+    if (session.backend === AGENTIC_NATIVE_BACKEND) {
       const output = await this.resumeClaude(session.sessionId, message, repoPath);
       session.history.push(message, output);
       return output;

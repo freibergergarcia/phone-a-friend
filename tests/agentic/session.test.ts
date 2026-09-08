@@ -16,30 +16,30 @@ vi.mock('node:crypto', () => ({
   randomUUID: () => 'test-uuid-1234',
 }));
 
-import { SessionManager } from '../../src/agentic/session.js';
+import { SessionManager, AgenticBackendError, assertAgenticBackendSupported } from '../../src/agentic/session.js';
 import { registerBackend, _resetRegistry, type Backend, type SandboxMode } from '../../src/backends/index.js';
 import type { AgentConfig } from '../../src/agentic/types.js';
 
 // Register mock backends so getBackend() works inside SessionManager
 const ALL_SANDBOXES = new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']);
 
+// Declared capabilities mirror the real adapters in src/backends/*.ts. Codex,
+// Gemini and OpenCode all declare native-session, which is exactly the case
+// the dispatch guard must reject instead of routing to Claude.
 function registerMockBackends(): void {
   const noop = async () => '';
-  registerBackend({
-    name: 'claude', localFileAccess: true, allowedSandboxes: ALL_SANDBOXES,
-    capabilities: { resumeStrategy: 'native-session', requiresClientSessionId: true },
-    run: noop,
-  });
-  registerBackend({
-    name: 'gemini', localFileAccess: true, allowedSandboxes: ALL_SANDBOXES,
-    capabilities: { resumeStrategy: 'transcript-replay', requiresClientSessionId: false },
-    run: noop,
-  });
-  registerBackend({
-    name: 'ollama', localFileAccess: false, allowedSandboxes: ALL_SANDBOXES,
-    capabilities: { resumeStrategy: 'transcript-replay', requiresClientSessionId: false },
-    run: noop,
-  });
+  const reg = (name: string, resumeStrategy: 'native-session' | 'transcript-replay' | 'unsupported', requiresClientSessionId: boolean, localFileAccess = true) =>
+    registerBackend({
+      name, localFileAccess, allowedSandboxes: ALL_SANDBOXES,
+      capabilities: { resumeStrategy, requiresClientSessionId },
+      run: noop,
+    });
+  reg('claude', 'native-session', true);
+  reg('codex', 'native-session', false);
+  reg('gemini', 'native-session', true);
+  reg('opencode', 'native-session', false);
+  reg('ollama', 'transcript-replay', false, false);
+  reg('antigravity', 'unsupported', false);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,15 +261,50 @@ describe('SessionManager', () => {
       });
     });
 
-    describe('non-claude backend', () => {
-      it('rejects with unsupported backend message', async () => {
-        await expect(sm.spawn(makeAgent({ backend: 'gemini' }), 'system', 'hello', '/repo'))
-          .rejects.toThrow('Backend "gemini" is not yet supported in agentic mode');
+    describe('non-claude backends (dispatch guard)', () => {
+      // Regression: these declare native-session like Claude. Before the guard,
+      // spawn() picked the Claude path from the strategy alone and launched
+      // `claude` for a Codex/Gemini/OpenCode request.
+      describe.each(['codex', 'gemini', 'opencode'])('%s (native-session)', (backend) => {
+        it('rejects explicitly, naming the backend, and never spawns a claude subprocess', async () => {
+          spawnMock.mockReturnValue(makeChild('should never run'));
+          const promise = sm.spawn(makeAgent({ name: 'x', backend }), 'system', 'hello', '/repo');
+          await expect(promise).rejects.toBeInstanceOf(AgenticBackendError);
+          await expect(promise).rejects.toMatchObject({ backend });
+          await expect(promise).rejects.toThrow(`Backend "${backend}" is not yet supported in agentic mode`);
+          await expect(promise).rejects.toThrow('will not substitute claude');
+          await expect(promise).rejects.toThrow(`--to ${backend}`);
+          expect(spawnMock).not.toHaveBeenCalled();
+        });
+
+        it('leaves no session record behind', async () => {
+          await expect(sm.spawn(makeAgent({ name: 'x', backend }), 'sys', 'hi', '/repo')).rejects.toThrow();
+          expect(sm.hasSession('x')).toBe(false);
+          expect(sm.getSession('x')).toBeUndefined();
+        });
       });
 
-      it('does not store session info on rejection', async () => {
-        await expect(sm.spawn(makeAgent({ name: 'x', backend: 'ollama' }), 'sys', 'hi', '/repo'))
-          .rejects.toThrow();
+      it('keeps the existing rejection for transcript-replay backends (ollama)', async () => {
+        spawnMock.mockReturnValue(makeChild('should never run'));
+        await expect(sm.spawn(makeAgent({ name: 'x', backend: 'ollama' }), 'system', 'hello', '/repo'))
+          .rejects.toThrow('Backend "ollama" is not yet supported in agentic mode. Use claude.');
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(sm.hasSession('x')).toBe(false);
+      });
+
+      it('keeps the existing rejection for unsupported-strategy backends (antigravity)', async () => {
+        spawnMock.mockReturnValue(makeChild('should never run'));
+        await expect(sm.spawn(makeAgent({ name: 'x', backend: 'antigravity' }), 'system', 'hello', '/repo'))
+          .rejects.toThrow('Backend "antigravity" is not yet supported in agentic mode. Use claude.');
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(sm.hasSession('x')).toBe(false);
+      });
+
+      it('rejects an unregistered backend before touching any process', async () => {
+        spawnMock.mockReturnValue(makeChild('should never run'));
+        await expect(sm.spawn(makeAgent({ name: 'x', backend: 'nope' }), 'system', 'hello', '/repo'))
+          .rejects.toThrow('Unsupported relay backend: nope');
+        expect(spawnMock).not.toHaveBeenCalled();
         expect(sm.hasSession('x')).toBe(false);
       });
     });
@@ -347,6 +382,60 @@ describe('SessionManager', () => {
         const info = sm.getSession('reviewer');
         expect(info?.history).toEqual(['hello', 'initial output']);
       });
+    });
+
+    describe('dispatch guard on resume', () => {
+      // No non-Claude backend can produce a session record today (spawn rejects
+      // first), so the guard is exercised through the existing public seam:
+      // getSession() returns the live record, and a record's backend identity
+      // is what resume() must key on.
+      beforeEach(async () => {
+        spawnMock.mockReturnValue(makeChild('initial output'));
+        await sm.spawn(makeAgent({ name: 'reviewer' }), 'system', 'hello', '/repo');
+        spawnMock.mockReset();
+      });
+
+      it.each(['codex', 'gemini', 'opencode'])(
+        'refuses to resume a %s session through the Claude path and leaves history untouched',
+        async (backend) => {
+          const info = sm.getSession('reviewer')!;
+          info.backend = backend;
+          spawnMock.mockReturnValue(makeChild('should never run'));
+
+          const promise = sm.resume('reviewer', 'next', '/repo');
+          await expect(promise).rejects.toBeInstanceOf(AgenticBackendError);
+          await expect(promise).rejects.toMatchObject({ backend });
+          expect(spawnMock).not.toHaveBeenCalled();
+          expect(info.history).toEqual(['hello', 'initial output']);
+        },
+      );
+
+      it('still resumes a claude session natively', async () => {
+        spawnMock.mockReturnValue(makeChild('resumed'));
+        await expect(sm.resume('reviewer', 'next', '/repo')).resolves.toBe('resumed');
+        expect(spawnMock).toHaveBeenCalledWith('claude', expect.arrayContaining(['-r', 'test-uuid-1234']), expect.any(Object));
+      });
+    });
+  });
+
+  // ---- assertAgenticBackendSupported --------------------------------------
+
+  describe('assertAgenticBackendSupported()', () => {
+    it('passes claude through', () => {
+      expect(() => assertAgenticBackendSupported('claude')).not.toThrow();
+    });
+
+    it.each(['codex', 'gemini', 'opencode'])('rejects %s (native-session, no adapter)', (backend) => {
+      expect(() => assertAgenticBackendSupported(backend)).toThrow(AgenticBackendError);
+    });
+
+    it('lets non-native strategies fall through to the replay route', () => {
+      expect(() => assertAgenticBackendSupported('ollama')).not.toThrow();
+      expect(() => assertAgenticBackendSupported('antigravity')).not.toThrow();
+    });
+
+    it('surfaces the registry error for unknown backends', () => {
+      expect(() => assertAgenticBackendSupported('nope')).toThrow('Unsupported relay backend: nope');
     });
   });
 

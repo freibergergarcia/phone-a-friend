@@ -187,6 +187,11 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
 
 Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Antigravity, Gemini, and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
 
+Codex also receives the schema on follow-ups through `--session` or
+`--backend-session`. PaF checks `codex exec resume --help` using the invocation's
+PATH before a schema-bearing resume. Unsupported or failed checks stop before
+model execution with an actionable error; plain resumes do not need this probe.
+
 ### Sessions
 
 Resume previous relay conversations for multi-turn workflows:
@@ -231,16 +236,22 @@ Set your preferred mode once:
 phone-a-friend config set backends.claude.peer_messaging accept
 ```
 
+On Claude Code 2.1.236+, the main session can request a one-shot idle notice
+with `SendMessage`'s `notify_when_idle`. An idle notice is not a completed-review
+verdict; inspect the result. See [peer notifications](https://code.claude.com/docs/en/cross-session-messaging#get-a-notice-when-another-session-goes-idle).
+
 ### Job tracking
 
 The `--quiet` flag saves the result to a local job store for later retrieval:
 
 ```bash
-phone-a-friend --to codex --prompt "Review this" --quiet   # Returns job ID immediately
+phone-a-friend --to codex --prompt "Review this" --quiet   # Waits for completion and stores the result
 phone-a-friend job status                                    # List all jobs
 phone-a-friend job result <id>                               # Show stored output
-phone-a-friend job cancel <id>                               # Cancel a pending/running job
+phone-a-friend job cancel <id>                               # Mark a pending/running job cancelled
 ```
+
+`--quiet` does not detach the process. `job cancel` updates stored status; it does not terminate the backend subprocess.
 
 ### Review
 
@@ -288,6 +299,11 @@ phone-a-friend agentic logs               # View past sessions
 phone-a-friend agentic replay --session <id>  # Replay transcript
 ```
 
+Agentic mode currently supports Claude only. Other native-session backends
+(Codex, Gemini, OpenCode) are rejected rather than routed to Claude; their normal
+relay mode remains available. Agentic errors produce a nonzero CLI exit code.
+When no agent starts successfully, the saved session is marked failed.
+
 ### Ops
 
 ```bash
@@ -302,6 +318,13 @@ phone-a-friend config edit     # Open in $EDITOR
 ```
 
 `doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. Antigravity and OpenCode CLI are treated as optional: if you don't have `agy` or OpenCode installed, doctor will show them but will not flag that as a degraded state.
+
+`doctor --json` also reports each CLI's selected executable, version, and other
+PATH candidates. It distinguishes the running PaF build from the PATH install,
+configured models from unknown backend-reported models, and adapter-declared
+capabilities from runtime verification. Version probes are bounded and never
+request model inference. If a relay behaves differently from your host app,
+compare these paths and versions before changing authentication or upgrading.
 
 ### Update notifications
 

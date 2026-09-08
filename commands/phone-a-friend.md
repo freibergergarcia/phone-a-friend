@@ -296,6 +296,11 @@ them to the one-time setting:
 phone-a-friend config set backends.claude.peer_messaging accept
 ```
 
+When waiting on another local Claude session, the main conversation can use
+`SendMessage` with `notify_when_idle` if both sessions support it (2.1.236+).
+This is a one-shot notice, not proof of task completion; check the final result.
+See [Claude peer notifications](https://code.claude.com/docs/en/cross-session-messaging#get-a-notice-when-another-session-goes-idle).
+
 ## Session continuity
 
 If this relay is a follow-up to a previous `/phone-a-friend` relay in the
@@ -316,6 +321,11 @@ wants the same backend to apply fixes or dig deeper), reuse the session:
 
 Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
+
+For structured Codex follow-ups, keep passing the requested `--schema` with
+`--session` or `--backend-session`. PaF probes resume support and fails clearly
+when the selected CLI cannot accept it; never silently remove the schema.
+Use `doctor --json` to diagnose PATH/version mismatches before retrying.
 
 **Backend-specific behavior:**
 - **Antigravity**: no session support yet. Do not add `--session` or

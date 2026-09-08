@@ -71882,7 +71882,7 @@ var init_ConfigPanel = __esm({
 // src/tui/ActionsPanel.tsx
 import { spawn as spawn5 } from "child_process";
 import { mkdirSync as mkdirSync7, existsSync as existsSync12 } from "fs";
-import { dirname as dirname8 } from "path";
+import { dirname as dirname9 } from "path";
 function formatBackendSummary(report) {
   const lines = [];
   const mark2 = (b) => b.available ? "\u2713" : "\u2717";
@@ -71959,7 +71959,7 @@ function buildActionGroups(report, onRefresh, processRef) {
           run: async () => {
             const paths = configPaths();
             if (!existsSync12(paths.user)) {
-              mkdirSync7(dirname8(paths.user), { recursive: true });
+              mkdirSync7(dirname9(paths.user), { recursive: true });
               configInit(paths.user, true);
             }
             const editorEnv = process.env.EDITOR ?? "vi";
@@ -72549,7 +72549,7 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join8 } from "path";
+import { join as join9 } from "path";
 import { mkdirSync as mkdirSync8 } from "fs";
 import { homedir as homedir7 } from "os";
 function getDatabase() {
@@ -72559,10 +72559,10 @@ function getDatabase() {
   return _Database;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join8(homedir7(), ".config");
-  const dir = join8(configBase, "phone-a-friend");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join9(homedir7(), ".config");
+  const dir = join9(configBase, "phone-a-friend");
   mkdirSync8(dir, { recursive: true });
-  return join8(dir, "agentic.db");
+  return join9(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -73031,21 +73031,40 @@ var init_queue = __esm({
 // src/agentic/session.ts
 import { spawn as spawn6 } from "child_process";
 import { randomUUID as randomUUID4 } from "crypto";
-var NESTED_SESSION_VARS2, SessionManager;
+function assertAgenticBackendSupported(backendName) {
+  if (backendName === AGENTIC_NATIVE_BACKEND) return;
+  const { resumeStrategy } = getBackend(backendName).capabilities;
+  if (resumeStrategy === "native-session") {
+    throw new AgenticBackendError(
+      backendName,
+      `Backend "${backendName}" is not yet supported in agentic mode: it declares native-session resume but PaF has no agentic adapter for it, and PaF will not substitute ${AGENTIC_NATIVE_BACKEND}. Use ${AGENTIC_NATIVE_BACKEND} for agentic runs, or relay to ${backendName} directly with "phone-a-friend --to ${backendName}".`
+    );
+  }
+}
+var NESTED_SESSION_VARS2, AGENTIC_NATIVE_BACKEND, AgenticBackendError, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
     "use strict";
     init_backends();
     NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
+    AGENTIC_NATIVE_BACKEND = "claude";
+    AgenticBackendError = class extends Error {
+      backend;
+      constructor(backend, message) {
+        super(message);
+        this.name = "AgenticBackendError";
+        this.backend = backend;
+      }
+    };
     SessionManager = class {
       sessions = /* @__PURE__ */ new Map();
       /**
        * Spawn a new agent session. Returns the agent's first response.
        */
       async spawn(agent, systemPrompt, initialPrompt, repoPath) {
+        assertAgenticBackendSupported(agent.backend);
         const sessionId = randomUUID4();
-        const { resumeStrategy } = getBackend(agent.backend).capabilities;
-        if (resumeStrategy === "native-session") {
+        if (agent.backend === AGENTIC_NATIVE_BACKEND) {
           const output2 = await this.spawnClaude(
             sessionId,
             systemPrompt,
@@ -73082,8 +73101,8 @@ var init_session = __esm({
       async resume(agentName, message, repoPath) {
         const session = this.sessions.get(agentName);
         if (!session) throw new Error(`No session for agent: ${agentName}`);
-        const { resumeStrategy } = getBackend(session.backend).capabilities;
-        if (resumeStrategy === "native-session") {
+        assertAgenticBackendSupported(session.backend);
+        if (session.backend === AGENTIC_NATIVE_BACKEND) {
           const output2 = await this.resumeClaude(session.sessionId, message, repoPath);
           session.history.push(message, output2);
           return output2;
@@ -73673,6 +73692,10 @@ var init_orchestrator = __esm({
             this.emitAgentStatus(agent.name, "dead");
           }
         }
+        if (spawnResults.length === 0) {
+          this.endSession("error");
+          return;
+        }
         for (const { agent, output } of spawnResults) {
           const parsed = parseAgentResponse(output, knownTargets);
           for (const msg of parsed.messages) {
@@ -74101,6 +74124,7 @@ init_backends();
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { execFile } from "child_process";
 var CodexBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -74131,10 +74155,14 @@ var CodexBackend = class {
   nativeReviewScopes = /* @__PURE__ */ new Set(["branch", "working-tree"]);
   async run(opts) {
     assertNotCodexHost(opts.env);
-    if (!isInPath("codex")) {
+    const env5 = { ...opts.env };
+    if (!isInPath("codex", env5)) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`
       );
+    }
+    if (opts.schema && opts.resumeSession && opts.sessionId) {
+      await assertResumeSchemaSupport(env5, opts.timeoutSeconds * 1e3);
     }
     const tmpDir = mkdtempSync(join(tmpdir(), "phone-a-friend-"));
     const outputPath = join(tmpDir, "codex-last-message.txt");
@@ -74158,7 +74186,7 @@ var CodexBackend = class {
       try {
         const result = await spawnCli("codex", args, {
           timeoutMs: opts.timeoutSeconds * 1e3,
-          env: opts.env,
+          env: env5,
           label: "codex exec"
         });
         stdout = result.stdout;
@@ -74266,7 +74294,7 @@ function buildCodexExecArgs(opts) {
   if (!isResume && !opts.persistSession) {
     args.push("--ephemeral");
   }
-  if (opts.schemaPath && !isResume) {
+  if (opts.schemaPath) {
     args.push("--output-schema", opts.schemaPath, "--json");
   } else if (opts.persistSession || isResume) {
     args.push("--json");
@@ -74276,6 +74304,29 @@ function buildCodexExecArgs(opts) {
   }
   args.push(opts.prompt);
   return args;
+}
+function assertResumeSchemaSupport(env5, timeoutMs) {
+  return new Promise((resolve4, reject) => {
+    execFile("codex", ["exec", "resume", "--help"], {
+      env: env5,
+      encoding: "utf8",
+      timeout: Math.max(1, Math.min(timeoutMs, 3e3)),
+      killSignal: "SIGKILL",
+      maxBuffer: 128 * 1024
+    }, (err, stdout) => {
+      if (err) {
+        reject(new CodexBackendError(
+          "Could not verify Codex resume schema support: `codex exec resume --help` failed. Check the codex executable in this invocation's PATH; the schema request was not run."
+        ));
+      } else if (!/^\s*--output-schema(?:\s|=|$)/m.test(stdout)) {
+        reject(new CodexBackendError(
+          "The codex executable in this invocation's PATH does not advertise --output-schema for exec resume. Upgrade or select a supporting Codex CLI to resume with a schema; the schema request was not run."
+        ));
+      } else {
+        resolve4();
+      }
+    });
+  });
 }
 function writeSchemaFile(schemaPath, schema) {
   try {
@@ -83239,6 +83290,262 @@ function detectMachineFlag(argv) {
   return false;
 }
 
+// src/diagnostics.ts
+init_backends();
+init_version();
+import { execFile as execFile2 } from "child_process";
+import { accessSync, constants as fsConstants, realpathSync as realpathSync2, statSync as statSync2, readFileSync as readFileSync11 } from "fs";
+import { delimiter as pathDelimiter, dirname as dirname8, join as join8, resolve as resolvePath } from "path";
+var DEFAULT_TIMEOUT_MS = 5e3;
+var DEFAULT_MAX_PROBES = 6;
+var VERSION_RE2 = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
+var SHELL_NOTE = "Interactive shell aliases and functions do not affect PaF subprocesses; only PATH order does.";
+function defaultDeps(overrides) {
+  return {
+    env: process.env,
+    execFileFn: execFile2,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxProbes: DEFAULT_MAX_PROBES,
+    argv1: process.argv[1],
+    ...overrides
+  };
+}
+function isExecutableFile(path4) {
+  try {
+    if (!statSync2(path4).isFile()) return false;
+    accessSync(path4, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function safeRealpath(path4) {
+  try {
+    return realpathSync2(path4);
+  } catch {
+    return path4;
+  }
+}
+function resolveExecutableCandidates(command, env5 = process.env) {
+  const pathValue = env5.PATH ?? "/usr/bin:/bin";
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const dir of pathValue.split(pathDelimiter)) {
+    const candidate = resolvePath(dir || ".", command);
+    if (!isExecutableFile(candidate)) continue;
+    const resolved = safeRealpath(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push({ path: candidate, resolvedPath: resolved });
+  }
+  return out;
+}
+function parseVersionOutput(stdout, stderr) {
+  for (const text of [stdout, stderr]) {
+    const match = VERSION_RE2.exec(text);
+    if (match) return match[1];
+  }
+  return null;
+}
+function probeVersion(path4, deps = {}) {
+  const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
+  return new Promise((resolve4) => {
+    execFileFn(
+      path4,
+      ["--version"],
+      {
+        timeout: timeoutMs,
+        killSignal: "SIGKILL",
+        maxBuffer: 64 * 1024,
+        windowsHide: true,
+        env: env5,
+        encoding: "utf8"
+      },
+      (err, stdout, stderr) => {
+        const out = typeof stdout === "string" ? stdout : String(stdout ?? "");
+        const errOut = typeof stderr === "string" ? stderr : String(stderr ?? "");
+        if (err) {
+          const e = err;
+          if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+            resolve4({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
+            return;
+          }
+          if (e.killed || e.signal === "SIGKILL") {
+            resolve4({
+              version: null,
+              versionStatus: "timeout",
+              versionError: `--version did not finish within ${timeoutMs / 1e3}s`
+            });
+            return;
+          }
+          if (e.code === "EACCES" || e.code === "EPERM") {
+            resolve4({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
+            return;
+          }
+          if (typeof e.code === "string") {
+            resolve4({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
+            return;
+          }
+          const parsed2 = parseVersionOutput(out, errOut);
+          if (parsed2) {
+            resolve4({ version: parsed2, versionStatus: "ok" });
+            return;
+          }
+          const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
+          resolve4({ version: null, versionStatus: "failed", versionError: detail });
+          return;
+        }
+        const parsed = parseVersionOutput(out, errOut);
+        if (parsed) {
+          resolve4({ version: parsed, versionStatus: "ok" });
+          return;
+        }
+        resolve4({
+          version: null,
+          versionStatus: "unparsed",
+          versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
+        });
+      }
+    );
+  });
+}
+function buildExecutableGuidance(info2) {
+  const guidance = [];
+  const { command, selected, candidates } = info2;
+  if (!selected) {
+    return guidance;
+  }
+  const describe = (c) => {
+    const version = c.version ?? `version ${c.versionStatus}`;
+    return `${c.path} (${version})`;
+  };
+  if (candidates.length > 1) {
+    const others = candidates.filter((c) => c !== selected).map(describe).join(", ");
+    guidance.push(
+      `The first PATH match for "${command}" is ${describe(selected)}. Also on PATH: ${others}.`
+    );
+    if (info2.versionMismatch) {
+      guidance.push(
+        `These installs report different versions. If a relay fails on a model or flag that a newer ${command} supports, put that install's directory earlier in PATH for the PaF process, or remove the duplicates. A newer version does not by itself guarantee support for a given model.`
+      );
+    } else if (candidates.every((c) => c.versionStatus === "ok")) {
+      guidance.push("All probed candidates report the same version; no action needed unless one is stale.");
+    }
+    guidance.push(SHELL_NOTE);
+  }
+  for (const c of candidates) {
+    if (c.versionStatus === "ok" || c.versionStatus === "not-probed") continue;
+    guidance.push(
+      `Could not determine the version of ${c.path}: ${c.versionError ?? c.versionStatus}. Run "${c.path} --version" manually to inspect it.`
+    );
+  }
+  const skipped = candidates.filter((c) => c.versionStatus === "not-probed").length;
+  if (skipped > 0) {
+    guidance.push(`${skipped} additional PATH candidate(s) were not probed (probe cap reached).`);
+  }
+  return guidance;
+}
+async function inspectExecutable(command, deps = {}) {
+  const d = defaultDeps(deps);
+  const found = resolveExecutableCandidates(command, d.env);
+  const candidates = await Promise.all(
+    found.map(async (c, index) => {
+      if (index >= d.maxProbes) {
+        return { ...c, version: null, versionStatus: "not-probed" };
+      }
+      const probe = await probeVersion(c.path, d);
+      return { ...c, ...probe };
+    })
+  );
+  const selected = candidates[0] ?? null;
+  const versions = new Set(candidates.filter((c) => c.version).map((c) => c.version));
+  const partial = {
+    command,
+    selected,
+    candidates,
+    shadowed: candidates.length > 1,
+    versionMismatch: versions.size > 1
+  };
+  return { ...partial, guidance: buildExecutableGuidance(partial) };
+}
+function commandFor(backend) {
+  return BACKEND_COMMANDS[backend.name] ?? backend.name;
+}
+async function inspectExecutables(report, deps = {}) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  const commands = [...new Set(entries.map(commandFor))];
+  const results = await Promise.all(commands.map((cmd) => inspectExecutable(cmd, deps)));
+  const byCommand = new Map(commands.map((cmd, i) => [cmd, results[i]]));
+  for (const b of entries) {
+    const info2 = byCommand.get(commandFor(b));
+    if (info2) b.executable = info2;
+  }
+}
+function attachModelAndCapabilities(report, config) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  for (const b of entries) {
+    const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
+    b.model = {
+      requested: configured,
+      requestedSource: configured ? "paf-config" : "backend-default",
+      reported: null,
+      reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
+    };
+    try {
+      const backend = getBackend(b.name);
+      b.capabilities = {
+        declared: {
+          resumeStrategy: backend.capabilities.resumeStrategy,
+          requiresClientSessionId: backend.capabilities.requiresClientSessionId,
+          localFileAccess: backend.localFileAccess
+        },
+        verification: "declared-only",
+        verificationNote: "Declared by the PaF adapter in source; not verified against the installed CLI."
+      };
+    } catch {
+    }
+  }
+}
+function inspectPafPackage(entry) {
+  for (const root of [dirname8(entry), dirname8(dirname8(entry))]) {
+    try {
+      const pkg = JSON.parse(readFileSync11(join8(root, "package.json"), "utf8"));
+      if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
+      const isBundle = entry === join8(root, "dist", "index.js");
+      const isCheckoutWrapper = entry === join8(root, "phone-a-friend") && readFileSync11(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
+      if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
+    } catch {
+    }
+  }
+  return null;
+}
+function inspectPafIdentity(deps = {}) {
+  const d = defaultDeps(deps);
+  const packageRoot = getPackageRoot();
+  const version = getVersion();
+  const entry = d.argv1 ? safeRealpath(d.argv1) : null;
+  const pathCandidates = resolveExecutableCandidates("phone-a-friend", d.env).map((c) => {
+    const pkg = inspectPafPackage(c.resolvedPath);
+    return pkg ? { ...c, version: pkg.version, versionStatus: "ok" } : { ...c, version: null, versionStatus: "unparsed", versionError: "unrecognized PaF installation layout" };
+  });
+  const selected = pathCandidates[0];
+  const runningRoot = safeRealpath(packageRoot);
+  const selectedPackage = selected ? inspectPafPackage(selected.resolvedPath) : null;
+  const selectedRoot = selectedPackage ? safeRealpath(selectedPackage.root) : null;
+  const runningDiffersFromPath = selectedRoot !== null && selectedRoot !== runningRoot;
+  const guidance = [];
+  if (runningDiffersFromPath && selected) {
+    guidance.push(
+      `This doctor run is PaF ${version} at ${packageRoot}, but "phone-a-friend" on PATH resolves to ${selected.path} (${selected.version ?? "unknown version"}). Host skills and slash commands that call "phone-a-friend" use the PATH install, so their behavior may differ from this checkout.`
+    );
+  }
+  if (pathCandidates.length > 1) {
+    const list = pathCandidates.map((c) => `${c.path} (${c.version ?? "unknown version"})`).join(", ");
+    guidance.push(`Multiple phone-a-friend installs are on PATH: ${list}. The first one wins for subprocess calls.`);
+  }
+  return { version, packageRoot, entry, pathCandidates, runningDiffersFromPath, guidance };
+}
+
 // src/doctor.ts
 function countableBackends(report) {
   return [...report.cli, ...report.local].filter((b) => {
@@ -83247,13 +83554,17 @@ function countableBackends(report) {
     return true;
   });
 }
-function formatHumanReadable(report, config, paths, hostInstallations, advisories = [], updateCheck = null) {
+function formatHumanReadable(report, config, paths, hostInstallations, advisories = [], updateCheck = null, paf = null) {
   const lines = [];
   lines.push("");
   lines.push(banner("Health Check"));
   lines.push("");
   lines.push(`  ${theme.label("System:")}`);
   lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
+  if (paf) {
+    lines.push(`    ${theme.checkmark} phone-a-friend ${paf.version} ${theme.hint(`(running from ${paf.packageRoot})`)}`);
+    for (const line of formatPafPathLines(paf)) lines.push(line);
+  }
   lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push("");
   if (updateCheck) {
@@ -83276,20 +83587,30 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
     lines.push("    CLI:");
     for (const b of report.cli) {
       lines.push(`  ${formatBackendLine(b)}`);
+      lines.push(...formatDiagnosticLines(b));
     }
   }
   if (report.local.length > 0) {
     lines.push("    Local:");
     for (const b of report.local) {
       lines.push(`  ${formatBackendLine(b)}`);
+      lines.push(...formatDiagnosticLines(b));
       const modelsLine = formatBackendModels(b);
       if (modelsLine) lines.push(modelsLine);
     }
   }
   lines.push("");
+  const detailed = new Set(
+    [...report.cli, ...report.local].map((b) => b.executable?.command).filter(Boolean)
+  );
   lines.push(`  ${theme.label("Host Integrations:")}`);
   for (const b of report.host) {
     lines.push(`  ${formatBackendLine(b)}`);
+    if (b.executable && detailed.has(b.executable.command)) {
+      lines.push(`${DIAG_INDENT}${theme.hint(`exec: same as relay backend "${b.name}" above`)}`);
+    } else {
+      lines.push(...formatDiagnosticLines(b));
+    }
   }
   lines.push("");
   lines.push(`  ${theme.label("Host Install Status:")}`);
@@ -83315,6 +83636,63 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
   }
   return lines.join("\n");
 }
+var DIAG_INDENT = " ".repeat(21);
+function describeCandidate(c) {
+  return `${c.path} (${c.version ?? `version ${c.versionStatus}`})`;
+}
+function formatDiagnosticLines(b) {
+  const lines = [];
+  const exe = b.executable;
+  if (exe?.selected) {
+    const label = b.name === "ollama" ? "local client (relay uses HTTP):" : "exec:";
+    lines.push(`${DIAG_INDENT}${theme.hint(label)} ${describeCandidate(exe.selected)}`);
+    if (exe.shadowed) {
+      const others = exe.candidates.filter((c) => c !== exe.selected).map(describeCandidate).join(", ");
+      const flag = exe.versionMismatch ? ` ${theme.warning("[versions differ]")}` : "";
+      lines.push(`${DIAG_INDENT}${theme.hint("also on PATH:")} ${others}${flag}`);
+    }
+  }
+  if (b.model && (exe?.selected || b.name === "ollama")) {
+    const requested = b.model.requested ? `${b.model.requested} (from PaF config)` : "backend default";
+    lines.push(
+      `${DIAG_INDENT}${theme.hint("model:")} requested=${requested}, reported=unknown ${theme.hint("(doctor runs no backend)")}`
+    );
+  }
+  if (b.capabilities) {
+    const declared = b.capabilities.declared;
+    lines.push(`${DIAG_INDENT}${theme.hint("adapter capabilities (not CLI-verified):")} resume=${declared.resumeStrategy}, client session ID=${declared.requiresClientSessionId}, local files=${declared.localFileAccess}`);
+  }
+  return lines;
+}
+function formatPafPathLines(paf) {
+  const lines = [];
+  if (paf.pathCandidates.length === 0) {
+    lines.push(`${DIAG_INDENT}${theme.hint("on PATH:")} phone-a-friend not found`);
+    return lines;
+  }
+  const [first, ...rest] = paf.pathCandidates;
+  const flag = paf.runningDiffersFromPath ? ` ${theme.warning("[differs from this run]")}` : "";
+  lines.push(`${DIAG_INDENT}${theme.hint("on PATH:")} ${describeCandidate(first)}${flag}`);
+  if (rest.length > 0) {
+    lines.push(`${DIAG_INDENT}${theme.hint("also on PATH:")} ${rest.map(describeCandidate).join(", ")}`);
+  }
+  return lines;
+}
+function collectDiagnosticAdvisories(report, paf) {
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const b of [...report.cli, ...report.local, ...report.host]) {
+    const exe = b.executable;
+    if (!exe || seen.has(exe.command)) continue;
+    seen.add(exe.command);
+    const probeFailed = exe.candidates.some((c) => c.versionStatus !== "ok" && c.versionStatus !== "not-probed");
+    if (exe.versionMismatch || probeFailed) {
+      out.push(...exe.guidance);
+    }
+  }
+  if (paf) out.push(...paf.guidance);
+  return out;
+}
 function normalizeForJson(backends) {
   return backends.map((b) => {
     if (b.models && b.models.length === 0) {
@@ -83324,14 +83702,15 @@ function normalizeForJson(backends) {
     return b;
   });
 }
-function formatJson(report, config, exitCode, hostInstallations, advisories = [], updateCheck = null) {
+function formatJson(report, config, exitCode, hostInstallations, advisories = [], updateCheck = null, paf = null) {
   const counted = countableBackends(report);
   const available = counted.filter((b) => b.available).length;
   const total = counted.length;
   return JSON.stringify({
     system: {
       nodeVersion: process.version,
-      version: getVersion()
+      version: getVersion(),
+      paf: paf ?? void 0
     },
     backends: {
       cli: normalizeForJson(report.cli),
@@ -83411,7 +83790,13 @@ async function doctor(opts) {
   const paths = configPaths(opts?.repoRoot);
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
-  const advisories = await collectAdvisories(report);
+  await inspectExecutables(report);
+  attachModelAndCapabilities(report, config);
+  const paf = inspectPafIdentity();
+  const advisories = [
+    ...await collectAdvisories(report),
+    ...collectDiagnosticAdvisories(report, paf)
+  ];
   const hostInstallations = {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
@@ -83421,12 +83806,12 @@ async function doctor(opts) {
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, hostInstallations, advisories, updateCheck)
+      output: formatJson(report, config, exitCode, hostInstallations, advisories, updateCheck, paf)
     };
   }
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, hostInstallations, advisories, updateCheck)
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories, updateCheck, paf)
   };
 }
 
@@ -83959,7 +84344,7 @@ RAW_END>>>
           repoPath: opts.repo,
           sandbox: opts.sandbox
         });
-        await formatAgenticEvents(events);
+        if (await formatAgenticEvents(events)) exitCode = 1;
       } finally {
         await orchestrator.close();
       }
@@ -84276,6 +84661,7 @@ function parseAgentList(input) {
   }).filter((a) => a !== null);
 }
 async function formatAgenticEvents(events) {
+  let failed = false;
   for await (const event of events) {
     const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
     switch (event.type) {
@@ -84310,6 +84696,7 @@ async function formatAgenticEvents(events) {
         console.log(`  ${theme.warning("\u26A0")} ${theme.warning(event.guard)}: ${event.detail}`);
         break;
       case "session_end": {
+        if (event.reason === "error") failed = true;
         const elapsed = (event.elapsed / 1e3).toFixed(1);
         console.log(`
   ${theme.heading("Session ended")}: ${event.reason}`);
@@ -84318,12 +84705,14 @@ async function formatAgenticEvents(events) {
         break;
       }
       case "error": {
+        failed = true;
         const prefix = event.agent ? `${event.agent}: ` : "";
         console.error(`  ${theme.crossmark} ${theme.error(`${prefix}${event.error}`)}`);
         break;
       }
     }
   }
+  return failed;
 }
 
 // src/index.ts

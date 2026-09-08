@@ -113,29 +113,26 @@ RELAY_BIN="$(command -v phone-a-friend)"
 # from PATH lookup and never "./phone-a-friend".
 ```
 
-## Codex sandbox awareness (critical when invoked from Codex)
+## Codex sandbox and installation diagnosis
 
-If `PHONE_A_FRIEND_HOST=codex`, you are running inside Codex's shell-tool sandbox. **By default, Codex uses `workspace-write` mode, which blocks subprocess access to the macOS Keychain and most outbound network**, including:
+When a relay fails with an authentication error or timeout, first run
+`"$RELAY_BIN" doctor --json` and check the selected backend executable/version.
+The host app, PATH-installed PaF, and a checkout build can use different installs.
+Doctor reports configured models; it does not establish account/model access.
 
-- Claude's OAuth tokens (stored in macOS Keychain under `claude-token-personal` / `claude-token-work`). A relay to Claude under workspace-write returns `Not logged in · Please run /login` even though the user is fully logged in. Reproducer: `codex exec --sandbox workspace-write "claude -p 'hi'"` fails; `codex exec --sandbox danger-full-access "claude -p 'hi'"` succeeds.
-- Gemini's OAuth refresh path. A relay to Gemini under workspace-write hangs (until the relay's `--timeout` fires) because Gemini cannot reach Google accounts to refresh the token.
-- Antigravity's Google auth path. A relay to Antigravity can also time out under workspace-write; PaF prints Codex-specific remediation when this happens.
+A Codex host's sandbox may restrict network or keychain access. Compare the same
+backend command, executable, and auth profile in a regular terminal before
+classifying the failure. A login error or timeout alone does not prove a sandbox
+problem or invalidate the user's credentials.
 
-This is NOT a real auth issue. Telling the user to run `claude /login` is wrong — it would make things worse.
+Keep PaF's read-only default. If sandbox restrictions are confirmed, use the
+host's authorized command escalation or a separately authorized terminal run.
+`--full-auto` is not equivalent to `--sandbox danger-full-access`; do not suggest
+it as a keychain/network bypass. Changing sandbox permissions and switching to
+API-key billing are separate user decisions, not automatic remediation.
 
-When you detect `Not logged in` from a Claude relay OR a Gemini/Antigravity timeout, and the host is Codex, tell the user **exactly this**:
-
-> Codex is sandboxing the relay. Run Codex with `codex --sandbox danger-full-access` (or `codex --full-auto`) so subprocess CLIs can reach the keychain and refresh OAuth tokens. Your Claude/Google CLI auth is fine; the sandbox is intercepting it.
-
-Alternatives the user can take:
-- Export an API key to skip OAuth entirely: `ANTHROPIC_API_KEY` for Claude, `GEMINI_API_KEY` for Gemini, `OPENAI_API_KEY` for Codex.
-- Approve the specific command escalation when Codex prompts (works for one-shots; tedious for multi-backend fan-outs).
-
-For Codex users running PaF regularly, the cleanest setup is to start Codex with `--sandbox danger-full-access` for these workflows.
-
-## When relays do actually fail
-
-If the relay still fails after the sandbox is opened up, the error is real. Surface the raw error to the user along with the remediation the relay itself printed. Do NOT retry on auth-class failures; the user has to act first.
+Report the failing executable, error category, and next diagnostic step. Redact
+credential-like values from errors and stop automatic retries on auth failures.
 
 ### Direct call reference
 
@@ -417,6 +414,11 @@ If a backend failed or timed out, surface the error in the table cell so the use
 - From Claude: no host marker required, but the parallel-then-table pattern is the same.
 - Never select `--to codex` from Codex or `--to opencode` from OpenCode (the recursion guard refuses).
 
+When waiting on another local Claude session, the main conversation can use
+`SendMessage` with `notify_when_idle` if both sessions support it (2.1.236+).
+This is a one-shot notice, not proof of task completion; check the final result.
+See [Claude peer notifications](https://code.claude.com/docs/en/cross-session-messaging#get-a-notice-when-another-session-goes-idle).
+
 ## Session continuity
 
 If this relay is a follow-up to a previous `/phone-a-friend` relay in the
@@ -437,6 +439,11 @@ wants the same backend to apply fixes or dig deeper), reuse the session:
 
 Benefits: the backend keeps full conversation history, so follow-up prompts
 can be shorter (no need to re-send context from previous turns).
+
+For structured Codex follow-ups, keep passing the requested `--schema` with
+`--session` or `--backend-session`. PaF probes resume support and fails clearly
+when the selected CLI cannot accept it; never silently remove the schema.
+Use `doctor --json` to diagnose PATH/version mismatches before retrying.
 
 **Backend-specific behavior:**
 - **Antigravity**: no session support yet. Do not add `--session` or
