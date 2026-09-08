@@ -329,8 +329,10 @@ minutes; do not block the conversation on it.
 3. Keep working on the user's next request. Do not poll. The host notifies
    you when the background command exits.
 4. On completion, read the command output: the relay result is on stdout and
-   `Task <id> completed` (or `failed`) is on stderr. If that output is no
-   longer in context, run `"$RELAY_BIN" task result <id>`.
+   `Task <id> completed` (or `failed`) is on stderr. Trust that line, not the
+   host's exit code: when the command finishes between turns the host may
+   report the exit code as unknown or -1 although the relay succeeded. If the
+   output is no longer in context, run `"$RELAY_BIN" task result <id>`.
 5. If stderr says the working tree changed during the review, say so and
    offer a re-review: the result covers the snapshot captured at start.
 
