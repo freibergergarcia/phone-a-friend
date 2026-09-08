@@ -205,6 +205,12 @@ export class Orchestrator {
       }
     }
 
+    // No agent answered: this is a failed run, not a converged conversation.
+    if (spawnResults.length === 0) {
+      this.endSession('error');
+      return;
+    }
+
     // Phase 1b: Process responses — parse and route after all agents received the prompt
     for (const { agent, output } of spawnResults) {
       const parsed = parseAgentResponse(output, knownTargets);

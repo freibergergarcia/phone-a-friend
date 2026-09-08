@@ -303,6 +303,15 @@ describe('Orchestrator', () => {
       expect(statuses.some((e) => e.agent === 'reviewer' && e.status === 'dead')).toBe(true);
     });
 
+    it('ends and persists a failed session when every initial agent fails', async () => {
+      mockSessions.spawn.mockRejectedValue(new Error('unsupported backend'));
+      const events = await collectEvents(await orch.run(makeConfig()));
+      expect(events).toContainEqual(expect.objectContaining({ type: 'session_end', reason: 'error' }));
+      expect(events).not.toContainEqual(expect.objectContaining({ type: 'session_end', reason: 'converged' }));
+      expect(mockBus.endSession).toHaveBeenCalledWith(expect.any(String), 'failed');
+      expect(mockSessions.resume).not.toHaveBeenCalled();
+    });
+
     it('continues with remaining agents after one spawn failure', async () => {
       mockSessions.spawn
         .mockRejectedValueOnce(new Error('fail'))

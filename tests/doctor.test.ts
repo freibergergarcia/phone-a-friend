@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DetectionReport } from '../src/detection.js';
+import type { ExecutableInfo, PafIdentity } from '../src/diagnostics.js';
 
 // Mock detection and config modules
 const { mockDetectAll, mockLoadConfig, mockConfigPaths } = vi.hoisted(() => ({
   mockDetectAll: vi.fn(),
   mockLoadConfig: vi.fn(),
   mockConfigPaths: vi.fn(),
+}));
+
+const { mockInspectExecutables, mockAttachModelAndCapabilities, mockInspectPafIdentity } = vi.hoisted(() => ({
+  mockInspectExecutables: vi.fn(),
+  mockAttachModelAndCapabilities: vi.fn(),
+  mockInspectPafIdentity: vi.fn(),
 }));
 
 const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled } = vi.hoisted(() => ({
@@ -25,6 +35,14 @@ vi.mock('../src/config.js', () => ({
   DEFAULT_CONFIG: {
     defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false },
   },
+}));
+
+// Executable diagnostics spawn real `--version` probes; keep doctor tests
+// hermetic by mocking the module and injecting fixtures per test.
+vi.mock('../src/diagnostics.js', () => ({
+  inspectExecutables: mockInspectExecutables,
+  attachModelAndCapabilities: mockAttachModelAndCapabilities,
+  inspectPafIdentity: mockInspectPafIdentity,
 }));
 
 vi.mock('../src/installer.js', () => ({
@@ -55,6 +73,36 @@ function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
   };
 }
 
+type Candidate = ExecutableInfo['candidates'][number];
+
+function candidate(path: string, version: string | null, versionStatus: Candidate['versionStatus'] = 'ok', versionError?: string): Candidate {
+  return { path, resolvedPath: path, version, versionStatus, ...(versionError ? { versionError } : {}) };
+}
+
+function executableInfo(command: string, candidates: Candidate[], guidance: string[] = []): ExecutableInfo {
+  const versions = new Set(candidates.map(c => c.version).filter(Boolean));
+  return {
+    command,
+    selected: candidates[0] ?? null,
+    candidates,
+    shadowed: candidates.length > 1,
+    versionMismatch: versions.size > 1,
+    guidance,
+  };
+}
+
+function pafIdentity(overrides?: Partial<PafIdentity>): PafIdentity {
+  return {
+    version: '4.4.0',
+    packageRoot: '/checkout/phone-a-friend',
+    entry: '/checkout/phone-a-friend/dist/index.js',
+    pathCandidates: [],
+    runningDiffersFromPath: false,
+    guidance: [],
+    ...overrides,
+  };
+}
+
 describe('doctor', () => {
   let doctor: typeof import('../src/doctor.js');
 
@@ -70,6 +118,9 @@ describe('doctor', () => {
     mockIsPluginInstalled.mockReturnValue(true);
     mockIsOpenCodeInstalled.mockReturnValue(false);
     mockIsCodexInstalled.mockReturnValue(false);
+    mockInspectExecutables.mockResolvedValue(undefined);
+    mockAttachModelAndCapabilities.mockReturnValue(undefined);
+    mockInspectPafIdentity.mockReturnValue(pafIdentity());
     doctor = await import('../src/doctor.js');
   });
 
@@ -289,6 +340,212 @@ describe('doctor', () => {
 
       expect(parsed.summary.available).toBe(2);
       expect(parsed.summary.total).toBe(3);
+    });
+  });
+
+  describe('executable diagnostics', () => {
+    const NVM_CODEX = '/home/test/.nvm/versions/node/v24/bin/codex';
+    const BREW_CODEX = '/usr/local/bin/codex';
+
+    function reportWithCodexMismatch(): DetectionReport {
+      const report = makeReport();
+      const info = executableInfo('codex', [
+        candidate(NVM_CODEX, '0.153.4'),
+        candidate(BREW_CODEX, '0.146.0'),
+      ], [
+        `PaF subprocesses run the first PATH match for "codex": ${NVM_CODEX} (0.153.4). Also on PATH: ${BREW_CODEX} (0.146.0).`,
+        'These installs report different versions. If a relay fails on a model or flag that a newer codex supports, put that install\'s directory earlier in PATH for the PaF process, or remove the duplicates.',
+      ]);
+      report.cli.find(b => b.name === 'codex')!.executable = info;
+      report.host.push({ name: 'codex', category: 'host', available: true, detail: 'found', installHint: '', executable: info });
+      return report;
+    }
+
+    it('shows the executable PaF will spawn and the other PATH candidates', async () => {
+      mockDetectAll.mockResolvedValue(reportWithCodexMismatch());
+      const result = await doctor.doctor();
+
+      expect(mockInspectExecutables).toHaveBeenCalledOnce();
+      expect(result.output).toContain(`exec: ${NVM_CODEX} (0.153.4)`);
+      expect(result.output).toContain(`also on PATH: ${BREW_CODEX} (0.146.0)`);
+      expect(result.output).toContain('[versions differ]');
+    });
+
+    it('surfaces version-mismatch guidance as an advisory', async () => {
+      mockDetectAll.mockResolvedValue(reportWithCodexMismatch());
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('Advisories');
+      expect(result.output).toContain('first PATH match for "codex"');
+      expect(result.output).toContain('earlier in PATH');
+    });
+
+    it('does not repeat the executable block for a host entry already detailed as a relay backend', async () => {
+      mockDetectAll.mockResolvedValue(reportWithCodexMismatch());
+      const result = await doctor.doctor();
+
+      const execLines = result.output.split('\n').filter(l => l.includes(`exec: ${NVM_CODEX}`));
+      expect(execLines).toHaveLength(1);
+      expect(result.output).toContain('exec: same as relay backend "codex" above');
+    });
+
+    it('stays quiet for duplicates that report the same version', async () => {
+      const report = makeReport();
+      report.cli.find(b => b.name === 'codex')!.executable = executableInfo('codex', [
+        candidate(NVM_CODEX, '0.153.4'),
+        candidate(BREW_CODEX, '0.153.4'),
+      ], ['All probed candidates report the same version; no action needed unless one is stale.']);
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('also on PATH');
+      expect(result.output).not.toContain('[versions differ]');
+      expect(result.output).not.toContain('no action needed');
+    });
+
+    it('reports a failed or timed-out version probe honestly and as an advisory', async () => {
+      const report = makeReport();
+      report.cli.find(b => b.name === 'codex')!.executable = executableInfo('codex', [
+        candidate(NVM_CODEX, null, 'timeout', '--version did not finish within 5s'),
+      ], [`Could not determine the version of ${NVM_CODEX}: --version did not finish within 5s. Run "${NVM_CODEX} --version" manually to inspect it.`]);
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain(`exec: ${NVM_CODEX} (version timeout)`);
+      expect(result.output).toContain('Could not determine the version');
+      // Diagnostics never change the exit code: gemini is still the only gap.
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('renders Claude host diagnostics even though Claude is categorized as a host', async () => {
+      const report = makeReport();
+      report.host.find(b => b.name === 'claude')!.executable = executableInfo('claude', [
+        candidate('/home/test/.local/bin/claude', '2.1.263'),
+      ]);
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('exec: /home/test/.local/bin/claude (2.1.263)');
+    });
+
+    it('includes the configured Claude model in human output', async () => {
+      const report = makeReport();
+      const claude = report.host.find(b => b.name === 'claude')!;
+      claude.executable = executableInfo('claude', [candidate('/test/claude', '2.1.263')]);
+      claude.model = { requested: 'configured-claude', requestedSource: 'paf-config', reported: null, reportedNote: 'Unknown' };
+      mockDetectAll.mockResolvedValue(report);
+      expect((await doctor.doctor()).output).toContain('requested=configured-claude (from PaF config), reported=unknown');
+    });
+
+    it.each([0, 1])('keeps private version-probe text out of human and JSON output (exit %s)', async (exit) => {
+      const dir = mkdtempSync(join(tmpdir(), 'paf-doctor-private-'));
+      try {
+        writeFileSync(join(dir, 'codex'), `#!/bin/sh\necho 'SYNTHETIC_PRIVATE_TOKEN=marker' >&2\nexit ${exit}\n`, { mode: 0o755 });
+        const real = await vi.importActual<typeof import('../src/diagnostics.js')>('../src/diagnostics.js');
+        const report = makeReport();
+        report.cli.find(b => b.name === 'codex')!.executable = await real.inspectExecutable('codex', { env: { PATH: dir } });
+        mockDetectAll.mockResolvedValue(report);
+        for (const json of [false, true]) {
+          const result = await doctor.doctor({ json });
+          expect(result.output).not.toContain('SYNTHETIC_PRIVATE_TOKEN');
+          expect(result.output).toContain(exit ? 'exit code 1' : 'unrecognized version output');
+        }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it('distinguishes the requested model from the backend-reported model', async () => {
+      const report = makeReport();
+      const codex = report.cli.find(b => b.name === 'codex')!;
+      codex.executable = executableInfo('codex', [candidate(NVM_CODEX, '0.153.4')]);
+      codex.model = {
+        requested: 'gpt-6-astra',
+        requestedSource: 'paf-config',
+        reported: null,
+        reportedNote: 'Unknown: doctor does not run backends.',
+      };
+      const ollama = report.local[0];
+      ollama.executable = executableInfo('ollama', [candidate('/usr/local/bin/ollama', '0.30.8')]);
+      ollama.model = { requested: null, requestedSource: 'backend-default', reported: null, reportedNote: 'Unknown' };
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('model: requested=gpt-6-astra (from PaF config), reported=unknown');
+      expect(result.output).toContain('model: requested=backend default, reported=unknown');
+      expect(result.output).toContain('local client (relay uses HTTP):');
+    });
+
+    it('shows the running PaF build and flags a different PATH install', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      mockInspectPafIdentity.mockReturnValue(pafIdentity({
+        pathCandidates: [
+          candidate('/home/test/.nvm/versions/node/v24/bin/phone-a-friend', '4.0.0'),
+          candidate('/usr/local/bin/phone-a-friend', '2.7.1'),
+        ],
+        runningDiffersFromPath: true,
+        guidance: ['This doctor run is PaF 4.4.0 at /checkout/phone-a-friend, but "phone-a-friend" on PATH resolves to /home/test/.nvm/versions/node/v24/bin/phone-a-friend (4.0.0).'],
+      }));
+      const result = await doctor.doctor();
+
+      expect(result.output).toContain('phone-a-friend 4.4.0 (running from /checkout/phone-a-friend)');
+      expect(result.output).toContain('on PATH: /home/test/.nvm/versions/node/v24/bin/phone-a-friend (4.0.0) [differs from this run]');
+      expect(result.output).toContain('also on PATH: /usr/local/bin/phone-a-friend (2.7.1)');
+      expect(result.output).toContain('on PATH resolves to');
+    });
+
+    it('says so when phone-a-friend is not on PATH', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      const result = await doctor.doctor();
+      expect(result.output).toContain('on PATH: phone-a-friend not found');
+    });
+
+    it('JSON output carries the same facts as additive fields', async () => {
+      const report = reportWithCodexMismatch();
+      const codex = report.cli.find(b => b.name === 'codex')!;
+      codex.model = { requested: null, requestedSource: 'backend-default', reported: null, reportedNote: 'Unknown' };
+      codex.capabilities = {
+        declared: { resumeStrategy: 'native-session', requiresClientSessionId: false, localFileAccess: true },
+        verification: 'declared-only',
+        verificationNote: 'Declared by the PaF adapter in source; not verified against the installed CLI.',
+      };
+      mockDetectAll.mockResolvedValue(report);
+      mockInspectPafIdentity.mockReturnValue(pafIdentity({
+        pathCandidates: [candidate('/usr/local/bin/phone-a-friend', '4.0.0')],
+        runningDiffersFromPath: true,
+        guidance: ['differs'],
+      }));
+      const parsed = JSON.parse((await doctor.doctor({ json: true })).output);
+
+      expect((await doctor.doctor()).output).toContain('adapter capabilities (not CLI-verified): resume=native-session');
+
+      // Existing contract untouched.
+      expect(parsed.system.version).toBeDefined();
+      expect(parsed.summary).toEqual({ available: 2, total: 3 });
+      expect(parsed.exitCode).toBe(1);
+
+      // New, additive.
+      expect(parsed.system.paf.version).toBe('4.4.0');
+      expect(parsed.system.paf.runningDiffersFromPath).toBe(true);
+      expect(parsed.system.paf.pathCandidates[0].version).toBe('4.0.0');
+
+      const jsonCodex = parsed.backends.cli.find((b: { name: string }) => b.name === 'codex');
+      expect(jsonCodex.executable.selected.path).toBe(NVM_CODEX);
+      expect(jsonCodex.executable.selected.version).toBe('0.153.4');
+      expect(jsonCodex.executable.candidates).toHaveLength(2);
+      expect(jsonCodex.executable.versionMismatch).toBe(true);
+      expect(jsonCodex.model.requested).toBeNull();
+      expect(jsonCodex.model.reported).toBeNull();
+      expect(jsonCodex.capabilities.verification).toBe('declared-only');
+      expect(parsed.advisories).toEqual(expect.arrayContaining([expect.stringContaining('first PATH match'), 'differs']));
+    });
+
+    it('never dumps the environment or config into JSON output', async () => {
+      mockDetectAll.mockResolvedValue(reportWithCodexMismatch());
+      const raw = (await doctor.doctor({ json: true })).output;
+      const parsed = JSON.parse(raw);
+      expect(parsed).not.toHaveProperty('env');
+      expect(parsed).not.toHaveProperty('PATH');
+      expect(parsed).not.toHaveProperty('config');
+      expect(raw).not.toContain('"PATH"');
     });
   });
 });

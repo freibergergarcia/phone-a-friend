@@ -19,6 +19,7 @@ src/
   detection.ts       Backend detection (CLI, Local, Host)
   config.ts          TOML configuration system
   doctor.ts          Health check command
+  diagnostics.ts     PATH/executable identity and bounded version probes for doctor
   setup.ts           Interactive setup wizard
   installer.ts       Claude/OpenCode host integration installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
@@ -140,7 +141,7 @@ run(config)
 
 - **Orchestrator-driven**: `Orchestrator` in `src/agentic/orchestrator.ts` runs the main loop — spawns agents, routes messages, enforces guardrails, and emits events
 - **Claude-only backend** currently — spawn via `claude -p --session-id <uuid>`, resume via `claude -p -r <uuid>`
-- **SessionManager** (`src/agentic/session.ts`) wraps CLI subprocesses with UUID-based session IDs for conversation continuity; routes via `BackendCapabilities.resumeStrategy` (`native-session` for Claude, `transcript-replay` fallback for others)
+- **SessionManager** (`src/agentic/session.ts`) wraps Claude subprocesses with UUID-based session IDs. Dispatch checks backend identity; other native-session backends are rejected instead of substituted. The transcript-replay scaffolding has no working agentic adapters yet.
 - **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
 - **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and other consumers
@@ -313,6 +314,15 @@ Local manual bump (if needed): `npm run bump:patch`, `npm run bump:minor`, `npm 
 
 After changing source: `npm run build && git add dist/`
 
+## Doctor diagnostics
+
+Doctor adds executable/version and configured-model information without changing
+backend readiness exit codes. JSON keeps the existing CLI/local/host structure;
+capabilities are marked `declared-only`, and backend-reported models remain
+unknown because doctor runs no inference. Version probes have time/output limits
+and use fixed failure classifications. The local Ollama CLI is a client identity,
+not the HTTP server version used by a relay.
+
 ## Configuration
 
 Config files (TOML format):
@@ -399,7 +409,21 @@ Codex uses a parallel overlay convention: `installer.ts` `codexSkillSource()` pr
 
 ### Why no subagents
 
-An earlier draft of this work shipped paf-reviewer / paf-critic / paf-synthesizer as Codex subagents (TOML personas under `agents/codex/`) so each role would show up as a separate thread in `/agent`. The official Codex docs say subagents only spawn on explicit natural-language request ("spawn one agent per role..."), which means casual prompts like "ask claude and gemini X" never triggered them. The Bash-orchestrated `/phone-a-team` is simpler, faster to invoke, and matches how Codex actually behaves with shell tool calls. The orphaned TOML files under `agents/codex/` remain in the tree until explicitly deleted; they are not installed.
+PaF's Codex skills orchestrate backend CLI calls through Bash, so natural-language
+requests such as "ask Claude and Gemini" do not depend on spawning Codex personas.
+This is PaF's integration choice, not a universal limit on Codex: delegation also
+depends on the host's instructions and reasoning mode. See the current
+[Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+Legacy `paf-*` personas are not installed; the installer removes stale symlinks.
+
+### Claude workflow boundary
+
+The Claude relay uses explicit tool lists in limited modes and disables slash
+commands plus `Task` (a supported `Agent` alias). In `danger-full-access`, it does
+not explicitly disable the separate `Workflow` surface. PaF's depth guard is not
+a guarantee against all provider-native fan-out. For an explicitly required
+workflow-free call, the caller can set `CLAUDE_CODE_DISABLE_WORKFLOWS=1` for that
+process; PaF does not set it automatically. See [Claude workflow controls](https://code.claude.com/docs/en/workflows#turn-workflows-off).
 
 ## Job tracking
 
@@ -524,7 +548,7 @@ phone-a-friend session prune --all             # drop everything
 
 ### Known limitations
 
-- **Codex resume + schema**: `codex exec resume` does not accept `--output-schema`. Schema is enforced on turn 1 only; subsequent turns rely on model conversation context to maintain the format, with no server-side validation.
+- **Codex resume + schema**: PaF forwards `--output-schema` on initial and resumed calls. Before a schema-bearing resume, it probes `codex exec resume --help` using the same invocation environment. Unsupported or failed probes stop before model execution with an actionable error; schema requests are never silently dropped. Plain resumes do not require this probe.
 - **Gemini sessions**: supported via `native-session` resume. PaF generates the session UUID client-side, pins it with `--session-id <uuid>` on the first call, and resumes with `--resume <uuid>` on later calls (same model as Claude). History is not replayed (server-side session state), so `run()` does not use `sessionHistory`. Resume depends on Gemini's session retention (`general.sessionRetention.*`); if retention has pruned the session, `--resume` fails loudly rather than silently starting fresh. A Gemini CLI too old to recognize `--session-id`/`--resume` surfaces an actionable upgrade error.
 - **Codex review + custom prompt**: `codex exec review` does not accept both `--base` and a positional prompt. When a custom prompt is provided with `--review`, the relay skips native `review()` and uses the generic `run()` path with the selected scope inlined.
 - **Streaming + sessions**: `relayStream()` forwards session options to backends but does not implement session lifecycle (validation, history persistence). The CLI gates this combination off; only programmatic callers are affected.

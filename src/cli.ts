@@ -833,7 +833,7 @@ export async function run(argv: string[]): Promise<number> {
           sandbox: opts.sandbox,
         });
 
-        await formatAgenticEvents(events);
+        if (await formatAgenticEvents(events)) exitCode = 1;
       } finally {
         await orchestrator.close();
       }
@@ -1274,7 +1274,8 @@ function parseAgentList(input: string): Array<{ name: string; backend: string; m
   }).filter((a): a is NonNullable<typeof a> => a !== null);
 }
 
-async function formatAgenticEvents(events: AsyncIterable<import('./agentic/events.js').AgenticEvent>): Promise<void> {
+async function formatAgenticEvents(events: AsyncIterable<import('./agentic/events.js').AgenticEvent>): Promise<boolean> {
+  let failed = false;
   for await (const event of events) {
     const time = new Date().toLocaleTimeString();
 
@@ -1310,16 +1311,19 @@ async function formatAgenticEvents(events: AsyncIterable<import('./agentic/event
         console.log(`  ${theme.warning('⚠')} ${theme.warning(event.guard)}: ${event.detail}`);
         break;
       case 'session_end': {
+        if (event.reason === 'error') failed = true;
         const elapsed = (event.elapsed / 1000).toFixed(1);
         console.log(`\n  ${theme.heading('Session ended')}: ${event.reason}`);
         console.log(`  ${theme.label('Turns:')} ${event.turn}  |  ${theme.label('Elapsed:')} ${elapsed}s\n`);
         break;
       }
       case 'error': {
+        failed = true;
         const prefix = event.agent ? `${event.agent}: ` : '';
         console.error(`  ${theme.crossmark} ${theme.error(`${prefix}${event.error}`)}`);
         break;
       }
     }
   }
+  return failed;
 }

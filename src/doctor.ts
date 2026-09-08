@@ -14,6 +14,12 @@ import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
 import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from './installer.js';
 import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
+import {
+  inspectExecutables,
+  attachModelAndCapabilities,
+  inspectPafIdentity,
+  type PafIdentity,
+} from './diagnostics.js';
 
 /**
  * Backends that count toward the "X of Y ready" summary and exit code.
@@ -62,6 +68,7 @@ function formatHumanReadable(
   hostInstallations: HostInstallations,
   advisories: string[] = [],
   updateCheck: UpdateCheckState | null = null,
+  paf: PafIdentity | null = null,
 ): string {
   const lines: string[] = [];
 
@@ -72,6 +79,10 @@ function formatHumanReadable(
   // System
   lines.push(`  ${theme.label('System:')}`);
   lines.push(`    ${theme.checkmark} Node.js ${process.version}`);
+  if (paf) {
+    lines.push(`    ${theme.checkmark} phone-a-friend ${paf.version} ${theme.hint(`(running from ${paf.packageRoot})`)}`);
+    for (const line of formatPafPathLines(paf)) lines.push(line);
+  }
   lines.push(`    ${theme.checkmark} Config ${paths.user}`);
   lines.push('');
 
@@ -99,6 +110,7 @@ function formatHumanReadable(
     lines.push('    CLI:');
     for (const b of report.cli) {
       lines.push(`  ${formatBackendLine(b)}`);
+      lines.push(...formatDiagnosticLines(b));
     }
   }
 
@@ -107,6 +119,7 @@ function formatHumanReadable(
     lines.push('    Local:');
     for (const b of report.local) {
       lines.push(`  ${formatBackendLine(b)}`);
+      lines.push(...formatDiagnosticLines(b));
       const modelsLine = formatBackendModels(b);
       if (modelsLine) lines.push(modelsLine);
     }
@@ -114,10 +127,19 @@ function formatHumanReadable(
 
   lines.push('');
 
-  // Host Integrations
+  // Host Integrations. Commands already detailed above (codex, opencode)
+  // get a one-line pointer instead of a repeated block.
+  const detailed = new Set(
+    [...report.cli, ...report.local].map(b => b.executable?.command).filter(Boolean),
+  );
   lines.push(`  ${theme.label('Host Integrations:')}`);
   for (const b of report.host) {
     lines.push(`  ${formatBackendLine(b)}`);
+    if (b.executable && detailed.has(b.executable.command)) {
+      lines.push(`${DIAG_INDENT}${theme.hint(`exec: same as relay backend "${b.name}" above`)}`);
+    } else {
+      lines.push(...formatDiagnosticLines(b));
+    }
   }
   lines.push('');
 
@@ -154,6 +176,84 @@ function formatHumanReadable(
 }
 
 // ---------------------------------------------------------------------------
+// Executable / model diagnostics rendering
+// ---------------------------------------------------------------------------
+
+const DIAG_INDENT = ' '.repeat(21);
+
+function describeCandidate(c: { path: string; version: string | null; versionStatus: string }): string {
+  return `${c.path} (${c.version ?? `version ${c.versionStatus}`})`;
+}
+
+/**
+ * Lines rendered under a backend entry: the executable PaF will actually
+ * spawn, any other PATH candidates, and requested-vs-reported model.
+ * Only rendered when diagnostics were collected for that entry.
+ */
+function formatDiagnosticLines(b: BackendStatus): string[] {
+  const lines: string[] = [];
+  const exe = b.executable;
+  if (exe?.selected) {
+    const label = b.name === 'ollama' ? 'local client (relay uses HTTP):' : 'exec:';
+    lines.push(`${DIAG_INDENT}${theme.hint(label)} ${describeCandidate(exe.selected)}`);
+    if (exe.shadowed) {
+      const others = exe.candidates.filter(c => c !== exe.selected).map(describeCandidate).join(', ');
+      const flag = exe.versionMismatch ? ` ${theme.warning('[versions differ]')}` : '';
+      lines.push(`${DIAG_INDENT}${theme.hint('also on PATH:')} ${others}${flag}`);
+    }
+  }
+  if (b.model && (exe?.selected || b.name === 'ollama')) {
+    const requested = b.model.requested
+      ? `${b.model.requested} (from PaF config)`
+      : 'backend default';
+    lines.push(
+      `${DIAG_INDENT}${theme.hint('model:')} requested=${requested}, reported=unknown ${theme.hint('(doctor runs no backend)')}`,
+    );
+  }
+  if (b.capabilities) {
+    const declared = b.capabilities.declared;
+    lines.push(`${DIAG_INDENT}${theme.hint('adapter capabilities (not CLI-verified):')} ` +
+      `resume=${declared.resumeStrategy}, client session ID=${declared.requiresClientSessionId}, local files=${declared.localFileAccess}`);
+  }
+  return lines;
+}
+
+function formatPafPathLines(paf: PafIdentity): string[] {
+  const lines: string[] = [];
+  if (paf.pathCandidates.length === 0) {
+    lines.push(`${DIAG_INDENT}${theme.hint('on PATH:')} phone-a-friend not found`);
+    return lines;
+  }
+  const [first, ...rest] = paf.pathCandidates;
+  const flag = paf.runningDiffersFromPath ? ` ${theme.warning('[differs from this run]')}` : '';
+  lines.push(`${DIAG_INDENT}${theme.hint('on PATH:')} ${describeCandidate(first)}${flag}`);
+  if (rest.length > 0) {
+    lines.push(`${DIAG_INDENT}${theme.hint('also on PATH:')} ${rest.map(describeCandidate).join(', ')}`);
+  }
+  return lines;
+}
+
+/**
+ * Actionable advisories derived from executable diagnostics. Duplicates with
+ * identical versions are informational only and stay out of this list.
+ */
+function collectDiagnosticAdvisories(report: DetectionReport, paf: PafIdentity | null): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const b of [...report.cli, ...report.local, ...report.host]) {
+    const exe = b.executable;
+    if (!exe || seen.has(exe.command)) continue;
+    seen.add(exe.command);
+    const probeFailed = exe.candidates.some(c => c.versionStatus !== 'ok' && c.versionStatus !== 'not-probed');
+    if (exe.versionMismatch || probeFailed) {
+      out.push(...exe.guidance);
+    }
+  }
+  if (paf) out.push(...paf.guidance);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // JSON output
 // ---------------------------------------------------------------------------
 
@@ -176,6 +276,7 @@ function formatJson(
   hostInstallations: HostInstallations,
   advisories: string[] = [],
   updateCheck: UpdateCheckState | null = null,
+  paf: PafIdentity | null = null,
 ): string {
   const counted = countableBackends(report);
   const available = counted.filter(b => b.available).length;
@@ -185,6 +286,7 @@ function formatJson(
     system: {
       nodeVersion: process.version,
       version: getVersion(),
+      paf: paf ?? undefined,
     },
     backends: {
       cli: normalizeForJson(report.cli),
@@ -296,7 +398,17 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   const paths = configPaths(opts?.repoRoot);
   const config = loadConfig(opts?.repoRoot);
   const exitCode = computeExitCode(report);
-  const advisories = await collectAdvisories(report);
+
+  // Executable diagnostics: PATH resolution + bounded --version probes.
+  // Additive only; never affects availability or the exit code.
+  await inspectExecutables(report);
+  attachModelAndCapabilities(report, config);
+  const paf = inspectPafIdentity();
+
+  const advisories = [
+    ...(await collectAdvisories(report)),
+    ...collectDiagnosticAdvisories(report, paf),
+  ];
   const hostInstallations = {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
@@ -307,12 +419,12 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   if (opts?.json) {
     return {
       exitCode,
-      output: formatJson(report, config, exitCode, hostInstallations, advisories, updateCheck),
+      output: formatJson(report, config, exitCode, hostInstallations, advisories, updateCheck, paf),
     };
   }
 
   return {
     exitCode,
-    output: formatHumanReadable(report, config, paths, hostInstallations, advisories, updateCheck),
+    output: formatHumanReadable(report, config, paths, hostInstallations, advisories, updateCheck, paf),
   };
 }

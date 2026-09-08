@@ -8,6 +8,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath } from './backends/index.js';
+import type { ExecutableInfo, ModelDiagnostics, CapabilityDiagnostics } from './diagnostics.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +31,15 @@ export interface BackendStatus {
    * counts when absent; counted normally when present.
    */
   optional?: boolean;
+  /**
+   * Executable resolution and version probe results. Populated only by
+   * doctor via `inspectExecutables()` (subprocess calls), never by detectAll().
+   */
+  executable?: ExecutableInfo;
+  /** Requested model from PaF config vs. backend-reported model (always unknown in doctor). */
+  model?: ModelDiagnostics;
+  /** Capabilities declared by the PaF adapter; not runtime-verified. */
+  capabilities?: CapabilityDiagnostics;
 }
 
 export interface EnvironmentStatus {

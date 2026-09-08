@@ -7,6 +7,7 @@
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execFile } from 'node:child_process';
 import {
   type BackendCapabilities,
   type BackendRunOptions,
@@ -66,10 +67,16 @@ export class CodexBackend implements Backend {
 
   async run(opts: BackendRunOptions): Promise<string> {
     assertNotCodexHost(opts.env);
-    if (!isInPath('codex')) {
+    // Keep PATH and the rest of the environment identical for preflight and run.
+    const env = { ...opts.env };
+    if (!isInPath('codex', env)) {
       throw new CodexBackendError(
         `codex CLI not found in PATH. Install it: ${INSTALL_HINTS.codex}`,
       );
+    }
+
+    if (opts.schema && opts.resumeSession && opts.sessionId) {
+      await assertResumeSchemaSupport(env, opts.timeoutSeconds * 1000);
     }
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'phone-a-friend-'));
@@ -97,7 +104,7 @@ export class CodexBackend implements Backend {
       try {
         const result = await spawnCli('codex', args, {
           timeoutMs: opts.timeoutSeconds * 1000,
-          env: opts.env,
+          env,
           label: 'codex exec',
         });
         stdout = result.stdout;
@@ -243,8 +250,7 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
     ? ['exec', 'resume', opts.sessionId!]
     : ['exec'];
 
-  // codex exec resume only accepts: --skip-git-repo-check, --ephemeral, --json, -o, -m
-  // Full exec accepts: -C, --sandbox, --output-last-message, and all the above
+  // Resume has its own option set; repository and sandbox flags remain exec-only.
   if (isResume) {
     args.push('-o', opts.outputPath);
   } else {
@@ -264,8 +270,8 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
     args.push('--ephemeral');
   }
 
-  // exec resume does not accept --output-schema; only --json is allowed
-  if (opts.schemaPath && !isResume) {
+  // Resume schema support is checked against the invoked CLI before reaching here.
+  if (opts.schemaPath) {
     args.push('--output-schema', opts.schemaPath, '--json');
   } else if (opts.persistSession || isResume) {
     args.push('--json');
@@ -277,6 +283,34 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
 
   args.push(opts.prompt);
   return args;
+}
+
+/** Probe only schema resumes, without model work or a cache shared across PATHs. */
+function assertResumeSchemaSupport(env: Record<string, string>, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile('codex', ['exec', 'resume', '--help'], {
+      env,
+      encoding: 'utf8',
+      timeout: Math.max(1, Math.min(timeoutMs, 3000)),
+      killSignal: 'SIGKILL',
+      maxBuffer: 128 * 1024,
+    }, (err, stdout) => {
+      if (err) {
+        reject(new CodexBackendError(
+          'Could not verify Codex resume schema support: `codex exec resume --help` failed. ' +
+          'Check the codex executable in this invocation\'s PATH; the schema request was not run.',
+        ));
+      } else if (!/^\s*--output-schema(?:\s|=|$)/m.test(stdout)) {
+        reject(new CodexBackendError(
+          'The codex executable in this invocation\'s PATH does not advertise --output-schema ' +
+          'for exec resume. Upgrade or select a supporting Codex CLI to resume with a schema; ' +
+          'the schema request was not run.',
+        ));
+      } else {
+        resolve();
+      }
+    });
+  });
 }
 
 function writeSchemaFile(schemaPath: string, schema: string): void {
