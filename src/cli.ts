@@ -46,6 +46,8 @@ import {
 } from './config.js';
 import { getVersion, getPackageRoot } from './version.js';
 import { parseVerdict, serializeVerdict, VerdictParseError } from './verdict.js';
+import { beginTrackedRun, describeRepo, type TrackedRun } from './task-tracking.js';
+import { TASK_STATUSES, type TaskEvent, type TaskRecord, type TaskStatus } from './tasks.js';
 import {
   buildSuppressionContext,
   decideBanner,
@@ -70,7 +72,7 @@ function repoRootDefault(): string {
 // Argv normalization (backward compatibility)
 // ---------------------------------------------------------------------------
 
-const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session', '__update-check'];
+const KNOWN_SUBCOMMANDS = ['relay', 'install', 'update', 'uninstall', 'setup', 'doctor', 'config', 'plugin', 'agentic', 'job', 'session', 'task', '__update-check'];
 
 // Flags that Commander handles at the top level — never auto-route to relay
 const TOP_LEVEL_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help']);
@@ -94,6 +96,71 @@ function normalizeArgv(argv: string[]): string[] {
 // ---------------------------------------------------------------------------
 // Output helpers
 // ---------------------------------------------------------------------------
+
+// Task announcements go to stderr so stdout contracts (plain text, --schema,
+// --verdict-json) stay intact. The id is printed without styling so hosts can
+// match `Task <id> started` reliably.
+function announceTaskStart(tracked: TrackedRun): void {
+  if (!tracked.id) return;
+  process.stderr.write(`  ${theme.hint('◇')} Task ${tracked.id} started ${theme.hint(`· phone-a-friend task show ${tracked.id}`)}\n`);
+}
+
+function announceTaskEnd(tracked: TrackedRun, status: 'completed' | 'failed'): void {
+  if (!tracked.id) return;
+  process.stderr.write(`  ${theme.hint('◇')} Task ${tracked.id} ${status}\n`);
+  if (tracked.drift?.drifted === true) {
+    process.stderr.write(
+      `  ${theme.warning('!')} Working tree changed during the review. ` +
+        'The result covers the original snapshot; re-run the review for the new changes.\n',
+    );
+  }
+}
+
+function taskStatusLabel(status: TaskStatus): string {
+  switch (status) {
+    case 'completed': return theme.success('completed');
+    case 'running': return theme.info('running');
+    case 'failed': return theme.error('failed');
+    case 'interrupted': return theme.warning('interrupted');
+    default: return theme.hint('queued');
+  }
+}
+
+function formatTaskSummary(task: TaskRecord): string[] {
+  const lines: string[] = [];
+  lines.push(`  ${theme.bold(task.id)}  ${taskStatusLabel(task.status)}  ${theme.hint(timeSince(task.createdAt))}  ${theme.hint(`${task.backend} · ${task.kind}`)}`);
+  const head = task.headSha ? ` @ ${task.headSha.slice(0, 7)}` : '';
+  const where = task.branch ? `${task.repoPath} (${task.branch}${head})` : task.repoPath;
+  lines.push(`    ${theme.hint('repo:')} ${where}`);
+  if (task.kind === 'review') {
+    const drift = task.driftDetected === true
+      ? 'changed during review'
+      : task.driftDetected === false ? 'unchanged since start' : 'drift unknown';
+    const captured = task.diffFiles === null
+      ? 'scope not captured'
+      : `${task.diffFiles} file(s) · ${task.diffBytes ?? 0} bytes · ${drift}`;
+    const against = task.reviewBase ? ` against ${task.reviewBase}` : '';
+    lines.push(`    ${theme.hint('scope:')} ${task.reviewScope ?? 'branch'}${against} · ${captured}`);
+  }
+  if (task.backendSessionId) {
+    const label = task.sessionLabel ? ` (${task.sessionLabel})` : '';
+    lines.push(`    ${theme.hint('session:')} ${task.backendSessionId}${label}`);
+  }
+  if (task.host) lines.push(`    ${theme.hint('host:')} ${task.host}`);
+  if (task.promptPreview) lines.push(`    ${theme.hint('prompt:')} ${task.promptPreview}`);
+  if (task.status === 'completed') {
+    const result = task.result === null
+      ? 'not retained (task_history=metadata)'
+      : `${task.result.length} chars · phone-a-friend task result ${task.id}`;
+    lines.push(`    ${theme.hint('result:')} ${result}`);
+  }
+  if (task.error) lines.push(`    ${theme.hint('error:')} ${task.error}`);
+  return lines;
+}
+
+function formatTaskEvents(events: TaskEvent[]): string[] {
+  return events.map((event) => `    ${theme.hint(event.ts.slice(11, 19))}  ${event.type.padEnd(16)} ${event.message}`);
+}
 
 function timeSince(isoDate: string): string {
   const seconds = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000);
@@ -447,6 +514,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--base <branch>', 'Base branch for review diff (default: auto-detect main/master)')
     .option('--verdict-json', 'Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.')
     .option('--quiet', 'Run silently, save result to job store')
+    .option('--no-task-history', 'Do not record this run in the local task store')
     .action(async (opts, command) => {
       // --base without --review implies review mode. So does --verdict-json.
       const isReview = opts.review || opts.base !== undefined || opts.reviewScope !== undefined || opts.verdictJson;
@@ -481,6 +549,7 @@ export async function run(argv: string[]): Promise<number> {
       const streamExplicit = command.getOptionValueSource('stream') === 'cli';
       const includeDiffExplicit = command.getOptionValueSource('includeDiff') === 'cli';
       const peerMessagingExplicit = command.getOptionValueSource('peerMessaging') === 'cli';
+      const taskHistoryExplicit = command.getOptionValueSource('taskHistory') === 'cli';
 
       if (isReview && includeDiffExplicit && opts.includeDiff === true) {
         console.error(
@@ -501,12 +570,14 @@ export async function run(argv: string[]): Promise<number> {
           model: opts.model,
           base: opts.base,
           peerMessaging: peerMessagingExplicit ? opts.peerMessaging : undefined,
+          taskHistory: taskHistoryExplicit && opts.taskHistory === false ? 'off' : undefined,
         },
         process.env,
         opts.repo,
       );
 
       const backendName = resolved.backend;
+      const taskMode = resolved.taskHistory ?? 'results';
       if (peerMessagingExplicit && backendName !== 'claude') {
         throw new RelayError('--peer-messaging is only supported by the Claude backend');
       }
@@ -515,6 +586,18 @@ export async function run(argv: string[]): Promise<number> {
         : undefined;
 
       if (isReview) {
+        const tracked = beginTrackedRun({
+          mode: taskMode,
+          kind: 'review',
+          backend: backendName,
+          repoPath: opts.repo,
+          prompt: opts.prompt ?? null,
+          model: resolved.model ?? null,
+          sandbox: resolved.sandbox,
+          reviewScope,
+          reviewBase: opts.base ?? resolved.reviewBase ?? null,
+        });
+        announceTaskStart(tracked);
         const baseLabel = opts.base ?? resolved.reviewBase ?? 'auto-detect';
         const reviewTarget = reviewScope === 'working-tree'
           ? 'working-tree changes'
@@ -542,13 +625,18 @@ export async function run(argv: string[]): Promise<number> {
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
+            observer: tracked.observer,
           });
           if (isVerdictJson) {
             try {
               const envelope = parseVerdict(feedback);
-              process.stdout.write(serializeVerdict(envelope) + '\n');
+              const serialized = serializeVerdict(envelope);
+              tracked.complete(serialized);
+              process.stdout.write(serialized + '\n');
             } catch (err) {
               if (err instanceof VerdictParseError) {
+                tracked.fail(new Error(`Verdict parse failed: ${err.message}`));
+                announceTaskEnd(tracked, 'failed');
                 process.stderr.write(
                   `  ${theme.crossmark} ${theme.error('Verdict parse failed')}: ${err.message}\n` +
                     `  ${theme.hint('Raw response (between markers):')}\n` +
@@ -560,15 +648,31 @@ export async function run(argv: string[]): Promise<number> {
               throw err;
             }
           } else {
+            tracked.complete(feedback);
             spinner?.succeed(`${theme.bold(backendName)} reviewed`);
             process.stdout.write(feedback + '\n');
           }
+          announceTaskEnd(tracked, 'completed');
         } catch (err) {
+          tracked.fail(err);
+          announceTaskEnd(tracked, 'failed');
           spinner?.fail(`${theme.bold(backendName)} review failed`);
           throw err;
         }
         return;
       }
+
+      const tracked = beginTrackedRun({
+        mode: taskMode,
+        kind: 'relay',
+        backend: backendName,
+        repoPath: opts.repo,
+        prompt: opts.prompt ?? null,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox,
+        sessionLabel: opts.session ?? null,
+      });
+      announceTaskStart(tracked);
 
       const relayOpts = {
         prompt: opts.prompt,
@@ -585,6 +689,7 @@ export async function run(argv: string[]): Promise<number> {
         backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
         peerMessaging,
+        observer: tracked.observer,
       };
 
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
@@ -604,12 +709,16 @@ export async function run(argv: string[]): Promise<number> {
         }
         const completed = manager.get(job.id);
         if (completed?.status === 'completed') {
+          tracked.complete(completed.result ?? '');
           console.log(`  ${theme.success('\u2713')} ${theme.bold('Done')} ${theme.info(job.id)}`);
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
+          announceTaskEnd(tracked, 'completed');
         } else {
+          tracked.fail(completed?.error ?? `job ${completed?.status ?? 'unknown'}`);
           console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? 'unknown'}: ${completed?.error ?? ''}`);
+          announceTaskEnd(tracked, 'failed');
           exitCode = 1;
         }
         return;
@@ -625,6 +734,7 @@ export async function run(argv: string[]): Promise<number> {
 
         let firstChunk = true;
         let hasOutput = false;
+        let collected = '';
         try {
           for await (const chunk of relayStream(relayOpts)) {
             if (firstChunk) {
@@ -632,21 +742,26 @@ export async function run(argv: string[]): Promise<number> {
               firstChunk = false;
             }
             process.stdout.write(chunk);
+            collected += chunk;
             hasOutput = true;
           }
           if (hasOutput) {
             process.stdout.write('\n');
           }
+          tracked.complete(collected);
           process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded\n`);
+          announceTaskEnd(tracked, 'completed');
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
         } catch (err) {
+          tracked.fail(err);
           if (firstChunk) {
             spinner.fail(`${theme.bold(backendName)} failed`);
           } else {
             process.stderr.write(`\n  ${theme.crossmark} ${theme.error(`${backendName} stream error`)}\n`);
           }
+          announceTaskEnd(tracked, 'failed');
           throw err;
         }
       } else {
@@ -659,13 +774,17 @@ export async function run(argv: string[]): Promise<number> {
 
         try {
           const feedback = await relay(relayOpts);
+          tracked.complete(feedback);
           spinner.succeed(`${theme.bold(backendName)} responded`);
           process.stdout.write(feedback + '\n');
           if (opts.session) {
             process.stderr.write(`  ${theme.hint('Session:')} ${theme.info(opts.session)}\n`);
           }
+          announceTaskEnd(tracked, 'completed');
         } catch (err) {
+          tracked.fail(err);
           spinner.fail(`${theme.bold(backendName)} failed`);
+          announceTaskEnd(tracked, 'failed');
           throw err;
         }
       }
@@ -1114,6 +1233,174 @@ export async function run(argv: string[]): Promise<number> {
       console.log(`  ${theme.success('\u2713')} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? '' : 's'} older than ${days} day${days === 1 ? '' : 's'}`);
       for (const id of removed) {
         console.log(`    ${theme.hint('-')} ${id}`);
+      }
+    });
+
+  // --- task subcommand group ---
+  const taskCmd = program
+    .command('task')
+    .description('Inspect tracked relays and reviews');
+
+  taskCmd
+    .command('list')
+    .description('List tracked tasks, newest first')
+    .option('--repo <path>', 'Only tasks for this repository (resolved to its worktree root)')
+    .option('--status <status>', `Filter by status: ${TASK_STATUSES.join(', ')}`)
+    .option('--limit <n>', 'Maximum number of tasks to show', '20')
+    .option('--json', 'Output as JSON', false)
+    .action(async (opts) => {
+      if (opts.status !== undefined && !TASK_STATUSES.includes(opts.status as TaskStatus)) {
+        console.error(`  ${theme.crossmark} Invalid status "${opts.status}". Allowed values: ${TASK_STATUSES.join(', ')}`);
+        exitCode = 1;
+        return;
+      }
+      const limit = Number(opts.limit);
+      if (!Number.isFinite(limit) || limit <= 0) {
+        console.error(`  ${theme.crossmark} --limit must be a positive number, got "${opts.limit}"`);
+        exitCode = 1;
+        return;
+      }
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        store.reconcileInterrupted();
+        const tasks = store.list({
+          repoPath: opts.repo ? describeRepo(opts.repo).root : undefined,
+          status: opts.status as TaskStatus | undefined,
+          limit,
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(tasks, null, 2));
+          return;
+        }
+        if (tasks.length === 0) {
+          console.log(`\n  ${theme.hint('No tracked tasks.')}\n`);
+          return;
+        }
+        console.log(`\n  ${theme.heading('Tracked Tasks')} ${theme.hint(`(${tasks.length})`)}\n`);
+        for (const task of tasks) {
+          for (const line of formatTaskSummary(task)) console.log(line);
+        }
+        console.log('');
+      } finally {
+        store.close();
+      }
+    });
+
+  taskCmd
+    .command('show <id>')
+    .description('Show one task with its scope, session, and event log (id prefix accepted)')
+    .option('--json', 'Output as JSON', false)
+    .action(async (id: string, opts) => {
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        store.reconcileInterrupted();
+        const task = store.get(id);
+        if (!task) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        const events = store.events(task.id);
+        if (opts.json) {
+          console.log(JSON.stringify({ task, events }, null, 2));
+          return;
+        }
+        console.log('');
+        for (const line of formatTaskSummary(task)) console.log(line);
+        if (events.length > 0) {
+          console.log(`\n  ${theme.heading('Events')}\n`);
+          for (const line of formatTaskEvents(events)) console.log(line);
+        }
+        console.log('');
+      } finally {
+        store.close();
+      }
+    });
+
+  taskCmd
+    .command('result <id>')
+    .description('Print the stored result of a completed task (exit 3 while it is still running)')
+    .action(async (id: string) => {
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        store.reconcileInterrupted();
+        const task = store.get(id);
+        if (!task) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        if (task.status === 'completed') {
+          if (task.result === null) {
+            console.error(`  ${theme.hint(`Task ${task.id} completed, but its result was not retained (task_history=metadata).`)}`);
+            return;
+          }
+          process.stdout.write(task.result + '\n');
+          return;
+        }
+        if (task.status === 'failed' || task.status === 'interrupted') {
+          console.error(`  ${theme.crossmark} Task ${task.id} ${task.status}: ${task.error ?? 'no error recorded'}`);
+          exitCode = 1;
+          return;
+        }
+        console.error(`  ${theme.hint(`Task ${task.id} is ${task.status}; no result yet.`)}`);
+        exitCode = 3;
+      } finally {
+        store.close();
+      }
+    });
+
+  taskCmd
+    .command('delete <id>')
+    .description('Remove one tracked task and its events')
+    .action(async (id: string) => {
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        const task = store.get(id);
+        if (!task || !store.delete(task.id)) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        console.log(`  ${theme.success('✓')} Deleted task ${theme.bold(task.id)}`);
+      } finally {
+        store.close();
+      }
+    });
+
+  taskCmd
+    .command('prune')
+    .description('Remove old tasks (default: older than 30 days)')
+    .option('--older-than <days>', 'Drop tasks created more than N days ago', '30')
+    .option('--all', 'Drop every tracked task', false)
+    .action(async (opts) => {
+      const { TaskStore } = await import('./tasks.js');
+      const store = new TaskStore();
+      try {
+        if (opts.all) {
+          const count = store.clear();
+          console.log(`  ${theme.success('✓')} Removed ${theme.bold(String(count))} task${count === 1 ? '' : 's'}`);
+          return;
+        }
+        const days = Number(opts.olderThan);
+        if (!Number.isFinite(days) || days <= 0) {
+          console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
+          exitCode = 1;
+          return;
+        }
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const removed = store.pruneOlderThan(cutoff);
+        if (removed.length === 0) {
+          console.log(`  ${theme.hint(`No tasks older than ${days} day${days === 1 ? '' : 's'}.`)}`);
+          return;
+        }
+        console.log(`  ${theme.success('✓')} Pruned ${theme.bold(String(removed.length))} task${removed.length === 1 ? '' : 's'} older than ${days} day${days === 1 ? '' : 's'}`);
+      } finally {
+        store.close();
       }
     });
 

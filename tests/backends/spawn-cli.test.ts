@@ -160,3 +160,46 @@ describe('spawnCli()', () => {
     expect(err.message).toContain('ENOENT');
   });
 });
+
+describe('spawnCli() stdout tap', () => {
+  beforeEach(() => {
+    mockSpawn.mockReset();
+  });
+
+  it('delivers stdout chunks to onStdout as they arrive and still returns the full stdout', async () => {
+    const child = new EventEmitter() as ChildProcess;
+    const out = new PassThrough();
+    (child as any).stdout = out;
+    (child as any).stderr = new PassThrough();
+    (child as any).killed = false;
+    (child as any).kill = vi.fn();
+    mockSpawn.mockReturnValue(child);
+
+    const seen: string[] = [];
+    const promise = spawnCli('cmd', [], {
+      timeoutMs: 5000,
+      onStdout: (chunk) => seen.push(chunk),
+    });
+
+    out.write('{"type":"thread.started"}\n');
+    await new Promise((r) => setImmediate(r));
+    expect(seen).toEqual(['{"type":"thread.started"}\n']);
+
+    out.write('{"type":"turn.completed"}\n');
+    out.end();
+    child.emit('close', 0, null);
+
+    const result = await promise;
+    expect(seen).toHaveLength(2);
+    expect(result.stdout).toBe('{"type":"thread.started"}\n{"type":"turn.completed"}');
+  });
+
+  it('keeps stdout delivery going even when onStdout throws', async () => {
+    mockSpawn.mockReturnValue(fakeChild(0, 'first\nsecond'));
+    const result = await spawnCli('cmd', [], {
+      timeoutMs: 5000,
+      onStdout: () => { throw new Error('observer bug'); },
+    });
+    expect(result.stdout).toBe('first\nsecond');
+  });
+});

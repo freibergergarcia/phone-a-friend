@@ -81,6 +81,12 @@ vi.mock('../src/setup.js', () => ({
   setup: mockSetup,
 }));
 
+// Task tracking opens a SQLite store under the user's config dir; keep unit tests off disk.
+vi.mock('../src/task-tracking.js', () => ({
+  beginTrackedRun: () => ({ id: null, observer: undefined, drift: null, complete() {}, fail() {}, close() {} }),
+  describeRepo: (repoPath: string) => ({ root: repoPath, branch: null, headSha: null }),
+}));
+
 vi.mock('../src/doctor.js', () => ({
   doctor: mockDoctor,
 }));

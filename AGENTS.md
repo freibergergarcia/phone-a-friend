@@ -26,6 +26,8 @@ src/
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
   sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
+  tasks.ts           Task store (SQLite at ~/.config/phone-a-friend/tasks.db): durable records + events for every relay/review
+  task-tracking.ts   Bridges one CLI run to the task store (RelayObserver, retention modes, drift warning)
   backends/
     index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
     antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, one-shot)
@@ -75,6 +77,7 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
 - Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
+- `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
 - Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
 - Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, no sessions yet)
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
@@ -193,6 +196,7 @@ phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 phone-a-friend --prompt "..." --no-include-diff        # Do not append git diff, overriding defaults.include_diff
 phone-a-friend --to codex --prompt "..." --quiet       # Run silently, save result to job store
+phone-a-friend --to codex --review --no-task-history   # Skip the local task record for this run
 phone-a-friend --to claude --prompt "..." --schema '{"type":"object"}'  # Structured JSON output
 phone-a-friend --to codex --review --verdict-json                       # Opinionated verdict envelope (JSON: ship/iterate/abstain + findings)
 phone-a-friend --to codex --review --verdict-json --prompt "focus on auth"  # Verdict envelope scoped to a specific review focus
@@ -233,6 +237,14 @@ phone-a-friend job status                  # List all tracked jobs
 phone-a-friend job status --json           # List as JSON
 phone-a-friend job result <id>             # Show output of a completed job
 phone-a-friend job cancel <id>             # Mark a running/pending job as cancelled
+
+# Task tracking (every relay/review is recorded unless task_history is off)
+phone-a-friend task list                   # Newest tracked tasks across repositories
+phone-a-friend task list --repo . --json   # Tasks for this worktree, machine-readable
+phone-a-friend task show <id>              # Scope, session, drift, and event log (id prefix accepted)
+phone-a-friend task result <id>            # Stored result; exit 3 while running, 1 when failed/interrupted
+phone-a-friend task delete <id>            # Remove one task and its events
+phone-a-friend task prune --older-than 30  # Drop tasks older than N days (--all drops everything)
 ```
 
 ```bash
@@ -337,6 +349,7 @@ Environment variables:
 - `PHONE_A_FRIEND_HOST=opencode|codex` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
+- `PHONE_A_FRIEND_TASK_HISTORY=results|metadata|off` — overrides `defaults.task_history` (see "Task tracking"). `--no-task-history` skips the record for one run and wins over both.
 
 Claude peer messaging configuration:
 
@@ -434,6 +447,19 @@ The `--quiet` flag runs a relay without interactive output and persists the resu
 - Jobs are capped at 50, oldest completed/failed/cancelled are pruned on create
 - `--quiet` keeps the process alive until the job finishes (not truly detached). For detached execution, users can combine with `nohup` or `&`.
 - `job cancel` marks the job as cancelled in the store but cannot kill the subprocess (PID tracking is not yet implemented)
+
+## Task tracking
+
+Every CLI relay and review is recorded as a task so delegated work stays findable from another terminal, after the conversation moves on, or after a host compacts its context.
+
+- `TaskStore` in `src/tasks.ts` writes `~/.config/phone-a-friend/tasks.db` (SQLite, WAL, 5s busy timeout). Separate PaF processes can write concurrently without losing records, which `jobs.json` and `sessions.json` cannot guarantee. Two tables: `tasks` (identity, status, backend, repo/branch/HEAD, review scope, diff hash, backend session id, owner pid, result, error, timestamps) and `task_events` (ordered evidence per task). Neither JSON store is migrated; `--quiet` jobs are still written to `jobs.json` and additionally tracked as tasks.
+- `beginTrackedRun()` in `src/task-tracking.ts` is called by the CLI before every relay path (review, batch, stream, `--quiet`). It returns a `RelayObserver` for the relay core plus `complete()`/`fail()`. Tracking is best-effort: a store failure prints one stderr warning and the relay proceeds untracked.
+- The CLI prints `Task <id> started · phone-a-friend task show <id>` on stderr before the spinner and `Task <id> completed|failed` afterwards. The id is unstyled so hosts can match `Task ([0-9a-f]{8}) started`. stdout contracts (`--schema`, `--verdict-json`, plain text) are unchanged.
+- **Scope and drift.** Review mode hashes the collected diff before the backend call (`scope_captured`) and re-collects it afterwards. A different hash records `drift_detected`, prints a stderr warning, and sets `driftDetected = true`; an unchanged hash records `scope_verified`; a failed re-collection records `drift_unknown`. Backends with local file access read the live tree, so the hash is evidence of what the review covered, not a guarantee.
+- **Progress events.** Backends emit `BackendEvent`s through `onEvent`. Codex adds `--json` to `exec` and `exec review` only when a listener exists and forwards thread/turn/command/message events as they stream (`session_linked`, `turn_started`, `activity`, `message`, `turn_completed`, `turn_failed`, `error`); reasoning items are never surfaced. With JSONL active, the stdout fallback extracts the final `agent_message` instead of raw protocol lines. Other backends emit nothing yet, so their tasks show lifecycle events only. A quiet task is not a stuck task.
+- **Status.** `queued`, `running`, `completed`, `failed`, `interrupted`. `task list|show|result` call `reconcileInterrupted()`, which marks running tasks whose owner pid is gone as `interrupted` (event `owner_lost`). Silence never changes a status; only a dead owner does. Cancellation, follow-up routing, and forks are not implemented.
+- **Retention.** `defaults.task_history` (`results` default, `metadata`, `off`), `PHONE_A_FRIEND_TASK_HISTORY`, or `--no-task-history` for one run. `results` stores the result text, a 200-character prompt preview, prompt and diff hashes, and events. `metadata` drops the preview and result text. `off` writes nothing. `task delete` and `task prune` remove PaF records only; backend-native sessions are not erased.
+- Resolution key for hosts: worktree root (`task list --repo .`), then branch, backend session id, and recency. Ids accept unique prefixes of four or more characters.
 
 ## Review scopes
 

@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
+import { TASK_HISTORY_MODES, type TaskHistoryMode } from './tasks.js';
 import {
   CLAUDE_PEER_MESSAGING_MODES,
   type ClaudePeerMessagingMode,
@@ -38,6 +39,7 @@ export interface PafConfig {
     stream?: boolean;
     review_base?: string;
     update_check?: boolean;
+    task_history?: string;
   };
   backends?: Record<string, BackendConfig>;
   [key: string]: unknown;
@@ -54,6 +56,7 @@ export interface ResolvedConfig {
   opencodeProvider: string;
   opencodePure: boolean;
   claudePeerMessaging: ClaudePeerMessagingMode;
+  taskHistory: TaskHistoryMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +71,7 @@ export const DEFAULT_CONFIG: PafConfig = {
     include_diff: false,
     stream: true,
     update_check: true,
+    task_history: 'results',
   },
   backends: {
     claude: {
@@ -320,6 +324,19 @@ export function resolveConfig(
   }
   const claudePeerMessaging = peerMessagingRaw as ClaudePeerMessagingMode;
 
+  const taskHistoryRaw =
+    cliOpts.taskHistory ??
+    env.PHONE_A_FRIEND_TASK_HISTORY ??
+    cfg.defaults.task_history ??
+    'results';
+  if (!TASK_HISTORY_MODES.includes(taskHistoryRaw as TaskHistoryMode)) {
+    throw new Error(
+      `Invalid task history mode: ${String(taskHistoryRaw)}. ` +
+        `Allowed values: ${TASK_HISTORY_MODES.join(', ')}`,
+    );
+  }
+  const taskHistory = taskHistoryRaw as TaskHistoryMode;
+
   return {
     backend,
     sandbox,
@@ -331,5 +348,6 @@ export function resolveConfig(
     opencodeProvider,
     opencodePure,
     claudePeerMessaging,
+    taskHistory,
   };
 }

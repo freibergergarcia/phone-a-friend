@@ -445,3 +445,42 @@ describe('config', () => {
     });
   });
 });
+
+describe('task_history config key', () => {
+  let config: typeof import('../src/config.js');
+  let tempDir: string;
+
+  beforeEach(async () => {
+    config = await import('../src/config.js');
+    tempDir = mkdtempSync(join(tmpdir(), 'paf-config-task-history-'));
+  });
+
+  it('defaults task history to results', () => {
+    expect(config.DEFAULT_CONFIG.defaults.task_history).toBe('results');
+    const resolved = config.resolveConfig({}, {}, undefined, join(tempDir, 'xdg'));
+    expect(resolved.taskHistory).toBe('results');
+  });
+
+  it('reads task_history from user TOML', () => {
+    const userDir = join(tempDir, 'xdg', 'phone-a-friend');
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'config.toml'), '[defaults]\ntask_history = "metadata"\n');
+    const resolved = config.resolveConfig({}, {}, undefined, join(tempDir, 'xdg'));
+    expect(resolved.taskHistory).toBe('metadata');
+  });
+
+  it('lets PHONE_A_FRIEND_TASK_HISTORY override config and the CLI flag override both', () => {
+    const userDir = join(tempDir, 'xdg', 'phone-a-friend');
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'config.toml'), '[defaults]\ntask_history = "metadata"\n');
+    const fromEnv = config.resolveConfig({}, { PHONE_A_FRIEND_TASK_HISTORY: 'off' }, undefined, join(tempDir, 'xdg'));
+    expect(fromEnv.taskHistory).toBe('off');
+    const fromCli = config.resolveConfig({ taskHistory: 'results' }, { PHONE_A_FRIEND_TASK_HISTORY: 'off' }, undefined, join(tempDir, 'xdg'));
+    expect(fromCli.taskHistory).toBe('results');
+  });
+
+  it('rejects an unknown task_history value', () => {
+    expect(() => config.resolveConfig({}, { PHONE_A_FRIEND_TASK_HISTORY: 'sometimes' }, undefined, join(tempDir, 'xdg')))
+      .toThrow(/task history/i);
+  });
+});

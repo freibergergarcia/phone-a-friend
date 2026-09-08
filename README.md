@@ -170,6 +170,7 @@ phone-a-friend --to ollama --prompt "Explain this function"
 phone-a-friend --to opencode --prompt "Audit this repo" --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --to claude --prompt "Review this code" --stream   # Stream tokens live
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
+phone-a-friend --to codex --review --no-task-history            # Skip the local task record
 phone-a-friend --to opencode --prompt "Explain this" --fast        # Skip OpenCode plugins (faster)
 phone-a-friend --to codex --prompt "Review my fix" --include-diff   # Append `git diff HEAD` to the prompt
 phone-a-friend --to codex --prompt "Quick question" --no-include-diff  # Override defaults.include_diff = true
@@ -252,6 +253,25 @@ phone-a-friend job cancel <id>                               # Mark a pending/ru
 ```
 
 `--quiet` does not detach the process. `job cancel` updates stored status; it does not terminate the backend subprocess.
+
+### Task tracking
+
+Every relay and review is recorded as a task in `~/.config/phone-a-friend/tasks.db`, so you can find delegated work from another terminal or after your host conversation has moved on:
+
+```bash
+phone-a-friend --to codex --review --review-scope working-tree
+#   ◇ Task 3f9a2c1d started · phone-a-friend task show 3f9a2c1d   (stderr)
+phone-a-friend task list --repo .            # Newest tasks for this repository
+phone-a-friend task show 3f9a                # Scope, backend session, drift check, event log (prefix ok)
+phone-a-friend task result 3f9a2c1d          # Stored result; exit 3 while still running
+phone-a-friend task prune --older-than 30    # Housekeeping (--all drops everything)
+```
+
+Reviews hash the collected diff before the backend starts and re-check it afterwards. If the working tree changed during the review, PaF says so on stderr and marks the task, because the result covers the original snapshot only. Codex reviews stream progress events (commands run, messages) into the task log; other backends record lifecycle events only, and a quiet task is not a stuck one.
+
+Retention is a setting: `defaults.task_history = "results"` (default) keeps the result text plus a short prompt preview and hashes, `"metadata"` drops the text, `"off"` records nothing. `PHONE_A_FRIEND_TASK_HISTORY` overrides the config and `--no-task-history` skips one run. Deleting a task never deletes the backend's own session.
+
+From Claude Code, the `/phone-a-friend` skill runs reviews as background shell tasks so you can keep working; the result returns to the conversation when the command exits, and the task record is the fallback when that context is gone.
 
 ### Review
 

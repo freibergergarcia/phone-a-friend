@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { BackendError, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
 import { SessionStore } from '../src/sessions.js';
 
@@ -1515,5 +1516,161 @@ describe('relay --session unsupported backend guard', () => {
         backend: 'antigravity',
       }),
     ).resolves.toBe('unsupported reply');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Observer: scope capture, drift detection, progress forwarding
+// ---------------------------------------------------------------------------
+
+describe('relay observer', () => {
+  let repo: string;
+  const originalEnv = { ...process.env };
+  const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
+  const twoFileDiff = 'diff --git a/a.ts b/a.ts\n+1\ndiff --git a/b.ts b/b.ts\n+2';
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+  });
+
+  it('reports the captured review scope before the backend runs', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? twoFileDiff : ''));
+    const onScope = vi.fn();
+    backend.review.mockImplementation(async () => {
+      expect(onScope).toHaveBeenCalledOnce();
+      return 'ok';
+    });
+
+    await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', observer: { onScope } });
+
+    expect(onScope).toHaveBeenCalledWith({
+      scope: 'branch',
+      base: 'main',
+      diffHash: sha256(twoFileDiff),
+      diffBytes: Buffer.byteLength(twoFileDiff),
+      diffFiles: 2,
+    });
+  });
+
+  it('reports no drift when the diff is unchanged after the review', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? twoFileDiff : ''));
+    const onDrift = vi.fn();
+
+    await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', observer: { onDrift } });
+
+    expect(onDrift).toHaveBeenCalledWith({ drifted: false, diffHash: sha256(twoFileDiff) });
+  });
+
+  it('reports drift when the working tree changed during the review', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+    const later = `${twoFileDiff}\n+3`;
+    let diffCalls = 0;
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (!args.includes('diff')) return '';
+      diffCalls += 1;
+      return diffCalls === 1 ? twoFileDiff : later;
+    });
+    const onDrift = vi.fn();
+
+    await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', observer: { onDrift } });
+
+    expect(onDrift).toHaveBeenCalledWith({ drifted: true, diffHash: sha256(later) });
+  });
+
+  it('reports unknown drift when the diff cannot be re-collected', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+    let diffCalls = 0;
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (!args.includes('diff')) return '';
+      diffCalls += 1;
+      if (diffCalls === 1) return twoFileDiff;
+      throw Object.assign(new Error('git died'), { stderr: 'fatal: index locked' });
+    });
+    const onDrift = vi.fn();
+
+    const result = await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', observer: { onDrift } });
+
+    expect(result).toBe('mock review feedback');
+    expect(onDrift).toHaveBeenCalledWith({ drifted: null, diffHash: null });
+  });
+
+  it('forwards progress events and session links from a native review', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? twoFileDiff : ''));
+    backend.review.mockImplementation(async (opts: ReviewOptions) => {
+      opts.onEvent?.({ type: 'session_linked', message: 'Codex thread t1', data: { backendSessionId: 't1' } });
+      opts.onEvent?.({ type: 'activity', message: 'Running: ls' });
+      return 'ok';
+    });
+    const onEvent = vi.fn();
+    const onSessionLinked = vi.fn();
+
+    await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', observer: { onEvent, onSessionLinked } });
+
+    expect(onSessionLinked).toHaveBeenCalledExactlyOnceWith('t1');
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenLastCalledWith({ type: 'activity', message: 'Running: ls' });
+  });
+
+  it('forwards progress events from the generic review path', async () => {
+    const backend = makeMockBackend('codex');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? twoFileDiff : ''));
+    (backend.run as ReturnType<typeof vi.fn>).mockImplementation(async (opts: { onEvent?: (e: unknown) => void }) => {
+      opts.onEvent?.({ type: 'turn_started', message: 'go' });
+      return 'ok';
+    });
+    const onEvent = vi.fn();
+
+    await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', prompt: 'focus on auth', observer: { onEvent } });
+
+    expect(onEvent).toHaveBeenCalledWith({ type: 'turn_started', message: 'go' });
+  });
+
+  it('forwards events and links the session once for a plain relay', async () => {
+    const backend = makeMockBackend('codex');
+    registerBackend(backend);
+    (backend.run as ReturnType<typeof vi.fn>).mockImplementation(async (opts: {
+      onSessionCreated?: (id: string) => void;
+      onEvent?: (e: unknown) => void;
+    }) => {
+      opts.onSessionCreated?.('thr-9');
+      opts.onEvent?.({ type: 'session_linked', message: 'Codex thread thr-9', data: { backendSessionId: 'thr-9' } });
+      opts.onEvent?.({ type: 'turn_started', message: 'go' });
+      return 'ok';
+    });
+    const onEvent = vi.fn();
+    const onSessionLinked = vi.fn();
+
+    await relay({ prompt: 'hi', repoPath: repo, backend: 'codex', observer: { onEvent, onSessionLinked } });
+
+    expect(onSessionLinked).toHaveBeenCalledExactlyOnceWith('thr-9');
+    expect(onEvent).toHaveBeenCalledWith({ type: 'turn_started', message: 'go' });
+  });
+
+  it('does not request a progress stream when no observer listens', async () => {
+    const backend = makeMockBackend('codex');
+    registerBackend(backend);
+
+    await relay({ prompt: 'hi', repoPath: repo, backend: 'codex' });
+
+    const opts = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0] as { onEvent?: unknown };
+    expect(opts.onEvent).toBeUndefined();
   });
 });
