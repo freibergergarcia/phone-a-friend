@@ -522,6 +522,24 @@ npm test                 # Run tests (vitest)
 npm run typecheck        # Type check (tsc --noEmit)
 ```
 
+### Test a checkout end to end
+
+Host skills call whatever `phone-a-friend` is on `PATH`, and the marketplace
+manifest sources the Claude plugin from npm, so a fresh Claude session will
+run the released version even when you are sitting in a modified checkout.
+To exercise unreleased changes:
+
+```bash
+npm run build && npm link          # global `phone-a-friend` now points at this checkout
+phone-a-friend doctor              # confirms PATH resolves to the checkout, no version mismatch
+claude --plugin-dir "$PWD"         # loads this checkout's commands/ and skills/ for the session,
+                                   # overriding the installed marketplace copy
+```
+
+Then ask for a review in that session. `npm install -g @freibergergarcia/phone-a-friend`
+restores the released binary. `phone-a-friend plugin install --claude` alone is not
+enough for skill changes: it re-registers the marketplace, whose plugin source is npm.
+
 ## Privacy
 
 Phone a Friend does not collect, transmit, or store any data on servers operated by this project. There is no telemetry and no analytics.

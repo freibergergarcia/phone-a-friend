@@ -326,6 +326,13 @@ Local manual bump (if needed): `npm run bump:patch`, `npm run bump:minor`, `npm 
 
 After changing source: `npm run build && git add dist/`
 
+### Testing host skills against a checkout
+
+Two indirections mean a fresh Claude session does not automatically run a checkout:
+
+- Skills resolve the binary with `command -v phone-a-friend`, so `PATH` must point at the checkout. `npm link` from the repo root does that (reversible with `npm install -g @freibergergarcia/phone-a-friend`). `phone-a-friend doctor` reports a PATH mismatch when it does not.
+- `.claude-plugin/marketplace.json` sources the plugin from **npm**, so `plugin install --claude` from a checkout still installs the published skill text (verified: after installing from a 4.4.1 checkout, the cache held 4.4.0 without the new sections). Use `claude --plugin-dir <checkout>` to load `commands/` and `skills/` from disk for one session; it overrides the installed marketplace copy of the same plugin name. `claude plugin validate .` checks the layout.
+
 ## Doctor diagnostics
 
 Doctor adds executable/version and configured-model information without changing
