@@ -11,8 +11,9 @@ import { realpathSync } from 'node:fs';
 import { sep } from 'node:path';
 import type { TaskEvent, TaskRecord, TaskStore } from './tasks.js';
 
-export const STATUS_LINE_PREFIX = '◇ PaF';
-export const DEFAULT_RECENT_MINUTES = 30;
+export const STATUS_LINE_PREFIX = '◇';
+/** How long a finished task stays on the row. Long enough to notice, short enough not to become history. */
+export const DEFAULT_RECENT_MINUTES = 2;
 const MAX_DETAIL_CHARS = 48;
 const DETAIL_EVENT_TYPES = new Set(['activity', 'message', 'turn_failed', 'error']);
 
@@ -85,13 +86,25 @@ export function pickStatusTask(
   return finished[0] ?? null;
 }
 
-export function renderStatusLine(task: TaskRecord, lastEvent: TaskEvent | null, now: Date): string {
-  const head = `${STATUS_LINE_PREFIX} ${task.backend} ${task.kind} ${task.id}`;
+/**
+ * Compact by design: the row competes with the host's own status rows, so it
+ * carries the one fact that matters and nothing that `task list` already has
+ * (no brand, no id).
+ */
+export function renderStatusLine(
+  task: TaskRecord,
+  lastEvent: TaskEvent | null,
+  now: Date,
+  opts: { runningCount?: number } = {},
+): string {
+  const count = opts.runningCount ?? 0;
+  const prefix = count > 1 ? `${STATUS_LINE_PREFIX} ${count} running · ` : `${STATUS_LINE_PREFIX} `;
+  const head = `${prefix}${task.backend} ${task.kind}`;
 
   if (task.status === 'running' || task.status === 'queued') {
     const since = new Date(task.startedAt ?? task.createdAt).getTime();
     const detail = lastEvent ? truncateDetail(lastEvent.message) : 'no activity reported yet';
-    return `${head} · ${formatElapsed(now.getTime() - since)} · ${detail}`;
+    return `${head} ${formatElapsed(now.getTime() - since)} · ${detail}`;
   }
 
   const ago = formatAgo(now.getTime() - new Date(task.finishedAt ?? task.updatedAt).getTime());
@@ -99,15 +112,15 @@ export function renderStatusLine(task: TaskRecord, lastEvent: TaskEvent | null, 
     let detail: string;
     if (task.kind === 'review') {
       detail = task.driftDetected === true
-        ? 'tree changed during review'
-        : task.driftDetected === false ? 'scope unchanged' : 'drift unknown';
+        ? 'tree changed, re-review'
+        : task.driftDetected === false ? 'tree unchanged' : 'drift unknown';
     } else {
-      detail = task.result === null ? 'done' : 'result stored';
+      detail = task.result === null ? 'no result retained' : 'result stored';
     }
-    return `${head} · completed ${ago} · ${detail}`;
+    return `${head} done ${ago} · ${detail}`;
   }
 
-  return `${head} · ${task.status} ${ago} · ${truncateDetail(task.error ?? 'no error recorded')}`;
+  return `${head} ${task.status} ${ago} · ${truncateDetail(task.error ?? 'no error recorded')}`;
 }
 
 /** Full pipeline for a cwd: reconcile dead owners, pick, render. Empty string when nothing is relevant. */
@@ -122,6 +135,7 @@ export function statusLineForCwd(
   const tasks = store.list({ limit: 500 }).filter((t) => taskMatchesCwd(t, cwd));
   const task = pickStatusTask(tasks, { now, recentMinutes });
   if (!task) return '';
+  const runningCount = tasks.filter((t) => t.status === 'running' || t.status === 'queued').length;
   const lastEvent = [...store.events(task.id)].reverse().find((e) => DETAIL_EVENT_TYPES.has(e.type)) ?? null;
-  return renderStatusLine(task, lastEvent, now);
+  return renderStatusLine(task, lastEvent, now, { runningCount });
 }

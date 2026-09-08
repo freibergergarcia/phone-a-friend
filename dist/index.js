@@ -84579,8 +84579,8 @@ init_tasks();
 // src/status-line.ts
 import { realpathSync as realpathSync3 } from "fs";
 import { sep as sep2 } from "path";
-var STATUS_LINE_PREFIX = "\u25C7 PaF";
-var DEFAULT_RECENT_MINUTES = 30;
+var STATUS_LINE_PREFIX = "\u25C7";
+var DEFAULT_RECENT_MINUTES = 2;
 var MAX_DETAIL_CHARS = 48;
 var DETAIL_EVENT_TYPES = /* @__PURE__ */ new Set(["activity", "message", "turn_failed", "error"]);
 function parseStatusLineStdin(text) {
@@ -84635,24 +84635,26 @@ function pickStatusTask(tasks, opts) {
   const finished = tasks.filter((t) => t.finishedAt !== null && new Date(t.finishedAt).getTime() >= cutoff).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
   return finished[0] ?? null;
 }
-function renderStatusLine(task, lastEvent, now2) {
-  const head = `${STATUS_LINE_PREFIX} ${task.backend} ${task.kind} ${task.id}`;
+function renderStatusLine(task, lastEvent, now2, opts = {}) {
+  const count = opts.runningCount ?? 0;
+  const prefix = count > 1 ? `${STATUS_LINE_PREFIX} ${count} running \xB7 ` : `${STATUS_LINE_PREFIX} `;
+  const head = `${prefix}${task.backend} ${task.kind}`;
   if (task.status === "running" || task.status === "queued") {
     const since = new Date(task.startedAt ?? task.createdAt).getTime();
     const detail = lastEvent ? truncateDetail(lastEvent.message) : "no activity reported yet";
-    return `${head} \xB7 ${formatElapsed(now2.getTime() - since)} \xB7 ${detail}`;
+    return `${head} ${formatElapsed(now2.getTime() - since)} \xB7 ${detail}`;
   }
   const ago = formatAgo(now2.getTime() - new Date(task.finishedAt ?? task.updatedAt).getTime());
   if (task.status === "completed") {
     let detail;
     if (task.kind === "review") {
-      detail = task.driftDetected === true ? "tree changed during review" : task.driftDetected === false ? "scope unchanged" : "drift unknown";
+      detail = task.driftDetected === true ? "tree changed, re-review" : task.driftDetected === false ? "tree unchanged" : "drift unknown";
     } else {
-      detail = task.result === null ? "done" : "result stored";
+      detail = task.result === null ? "no result retained" : "result stored";
     }
-    return `${head} \xB7 completed ${ago} \xB7 ${detail}`;
+    return `${head} done ${ago} \xB7 ${detail}`;
   }
-  return `${head} \xB7 ${task.status} ${ago} \xB7 ${truncateDetail(task.error ?? "no error recorded")}`;
+  return `${head} ${task.status} ${ago} \xB7 ${truncateDetail(task.error ?? "no error recorded")}`;
 }
 function statusLineForCwd(store, cwd2, now2 = /* @__PURE__ */ new Date(), recentMinutes = DEFAULT_RECENT_MINUTES) {
   if (!cwd2) return "";
@@ -84660,8 +84662,9 @@ function statusLineForCwd(store, cwd2, now2 = /* @__PURE__ */ new Date(), recent
   const tasks = store.list({ limit: 500 }).filter((t) => taskMatchesCwd(t, cwd2));
   const task = pickStatusTask(tasks, { now: now2, recentMinutes });
   if (!task) return "";
+  const runningCount = tasks.filter((t) => t.status === "running" || t.status === "queued").length;
   const lastEvent = [...store.events(task.id)].reverse().find((e) => DETAIL_EVENT_TYPES.has(e.type)) ?? null;
-  return renderStatusLine(task, lastEvent, now2);
+  return renderStatusLine(task, lastEvent, now2, { runningCount });
 }
 
 // src/progress.ts

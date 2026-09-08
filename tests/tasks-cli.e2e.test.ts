@@ -213,7 +213,7 @@ if (outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one fin
     });
     const active = statusLine(repo);
     expect(active.status, active.stderr).toBe(0);
-    expect(active.stdout.trim()).toMatch(new RegExp(`^◇ PaF codex review ${live.id} · \\d\\d:\\d\\d · Running: git diff$`));
+    expect(active.stdout.trim()).toMatch(/^◇ codex review \d\d:\d\d · Running: git diff$/);
     const idle = statusLine('/nowhere/else');
     expect(idle.status, idle.stderr).toBe(0);
     expect(idle.stdout).toBe('');

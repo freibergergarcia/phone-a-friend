@@ -277,7 +277,7 @@ While a relay runs, PaF reports progress on stderr: one line per backend-reporte
 
 #### Status line
 
-`phone-a-friend task status-line` prints one row for the repository your Claude Code session is in: the running task with elapsed time and the last reported event, or the most recent task that finished in the last 30 minutes. It reads Claude Code's status line JSON on stdin, so it drops straight into `settings.json`:
+`phone-a-friend task status-line` prints one row for the repository your Claude Code session is in: `◇ codex review 00:45 · Running: git diff` while a task runs, then `◇ codex review done 40s ago · tree unchanged` for two minutes, then nothing. It reads Claude Code's status line JSON on stdin, so it drops straight into `settings.json`:
 
 ```json
 {
@@ -298,7 +298,7 @@ printf '%s' "$input" | bash ~/.claude/my-statusline.sh
 printf '%s' "$input" | phone-a-friend task status-line
 ```
 
-It prints nothing when no task is running or recently finished, so the row only appears when there is something to say.
+It prints nothing when no task is running or finished within the last two minutes (`--recent <minutes>` changes the window), so the row only appears when there is something to say. It deliberately omits the task id; `phone-a-friend task list --repo .` has it.
 
 ### Review
 
