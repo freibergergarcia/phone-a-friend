@@ -320,12 +320,25 @@ if "$RELAY_BIN" task --help >/dev/null 2>&1; then PAF_TASKS=1; else PAF_TASKS=0;
 **Run reviews in the background.** A code review can take
 minutes; do not block the conversation on it.
 
-1. Start the relay with the Bash tool's `run_in_background: true`, using the
-   same command you would run in the foreground.
-2. Read the `Task <id> started` line from the early output and tell the user
-   the id in one sentence, for example: "Codex review started (task
-   3f9a2c1d). I'll pick up the result when it finishes; `phone-a-friend task
-   show 3f9a2c1d` shows progress from any terminal."
+1. Preferred: delegate to the plugin subagent `phone-a-friend:paf-reviewer`
+   through the Agent tool with `run_in_background: true`, passing the exact
+   relay command as the prompt (the same command you would run yourself,
+   including the heredoc that writes the prompt file). Do not give it a
+   `name`: with agent teams enabled a named subagent becomes a teammate,
+   and teammates cannot run background Bash. The review then appears in the
+   agent panel and `/tasks`, its verbose output stays out of your context,
+   and it returns a receipt plus the verbatim findings when it finishes.
+   Fallback when that subagent type is unavailable (older plugin, `-p`
+   mode): run the command yourself with the Bash tool's
+   `run_in_background: true`.
+2. Tell the user the review started and give them the task id in one
+   sentence. With the Bash fallback, read the `Task <id> started` line from
+   the early output. With the subagent, the id is not visible until it
+   reports back, so after a few seconds run
+   `"$RELAY_BIN" task list --repo "$PWD" --status running` and quote the
+   id from there, for example: "Codex review started (task 3f9a2c1d). I'll
+   pick up the result when it finishes; `phone-a-friend task show 3f9a2c1d`
+   shows progress from any terminal."
 3. Keep working on the user's next request. Do not poll. The host notifies
    you when the background command exits.
 4. On completion, read the command output: the relay result is on stdout and

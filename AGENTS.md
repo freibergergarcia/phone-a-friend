@@ -68,6 +68,7 @@ src/
       ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
 commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini model selection, etc.)
+agents/paf-reviewer.md   Claude plugin subagent (background, Bash+Read, sonnet): runs one PaF command and reports receipt + verbatim findings
 skills/<name>/SKILL.md         Canonical Agent Skills — primary OpenCode entry point, also auto-discovered by Claude Code as plugin-namespaced skills
 skills/<name>/COMMAND.opencode.md  Thin OpenCode command shim (overlay). Installer prefers this over commands/<name>.md when present, so OpenCode users get a small shim that delegates into SKILL.md while Claude users get the rich commands/<name>.md inline.
 dist/                Built bundle (committed, self-contained)
@@ -438,6 +439,12 @@ This is PaF's integration choice, not a universal limit on Codex: delegation als
 depends on the host's instructions and reasoning mode. See the current
 [Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 Legacy `paf-*` personas are not installed; the installer removes stale symlinks.
+
+### Agent Teams and the paf-reviewer subagent
+
+`/phone-a-team` (Claude only) uses current Agent Teams mechanics: no `TeamCreate`/`TeamDelete` (removed in Claude Code 2.1.178); a teammate launches when the lead calls the Agent tool with a `name` while `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set; cleanup is automatic at session end and shutdown is a natural-language `SendMessage` per worker. Teammates inherit the lead's permission mode and cannot run background Bash, so workers run relays in the foreground. When teams are unavailable (env var unset, `-p` mode, no `name` parameter on the Agent tool) the command degrades to direct relays. `tests/skill-files.test.ts` pins this contract.
+
+`agents/paf-reviewer.md` is a plugin subagent (`phone-a-friend:paf-reviewer`, background, `Bash` + `Read`, sonnet). `/phone-a-friend` on a Claude host delegates reviews to it with `run_in_background: true` and no `name`, so the review shows in the agent panel and `/tasks`, its verbose output stays in the subagent's context, and the main conversation receives a receipt plus verbatim findings. A named subagent would become a teammate under agent teams and lose background Bash, hence the no-name rule. The Bash `run_in_background` path remains the fallback. `agents/` is in the npm `files` list so marketplace installs ship it.
 
 ### Claude workflow boundary
 

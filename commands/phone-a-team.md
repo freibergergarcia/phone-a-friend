@@ -413,9 +413,37 @@ For the rest of the loop, treat `all` like `both`: spawn one teammate per
 backend (or run them as parallel direct calls when teams are unavailable),
 collect outputs, and resolve conflicts using the existing rules.
 
-## Step 3 — Create Agent Team
+## Step 3 — Spawn the Agent Team
 
-Create an agent team and spawn worker teammate(s) for relay delegation.
+Spawn worker teammate(s) for relay delegation. There is no separate "create
+team" step any more: Claude Code 2.1.178 removed the team create/delete
+tools. A teammate launches when the lead calls the Agent tool (alias `Task`)
+with a `name` while agent teams are enabled, and Claude Code removes the
+team's runtime state itself when the session ends.
+
+### Availability
+
+Teams exist only when all of these hold. Otherwise set `TEAM_ACTIVE=false`
+and run every relay directly via Bash in the current session; the loop is
+identical, only the execution mechanism changes.
+
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in the environment or in
+  `settings.json` under `env`. Without it a named Agent call runs as an
+  ordinary subagent, not a teammate.
+- The session is interactive. In `-p` / non-interactive mode Claude never
+  spawns teammates.
+- The Agent tool exposes a `name` parameter. If it does not, teams are
+  disabled in this session.
+
+Display is the user's setting, not this command's: `teammateMode: "tmux"`
+(or `"auto"` when already inside tmux or iTerm2) gives one split pane per
+teammate; the default `"in-process"` lists teammates in the agent panel
+below the prompt, where arrow keys select one and Enter opens its
+transcript. Idle rows hide after 30 seconds; the teammate stays addressable
+by name.
+
+Teammates cannot run background Bash and cannot spawn background subagents;
+every relay in a worker runs in the foreground of that worker's turn.
 
 ### State Variables
 
@@ -423,7 +451,9 @@ Set these during this step. They are referenced throughout the rest of the
 command:
 
 - `TEAM_ACTIVE` = true | false
-- `TEAM_NAME` = string (if team created)
+- `TEAM_ACTIVE` is the only team state you own. Claude Code derives the
+  team's name from the session (`session-<first 8 chars of the session id>`)
+  and stores its runtime state; do not choose, read, or edit it.
 - `WORKERS` = list of teammate names (if team created)
 - `OLLAMA_SELECTED_MODEL` = string (set during Step 2 preflight if Ollama
   is a requested backend; used in all Ollama relay calls)
@@ -452,29 +482,31 @@ command:
 
 ### Algorithm
 
-1. **Create team.** Call `TeamCreate` with
-   `team_name: "phone-a-team-<task-slug>"` where `<task-slug>` is a short
-   kebab-case slug derived from the first few words of TASK_DESCRIPTION
-   (e.g., "review-error-handling", "design-architecture-docs").
-   Team creation may fail if agent teams are not available in the current
-   environment (e.g., env var not set, feature disabled). This is expected;
-   if it fails → set `TEAM_ACTIVE=false`, skip to end of step.
+1. **Check availability** as described above. If teams are unavailable, set
+   `TEAM_ACTIVE=false` and skip to the end of this step. This is expected,
+   not an error.
 
-2. **Spawn teammate(s)** based on BACKEND. Each teammate MUST have a
+2. **Spawn teammate(s)** based on BACKEND by calling the Agent tool with a `name`. Each teammate MUST have a
    **creative, unique human first name** — never generic labels like
    "relay-worker" or "codex-agent". Draw from diverse cultures and regions,
    invent fresh names each time (never reuse names from recent sessions or
    pick from a fixed list). Announce to the user as **Name** (role / backend),
    e.g. **Leila** (relay / codex), **Tomás** (relay / ollama:qwen3).
 
-   - **Single backend** (`codex`, `gemini`, `ollama`, or `opencode`): Spawn
-     1 teammate via the `Task` tool with:
+   - **Single backend** (`codex`, `gemini`, `ollama`, or `opencode`): one
+     Agent call with:
      - `name`: a creative human first name
-     - `team_name`: the TEAM_NAME from step 1
      - `subagent_type: "general-purpose"`
-     - `mode: "bypassPermissions"`
-   - **Both backends**: Spawn 2 teammates **in parallel**, each with a
-     unique human first name (same params as above).
+     - `prompt`: the worker template below, with the Round 1 relay command
+       already included
+   - **Both backends**: two Agent calls **in parallel**, each with a unique
+     human first name (same params as above).
+
+   Pass nothing else. Teammates start with the lead's permission settings
+   and their permission prompts appear in the lead session, so there is no
+   per-teammate permission mode at spawn time. Spawning needs no
+   confirmation from the user. Set `TEAM_ACTIVE=true` once the first spawn
+   succeeds.
 
 3. **Each teammate's prompt** must use this template:
 
@@ -519,6 +551,9 @@ command:
 
    Include `--session <SESSION_ID>` for every session-capable backend
    (`codex`, `claude`, `gemini`, `opencode`, `ollama`).
+
+   Run the command in the foreground and wait for it. Teammates cannot run
+   background Bash, so do not use `run_in_background`, `&`, or `nohup`.
 
    On the FIRST relay under a new session label, PaF prints an
    informational stderr line: `[phone-a-friend] Session label "..." not
@@ -581,8 +616,9 @@ command:
    relay command directly in the teammate's spawn prompt. Do NOT just say
    "wait for tasks" or "stand by" — this causes deadlock.
 
-5. **If any spawn fails**: Send `shutdown_request` to any already-spawned
-   teammates, call `TeamDelete`, set `TEAM_ACTIVE=false`.
+5. **If any spawn fails**: ask each already-spawned teammate by name to shut
+   down via `SendMessage`, then set `TEAM_ACTIVE=false`. There is no team
+   deletion call; Claude Code cleans up when the session ends.
 
 6. Set `WORKERS` to the list of successfully spawned teammate names.
 
@@ -679,9 +715,9 @@ Before executing any round, select the execution mode based on team state:
 - **DO phase**: Lead sends task to teammate(s) via `SendMessage`. For
   `--backend both`, message both workers in parallel. Wait for results.
   If a worker does not respond within the relay timeout (default 600
-  seconds) plus 30 seconds, set `TEAM_ACTIVE=false`, send
-  `shutdown_request` to all workers, call `TeamDelete`, and degrade to
-  direct Bash mode for the remainder of the loop.
+  seconds) plus 30 seconds, set `TEAM_ACTIVE=false`, ask every worker by
+  name to shut down via `SendMessage`, and degrade to direct Bash mode for
+  the remainder of the loop.
 - **REVIEW phase**: Lead reviews output received from teammate(s). For
   `--backend both`, resolve conflicts (see "Backend Both — Conflict
   Resolution" below).
@@ -973,11 +1009,11 @@ happened in the synthesis.
 
 ## Step 8 — Cleanup
 
-**ALWAYS execute this step if a team was created (i.e., `TeamCreate`
-succeeded at any point during this session)**, regardless of how the loop
+**ALWAYS execute this step if any teammate was spawned (i.e., `TEAM_ACTIVE`
+was true at any point during this session)**, regardless of how the loop
 ended (convergence, forced stop, abort, error, or user interruption).
-**Execute cleanup BEFORE presenting the final synthesis** so that teams are
-never left orphaned if the session ends after synthesis.
+**Execute cleanup BEFORE presenting the final synthesis** so that workers
+are not left running after the answer is on screen.
 
 1. Ask each teammate in WORKERS to shut down via `SendMessage`. Use natural
    language and let Claude Code's native Agent Teams shutdown flow handle
@@ -986,28 +1022,27 @@ never left orphaned if the session ends after synthesis.
    waiting as soon as every teammate has either approved or rejected
    shutdown. Treat `shutdown_approved` as success. If a teammate rejects
    shutdown, reports that it is still working, or does not respond, continue
-   to the next step after the timeout.
+   to the next step after the timeout. This 30-second wait is the only cleanup wait allowed.
 3. Do NOT poll `~/.claude/teams/<team-name>/`, `config.json`, inbox files,
    tmux pane state, or any other Claude-managed runtime state waiting for a
    teammate or team directory to disappear. Do not use Bash `ls`, `grep`,
    `test`, `sleep`, or `until` loops for cleanup verification. The docs
    describe team files as runtime state that Claude Code manages; polling
    them can hang in in-process mode.
-4. Call `TeamDelete` to remove the team and its task list.
-5. If `TeamDelete` fails due to active members, wait 15 seconds and retry
-   `TeamDelete` once. This explicit retry is the only cleanup wait allowed
-   after shutdown confirmations arrive. If it still fails, do NOT kill tmux panes
-   from the lead session (this can kill the lead). Instead, inform the
-   user and suggest they manually run: `tmux kill-session -t <name>`
-6. After `TeamDelete` returns or the team is otherwise gone, immediately
-   continue to Step 9 and present the final synthesis. Do not wait for any
-   additional Agent Teams acknowledgement, runtime-state change, file-system
-   change, background command, or model reflection step. In non-interactive
-   print mode, successful cleanup must be followed immediately by final text.
+4. There is no team deletion call. Claude Code removes the team's runtime
+   state when the session ends and hides idle teammates from the panel. A
+   teammate that rejected shutdown or did not respond keeps running until
+   the session ends: say so to the user, and do NOT kill tmux panes from
+   the lead session (this can kill the lead). If a pane is still there after
+   the session ends, the user can run `tmux kill-session -t <name>`.
+5. Immediately continue to Step 9 and present the final synthesis. Do not
+   wait for any additional Agent Teams acknowledgement, runtime-state
+   change, file-system change, background command, or model reflection
+   step. In non-interactive print mode, successful cleanup must be followed immediately by final text.
 
-If a teammate does not respond to the shutdown request within 30 seconds
-(even after a retry), proceed with `TeamDelete` anyway. Do not leave
-orphaned teams.
+If a teammate does not respond to the shutdown request within 30 seconds,
+proceed to Step 9 anyway. Never leave the user without the synthesis
+because a worker is slow to exit.
 
 ## Step 9 — Final Synthesis
 
@@ -1050,16 +1085,16 @@ happened and whether the result is complete.
   session. This command is not re-entrant.
 - **One team per session.** Only one team can be active. Do not attempt to
   create multiple teams.
-- **Teammates use bypassPermissions.** All spawned teammates MUST use
-  `mode: "bypassPermissions"` to avoid blocking the user with permission
-  prompts.
+- **Teammates inherit the lead's permission mode.** There is no
+  per-teammate mode at spawn time, and teammate permission prompts appear
+  in the lead session. Run the lead with bypass permissions if prompts
+  from workers would block the loop.
 - **Context size limits.** Respect the relay limits: 200 KB context, 300 KB
   diff, 500 KB prompt. Use the context budget rules in Step 5.
 - **No changes to phone-a-friend internals.** This command uses
   `phone-a-friend` as a black box. Do not modify its source files.
-- **Cleanup is mandatory.** Step 8 must execute if a team was created (i.e.,
-  `TeamCreate` succeeded at any point during this session), even on error
-  paths.
+- **Cleanup is mandatory.** Step 8 must execute if any teammate was
+  spawned (`TEAM_ACTIVE` was ever true), even on error paths.
 - **One backend per relay call.** Never pass comma-separated values to
   `--to` (e.g. `phone-a-friend --to codex,gemini`). PaF is one backend per
   call. For multi-backend rounds, run separate `phone-a-friend` invocations

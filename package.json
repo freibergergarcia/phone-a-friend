@@ -48,6 +48,7 @@
     "plugins/",
     "skills/",
     "commands/",
+    "agents/",
     "README.md",
     "LICENSE"
   ],
