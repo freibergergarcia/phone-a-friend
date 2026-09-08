@@ -47,6 +47,23 @@ export interface SessionHistoryEntry {
   content: string;
 }
 
+/**
+ * Progress reported by a backend while a run is in flight. Only evidence the
+ * backend itself emits is surfaced; PaF never synthesizes activity.
+ */
+export interface BackendEvent {
+  type:
+    | 'session_linked'
+    | 'turn_started'
+    | 'activity'
+    | 'message'
+    | 'turn_completed'
+    | 'turn_failed'
+    | 'error';
+  message: string;
+  data?: Record<string, unknown>;
+}
+
 export interface BackendRunOptions {
   prompt: string;
   repoPath: string;
@@ -65,6 +82,8 @@ export interface BackendRunOptions {
   sessionLabel?: string | null;
   sessionHistory?: SessionHistoryEntry[];
   onSessionCreated?: (sessionId: string) => void;
+  /** Receives backend progress events as they arrive. Optional; absent means no progress stream is requested. */
+  onEvent?: (event: BackendEvent) => void;
 }
 
 export interface ReviewOptions {
@@ -76,6 +95,8 @@ export interface ReviewOptions {
   base: string;
   scope?: ReviewScope;
   prompt?: string;
+  /** Receives backend progress events as they arrive. Optional. */
+  onEvent?: (event: BackendEvent) => void;
 }
 
 export interface Backend {
@@ -214,6 +235,8 @@ export interface SpawnCliOptions {
   cwd?: string;
   /** Label used in error messages (e.g. "codex exec", "gemini"). Defaults to the command name. */
   label?: string;
+  /** Receives stdout chunks as they arrive, for progress observers. Errors thrown here are ignored. */
+  onStdout?: (chunk: string) => void;
 }
 
 export interface SpawnCliResult {
@@ -251,7 +274,16 @@ export function spawnCli(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+      if (opts.onStdout) {
+        try {
+          opts.onStdout(chunk.toString());
+        } catch {
+          // Observers must never break the subprocess run.
+        }
+      }
+    });
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
     child.on('error', (err) => {

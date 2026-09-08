@@ -301,6 +301,66 @@ When waiting on another local Claude session, the main conversation can use
 This is a one-shot notice, not proof of task completion; check the final result.
 See [Claude peer notifications](https://code.claude.com/docs/en/cross-session-messaging#get-a-notice-when-another-session-goes-idle).
 
+## Background reviews and task tracking
+
+Newer PaF binaries record every relay and review as a task in a local SQLite
+store (`~/.config/phone-a-friend/tasks.db`) and print one stderr line when the
+run starts:
+
+```text
+◇ Task 3f9a2c1d started · phone-a-friend task show 3f9a2c1d
+```
+
+Probe once per conversation so stale binaries degrade gracefully:
+
+```bash
+if "$RELAY_BIN" task --help >/dev/null 2>&1; then PAF_TASKS=1; else PAF_TASKS=0; fi
+```
+
+**Run reviews in the background.** A code review can take
+minutes; do not block the conversation on it.
+
+1. Start the relay with the Bash tool's `run_in_background: true`, using the
+   same command you would run in the foreground.
+2. Read the `Task <id> started` line from the early output and tell the user
+   the id in one sentence, for example: "Codex review started (task
+   3f9a2c1d). I'll pick up the result when it finishes; `phone-a-friend task
+   show 3f9a2c1d` shows progress from any terminal."
+3. Keep working on the user's next request. Do not poll. The host notifies
+   you when the background command exits.
+4. On completion, read the command output: the relay result is on stdout and
+   `Task <id> completed` (or `failed`) is on stderr. Trust that line, not the
+   host's exit code: when the command finishes between turns the host may
+   report the exit code as unknown or -1 although the relay succeeded. If the
+   output is no longer in context, run `"$RELAY_BIN" task result <id>`.
+5. If stderr says the working tree changed during the review, say so and
+   offer a re-review: the result covers the snapshot captured at start.
+
+Hosts without background shell tasks run the relay synchronously; the task
+record is still written and the same `task` commands work.
+
+**Finding earlier work.** When the user asks what happened to a review, or
+wants to continue one:
+
+```bash
+"$RELAY_BIN" task list --repo "$PWD"   # newest first, this repository
+"$RELAY_BIN" task show <id>            # scope, backend session, drift check, event log
+"$RELAY_BIN" task result <id>          # stored result; exit 3 while still running
+```
+
+`task show` includes the backend session id; pass it as `--backend-session`
+(or reuse the original `--session` label) to continue that conversation.
+
+**Honesty rules.** A `running` task with no recent events is not proof of a
+hang; report elapsed time and the last event. `interrupted` means the owning
+PaF process exited without reporting, and the backend may still have finished
+on its side. Never claim a result exists until `task result` prints it.
+
+**Retention.** `defaults.task_history = "results" | "metadata" | "off"` (or
+`PHONE_A_FRIEND_TASK_HISTORY`); `--no-task-history` skips one run. Prompts are
+stored as a 200-character preview plus a hash and diffs as a hash only.
+Deleting a task does not delete the backend's own session.
+
 ## Session continuity
 
 If this relay is a follow-up to a previous `/phone-a-friend` relay in the

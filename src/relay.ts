@@ -5,9 +5,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { BackendEvent } from './backends/index.js';
 import {
   getBackend,
   isReviewScope,
@@ -339,6 +340,115 @@ function gitDiffAll(repoPath: string, base: string): string {
   return combined;
 }
 
+// ---------------------------------------------------------------------------
+// Observer: scope capture, drift detection, progress forwarding
+// ---------------------------------------------------------------------------
+
+export interface RelayScopeInfo {
+  scope: ReviewScope;
+  base: string;
+  /** sha256 of the collected diff text. */
+  diffHash: string;
+  diffBytes: number;
+  diffFiles: number;
+}
+
+export interface RelayDriftInfo {
+  /** true: the diff changed during the review; false: unchanged; null: could not re-collect. */
+  drifted: boolean | null;
+  diffHash: string | null;
+}
+
+/**
+ * Optional hooks for callers that record delegated work (task tracking).
+ * Every hook is best-effort: observer errors never break a relay, and no
+ * hook is invoked unless the caller supplied it.
+ */
+export interface RelayObserver {
+  onScope?(info: RelayScopeInfo): void;
+  onDrift?(info: RelayDriftInfo): void;
+  onEvent?(event: BackendEvent): void;
+  onSessionLinked?(backendSessionId: string): void;
+}
+
+function safeObserve(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // Observers must never break the relay.
+  }
+}
+
+function hashDiff(diffText: string): string {
+  return createHash('sha256').update(diffText, 'utf8').digest('hex');
+}
+
+function describeDiff(diffText: string, scope: ReviewScope, base: string): RelayScopeInfo {
+  const diffFiles = (diffText.match(/^diff --git /gm) ?? []).length;
+  return {
+    scope,
+    base,
+    diffHash: hashDiff(diffText),
+    diffBytes: sizeBytes(diffText),
+    diffFiles,
+  };
+}
+
+interface ObserverBridge {
+  onEvent: ((event: BackendEvent) => void) | undefined;
+  sessionLinked: (backendSessionId: string) => void;
+}
+
+/**
+ * Turn an observer into backend-facing callbacks. A session may be reported
+ * twice (onSessionCreated plus a session_linked event); the bridge forwards
+ * each id once.
+ */
+function observerBridge(observer?: RelayObserver): ObserverBridge {
+  const linked = new Set<string>();
+  const sessionLinked = (backendSessionId: string): void => {
+    if (!backendSessionId || linked.has(backendSessionId)) return;
+    linked.add(backendSessionId);
+    safeObserve(() => observer?.onSessionLinked?.(backendSessionId));
+  };
+  const wantsEvents = Boolean(observer && (observer.onEvent || observer.onSessionLinked));
+  const onEvent = wantsEvents
+    ? (event: BackendEvent): void => {
+        if (event.type === 'session_linked') {
+          const id = event.data?.backendSessionId;
+          if (typeof id === 'string') sessionLinked(id);
+        }
+        safeObserve(() => observer?.onEvent?.(event));
+      }
+    : undefined;
+  return { onEvent, sessionLinked };
+}
+
+/**
+ * Re-collect the review diff after the backend finished and tell the observer
+ * whether the reviewed snapshot still matches the working tree. A backend with
+ * local file access reads the live tree, so a changed diff means the result
+ * may not cover what is on disk now.
+ */
+function reportReviewDrift(
+  observer: RelayObserver | undefined,
+  repoPath: string,
+  base: string,
+  scope: ReviewScope,
+  originalHash: string,
+): void {
+  if (!observer?.onDrift) return;
+  let info: RelayDriftInfo;
+  try {
+    const current = hashDiff(collectReviewDiff(repoPath, base, scope));
+    info = { drifted: current !== originalHash, diffHash: current };
+  } catch (err) {
+    const tooLarge = err instanceof RelayError && /too large/i.test(err.message);
+    info = { drifted: tooLarge ? true : null, diffHash: null };
+  }
+  safeObserve(() => observer.onDrift?.(info));
+}
+
 function collectReviewDiff(repoPath: string, base: string, scope: ReviewScope): string {
   if (scope === 'branch') return gitDiffBase(repoPath, base);
   if (scope === 'working-tree') return gitDiffWorkingTree(repoPath);
@@ -444,6 +554,8 @@ export interface ReviewRelayOptions {
    * The raw response should be passed to parseVerdict() by the caller.
    */
   verdictJson?: boolean;
+  /** Scope, drift, and progress hooks used by task tracking. */
+  observer?: RelayObserver;
 }
 
 export interface RelayOptions {
@@ -466,6 +578,8 @@ export interface RelayOptions {
   /** Claude-only cross-session messaging behavior. */
   peerMessaging?: ClaudePeerMessagingMode;
   sessionStore?: SessionStore;
+  /** Scope, drift, and progress hooks used by task tracking. */
+  observer?: RelayObserver;
 }
 
 export interface BackgroundRelayOptions extends RelayOptions {
@@ -486,6 +600,7 @@ interface PreparedRelay {
   fast: boolean;
   peerMessaging: ClaudePeerMessagingMode;
   sessionStore?: SessionStore;
+  observer?: RelayObserver;
 }
 
 function prepareRelay(opts: RelayOptions): PreparedRelay {
@@ -574,6 +689,7 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
     fast,
     peerMessaging,
     sessionStore: opts.sessionStore,
+    observer: opts.observer,
   };
 }
 
@@ -592,7 +708,9 @@ export async function relay(opts: RelayOptions): Promise<string> {
     fast,
     peerMessaging,
     sessionStore,
+    observer,
   } = prepareRelay(opts);
+  const bridge = observerBridge(observer);
 
   try {
     // --- Path A: --backend-session (raw passthrough, with optional adoption) ---
@@ -637,7 +755,9 @@ export async function relay(opts: RelayOptions): Promise<string> {
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId = newSessionId;
+          bridge.sessionLinked(newSessionId);
         },
+        onEvent: bridge.onEvent,
       });
 
       if (session && store) {
@@ -707,7 +827,9 @@ export async function relay(opts: RelayOptions): Promise<string> {
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
+        bridge.sessionLinked(newSessionId);
       },
+      onEvent: bridge.onEvent,
     });
 
     if (session && store) {
@@ -795,7 +917,9 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     fast,
     peerMessaging,
     sessionStore,
+    observer,
   } = prepareRelay(opts);
+  const bridge = observerBridge(observer);
 
   // Session support: look up stored session for resume context (skipped when
   // --backend-session is set, since that path bypasses the label store).
@@ -817,6 +941,8 @@ export async function* relayStream(opts: RelayOptions): AsyncGenerator<string> {
     persistSession: Boolean(session),
     resumeSession: Boolean(backendSession || (session && storedSession)),
     sessionHistory: storedSession?.history ?? [],
+    onSessionCreated: observer ? bridge.sessionLinked : undefined,
+    onEvent: bridge.onEvent,
   };
 
   try {
@@ -894,6 +1020,11 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
   if (!collectedDiff) return noChangesReviewResponse(scope, verdictJson);
 
+  const observer = opts.observer;
+  const bridge = observerBridge(observer);
+  const scopeInfo = describeDiff(collectedDiff, scope, base);
+  safeObserve(() => observer?.onScope?.(scopeInfo));
+
   // If backend supports review(), use it directly.
   // Skip native review when:
   //   - the backend does not declare support for the selected review scope;
@@ -911,7 +1042,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     && !schema
   ) {
     try {
-      return await selectedBackend.review({
+      const nativeResult = await selectedBackend.review({
         repoPath: resolvedRepo,
         timeoutSeconds,
         sandbox,
@@ -920,7 +1051,10 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
         base,
         scope,
         prompt,
+        onEvent: bridge.onEvent,
       });
+      reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+      return nativeResult;
     } catch (err) {
       // Fallback to run() with diff on review() failure
       if (err instanceof RelayError) {
@@ -945,7 +1079,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
 
   try {
-    return await selectedBackend.run({
+    const result = await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,
@@ -956,7 +1090,10 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
       fast,
       peerMessaging,
       sessionLabel: 'review',
+      onEvent: bridge.onEvent,
     });
+    reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+    return result;
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {

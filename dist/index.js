@@ -74,7 +74,7 @@ function checkBackends(whichFn = isInPath) {
 }
 function spawnCli(command, args, opts) {
   const label = opts.label ?? command;
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const child = nodeSpawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: opts.env ?? process.env,
@@ -91,7 +91,15 @@ function spawnCli(command, args, opts) {
     process.on("SIGINT", onSigint);
     const stdoutChunks = [];
     const stderrChunks = [];
-    child.stdout?.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stdout?.on("data", (chunk) => {
+      stdoutChunks.push(chunk);
+      if (opts.onStdout) {
+        try {
+          opts.onStdout(chunk.toString());
+        } catch {
+        }
+      }
+    });
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -116,7 +124,7 @@ function spawnCli(command, args, opts) {
         reject(new SpawnCliError(detail, stdout, stderr, code));
         return;
       }
-      resolve4({ stdout, stderr, exitCode: code ?? 0 });
+      resolve5({ stdout, stderr, exitCode: code ?? 0 });
     });
   });
 }
@@ -1070,10 +1078,323 @@ var init_dist = __esm({
   }
 });
 
-// src/config.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync2 } from "fs";
+// src/tasks.ts
+var tasks_exports = {};
+__export(tasks_exports, {
+  TASK_HISTORY_MODES: () => TASK_HISTORY_MODES,
+  TASK_STATUSES: () => TASK_STATUSES,
+  TaskStore: () => TaskStore,
+  defaultTaskDbPath: () => defaultTaskDbPath,
+  hashText: () => hashText,
+  isProcessAlive: () => isProcessAlive
+});
+import { createHash } from "crypto";
+import { mkdirSync as mkdirSync2 } from "fs";
 import { homedir as homedir2 } from "os";
-import { join as join3, dirname as dirname2 } from "path";
+import { dirname as dirname2, join as join3 } from "path";
+import { randomUUID } from "crypto";
+function getDatabase() {
+  if (!_Database) {
+    _Database = __require("better-sqlite3");
+  }
+  return _Database;
+}
+function defaultTaskDbPath() {
+  const configBase = process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config");
+  return join3(configBase, "phone-a-friend", "tasks.db");
+}
+function hashText(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+function now() {
+  return (/* @__PURE__ */ new Date()).toISOString();
+}
+function rowToTask(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    status: row.status,
+    backend: row.backend,
+    model: row.model,
+    sandbox: row.sandbox,
+    repoPath: row.repo_path,
+    branch: row.branch,
+    headSha: row.head_sha,
+    reviewScope: row.review_scope,
+    reviewBase: row.review_base,
+    diffHash: row.diff_hash,
+    diffBytes: row.diff_bytes,
+    diffFiles: row.diff_files,
+    driftDetected: row.drift_detected === null ? null : row.drift_detected === 1,
+    promptPreview: row.prompt_preview,
+    promptHash: row.prompt_hash,
+    sessionLabel: row.session_label,
+    backendSessionId: row.backend_session_id,
+    pid: row.pid,
+    host: row.host,
+    result: row.result,
+    error: row.error,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    updatedAt: row.updated_at
+  };
+}
+function rowToEvent(row) {
+  let data = null;
+  if (row.data) {
+    try {
+      data = JSON.parse(row.data);
+    } catch {
+      data = null;
+    }
+  }
+  return { id: row.id, taskId: row.task_id, ts: row.ts, type: row.type, message: row.message, data };
+}
+function toColumnValue(value) {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (value === void 0) return null;
+  return value;
+}
+var _Database, TASK_STATUSES, SCHEMA, COLUMN_BY_FIELD, MIN_PREFIX_LENGTH, TaskStore, TASK_HISTORY_MODES;
+var init_tasks = __esm({
+  "src/tasks.ts"() {
+    "use strict";
+    TASK_STATUSES = ["queued", "running", "completed", "failed", "interrupted"];
+    SCHEMA = `
+  CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    model TEXT,
+    sandbox TEXT,
+    repo_path TEXT NOT NULL,
+    branch TEXT,
+    head_sha TEXT,
+    review_scope TEXT,
+    review_base TEXT,
+    diff_hash TEXT,
+    diff_bytes INTEGER,
+    diff_files INTEGER,
+    drift_detected INTEGER,
+    prompt_preview TEXT,
+    prompt_hash TEXT,
+    session_label TEXT,
+    backend_session_id TEXT,
+    pid INTEGER,
+    host TEXT,
+    result TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tasks_repo_created ON tasks(repo_path, created_at);
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+  CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    ts TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id);
+`;
+    COLUMN_BY_FIELD = {
+      model: "model",
+      branch: "branch",
+      headSha: "head_sha",
+      reviewBase: "review_base",
+      diffHash: "diff_hash",
+      diffBytes: "diff_bytes",
+      diffFiles: "diff_files",
+      driftDetected: "drift_detected",
+      backendSessionId: "backend_session_id",
+      sessionLabel: "session_label",
+      createdAt: "created_at"
+    };
+    MIN_PREFIX_LENGTH = 4;
+    TaskStore = class {
+      db;
+      constructor(dbPath) {
+        const path4 = dbPath ?? defaultTaskDbPath();
+        mkdirSync2(dirname2(path4), { recursive: true });
+        const Database = getDatabase();
+        this.db = new Database(path4);
+        this.db.pragma("journal_mode = WAL");
+        this.db.pragma("busy_timeout = 5000");
+        this.db.pragma("foreign_keys = ON");
+        this.db.exec(SCHEMA);
+      }
+      close() {
+        this.db.close();
+      }
+      create(input) {
+        const ts = now();
+        const id = randomUUID().replace(/-/g, "").slice(0, 8);
+        this.db.prepare(`
+      INSERT INTO tasks (
+        id, kind, status, backend, model, sandbox, repo_path, branch, head_sha,
+        review_scope, review_base, prompt_preview, prompt_hash, session_label, host,
+        created_at, updated_at
+      ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+          id,
+          input.kind,
+          input.backend,
+          input.model ?? null,
+          input.sandbox ?? null,
+          input.repoPath,
+          input.branch ?? null,
+          input.headSha ?? null,
+          input.reviewScope ?? null,
+          input.reviewBase ?? null,
+          input.promptPreview ?? null,
+          input.promptHash ?? null,
+          input.sessionLabel ?? null,
+          input.host ?? null,
+          ts,
+          ts
+        );
+        return this.get(id);
+      }
+      start(id, pid) {
+        const ts = now();
+        this.db.prepare(
+          "UPDATE tasks SET status = 'running', pid = ?, started_at = ?, updated_at = ? WHERE id = ?"
+        ).run(pid, ts, ts, id);
+      }
+      complete(id, result) {
+        const ts = now();
+        this.db.prepare(
+          "UPDATE tasks SET status = 'completed', result = ?, finished_at = ?, updated_at = ? WHERE id = ?"
+        ).run(result, ts, ts, id);
+      }
+      fail(id, error2) {
+        const ts = now();
+        this.db.prepare(
+          "UPDATE tasks SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ?"
+        ).run(error2, ts, ts, id);
+      }
+      update(id, patch) {
+        const assignments = [];
+        const values = [];
+        for (const [field, value] of Object.entries(patch)) {
+          const column = COLUMN_BY_FIELD[field];
+          if (!column || value === void 0) continue;
+          assignments.push(`${column} = ?`);
+          values.push(toColumnValue(value));
+        }
+        assignments.push("updated_at = ?");
+        values.push(now());
+        values.push(id);
+        const info2 = this.db.prepare(`UPDATE tasks SET ${assignments.join(", ")} WHERE id = ?`).run(...values);
+        if (info2.changes === 0) return null;
+        return this.get(id);
+      }
+      addEvent(taskId, type, message, data) {
+        const ts = now();
+        const info2 = this.db.prepare(
+          "INSERT INTO task_events (task_id, ts, type, message, data) VALUES (?, ?, ?, ?, ?)"
+        ).run(taskId, ts, type, message, data ? JSON.stringify(data) : null);
+        return { id: Number(info2.lastInsertRowid), taskId, ts, type, message, data: data ?? null };
+      }
+      events(taskId) {
+        const rows = this.db.prepare(
+          "SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC"
+        ).all(taskId);
+        return rows.map(rowToEvent);
+      }
+      get(idOrPrefix) {
+        const exact = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(idOrPrefix);
+        if (exact) return rowToTask(exact);
+        if (idOrPrefix.length < MIN_PREFIX_LENGTH) return null;
+        const matches = this.db.prepare("SELECT * FROM tasks WHERE id LIKE ? LIMIT 2").all(`${idOrPrefix.replace(/[%_]/g, "")}%`);
+        return matches.length === 1 ? rowToTask(matches[0]) : null;
+      }
+      list(opts = {}) {
+        const clauses = [];
+        const values = [];
+        if (opts.repoPath) {
+          clauses.push("repo_path = ?");
+          values.push(opts.repoPath);
+        }
+        if (opts.status) {
+          clauses.push("status = ?");
+          values.push(opts.status);
+        }
+        const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+        const limit = Math.max(1, Math.floor(opts.limit ?? 20));
+        const rows = this.db.prepare(
+          `SELECT * FROM tasks ${where} ORDER BY created_at DESC, rowid DESC LIMIT ?`
+        ).all(...values, limit);
+        return rows.map(rowToTask);
+      }
+      delete(id) {
+        const info2 = this.db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+        return info2.changes > 0;
+      }
+      pruneOlderThan(cutoff) {
+        const iso = cutoff.toISOString();
+        const rows = this.db.prepare("SELECT id FROM tasks WHERE created_at < ?").all(iso);
+        if (rows.length === 0) return [];
+        this.db.prepare("DELETE FROM tasks WHERE created_at < ?").run(iso);
+        return rows.map((r) => r.id);
+      }
+      clear() {
+        const info2 = this.db.prepare("DELETE FROM tasks").run();
+        return info2.changes;
+      }
+      /**
+       * Mark running tasks whose owner process is gone as interrupted.
+       * A dead owner cannot report a result, so the record would otherwise
+       * claim "running" forever. Silence alone is never treated as death:
+       * only a missing pid is.
+       */
+      reconcileInterrupted(isAlive = isProcessAlive) {
+        const running = this.db.prepare(
+          "SELECT id, pid FROM tasks WHERE status = 'running' AND pid IS NOT NULL"
+        ).all();
+        const marked = [];
+        const mark2 = this.db.transaction((id) => {
+          const ts = now();
+          this.db.prepare(
+            "UPDATE tasks SET status = 'interrupted', error = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = 'running'"
+          ).run("Owner process exited before reporting a result", ts, ts, id);
+          this.db.prepare(
+            "INSERT INTO task_events (task_id, ts, type, message, data) VALUES (?, ?, ?, ?, NULL)"
+          ).run(id, ts, "owner_lost", "Owner process exited before reporting a result");
+        });
+        for (const row of running) {
+          if (isAlive(row.pid)) continue;
+          mark2(row.id);
+          marked.push(row.id);
+        }
+        return marked;
+      }
+    };
+    TASK_HISTORY_MODES = ["results", "metadata", "off"];
+  }
+});
+
+// src/config.ts
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync3, existsSync as existsSync3, mkdirSync as mkdirSync3 } from "fs";
+import { homedir as homedir3 } from "os";
+import { join as join4, dirname as dirname3 } from "path";
 function cloneDefaultConfig() {
   return {
     ...DEFAULT_CONFIG,
@@ -1087,10 +1408,10 @@ function cloneDefaultConfig() {
   };
 }
 function configPaths(repoRoot, xdgConfigHome, homeDir) {
-  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join3(homeDir ?? homedir2(), ".config");
+  const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join4(homeDir ?? homedir3(), ".config");
   return {
-    user: join3(configBase, "phone-a-friend", "config.toml"),
-    repo: repoRoot ? join3(repoRoot, ".phone-a-friend.toml") : null
+    user: join4(configBase, "phone-a-friend", "config.toml"),
+    repo: repoRoot ? join4(repoRoot, ".phone-a-friend.toml") : null
   };
 }
 function deepMerge(target, source) {
@@ -1133,7 +1454,7 @@ function loadConfig(repoRoot, xdgConfigHome, homeDir) {
   return config;
 }
 function saveConfig(cfg, filePath) {
-  mkdirSync2(dirname2(filePath), { recursive: true });
+  mkdirSync3(dirname3(filePath), { recursive: true });
   const content = stringify(cfg);
   writeFileSync3(filePath, content, "utf-8");
 }
@@ -1207,6 +1528,13 @@ function resolveConfig(cliOpts, env5 = process.env, repoRoot, xdgConfigHome) {
     );
   }
   const claudePeerMessaging = peerMessagingRaw;
+  const taskHistoryRaw = cliOpts.taskHistory ?? env5.PHONE_A_FRIEND_TASK_HISTORY ?? cfg.defaults.task_history ?? "results";
+  if (!TASK_HISTORY_MODES.includes(taskHistoryRaw)) {
+    throw new Error(
+      `Invalid task history mode: ${String(taskHistoryRaw)}. Allowed values: ${TASK_HISTORY_MODES.join(", ")}`
+    );
+  }
+  const taskHistory = taskHistoryRaw;
   return {
     backend,
     sandbox,
@@ -1217,7 +1545,8 @@ function resolveConfig(cliOpts, env5 = process.env, repoRoot, xdgConfigHome) {
     reviewBase,
     opencodeProvider,
     opencodePure,
-    claudePeerMessaging
+    claudePeerMessaging,
+    taskHistory
   };
 }
 var DEFAULT_CONFIG;
@@ -1225,6 +1554,7 @@ var init_config = __esm({
   "src/config.ts"() {
     "use strict";
     init_dist();
+    init_tasks();
     init_backends();
     DEFAULT_CONFIG = {
       defaults: {
@@ -1233,7 +1563,8 @@ var init_config = __esm({
         timeout: 600,
         include_diff: false,
         stream: true,
-        update_check: true
+        update_check: true,
+        task_history: "results"
       },
       backends: {
         claude: {
@@ -1746,10 +2077,10 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync3 } from "fs";
-import { dirname as dirname3, join as join4 } from "path";
-import { homedir as homedir3 } from "os";
-import { randomUUID } from "crypto";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4 } from "fs";
+import { dirname as dirname4, join as join5 } from "path";
+import { homedir as homedir4 } from "os";
+import { randomUUID as randomUUID2 } from "crypto";
 var MAX_JOBS, JobManager;
 var init_jobs = __esm({
   "src/jobs.ts"() {
@@ -1758,8 +2089,8 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join4(
-          process.env.XDG_CONFIG_HOME ?? join4(homedir3(), ".config"),
+        this.filePath = filePath ?? join5(
+          process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
@@ -1773,22 +2104,22 @@ var init_jobs = __esm({
         }
       }
       save(jobs) {
-        mkdirSync3(dirname3(this.filePath), { recursive: true });
+        mkdirSync4(dirname4(this.filePath), { recursive: true });
         writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
         const jobs = this.load();
-        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
         const job = {
-          id: randomUUID().slice(0, 8),
+          id: randomUUID2().slice(0, 8),
           status: "pending",
           backend: opts.backend,
           prompt: opts.prompt,
           repoPath: opts.repoPath,
           model: opts.model,
           sandbox: opts.sandbox,
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         };
         jobs.push(job);
         if (jobs.length > MAX_JOBS) {
@@ -1831,15 +2162,15 @@ import {
   readFileSync as readFileSync5,
   writeFileSync as writeFileSync5,
   existsSync as existsSync5,
-  mkdirSync as mkdirSync4,
+  mkdirSync as mkdirSync5,
   openSync as openSync2,
   closeSync as closeSync2,
   fsyncSync as fsyncSync2,
   renameSync as renameSync2,
   unlinkSync as unlinkSync2
 } from "fs";
-import { dirname as dirname4, join as join5 } from "path";
-import { homedir as homedir4 } from "os";
+import { dirname as dirname5, join as join6 } from "path";
+import { homedir as homedir5 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
   "src/sessions.ts"() {
@@ -1848,8 +2179,8 @@ var init_sessions = __esm({
     SessionStore = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join5(
-          process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config"),
+        this.filePath = filePath ?? join6(
+          process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
@@ -1886,8 +2217,8 @@ var init_sessions = __esm({
         }
       }
       save(sessions) {
-        const dir = dirname4(this.filePath);
-        mkdirSync4(dir, { recursive: true });
+        const dir = dirname5(this.filePath);
+        mkdirSync5(dir, { recursive: true });
         const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
         const payload = JSON.stringify(sessions, null, 2);
         const tmpFd = openSync2(tmpPath, "w");
@@ -1952,7 +2283,7 @@ var init_sessions = __esm({
           throw new Error("upsert: historyAppend and replaceHistory are mutually exclusive");
         }
         const sessions = this.load();
-        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
         const existing = sessions.find((session2) => session2.id === opts.id);
         if (existing) {
           existing.backend = opts.backend;
@@ -1965,7 +2296,7 @@ var init_sessions = __esm({
           } else if (opts.historyAppend?.length) {
             existing.history.push(...opts.historyAppend);
           }
-          existing.lastUsedAt = now;
+          existing.lastUsedAt = now2;
           this.save(sessions);
           return existing;
         }
@@ -1976,8 +2307,8 @@ var init_sessions = __esm({
           backendSessionId: opts.backendSessionId,
           repoPath: opts.repoPath,
           history: initialHistory,
-          createdAt: now,
-          lastUsedAt: now
+          createdAt: now2,
+          lastUsedAt: now2
         };
         sessions.push(session);
         if (sessions.length > MAX_SESSIONS) {
@@ -2214,7 +2545,7 @@ __export(relay_exports, {
   reviewRelay: () => reviewRelay
 });
 import { execFileSync as execFileSync3 } from "child_process";
-import { randomUUID as randomUUID2 } from "crypto";
+import { createHash as createHash2, randomUUID as randomUUID3 } from "crypto";
 import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
 import { resolve } from "path";
 function backendErrorToRelayError(err) {
@@ -2460,6 +2791,54 @@ function gitDiffAll(repoPath, base) {
   ensureSizeLimit("Git diff", combined, MAX_DIFF_BYTES);
   return combined;
 }
+function safeObserve(fn) {
+  try {
+    fn();
+  } catch {
+  }
+}
+function hashDiff(diffText) {
+  return createHash2("sha256").update(diffText, "utf8").digest("hex");
+}
+function describeDiff(diffText, scope, base) {
+  const diffFiles = (diffText.match(/^diff --git /gm) ?? []).length;
+  return {
+    scope,
+    base,
+    diffHash: hashDiff(diffText),
+    diffBytes: sizeBytes(diffText),
+    diffFiles
+  };
+}
+function observerBridge(observer) {
+  const linked = /* @__PURE__ */ new Set();
+  const sessionLinked = (backendSessionId) => {
+    if (!backendSessionId || linked.has(backendSessionId)) return;
+    linked.add(backendSessionId);
+    safeObserve(() => observer?.onSessionLinked?.(backendSessionId));
+  };
+  const wantsEvents = Boolean(observer && (observer.onEvent || observer.onSessionLinked));
+  const onEvent = wantsEvents ? (event) => {
+    if (event.type === "session_linked") {
+      const id = event.data?.backendSessionId;
+      if (typeof id === "string") sessionLinked(id);
+    }
+    safeObserve(() => observer?.onEvent?.(event));
+  } : void 0;
+  return { onEvent, sessionLinked };
+}
+function reportReviewDrift(observer, repoPath, base, scope, originalHash) {
+  if (!observer?.onDrift) return;
+  let info2;
+  try {
+    const current = hashDiff(collectReviewDiff(repoPath, base, scope));
+    info2 = { drifted: current !== originalHash, diffHash: current };
+  } catch (err) {
+    const tooLarge = err instanceof RelayError && /too large/i.test(err.message);
+    info2 = { drifted: tooLarge ? true : null, diffHash: null };
+  }
+  safeObserve(() => observer.onDrift?.(info2));
+}
 function collectReviewDiff(repoPath, base, scope) {
   if (scope === "branch") return gitDiffBase(repoPath, base);
   if (scope === "working-tree") return gitDiffWorkingTree(repoPath);
@@ -2594,7 +2973,8 @@ function prepareRelay(opts) {
     backendSession,
     fast,
     peerMessaging,
-    sessionStore: opts.sessionStore
+    sessionStore: opts.sessionStore,
+    observer: opts.observer
   };
 }
 async function relay(opts) {
@@ -2611,8 +2991,10 @@ async function relay(opts) {
     backendSession,
     fast,
     peerMessaging,
-    sessionStore
+    sessionStore,
+    observer
   } = prepareRelay(opts);
+  const bridge = observerBridge(observer);
   try {
     if (backendSession) {
       const store2 = session ? sessionStore ?? new SessionStore() : null;
@@ -2652,7 +3034,9 @@ async function relay(opts) {
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId2 = newSessionId;
-        }
+          bridge.sessionLinked(newSessionId);
+        },
+        onEvent: bridge.onEvent
       });
       if (session && store2) {
         persistRelaySession(
@@ -2686,7 +3070,7 @@ async function relay(opts) {
     }
     let backendSessionId = storedSession?.backendSessionId ?? null;
     if (session && !storedSession && selectedBackend.capabilities.requiresClientSessionId) {
-      backendSessionId = randomUUID2();
+      backendSessionId = randomUUID3();
     }
     const requiresNativeSession = selectedBackend.capabilities.resumeStrategy === "native-session";
     if (session && storedSession && !backendSessionId && requiresNativeSession) {
@@ -2710,7 +3094,9 @@ async function relay(opts) {
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
-      }
+        bridge.sessionLinked(newSessionId);
+      },
+      onEvent: bridge.onEvent
     });
     if (session && store) {
       persistRelaySession(
@@ -2769,8 +3155,10 @@ async function* relayStream(opts) {
     backendSession,
     fast,
     peerMessaging,
-    sessionStore
+    sessionStore,
+    observer
   } = prepareRelay(opts);
+  const bridge = observerBridge(observer);
   const store = session && !backendSession ? sessionStore ?? new SessionStore() : null;
   const storedSession = session && !backendSession ? store?.get(session) ?? null : null;
   const runOpts = {
@@ -2787,7 +3175,9 @@ async function* relayStream(opts) {
     sessionId: backendSession ?? storedSession?.backendSessionId ?? null,
     persistSession: Boolean(session),
     resumeSession: Boolean(backendSession || session && storedSession),
-    sessionHistory: storedSession?.history ?? []
+    sessionHistory: storedSession?.history ?? [],
+    onSessionCreated: observer ? bridge.sessionLinked : void 0,
+    onEvent: bridge.onEvent
   };
   try {
     if (typeof selectedBackend.runStream === "function") {
@@ -2846,10 +3236,14 @@ async function reviewRelay(opts) {
   const env5 = nextRelayEnv();
   const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
   if (!collectedDiff) return noChangesReviewResponse(scope, verdictJson);
+  const observer = opts.observer;
+  const bridge = observerBridge(observer);
+  const scopeInfo = describeDiff(collectedDiff, scope, base);
+  safeObserve(() => observer?.onScope?.(scopeInfo));
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? /* @__PURE__ */ new Set(["branch"]);
   if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema) {
     try {
-      return await selectedBackend.review({
+      const nativeResult = await selectedBackend.review({
         repoPath: resolvedRepo,
         timeoutSeconds,
         sandbox,
@@ -2857,8 +3251,11 @@ async function reviewRelay(opts) {
         env: env5,
         base,
         scope,
-        prompt
+        prompt,
+        onEvent: bridge.onEvent
       });
+      reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+      return nativeResult;
     } catch (err) {
       if (err instanceof RelayError) {
         throw err;
@@ -2877,7 +3274,7 @@ async function reviewRelay(opts) {
   });
   ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
   try {
-    return await selectedBackend.run({
+    const result = await selectedBackend.run({
       prompt: fullPrompt,
       repoPath: resolvedRepo,
       timeoutSeconds,
@@ -2887,8 +3284,11 @@ async function reviewRelay(opts) {
       schema,
       fast,
       peerMessaging,
-      sessionLabel: "review"
+      sessionLabel: "review",
+      onEvent: bridge.onEvent
     });
+    reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+    return result;
   } catch (err) {
     if (err instanceof RelayError) throw err;
     if (err instanceof BackendError) {
@@ -2944,10 +3344,10 @@ var init_relay = __esm({
 
 // src/version.ts
 import { readFileSync as readFileSync7 } from "fs";
-import { resolve as resolve2, dirname as dirname5 } from "path";
+import { resolve as resolve2, dirname as dirname6 } from "path";
 import { fileURLToPath } from "url";
 function getPackageRoot() {
-  const thisDir = dirname5(fileURLToPath(import.meta.url));
+  const thisDir = dirname6(fileURLToPath(import.meta.url));
   return resolve2(thisDir, "..");
 }
 function getVersion() {
@@ -2970,7 +3370,7 @@ import { execFileSync as execFileSync4 } from "child_process";
 import {
   existsSync as existsSync7,
   lstatSync,
-  mkdirSync as mkdirSync5,
+  mkdirSync as mkdirSync6,
   readdirSync,
   readFileSync as readFileSync8,
   readlinkSync,
@@ -2980,10 +3380,10 @@ import {
   cpSync,
   unlinkSync as unlinkSync3
 } from "fs";
-import { resolve as resolve3, join as join6, dirname as dirname6, isAbsolute, sep } from "path";
-import { homedir as homedir5 } from "os";
+import { resolve as resolve3, join as join7, dirname as dirname7, isAbsolute, sep } from "path";
+import { homedir as homedir6 } from "os";
 function ensureParent(filePath) {
-  mkdirSync5(dirname6(filePath), { recursive: true });
+  mkdirSync6(dirname7(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -3145,37 +3545,37 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join6(homedir5(), ".claude");
-  return join6(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join7(homedir6(), ".claude");
+  return join7(base, "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config");
-  return join6(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join7(homedir6(), ".config");
+  return join7(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join6(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join7(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join6(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join7(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join6(repoRoot, "skills", name, "COMMAND.opencode.md");
+  const overlay = join7(repoRoot, "skills", name, "COMMAND.opencode.md");
   if (existsSync7(overlay)) return overlay;
-  return join6(repoRoot, "commands", `${name}.md`);
+  return join7(repoRoot, "commands", `${name}.md`);
 }
 function codexConfigRoot(codexHome) {
   if (codexHome) return codexHome;
   if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
-  return join6(homedir5(), ".codex");
+  return join7(homedir6(), ".codex");
 }
 function codexSkillTarget(name, codexHome) {
-  return join6(codexConfigRoot(codexHome), "skills", name);
+  return join7(codexConfigRoot(codexHome), "skills", name);
 }
 function codexSkillSource(repoRoot, name) {
-  const overlay = join6(repoRoot, "skills", name, ".codex");
-  if (existsSync7(join6(overlay, "SKILL.md"))) return overlay;
-  return join6(repoRoot, "skills", name);
+  const overlay = join7(repoRoot, "skills", name, ".codex");
+  if (existsSync7(join7(overlay, "SKILL.md"))) return overlay;
+  return join7(repoRoot, "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
@@ -3191,14 +3591,14 @@ function isStalePafSymlink(target, repoRoot) {
   } catch {
     try {
       const link2 = readlinkSync(target);
-      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname6(target), link2);
+      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname7(target), link2);
       let probe = absLink;
-      while (probe !== dirname6(probe)) {
+      while (probe !== dirname7(probe)) {
         if (existsSync7(probe)) {
           const realProbe = realpathSync(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
-        probe = dirname6(probe);
+        probe = dirname7(probe);
       }
       return false;
     } catch {
@@ -3214,8 +3614,8 @@ function isPluginInstalled(claudeHome) {
   } catch {
   }
   if (existsSync7(target)) return true;
-  const home = claudeHome ?? join6(homedir5(), ".claude");
-  const cacheBase = join6(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  const home = claudeHome ?? join7(homedir6(), ".claude");
+  const cacheBase = join7(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
   } catch {
@@ -3223,14 +3623,14 @@ function isPluginInstalled(claudeHome) {
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync7(join6(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join7(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
   const looseFileOk = CODEX_SKILLS.every(
-    (name) => existsSync7(join6(codexSkillTarget(name, codexHome), "SKILL.md"))
+    (name) => existsSync7(join7(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
   if (looseFileOk) return true;
-  const cacheRoot = join6(
+  const cacheRoot = join7(
     codexConfigRoot(codexHome),
     "plugins",
     "cache",
@@ -3242,7 +3642,7 @@ function isCodexInstalled(codexHome) {
     const versions = readdirSync(cacheRoot);
     return versions.some(
       (ver) => CODEX_SKILLS.every(
-        (name) => existsSync7(join6(cacheRoot, ver, "skills", name, "SKILL.md"))
+        (name) => existsSync7(join7(cacheRoot, ver, "skills", name, "SKILL.md"))
       )
     );
   } catch {
@@ -3352,10 +3752,10 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join6(repoRoot, "skills", name);
+    const skillSource = join7(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync7(join6(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join6(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join7(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join7(skillSource, "SKILL.md")}`);
     }
     if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
@@ -3384,17 +3784,17 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   for (const name of CODEX_SKILLS) {
     const skillSource = codexSkillSource(repoRoot, name);
-    if (!existsSync7(join6(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing Codex skill source: ${join6(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join7(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Codex skill source: ${join7(skillSource, "SKILL.md")}`);
     }
     const skillTarget = codexSkillTarget(name, codexHome);
     const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
-  const legacyAgentsDir = join6(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join7(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join6(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join7(legacyAgentsDir, `${legacy}.toml`);
     if (isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
@@ -3419,9 +3819,9 @@ function uninstallCodex(codexHome, repoRoot) {
       lines.push(`- codex_skill:${name}: not-installed`);
     }
   }
-  const legacyAgentsDir = join6(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join7(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join6(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join7(legacyAgentsDir, `${legacy}.toml`);
     if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
@@ -3473,11 +3873,11 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync7(join6(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join7(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join6(homedir5(), ".claude");
-  const registryPath = join6(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join7(homedir6(), ".claude");
+  const registryPath = join7(home, "plugins", "known_marketplaces.json");
   try {
     const data = JSON.parse(readFileSync8(registryPath, "utf-8"));
     const entry = data[marketplaceName];
@@ -5067,13 +5467,13 @@ var init_promise_polyfill = __esm({
       // Available starting from Node 22
       // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/withResolvers
       static withResolver() {
-        let resolve4;
+        let resolve5;
         let reject;
         const promise = new Promise((res, rej) => {
-          resolve4 = res;
+          resolve5 = res;
           reject = rej;
         });
-        return { promise, resolve: resolve4, reject };
+        return { promise, resolve: resolve5, reject };
       }
     };
   }
@@ -5113,7 +5513,7 @@ function createPrompt(view) {
     });
     output.mute();
     const screen = new ScreenManager(rl);
-    const { promise, resolve: resolve4, reject } = PromisePolyfill.withResolver();
+    const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
     const cancel = () => reject(new CancelPromptError());
     if (signal) {
       const abort = () => reject(new AbortPromptError({ cause: signal.reason }));
@@ -5144,7 +5544,7 @@ function createPrompt(view) {
           try {
             const nextView = view(config, (value) => {
               if (effectsSettled) {
-                resolve4(value);
+                resolve5(value);
               } else {
                 pendingDone = { value };
               }
@@ -5167,7 +5567,7 @@ function createPrompt(view) {
           if (pendingDone !== null) {
             const { value } = pendingDone;
             pendingDone = null;
-            resolve4(value);
+            resolve5(value);
           }
         });
       };
@@ -11022,7 +11422,7 @@ var require_lib2 = __commonJS({
       return matches;
     };
     exports.analyse = analyse;
-    var detectFile = (filepath, opts = {}) => new Promise((resolve4, reject) => {
+    var detectFile = (filepath, opts = {}) => new Promise((resolve5, reject) => {
       let fd;
       const fs4 = (0, node_1.default)();
       const handler = (err, buffer) => {
@@ -11032,7 +11432,7 @@ var require_lib2 = __commonJS({
         if (err) {
           reject(err);
         } else if (buffer) {
-          resolve4((0, exports.detect)(buffer));
+          resolve5((0, exports.detect)(buffer));
         } else {
           reject(new Error("No error and no buffer received"));
         }
@@ -14938,7 +15338,7 @@ import { spawn as spawn3, spawnSync } from "child_process";
 import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
 import path3 from "path";
 import os3 from "os";
-import { randomUUID as randomUUID3 } from "crypto";
+import { randomUUID as randomUUID4 } from "crypto";
 function sanitizeAffix(affix) {
   if (!affix)
     return "";
@@ -14992,7 +15392,7 @@ var init_dist8 = __esm({
       }
       runAsync(callback) {
         this.createTempFile();
-        const promise = new Promise((resolve4, reject) => {
+        const promise = new Promise((resolve5, reject) => {
           try {
             const editorProcess = spawn3(this.editor.bin, this.editorArgs(), {
               shell: false,
@@ -15003,7 +15403,7 @@ var init_dist8 = __esm({
             });
             editorProcess.once("exit", (code) => {
               this.lastExitStatus = code ?? 0;
-              resolve4();
+              resolve5();
             });
           } catch (launchError) {
             reject(new LaunchEditorError(launchError));
@@ -15034,7 +15434,7 @@ var init_dist8 = __esm({
         try {
           const baseDir = path3.resolve(this.fileOptions.dir ?? os3.tmpdir());
           this.tempDir = mkdtempSync2(path3.join(baseDir, "inquirer-editor-"));
-          const id = randomUUID3();
+          const id = randomUUID4();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
           const filename = `${prefix}${id}${postfix}`;
@@ -17123,21 +17523,21 @@ var require_react_development = __commonJS({
         );
         actScopeDepth = prevActScopeDepth;
       }
-      function recursivelyFlushAsyncActWork(returnValue, resolve4, reject) {
+      function recursivelyFlushAsyncActWork(returnValue, resolve5, reject) {
         var queue = ReactSharedInternals.actQueue;
         if (null !== queue)
           if (0 !== queue.length)
             try {
               flushActQueue(queue);
               enqueueTask(function() {
-                return recursivelyFlushAsyncActWork(returnValue, resolve4, reject);
+                return recursivelyFlushAsyncActWork(returnValue, resolve5, reject);
               });
               return;
             } catch (error2) {
               ReactSharedInternals.thrownErrors.push(error2);
             }
           else ReactSharedInternals.actQueue = null;
-        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve4(returnValue);
+        0 < ReactSharedInternals.thrownErrors.length ? (queue = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, reject(queue)) : resolve5(returnValue);
       }
       function flushActQueue(queue) {
         if (!isFlushing) {
@@ -17324,7 +17724,7 @@ var require_react_development = __commonJS({
             ));
           });
           return {
-            then: function(resolve4, reject) {
+            then: function(resolve5, reject) {
               didAwaitActCall = true;
               thenable.then(
                 function(returnValue) {
@@ -17334,7 +17734,7 @@ var require_react_development = __commonJS({
                       flushActQueue(queue), enqueueTask(function() {
                         return recursivelyFlushAsyncActWork(
                           returnValue,
-                          resolve4,
+                          resolve5,
                           reject
                         );
                       });
@@ -17348,7 +17748,7 @@ var require_react_development = __commonJS({
                       ReactSharedInternals.thrownErrors.length = 0;
                       reject(_thrownError);
                     }
-                  } else resolve4(returnValue);
+                  } else resolve5(returnValue);
                 },
                 function(error2) {
                   popActScope(prevActQueue, prevActScopeDepth);
@@ -17370,15 +17770,15 @@ var require_react_development = __commonJS({
         if (0 < ReactSharedInternals.thrownErrors.length)
           throw callback = aggregateErrors(ReactSharedInternals.thrownErrors), ReactSharedInternals.thrownErrors.length = 0, callback;
         return {
-          then: function(resolve4, reject) {
+          then: function(resolve5, reject) {
             didAwaitActCall = true;
             0 === prevActScopeDepth ? (ReactSharedInternals.actQueue = queue, enqueueTask(function() {
               return recursivelyFlushAsyncActWork(
                 returnValue$jscomp$0,
-                resolve4,
+                resolve5,
                 reject
               );
-            })) : resolve4(returnValue$jscomp$0);
+            })) : resolve5(returnValue$jscomp$0);
           }
         };
       };
@@ -20496,7 +20896,7 @@ var init_wrap_ansi = __esm({
 
 // node_modules/terminal-size/index.js
 import process13 from "process";
-import { execFileSync as execFileSync6 } from "child_process";
+import { execFileSync as execFileSync7 } from "child_process";
 import fs2 from "fs";
 import tty4 from "tty";
 function terminalSize() {
@@ -20528,7 +20928,7 @@ var init_terminal_size = __esm({
     "use strict";
     defaultColumns = 80;
     defaultRows = 24;
-    exec3 = (command, arguments_, { shell, env: env5 } = {}) => execFileSync6(command, arguments_, {
+    exec3 = (command, arguments_, { shell, env: env5 } = {}) => execFileSync7(command, arguments_, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 500,
@@ -22066,7 +22466,7 @@ var require_react_reconciler_production = __commonJS({
         mightHavePendingSyncWork = didScheduleMicrotask = false;
         var syncTransitionLanes = 0;
         0 !== currentEventTransitionLane && shouldAttemptEagerTransition() && (syncTransitionLanes = currentEventTransitionLane);
-        for (var currentTime = now(), prev = null, root = firstScheduledRoot; null !== root; ) {
+        for (var currentTime = now2(), prev = null, root = firstScheduledRoot; null !== root; ) {
           var next = root.next, nextLanes = scheduleTaskForRootDuringMicrotask(root, currentTime);
           if (0 === nextLanes)
             root.next = null, null === prev ? firstScheduledRoot = next : prev.next = next, null === next && (lastScheduledRoot = prev);
@@ -22139,7 +22539,7 @@ var require_react_reconciler_production = __commonJS({
         );
         if (0 === workInProgressRootRenderLanes$jscomp$0) return null;
         performWorkOnRoot(root, workInProgressRootRenderLanes$jscomp$0, didTimeout);
-        scheduleTaskForRootDuringMicrotask(root, now());
+        scheduleTaskForRootDuringMicrotask(root, now2());
         return null != root.callbackNode && root.callbackNode === originalCallbackNode ? performWorkOnRootViaSchedulerTask.bind(null, root) : null;
       }
       function performSyncWorkOnRoot(root, lanes) {
@@ -22173,8 +22573,8 @@ var require_react_reconciler_production = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve4) {
-              entangledListeners.push(resolve4);
+            then: function(resolve5) {
+              entangledListeners.push(resolve5);
             }
           };
         }
@@ -22197,8 +22597,8 @@ var require_react_reconciler_production = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve4) {
-            listeners.push(resolve4);
+          then: function(resolve5) {
+            listeners.push(resolve5);
           }
         };
         thenable.then(
@@ -25727,7 +26127,7 @@ var require_react_reconciler_production = __commonJS({
                     }
                     current = current.sibling;
                   }
-                null !== newProps.tail && now() > workInProgressRootRenderTargetTime && (workInProgress2.flags |= 128, type = true, cutOffTailIfNeeded(newProps, false), workInProgress2.lanes = 4194304);
+                null !== newProps.tail && now2() > workInProgressRootRenderTargetTime && (workInProgress2.flags |= 128, type = true, cutOffTailIfNeeded(newProps, false), workInProgress2.lanes = 4194304);
               }
             else {
               if (!type)
@@ -25735,11 +26135,11 @@ var require_react_reconciler_production = __commonJS({
                   if (workInProgress2.flags |= 128, type = true, current = current.updateQueue, workInProgress2.updateQueue = current, scheduleRetryEffect(workInProgress2, current), cutOffTailIfNeeded(newProps, true), null === newProps.tail && "hidden" === newProps.tailMode && !nextResource.alternate && !isHydrating)
                     return bubbleProperties(workInProgress2), null;
                 } else
-                  2 * now() - newProps.renderingStartTime > workInProgressRootRenderTargetTime && 536870912 !== renderLanes2 && (workInProgress2.flags |= 128, type = true, cutOffTailIfNeeded(newProps, false), workInProgress2.lanes = 4194304);
+                  2 * now2() - newProps.renderingStartTime > workInProgressRootRenderTargetTime && 536870912 !== renderLanes2 && (workInProgress2.flags |= 128, type = true, cutOffTailIfNeeded(newProps, false), workInProgress2.lanes = 4194304);
               newProps.isBackwards ? (nextResource.sibling = workInProgress2.child, workInProgress2.child = nextResource) : (current = newProps.last, null !== current ? current.sibling = nextResource : workInProgress2.child = nextResource, newProps.last = nextResource);
             }
             if (null !== newProps.tail)
-              return current = newProps.tail, newProps.rendering = current, newProps.tail = current.sibling, newProps.renderingStartTime = now(), current.sibling = null, renderLanes2 = suspenseStackCursor.current, push(
+              return current = newProps.tail, newProps.rendering = current, newProps.tail = current.sibling, newProps.renderingStartTime = now2(), current.sibling = null, renderLanes2 = suspenseStackCursor.current, push(
                 suspenseStackCursor,
                 type ? renderLanes2 & 1 | 2 : renderLanes2 & 1
               ), isHydrating && pushTreeFork(workInProgress2, newProps.treeForkCount), current;
@@ -26619,7 +27019,7 @@ var require_react_reconciler_production = __commonJS({
           case 13:
             recursivelyTraverseMutationEffects(root, finishedWork);
             commitReconciliationEffects(finishedWork);
-            finishedWork.child.flags & 8192 && null !== finishedWork.memoizedState !== (null !== current && null !== current.memoizedState) && (globalMostRecentFallbackTime = now());
+            finishedWork.child.flags & 8192 && null !== finishedWork.memoizedState !== (null !== current && null !== current.memoizedState) && (globalMostRecentFallbackTime = now2());
             flags & 4 && (flags = finishedWork.updateQueue, null !== flags && (finishedWork.updateQueue = null, attachSuspenseRetryListeners(finishedWork, flags)));
             break;
           case 22:
@@ -27544,7 +27944,7 @@ var require_react_reconciler_production = __commonJS({
                 default:
                   throw Error(formatProdErrorMessage(329));
               }
-              if ((lanes & 62914560) === lanes && (exitStatus = globalMostRecentFallbackTime + 300 - now(), 10 < exitStatus)) {
+              if ((lanes & 62914560) === lanes && (exitStatus = globalMostRecentFallbackTime + 300 - now2(), 10 < exitStatus)) {
                 markRootSuspended(
                   shouldTimeSlice,
                   lanes,
@@ -27607,7 +28007,7 @@ var require_react_reconciler_production = __commonJS({
             lanes,
             suspendedCommitReason
           );
-          var timeoutOffset = (lanes & 62914560) === lanes ? globalMostRecentFallbackTime - now() : (lanes & 4194048) === lanes ? globalMostRecentTransitionTime - now() : 0;
+          var timeoutOffset = (lanes & 62914560) === lanes ? globalMostRecentFallbackTime - now2() : (lanes & 4194048) === lanes ? globalMostRecentTransitionTime - now2() : 0;
           timeoutOffset = waitForCommitToBeReady(
             suspendedCommitReason,
             timeoutOffset
@@ -27826,7 +28226,7 @@ var require_react_reconciler_production = __commonJS({
         var prevExecutionContext = executionContext;
         executionContext |= 2;
         var prevDispatcher = pushDispatcher(), prevAsyncDispatcher = pushAsyncDispatcher();
-        workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes ? (workInProgressTransitions = null, workInProgressRootRenderTargetTime = now() + 500, prepareFreshStack(root, lanes)) : workInProgressRootIsPrerendering = checkIfRootIsPrerendering(
+        workInProgressRoot !== root || workInProgressRootRenderLanes !== lanes ? (workInProgressTransitions = null, workInProgressRootRenderTargetTime = now2() + 500, prepareFreshStack(root, lanes)) : workInProgressRootIsPrerendering = checkIfRootIsPrerendering(
           root,
           lanes
         );
@@ -28286,7 +28686,7 @@ var require_react_reconciler_production = __commonJS({
         null !== pingCache && pingCache.delete(wakeable);
         root.pingedLanes |= root.suspendedLanes & pingedLanes;
         root.warmLanes &= ~pingedLanes;
-        workInProgressRoot === root && (workInProgressRootRenderLanes & pingedLanes) === pingedLanes && (4 === workInProgressRootExitStatus || 3 === workInProgressRootExitStatus && (workInProgressRootRenderLanes & 62914560) === workInProgressRootRenderLanes && 300 > now() - globalMostRecentFallbackTime ? 0 === (executionContext & 2) && prepareFreshStack(root, 0) : workInProgressRootPingedLanes |= pingedLanes, workInProgressSuspendedRetryLanes === workInProgressRootRenderLanes && (workInProgressSuspendedRetryLanes = 0));
+        workInProgressRoot === root && (workInProgressRootRenderLanes & pingedLanes) === pingedLanes && (4 === workInProgressRootExitStatus || 3 === workInProgressRootExitStatus && (workInProgressRootRenderLanes & 62914560) === workInProgressRootRenderLanes && 300 > now2() - globalMostRecentFallbackTime ? 0 === (executionContext & 2) && prepareFreshStack(root, 0) : workInProgressRootPingedLanes |= pingedLanes, workInProgressSuspendedRetryLanes === workInProgressRootRenderLanes && (workInProgressSuspendedRetryLanes = 0));
         ensureRootIsScheduled(root);
       }
       function retryTimedOutBoundary(boundaryFiber, retryLane) {
@@ -28619,7 +29019,7 @@ var require_react_reconciler_production = __commonJS({
       $$$config.diffHydratedPropsForDevWarnings;
       $$$config.diffHydratedTextForDevWarnings;
       $$$config.describeHydratableInstanceForDevWarnings;
-      var validateHydratableInstance = $$$config.validateHydratableInstance, validateHydratableTextInstance = $$$config.validateHydratableTextInstance, supportsResources = $$$config.supportsResources, isHostHoistableType = $$$config.isHostHoistableType, getHoistableRoot = $$$config.getHoistableRoot, getResource = $$$config.getResource, acquireResource = $$$config.acquireResource, releaseResource = $$$config.releaseResource, hydrateHoistable = $$$config.hydrateHoistable, mountHoistable = $$$config.mountHoistable, unmountHoistable = $$$config.unmountHoistable, createHoistableInstance = $$$config.createHoistableInstance, prepareToCommitHoistables = $$$config.prepareToCommitHoistables, mayResourceSuspendCommit = $$$config.mayResourceSuspendCommit, preloadResource = $$$config.preloadResource, suspendResource = $$$config.suspendResource, supportsSingletons = $$$config.supportsSingletons, resolveSingletonInstance = $$$config.resolveSingletonInstance, acquireSingletonInstance = $$$config.acquireSingletonInstance, releaseSingletonInstance = $$$config.releaseSingletonInstance, isHostSingletonType = $$$config.isHostSingletonType, isSingletonScope = $$$config.isSingletonScope, valueStack = [], index$jscomp$0 = -1, emptyContextObject = {}, clz32 = Math.clz32 ? Math.clz32 : clz32Fallback, log$1 = Math.log, LN2 = Math.LN2, nextTransitionUpdateLane = 256, nextTransitionDeferredLane = 262144, nextRetryLane = 4194304, scheduleCallback$3 = Scheduler2.unstable_scheduleCallback, cancelCallback$1 = Scheduler2.unstable_cancelCallback, shouldYield = Scheduler2.unstable_shouldYield, requestPaint = Scheduler2.unstable_requestPaint, now = Scheduler2.unstable_now, ImmediatePriority = Scheduler2.unstable_ImmediatePriority, UserBlockingPriority = Scheduler2.unstable_UserBlockingPriority, NormalPriority$1 = Scheduler2.unstable_NormalPriority, IdlePriority = Scheduler2.unstable_IdlePriority, log = Scheduler2.log, unstable_setDisableYieldValue = Scheduler2.unstable_setDisableYieldValue, rendererID = null, injectedHook = null, objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
+      var validateHydratableInstance = $$$config.validateHydratableInstance, validateHydratableTextInstance = $$$config.validateHydratableTextInstance, supportsResources = $$$config.supportsResources, isHostHoistableType = $$$config.isHostHoistableType, getHoistableRoot = $$$config.getHoistableRoot, getResource = $$$config.getResource, acquireResource = $$$config.acquireResource, releaseResource = $$$config.releaseResource, hydrateHoistable = $$$config.hydrateHoistable, mountHoistable = $$$config.mountHoistable, unmountHoistable = $$$config.unmountHoistable, createHoistableInstance = $$$config.createHoistableInstance, prepareToCommitHoistables = $$$config.prepareToCommitHoistables, mayResourceSuspendCommit = $$$config.mayResourceSuspendCommit, preloadResource = $$$config.preloadResource, suspendResource = $$$config.suspendResource, supportsSingletons = $$$config.supportsSingletons, resolveSingletonInstance = $$$config.resolveSingletonInstance, acquireSingletonInstance = $$$config.acquireSingletonInstance, releaseSingletonInstance = $$$config.releaseSingletonInstance, isHostSingletonType = $$$config.isHostSingletonType, isSingletonScope = $$$config.isSingletonScope, valueStack = [], index$jscomp$0 = -1, emptyContextObject = {}, clz32 = Math.clz32 ? Math.clz32 : clz32Fallback, log$1 = Math.log, LN2 = Math.LN2, nextTransitionUpdateLane = 256, nextTransitionDeferredLane = 262144, nextRetryLane = 4194304, scheduleCallback$3 = Scheduler2.unstable_scheduleCallback, cancelCallback$1 = Scheduler2.unstable_cancelCallback, shouldYield = Scheduler2.unstable_shouldYield, requestPaint = Scheduler2.unstable_requestPaint, now2 = Scheduler2.unstable_now, ImmediatePriority = Scheduler2.unstable_ImmediatePriority, UserBlockingPriority = Scheduler2.unstable_UserBlockingPriority, NormalPriority$1 = Scheduler2.unstable_NormalPriority, IdlePriority = Scheduler2.unstable_IdlePriority, log = Scheduler2.log, unstable_setDisableYieldValue = Scheduler2.unstable_setDisableYieldValue, rendererID = null, injectedHook = null, objectIs = "function" === typeof Object.is ? Object.is : is, reportGlobalError = "function" === typeof reportError ? reportError : function(error2) {
         if ("object" === typeof window && "function" === typeof window.ErrorEvent) {
           var event = new window.ErrorEvent("error", {
             bubbles: true,
@@ -28655,7 +29055,7 @@ var require_react_reconciler_production = __commonJS({
         _threadCount: 0
       }, firstScheduledRoot = null, lastScheduledRoot = null, didScheduleMicrotask = false, mightHavePendingSyncWork = false, isFlushingWork = false, currentEventTransitionLane = 0, currentEntangledListeners = null, currentEntangledPendingCount = 0, currentEntangledLane = 0, currentEntangledActionThenable = null, prevOnStartTransitionFinish = ReactSharedInternals.S;
       ReactSharedInternals.S = function(transition, returnValue) {
-        globalMostRecentTransitionTime = now();
+        globalMostRecentTransitionTime = now2();
         "object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then && entangleAsyncAction(transition, returnValue);
         null !== prevOnStartTransitionFinish && prevOnStartTransitionFinish(transition, returnValue);
       };
@@ -29048,7 +29448,7 @@ var require_react_reconciler_production = __commonJS({
                   lanes &= ~lane;
                 }
                 ensureRootIsScheduled(fiber);
-                0 === (executionContext & 6) && (workInProgressRootRenderTargetTime = now() + 500, flushSyncWorkAcrossRoots_impl(0, false));
+                0 === (executionContext & 6) && (workInProgressRootRenderTargetTime = now2() + 500, flushSyncWorkAcrossRoots_impl(0, false));
               }
             }
             break;
@@ -29151,7 +29551,7 @@ var require_react_reconciler_production = __commonJS({
         try {
           return setCurrentUpdatePriority(2), ReactSharedInternals.T = null, fn(a, b, c, d);
         } finally {
-          setCurrentUpdatePriority(previousPriority), ReactSharedInternals.T = prevTransition, 0 === executionContext && (workInProgressRootRenderTargetTime = now() + 500);
+          setCurrentUpdatePriority(previousPriority), ReactSharedInternals.T = prevTransition, 0 === executionContext && (workInProgressRootRenderTargetTime = now2() + 500);
         }
       };
       exports2.findAllNodes = findAllNodes;
@@ -31091,7 +31491,7 @@ var require_react_reconciler_development = __commonJS({
           );
         return skipToNode + debugInfo + propName;
       }
-      function describeDiff(rootNode) {
+      function describeDiff2(rootNode) {
         try {
           return "\n\n" + describeNode(rootNode, 0);
         } catch (x) {
@@ -31215,7 +31615,7 @@ var require_react_reconciler_development = __commonJS({
       }
       function throwOnHydrationMismatch(fiber) {
         var fromText = 1 < arguments.length && void 0 !== arguments[1] ? arguments[1] : false, diff2 = "", diffRoot = hydrationDiffRootDEV;
-        null !== diffRoot && (hydrationDiffRootDEV = null, diff2 = describeDiff(diffRoot));
+        null !== diffRoot && (hydrationDiffRootDEV = null, diff2 = describeDiff2(diffRoot));
         queueHydrationError(
           createCapturedValueAtFiber(
             Error(
@@ -31314,7 +31714,7 @@ var require_react_reconciler_development = __commonJS({
         var diffRoot = hydrationDiffRootDEV;
         if (null !== diffRoot) {
           hydrationDiffRootDEV = null;
-          for (var diff2 = describeDiff(diffRoot); 0 < diffRoot.children.length; )
+          for (var diff2 = describeDiff2(diffRoot); 0 < diffRoot.children.length; )
             diffRoot = diffRoot.children[0];
           runWithFiberInDEV(diffRoot.fiber, function() {
             console.error(
@@ -31514,8 +31914,8 @@ var require_react_reconciler_development = __commonJS({
       }
       function startUpdateTimerByLane(lane, method, fiber) {
         if (0 !== (lane & 127))
-          0 > blockingUpdateTime && (blockingUpdateTime = now(), blockingUpdateTask = createTask(method), blockingUpdateMethodName = method, null != fiber && (blockingUpdateComponentName = getComponentNameFromFiber(fiber)), isAlreadyRendering() && (componentEffectSpawnedUpdate = true, blockingUpdateType = 1), lane = resolveEventTimeStamp(), method = resolveEventType2(), lane !== blockingEventRepeatTime || method !== blockingEventType ? blockingEventRepeatTime = -1.1 : null !== method && (blockingUpdateType = 1), blockingEventTime = lane, blockingEventType = method);
-        else if (0 !== (lane & 4194048) && 0 > transitionUpdateTime && (transitionUpdateTime = now(), transitionUpdateTask = createTask(method), transitionUpdateMethodName = method, null != fiber && (transitionUpdateComponentName = getComponentNameFromFiber(fiber)), 0 > transitionStartTime)) {
+          0 > blockingUpdateTime && (blockingUpdateTime = now2(), blockingUpdateTask = createTask(method), blockingUpdateMethodName = method, null != fiber && (blockingUpdateComponentName = getComponentNameFromFiber(fiber)), isAlreadyRendering() && (componentEffectSpawnedUpdate = true, blockingUpdateType = 1), lane = resolveEventTimeStamp(), method = resolveEventType2(), lane !== blockingEventRepeatTime || method !== blockingEventType ? blockingEventRepeatTime = -1.1 : null !== method && (blockingUpdateType = 1), blockingEventTime = lane, blockingEventType = method);
+        else if (0 !== (lane & 4194048) && 0 > transitionUpdateTime && (transitionUpdateTime = now2(), transitionUpdateTask = createTask(method), transitionUpdateMethodName = method, null != fiber && (transitionUpdateComponentName = getComponentNameFromFiber(fiber)), 0 > transitionStartTime)) {
           lane = resolveEventTimeStamp();
           method = resolveEventType2();
           if (lane !== transitionEventRepeatTime || method !== transitionEventType)
@@ -31526,7 +31926,7 @@ var require_react_reconciler_development = __commonJS({
       }
       function startHostActionTimer(fiber) {
         if (0 > blockingUpdateTime) {
-          blockingUpdateTime = now();
+          blockingUpdateTime = now2();
           blockingUpdateTask = null != fiber._debugTask ? fiber._debugTask : null;
           isAlreadyRendering() && (blockingUpdateType = 1);
           var newEventTime = resolveEventTimeStamp(), newEventType = resolveEventType2();
@@ -31534,7 +31934,7 @@ var require_react_reconciler_development = __commonJS({
           blockingEventTime = newEventTime;
           blockingEventType = newEventType;
         }
-        if (0 > transitionUpdateTime && (transitionUpdateTime = now(), transitionUpdateTask = null != fiber._debugTask ? fiber._debugTask : null, 0 > transitionStartTime)) {
+        if (0 > transitionUpdateTime && (transitionUpdateTime = now2(), transitionUpdateTask = null != fiber._debugTask ? fiber._debugTask : null, 0 > transitionStartTime)) {
           fiber = resolveEventTimeStamp();
           newEventTime = resolveEventType2();
           if (fiber !== transitionEventRepeatTime || newEventTime !== transitionEventType)
@@ -31588,12 +31988,12 @@ var require_react_reconciler_development = __commonJS({
         return prev;
       }
       function startProfilerTimer(fiber) {
-        profilerStartTime = now();
+        profilerStartTime = now2();
         0 > fiber.actualStartTime && (fiber.actualStartTime = profilerStartTime);
       }
       function stopProfilerTimerIfRunningAndRecordDuration(fiber) {
         if (0 <= profilerStartTime) {
-          var elapsedTime = now() - profilerStartTime;
+          var elapsedTime = now2() - profilerStartTime;
           fiber.actualDuration += elapsedTime;
           fiber.selfBaseDuration = elapsedTime;
           profilerStartTime = -1;
@@ -31601,14 +32001,14 @@ var require_react_reconciler_development = __commonJS({
       }
       function stopProfilerTimerIfRunningAndRecordIncompleteDuration(fiber) {
         if (0 <= profilerStartTime) {
-          var elapsedTime = now() - profilerStartTime;
+          var elapsedTime = now2() - profilerStartTime;
           fiber.actualDuration += elapsedTime;
           profilerStartTime = -1;
         }
       }
       function recordEffectDuration() {
         if (0 <= profilerStartTime) {
-          var endTime = now(), elapsedTime = endTime - profilerStartTime;
+          var endTime = now2(), elapsedTime = endTime - profilerStartTime;
           profilerStartTime = -1;
           profilerEffectDuration += elapsedTime;
           componentEffectDuration += elapsedTime;
@@ -31622,7 +32022,7 @@ var require_react_reconciler_development = __commonJS({
         commitErrors.push(errorInfo);
       }
       function startEffectTimer() {
-        profilerStartTime = now();
+        profilerStartTime = now2();
         0 > componentEffectStartTime && (componentEffectStartTime = profilerStartTime);
       }
       function transferActualDuration(fiber) {
@@ -31797,8 +32197,8 @@ var require_react_reconciler_development = __commonJS({
           currentEntangledActionThenable = {
             status: "pending",
             value: void 0,
-            then: function(resolve4) {
-              entangledListeners.push(resolve4);
+            then: function(resolve5) {
+              entangledListeners.push(resolve5);
             }
           };
         }
@@ -31821,8 +32221,8 @@ var require_react_reconciler_development = __commonJS({
           status: "pending",
           value: null,
           reason: null,
-          then: function(resolve4) {
-            listeners.push(resolve4);
+          then: function(resolve5) {
+            listeners.push(resolve5);
           }
         };
         thenable.then(
@@ -39223,7 +39623,7 @@ var require_react_reconciler_development = __commonJS({
           if (startTime === RootInProgress) {
             workInProgressRootIsPrerendering && !forceSync && markRootSuspended(root, lanes, 0, false);
             lanes = workInProgressSuspendedReason;
-            yieldStartTime = now();
+            yieldStartTime = now2();
             yieldReason = lanes;
             break;
           } else {
@@ -39569,7 +39969,7 @@ var require_react_reconciler_development = __commonJS({
           "primary-light"
         ));
         var previousRenderStartTime = renderStartTime;
-        renderStartTime = now();
+        renderStartTime = now2();
         if (0 !== workInProgressRootRenderLanes && 0 < previousRenderStartTime) {
           setCurrentTrackFromLanes(workInProgressRootRenderLanes);
           if (workInProgressRootExitStatus === RootSuspended || workInProgressRootExitStatus === RootSuspendedWithDelay)
@@ -39674,7 +40074,7 @@ var require_react_reconciler_development = __commonJS({
           blockingSuspendedTime = -1.1;
           blockingEventRepeatTime = blockingEventTime;
           blockingEventTime = -1.1;
-          blockingClampTime = now();
+          blockingClampTime = now2();
         }
         0 !== (lanes & 4194048) && (workInProgressUpdateTask = transitionUpdateTask, debugTask = 0 <= transitionStartTime && transitionStartTime < transitionClampTime ? transitionClampTime : transitionStartTime, previousRenderStartTime = 0 <= transitionUpdateTime && transitionUpdateTime < transitionClampTime ? transitionClampTime : transitionUpdateTime, endTime = 0 <= transitionEventTime && transitionEventTime < transitionClampTime ? transitionClampTime : transitionEventTime, color = 0 <= endTime ? endTime : 0 <= previousRenderStartTime ? previousRenderStartTime : renderStartTime, 0 <= transitionSuspendedTime && (setCurrentTrackFromLanes(256), logSuspendedWithDelayPhase(
           transitionSuspendedTime,
@@ -39732,7 +40132,7 @@ var require_react_reconciler_development = __commonJS({
             debugTask,
             previousRenderStartTime
           )
-        ) : performance.measure(debugTask, previousRenderStartTime))), transitionUpdateTime = transitionStartTime = -1.1, transitionUpdateType = 0, transitionSuspendedTime = -1.1, transitionEventRepeatTime = transitionEventTime, transitionEventTime = -1.1, transitionClampTime = now());
+        ) : performance.measure(debugTask, previousRenderStartTime))), transitionUpdateTime = transitionStartTime = -1.1, transitionUpdateType = 0, transitionSuspendedTime = -1.1, transitionEventRepeatTime = transitionEventTime, transitionEventTime = -1.1, transitionClampTime = now2());
         previousRenderStartTime = root.timeoutHandle;
         previousRenderStartTime !== noTimeout && (root.timeoutHandle = noTimeout, cancelTimeout(previousRenderStartTime));
         previousRenderStartTime = root.cancelPendingCommit;
@@ -40221,7 +40621,7 @@ var require_react_reconciler_development = __commonJS({
             return null;
           })) : (root.callbackNode = null, root.callbackPriority = 0);
           commitErrors = null;
-          commitStartTime = now();
+          commitStartTime = now2();
           null !== suspendedCommitReason && logSuspendedCommitPhase(
             completedRenderEndTime,
             commitStartTime,
@@ -40274,7 +40674,7 @@ var require_react_reconciler_development = __commonJS({
           pendingEffectsStatus = NO_PENDING_EFFECTS;
           var suspendedViewTransitionReason = pendingSuspendedViewTransitionReason;
           if (null !== suspendedViewTransitionReason) {
-            commitStartTime = now();
+            commitStartTime = now2();
             var startTime = commitEndTime, endTime = commitStartTime;
             !supportsUserTiming || endTime <= startTime || (animatingTask ? animatingTask.run(
               console.timeStamp.bind(
@@ -40318,7 +40718,7 @@ var require_react_reconciler_development = __commonJS({
           }
           suspendedViewTransitionReason = pendingEffectsRenderEndTime;
           startTime = pendingSuspendedCommitReason;
-          commitEndTime = now();
+          commitEndTime = now2();
           suspendedViewTransitionReason = null === startTime ? suspendedViewTransitionReason : commitStartTime;
           startTime = commitEndTime;
           endTime = pendingDelayedCommitReason === ABORTED_VIEW_TRANSITION_COMMIT;
@@ -40354,7 +40754,7 @@ var require_react_reconciler_development = __commonJS({
         if (pendingEffectsStatus === PENDING_SPAWNED_WORK || pendingEffectsStatus === PENDING_AFTER_MUTATION_PHASE) {
           if (pendingEffectsStatus === PENDING_SPAWNED_WORK) {
             var startViewTransitionStartTime = commitEndTime;
-            commitEndTime = now();
+            commitEndTime = now2();
             var endTime = commitEndTime, abortedViewTransition = pendingDelayedCommitReason === ABORTED_VIEW_TRANSITION_COMMIT;
             !supportsUserTiming || endTime <= startViewTransitionStartTime || (animatingTask ? animatingTask.run(
               console.timeStamp.bind(
@@ -40667,7 +41067,7 @@ var require_react_reconciler_development = __commonJS({
         null !== pingCache && pingCache.delete(wakeable);
         root.pingedLanes |= root.suspendedLanes & pingedLanes;
         root.warmLanes &= ~pingedLanes;
-        0 !== (pingedLanes & 127) ? 0 > blockingUpdateTime && (blockingClampTime = blockingUpdateTime = now(), blockingUpdateTask = createTask("Promise Resolved"), blockingUpdateType = 2) : 0 !== (pingedLanes & 4194048) && 0 > transitionUpdateTime && (transitionClampTime = transitionUpdateTime = now(), transitionUpdateTask = createTask("Promise Resolved"), transitionUpdateType = 2);
+        0 !== (pingedLanes & 127) ? 0 > blockingUpdateTime && (blockingClampTime = blockingUpdateTime = now2(), blockingUpdateTask = createTask("Promise Resolved"), blockingUpdateType = 2) : 0 !== (pingedLanes & 4194048) && 0 > transitionUpdateTime && (transitionClampTime = transitionUpdateTime = now2(), transitionUpdateTask = createTask("Promise Resolved"), transitionUpdateType = 2);
         isConcurrentActEnvironment() && null === ReactSharedInternals.actQueue && console.error(
           "A suspended resource finished loading inside a test, but the event was not wrapped in act(...).\n\nWhen testing, code that resolves suspended data should be wrapped into act(...):\n\nact(() => {\n  /* finish loading suspended data */\n});\n/* assert on the output */\n\nThis ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act"
         );
@@ -41281,14 +41681,14 @@ var require_react_reconciler_development = __commonJS({
         _threadCount: 0,
         _currentRenderer: null,
         _currentRenderer2: null
-      }, now = Scheduler2.unstable_now, createTask = console.createTask ? console.createTask : function() {
+      }, now2 = Scheduler2.unstable_now, createTask = console.createTask ? console.createTask : function() {
         return null;
       }, renderStartTime = -0, commitStartTime = -0, commitEndTime = -0, commitErrors = null, profilerStartTime = -1.1, profilerEffectDuration = -0, componentEffectDuration = -0, componentEffectStartTime = -1.1, componentEffectEndTime = -1.1, componentEffectErrors = null, componentEffectSpawnedUpdate = false, blockingClampTime = -0, blockingUpdateTime = -1.1, blockingUpdateTask = null, blockingUpdateType = 0, blockingUpdateMethodName = null, blockingUpdateComponentName = null, blockingEventTime = -1.1, blockingEventType = null, blockingEventRepeatTime = -1.1, blockingSuspendedTime = -1.1, transitionClampTime = -0, transitionStartTime = -1.1, transitionUpdateTime = -1.1, transitionUpdateType = 0, transitionUpdateTask = null, transitionUpdateMethodName = null, transitionUpdateComponentName = null, transitionEventTime = -1.1, transitionEventType = null, transitionEventRepeatTime = -1.1, transitionSuspendedTime = -1.1, animatingTask = null, yieldReason = 0, yieldStartTime = -1.1, currentUpdateIsNested = false, nestedUpdateScheduled = false, firstScheduledRoot = null, lastScheduledRoot = null, didScheduleMicrotask = false, didScheduleMicrotask_act = false, mightHavePendingSyncWork = false, isFlushingWork = false, currentEventTransitionLane = 0, fakeActCallbackNode$1 = {}, currentEntangledListeners = null, currentEntangledPendingCount = 0, currentEntangledLane = 0, currentEntangledActionThenable = null, prevOnStartTransitionFinish = ReactSharedInternals.S;
       ReactSharedInternals.S = function(transition, returnValue) {
         globalMostRecentTransitionTime = now$1();
         if ("object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then) {
           if (0 > transitionStartTime && 0 > transitionUpdateTime) {
-            transitionStartTime = now();
+            transitionStartTime = now2();
             var newEventTime = resolveEventTimeStamp(), newEventType = resolveEventType2();
             if (newEventTime !== transitionEventRepeatTime || newEventType !== transitionEventType)
               transitionEventRepeatTime = -1.1;
@@ -47223,7 +47623,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes, createHash } = __require("crypto");
+    var { randomBytes, createHash: createHash3 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -47883,7 +48283,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash3("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -48250,7 +48650,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter4 = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash3 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -48551,7 +48951,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash3("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -50243,7 +50643,7 @@ var require_backend = __commonJS({
                     value: function set(key, value, maxAge) {
                       maxAge = maxAge || this[MAX_AGE];
                       if (maxAge && typeof maxAge !== "number") throw new TypeError("maxAge must be a number");
-                      var now = maxAge ? Date.now() : 0;
+                      var now2 = maxAge ? Date.now() : 0;
                       var len = this[LENGTH_CALCULATOR](value, key);
                       if (this[CACHE].has(key)) {
                         if (len > this[MAX]) {
@@ -50255,7 +50655,7 @@ var require_backend = __commonJS({
                         if (this[DISPOSE]) {
                           if (!this[NO_DISPOSE_ON_SET]) this[DISPOSE](key, item.value);
                         }
-                        item.now = now;
+                        item.now = now2;
                         item.maxAge = maxAge;
                         item.value = value;
                         this[LENGTH] += len - item.length;
@@ -50264,7 +50664,7 @@ var require_backend = __commonJS({
                         trim(this);
                         return true;
                       }
-                      var hit = new Entry(key, value, len, now, maxAge);
+                      var hit = new Entry(key, value, len, now2, maxAge);
                       if (hit.length > this[MAX]) {
                         if (this[DISPOSE]) this[DISPOSE](key, value);
                         return false;
@@ -50309,13 +50709,13 @@ var require_backend = __commonJS({
                     key: "load",
                     value: function load2(arr) {
                       this.reset();
-                      var now = Date.now();
+                      var now2 = Date.now();
                       for (var l = arr.length - 1; l >= 0; l--) {
                         var hit = arr[l];
                         var expiresAt = hit.e || 0;
                         if (expiresAt === 0) this.set(hit.k, hit.v);
                         else {
-                          var maxAge = expiresAt - now;
+                          var maxAge = expiresAt - now2;
                           if (maxAge > 0) {
                             this.set(hit.k, hit.v, maxAge);
                           }
@@ -50371,12 +50771,12 @@ var require_backend = __commonJS({
                     self2[LRU_LIST].removeNode(node);
                   }
                 };
-                var Entry = /* @__PURE__ */ _createClass(function Entry2(key, value, length, now, maxAge) {
+                var Entry = /* @__PURE__ */ _createClass(function Entry2(key, value, length, now2, maxAge) {
                   _classCallCheck(this, Entry2);
                   this.key = key;
                   this.value = value;
                   this.length = length;
-                  this.now = now;
+                  this.now = now2;
                   this.maxAge = maxAge || 0;
                 });
                 var forEachStep = function forEachStep2(self2, fn, node, thisp) {
@@ -54545,11 +54945,11 @@ var require_backend = __commonJS({
               if (!isEnabled) return;
               nodes.forEach(function(node) {
                 var data = nodeToData.get(node);
-                var now = getCurrentTime();
+                var now2 = getCurrentTime();
                 var lastMeasuredAt = data != null ? data.lastMeasuredAt : 0;
                 var rect = data != null ? data.rect : null;
-                if (rect === null || lastMeasuredAt + REMEASUREMENT_AFTER_DURATION < now) {
-                  lastMeasuredAt = now;
+                if (rect === null || lastMeasuredAt + REMEASUREMENT_AFTER_DURATION < now2) {
+                  lastMeasuredAt = now2;
                   rect = measureNode(node);
                 }
                 var displayName = agent.getComponentNameForHostInstance(node);
@@ -54563,7 +54963,7 @@ var require_backend = __commonJS({
                 }
                 nodeToData.set(node, {
                   count: data != null ? data.count + 1 : 1,
-                  expirationTime: data != null ? Math.min(now + MAX_DISPLAY_DURATION, data.expirationTime + DISPLAY_DURATION) : now + DISPLAY_DURATION,
+                  expirationTime: data != null ? Math.min(now2 + MAX_DISPLAY_DURATION, data.expirationTime + DISPLAY_DURATION) : now2 + DISPLAY_DURATION,
                   lastMeasuredAt,
                   rect,
                   displayName
@@ -54580,10 +54980,10 @@ var require_backend = __commonJS({
             function prepareToDraw() {
               drawAnimationFrameID = null;
               redrawTimeoutID = null;
-              var now = getCurrentTime();
+              var now2 = getCurrentTime();
               var earliestExpiration = Number.MAX_VALUE;
               nodeToData.forEach(function(data, node) {
-                if (data.expirationTime < now) {
+                if (data.expirationTime < now2) {
                   nodeToData.delete(node);
                 } else {
                   earliestExpiration = Math.min(earliestExpiration, data.expirationTime);
@@ -54591,7 +54991,7 @@ var require_backend = __commonJS({
               });
               draw(nodeToData, agent);
               if (earliestExpiration !== Number.MAX_VALUE) {
-                redrawTimeoutID = setTimeout(prepareToDraw, earliestExpiration - now);
+                redrawTimeoutID = setTimeout(prepareToDraw, earliestExpiration - now2);
               }
             }
             function measureNode(node) {
@@ -65429,22 +65829,22 @@ var init_devtools = __esm({
     init_devtools_window_polyfill();
     init_wrapper();
     import_react_devtools_core = __toESM(require_backend(), 1);
-    isDevToolsReachable = async () => new Promise((resolve4) => {
+    isDevToolsReachable = async () => new Promise((resolve5) => {
       const socket = new wrapper_default("ws://localhost:8097");
       const timeout = setTimeout(() => {
         socket.terminate();
-        resolve4(false);
+        resolve5(false);
       }, 2e3);
       timeout.unref();
       socket.on("open", () => {
         clearTimeout(timeout);
         socket.terminate();
-        resolve4(true);
+        resolve5(true);
       });
       socket.on("error", () => {
         clearTimeout(timeout);
         socket.terminate();
-        resolve4(false);
+        resolve5(false);
       });
     });
     if (await isDevToolsReachable()) {
@@ -69259,8 +69659,8 @@ var init_ink = __esm({
     noop = () => {
     };
     textEncoder = new TextEncoder();
-    yieldImmediate = async () => new Promise((resolve4) => {
-      setImmediate(resolve4);
+    yieldImmediate = async () => new Promise((resolve5) => {
+      setImmediate(resolve5);
     });
     kittyQueryEscapeByte = 27;
     kittyQueryOpenBracketByte = 91;
@@ -69477,8 +69877,8 @@ var init_ink = __esm({
           };
         }
         this.initKittyKeyboard();
-        this.exitPromise = new Promise((resolve4, reject) => {
-          this.resolveExitPromise = resolve4;
+        this.exitPromise = new Promise((resolve5, reject) => {
+          this.resolveExitPromise = resolve5;
           this.rejectExitPromise = reject;
         });
         void this.exitPromise.catch(noop);
@@ -69789,9 +70189,9 @@ var init_ink = __esm({
         settleThrottle(this.throttledOnRender, canWriteToStdout);
         settleThrottle(this.throttledLog, canWriteToStdout);
         if (canWriteToStdout && hasWritableState) {
-          await new Promise((resolve4) => {
+          await new Promise((resolve5) => {
             this.options.stdout.write("", () => {
-              resolve4();
+              resolve5();
             });
           });
           return;
@@ -69877,8 +70277,8 @@ var init_ink = __esm({
       async awaitNextRender() {
         if (!this.nextRenderCommit) {
           let resolveRender;
-          const promise = new Promise((resolve4) => {
-            resolveRender = resolve4;
+          const promise = new Promise((resolve5) => {
+            resolveRender = resolve5;
           });
           this.nextRenderCommit = { promise, resolve: resolveRender };
         }
@@ -71881,8 +72281,8 @@ var init_ConfigPanel = __esm({
 
 // src/tui/ActionsPanel.tsx
 import { spawn as spawn5 } from "child_process";
-import { mkdirSync as mkdirSync7, existsSync as existsSync12 } from "fs";
-import { dirname as dirname9 } from "path";
+import { mkdirSync as mkdirSync8, existsSync as existsSync12 } from "fs";
+import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
   const lines = [];
   const mark2 = (b) => b.available ? "\u2713" : "\u2717";
@@ -71912,7 +72312,7 @@ function formatBackendSummary(report) {
   return lines.join("\n");
 }
 function spawnPaf(args, processRef, fallbackMessage) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const proc = spawn5(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -71926,7 +72326,7 @@ function spawnPaf(args, processRef, fallbackMessage) {
     });
     proc.on("close", (code) => {
       processRef.current = null;
-      if (code === 0) resolve4(output.trim() || fallbackMessage);
+      if (code === 0) resolve5(output.trim() || fallbackMessage);
       else reject(new Error(output.trim() || `Exit code ${code}`));
     });
     proc.on("error", (err) => {
@@ -71959,19 +72359,19 @@ function buildActionGroups(report, onRefresh, processRef) {
           run: async () => {
             const paths = configPaths();
             if (!existsSync12(paths.user)) {
-              mkdirSync7(dirname9(paths.user), { recursive: true });
+              mkdirSync8(dirname10(paths.user), { recursive: true });
               configInit(paths.user, true);
             }
             const editorEnv = process.env.EDITOR ?? "vi";
             const parts = editorEnv.split(/\s+/);
             const editor = parts[0];
             const editorArgs = [...parts.slice(1), paths.user];
-            return new Promise((resolve4, reject) => {
+            return new Promise((resolve5, reject) => {
               const proc = spawn5(editor, editorArgs, { stdio: "inherit" });
               processRef.current = proc;
               proc.on("close", () => {
                 processRef.current = null;
-                resolve4("Editor closed");
+                resolve5("Editor closed");
               });
               proc.on("error", (err) => {
                 processRef.current = null;
@@ -72445,8 +72845,8 @@ function useDetection() {
   }, []);
   const runDetection = (0, import_react39.useCallback)(async (force = false) => {
     if (runningRef.current) return;
-    const now = Date.now();
-    if (!force && now - lastRunRef.current < THROTTLE_MS && lastRunRef.current > 0) return;
+    const now2 = Date.now();
+    if (!force && now2 - lastRunRef.current < THROTTLE_MS && lastRunRef.current > 0) return;
     runningRef.current = true;
     if (report === null) {
       setLoading(true);
@@ -72549,20 +72949,20 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join9 } from "path";
-import { mkdirSync as mkdirSync8 } from "fs";
-import { homedir as homedir7 } from "os";
-function getDatabase() {
-  if (!_Database) {
-    _Database = __require("better-sqlite3");
+import { join as join10 } from "path";
+import { mkdirSync as mkdirSync9 } from "fs";
+import { homedir as homedir8 } from "os";
+function getDatabase2() {
+  if (!_Database2) {
+    _Database2 = __require("better-sqlite3");
   }
-  return _Database;
+  return _Database2;
 }
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join9(homedir7(), ".config");
-  const dir = join9(configBase, "phone-a-friend");
-  mkdirSync8(dir, { recursive: true });
-  return join9(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join10(homedir8(), ".config");
+  const dir = join10(configBase, "phone-a-friend");
+  mkdirSync9(dir, { recursive: true });
+  return join10(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -72575,11 +72975,11 @@ function rowToMessage(row) {
     turn: row.turn
   };
 }
-var _Database, SCHEMA, TranscriptBus;
+var _Database2, SCHEMA2, TranscriptBus;
 var init_bus = __esm({
   "src/agentic/bus.ts"() {
     "use strict";
-    SCHEMA = `
+    SCHEMA2 = `
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -72619,11 +73019,11 @@ var init_bus = __esm({
     TranscriptBus = class {
       db;
       constructor(dbPath) {
-        const Database = getDatabase();
+        const Database = getDatabase2();
         this.db = new Database(dbPath ?? defaultDbPath());
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("foreign_keys = ON");
-        this.db.exec(SCHEMA);
+        this.db.exec(SCHEMA2);
         this.migrate();
       }
       /**
@@ -73030,7 +73430,7 @@ var init_queue = __esm({
 
 // src/agentic/session.ts
 import { spawn as spawn6 } from "child_process";
-import { randomUUID as randomUUID4 } from "crypto";
+import { randomUUID as randomUUID5 } from "crypto";
 function assertAgenticBackendSupported(backendName) {
   if (backendName === AGENTIC_NATIVE_BACKEND) return;
   const { resumeStrategy } = getBackend(backendName).capabilities;
@@ -73063,7 +73463,7 @@ var init_session = __esm({
        */
       async spawn(agent, systemPrompt, initialPrompt, repoPath) {
         assertAgenticBackendSupported(agent.backend);
-        const sessionId = randomUUID4();
+        const sessionId = randomUUID5();
         if (agent.backend === AGENTIC_NATIVE_BACKEND) {
           const output2 = await this.spawnClaude(
             sessionId,
@@ -73170,7 +73570,7 @@ ${prompt}`,
         return this.execClaude(args, repoPath);
       }
       execClaude(args, repoPath) {
-        return new Promise((resolve4, reject) => {
+        return new Promise((resolve5, reject) => {
           const env5 = this.cleanEnv();
           const child = spawn6("claude", args, {
             env: env5,
@@ -73201,9 +73601,9 @@ ${prompt}`,
             const out = Buffer.concat(stdout).toString().trim();
             const err = Buffer.concat(stderr).toString().trim();
             if (code === 0 && out) {
-              settle(resolve4, out);
+              settle(resolve5, out);
             } else if (out) {
-              settle(resolve4, out);
+              settle(resolve5, out);
             } else {
               settle(reject, new Error(err || `claude exited with code ${code}`));
             }
@@ -73414,8 +73814,8 @@ var init_events = __esm({
             if (this.done) {
               return Promise.resolve({ value: void 0, done: true });
             }
-            return new Promise((resolve4) => {
-              this.resolve = resolve4;
+            return new Promise((resolve5) => {
+              this.resolve = resolve5;
             });
           }
         };
@@ -73536,7 +73936,7 @@ var init_names = __esm({
 });
 
 // src/agentic/orchestrator.ts
-import { randomUUID as randomUUID5 } from "crypto";
+import { randomUUID as randomUUID6 } from "crypto";
 var Orchestrator;
 var init_orchestrator = __esm({
   "src/agentic/orchestrator.ts"() {
@@ -73578,7 +73978,7 @@ var init_orchestrator = __esm({
         if (this.runLoopPromise) {
           throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
         }
-        this.sessionId = randomUUID5().slice(0, 7);
+        this.sessionId = randomUUID6().slice(0, 7);
         this.turn = 0;
         this.startTime = Date.now();
         this.stopped = false;
@@ -74177,8 +74577,11 @@ var CodexBackend = class {
         schemaPath,
         persistSession: opts.persistSession ?? false,
         sessionId: opts.sessionId ?? null,
-        resumeSession: opts.resumeSession ?? false
+        resumeSession: opts.resumeSession ?? false,
+        wantsJson: Boolean(opts.onEvent)
       });
+      const jsonRequested = args.includes("--json");
+      const tap = opts.onEvent ? createCodexJsonlTap(opts.onEvent) : void 0;
       if (schemaPath) {
         writeSchemaFile(schemaPath, opts.schema ?? "");
       }
@@ -74187,11 +74590,14 @@ var CodexBackend = class {
         const result = await spawnCli("codex", args, {
           timeoutMs: opts.timeoutSeconds * 1e3,
           env: env5,
-          label: "codex exec"
+          label: "codex exec",
+          onStdout: tap
         });
+        tap?.flush();
         stdout = result.stdout;
         maybeEmitSessionId(stdout, opts.onSessionCreated);
       } catch (err) {
+        tap?.flush();
         if (err instanceof SpawnCliError) {
           maybeEmitSessionId(err.stdout, opts.onSessionCreated);
         }
@@ -74206,8 +74612,9 @@ var CodexBackend = class {
       if (lastMessage) {
         return lastMessage;
       }
-      if (stdout) {
-        return stdout;
+      const fallback = jsonRequested ? extractCodexFinalMessage(stdout) : stdout;
+      if (fallback) {
+        return fallback;
       }
       throw new CodexBackendError("codex exec completed without producing feedback");
     } finally {
@@ -74236,6 +74643,11 @@ var CodexBackend = class {
         outputPath,
         "--skip-git-repo-check"
       ];
+      const jsonRequested = Boolean(opts.onEvent);
+      if (jsonRequested) {
+        args.push("--json");
+      }
+      const tap = opts.onEvent ? createCodexJsonlTap(opts.onEvent) : void 0;
       if (opts.model) {
         args.push("-m", opts.model);
       }
@@ -74248,10 +74660,13 @@ var CodexBackend = class {
           timeoutMs: opts.timeoutSeconds * 1e3,
           env: opts.env,
           cwd: opts.repoPath,
-          label: "codex exec review"
+          label: "codex exec review",
+          onStdout: tap
         });
+        tap?.flush();
         stdout = result.stdout;
       } catch (err) {
+        tap?.flush();
         const lastMessage2 = readOutputFile(outputPath);
         if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
@@ -74263,8 +74678,9 @@ var CodexBackend = class {
       if (lastMessage) {
         return lastMessage;
       }
-      if (stdout) {
-        return stdout;
+      const fallback = jsonRequested ? extractCodexFinalMessage(stdout) : stdout;
+      if (fallback) {
+        return fallback;
       }
       throw new CodexBackendError("codex exec review completed without producing feedback");
     } finally {
@@ -74296,7 +74712,7 @@ function buildCodexExecArgs(opts) {
   }
   if (opts.schemaPath) {
     args.push("--output-schema", opts.schemaPath, "--json");
-  } else if (opts.persistSession || isResume) {
+  } else if (opts.persistSession || isResume || opts.wantsJson) {
     args.push("--json");
   }
   if (opts.model) {
@@ -74306,7 +74722,7 @@ function buildCodexExecArgs(opts) {
   return args;
 }
 function assertResumeSchemaSupport(env5, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     execFile("codex", ["exec", "resume", "--help"], {
       env: env5,
       encoding: "utf8",
@@ -74323,7 +74739,7 @@ function assertResumeSchemaSupport(env5, timeoutMs) {
           "The codex executable in this invocation's PATH does not advertise --output-schema for exec resume. Upgrade or select a supporting Codex CLI to resume with a schema; the schema request was not run."
         ));
       } else {
-        resolve4();
+        resolve5();
       }
     });
   });
@@ -74372,6 +74788,144 @@ function readOutputFile(outputPath) {
       `Failed reading Codex output file: ${err}`
     );
   }
+}
+var MAX_EVENT_COMMAND_CHARS = 200;
+var MAX_EVENT_MESSAGE_CHARS = 300;
+function truncateForEvent(text, max) {
+  const single = text.replace(/\s+/g, " ").trim();
+  return single.length > max ? `${single.slice(0, max)}\u2026` : single;
+}
+function itemEvents(phase, item) {
+  if (!item || typeof item !== "object") return [];
+  const record = item;
+  const itemId = typeof record.id === "string" ? record.id : void 0;
+  const status = typeof record.status === "string" ? record.status : void 0;
+  switch (record.type) {
+    case "command_execution": {
+      const command = truncateForEvent(String(record.command ?? ""), MAX_EVENT_COMMAND_CHARS);
+      if (phase === "item.started") {
+        return [{ type: "activity", message: `Running: ${command}`, data: { itemId, status } }];
+      }
+      if (phase === "item.completed") {
+        const exitCode = typeof record.exit_code === "number" ? record.exit_code : null;
+        return [{
+          type: "activity",
+          message: `Finished (exit ${exitCode ?? "n/a"}): ${command}`,
+          data: { itemId, status, exitCode }
+        }];
+      }
+      return [];
+    }
+    case "agent_message": {
+      if (phase !== "item.completed") return [];
+      const text = typeof record.text === "string" ? record.text : "";
+      return [{
+        type: "message",
+        message: truncateForEvent(text, MAX_EVENT_MESSAGE_CHARS),
+        data: { itemId, length: text.length }
+      }];
+    }
+    case "file_change": {
+      if (phase !== "item.completed") return [];
+      const changes = Array.isArray(record.changes) ? record.changes : [];
+      const files = changes.map((change) => change && typeof change === "object" && typeof change.path === "string" ? change.path : null).filter((path4) => path4 !== null);
+      return [{ type: "activity", message: `Changed ${changes.length} file(s)`, data: { itemId, status, files } }];
+    }
+    case "mcp_tool_call": {
+      if (phase === "item.updated") return [];
+      return [{
+        type: "activity",
+        message: `Tool call: ${String(record.server ?? "?")}/${String(record.tool ?? "?")}`,
+        data: { itemId, status }
+      }];
+    }
+    case "web_search": {
+      if (phase === "item.updated") return [];
+      return [{ type: "activity", message: `Web search: ${String(record.query ?? "")}`, data: { itemId } }];
+    }
+    case "error": {
+      if (phase !== "item.completed") return [];
+      return [{ type: "error", message: String(record.message ?? "Codex item error"), data: { itemId } }];
+    }
+    default:
+      return [];
+  }
+}
+function codexEventsFromLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return [];
+  let event;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object") return [];
+    event = parsed;
+  } catch {
+    return [];
+  }
+  switch (event.type) {
+    case "thread.started": {
+      const id = typeof event.thread_id === "string" ? event.thread_id : null;
+      return id ? [{ type: "session_linked", message: `Codex thread ${id}`, data: { backendSessionId: id } }] : [];
+    }
+    case "turn.started":
+      return [{ type: "turn_started", message: "Codex turn started" }];
+    case "turn.completed":
+      return [{ type: "turn_completed", message: "Codex turn completed", data: { usage: event.usage ?? null } }];
+    case "turn.failed": {
+      const error2 = event.error;
+      const message = typeof error2?.message === "string" ? error2.message : "unknown error";
+      return [{ type: "turn_failed", message: `Codex turn failed: ${message}` }];
+    }
+    case "error":
+      return [{ type: "error", message: typeof event.message === "string" ? event.message : "Codex error" }];
+    case "item.started":
+    case "item.updated":
+    case "item.completed":
+      return itemEvents(event.type, event.item);
+    default:
+      return [];
+  }
+}
+function createCodexJsonlTap(onEvent) {
+  let buffer = "";
+  const emitLine = (line) => {
+    for (const event of codexEventsFromLine(line)) {
+      try {
+        onEvent(event);
+      } catch {
+      }
+    }
+  };
+  const tap = ((chunk) => {
+    buffer += chunk;
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      emitLine(buffer.slice(0, newline));
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf("\n");
+    }
+  });
+  tap.flush = () => {
+    if (buffer.trim()) emitLine(buffer);
+    buffer = "";
+  };
+  return tap;
+}
+function extractCodexFinalMessage(jsonlOutput) {
+  let last = "";
+  for (const line of jsonlOutput.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const event = JSON.parse(trimmed);
+      const item = event?.item;
+      if (event?.type === "item.completed" && item?.type === "agent_message" && typeof item.text === "string") {
+        last = item.text;
+      }
+    } catch {
+    }
+  }
+  return last.trim();
 }
 var CODEX_BACKEND = new CodexBackend();
 registerBackend(CODEX_BACKEND);
@@ -74485,9 +75039,9 @@ var GeminiModelCache = class {
     } catch {
     }
   }
-  isDead(model, now = Date.now()) {
+  isDead(model, now2 = Date.now()) {
     const cache3 = this.load();
-    return isModelDead(cache3, model, now);
+    return isModelDead(cache3, model, now2);
   }
   /**
    * Return the cached dead-model entry if one exists and is still within TTL.
@@ -74495,12 +75049,12 @@ var GeminiModelCache = class {
    * to construct a fail-fast error message that includes the cached
    * `expiresAt`, `httpStatus`, and `message`.
    */
-  getDeadEntry(model, now = Date.now()) {
+  getDeadEntry(model, now2 = Date.now()) {
     const cache3 = this.load();
     const entry = cache3.models[model];
     if (!entry) return void 0;
     const expires = Date.parse(entry.expiresAt);
-    if (Number.isNaN(expires) || expires <= now) return void 0;
+    if (Number.isNaN(expires) || expires <= now2) return void 0;
     return entry;
   }
   /**
@@ -74510,14 +75064,14 @@ var GeminiModelCache = class {
   getCachePath() {
     return this.filePath;
   }
-  markDead(model, info2, now = /* @__PURE__ */ new Date()) {
+  markDead(model, info2, now2 = /* @__PURE__ */ new Date()) {
     const cache3 = this.load();
-    const updated = markModelDead(cache3, model, info2, now);
+    const updated = markModelDead(cache3, model, info2, now2);
     this.save(updated);
   }
-  prune(now = Date.now()) {
+  prune(now2 = Date.now()) {
     const cache3 = this.load();
-    const pruned = pruneExpired(cache3, now);
+    const pruned = pruneExpired(cache3, now2);
     if (pruned !== cache3) {
       this.save(pruned);
     }
@@ -74530,16 +75084,16 @@ function defaultCachePath() {
     "gemini-models.json"
   );
 }
-function isModelDead(cache3, model, now = Date.now()) {
+function isModelDead(cache3, model, now2 = Date.now()) {
   const entry = cache3.models[model];
   if (!entry) return false;
   const expires = Date.parse(entry.expiresAt);
   if (Number.isNaN(expires)) return false;
-  return expires > now;
+  return expires > now2;
 }
-function markModelDead(cache3, model, info2, now = /* @__PURE__ */ new Date()) {
-  const nowIso = now.toISOString();
-  const expires = new Date(now.getTime() + DEAD_MODEL_TTL_MS).toISOString();
+function markModelDead(cache3, model, info2, now2 = /* @__PURE__ */ new Date()) {
+  const nowIso = now2.toISOString();
+  const expires = new Date(now2.getTime() + DEAD_MODEL_TTL_MS).toISOString();
   const existing = cache3.models[model];
   const entry = {
     status: "unavailable",
@@ -74557,12 +75111,12 @@ function markModelDead(cache3, model, info2, now = /* @__PURE__ */ new Date()) {
     models: { ...cache3.models, [model]: entry }
   };
 }
-function pruneExpired(cache3, now = Date.now()) {
+function pruneExpired(cache3, now2 = Date.now()) {
   const next = {};
   let changed = false;
   for (const [model, entry] of Object.entries(cache3.models)) {
     const expires = Date.parse(entry.expiresAt);
-    if (!Number.isNaN(expires) && expires > now) {
+    if (!Number.isNaN(expires) && expires > now2) {
       next[model] = entry;
     } else {
       changed = true;
@@ -74571,7 +75125,7 @@ function pruneExpired(cache3, now = Date.now()) {
   if (!changed) return cache3;
   return {
     schemaVersion: CACHE_SCHEMA_VERSION,
-    updatedAt: new Date(now).toISOString(),
+    updatedAt: new Date(now2).toISOString(),
     models: next
   };
 }
@@ -75435,7 +75989,7 @@ var ClaudeBackend = class {
     process.on("SIGINT", onSigint);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve4, reject) => {
+    const closePromise = new Promise((resolve5, reject) => {
       child.on("close", (code, signal) => {
         if (timedOut) {
           reject(new ClaudeBackendError(
@@ -75454,7 +76008,7 @@ var ClaudeBackend = class {
             reject(new ClaudeBackendError(errMsg));
           }
         } else {
-          resolve4();
+          resolve5();
         }
       });
     });
@@ -75692,8 +76246,8 @@ var OpenCodeBackend = class {
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     let streamError = null;
     const closePromise = new Promise(
-      (resolve4) => {
-        child.on("close", (code, signal) => resolve4({ code, signal }));
+      (resolve5) => {
+        child.on("close", (code, signal) => resolve5({ code, signal }));
       }
     );
     let chunkCount = 0;
@@ -81918,10 +82472,10 @@ var Ora = class {
     this.#options.isSilent = value;
   }
   frame() {
-    const now = Date.now();
-    if (this.#frameIndex === -1 || now - this.#lastFrameTime >= this.interval) {
+    const now2 = Date.now();
+    if (this.#frameIndex === -1 || now2 - this.#lastFrameTime >= this.interval) {
       this.#frameIndex = (this.#frameIndex + 1) % this.#spinner.frames.length;
-      this.#lastFrameTime = now;
+      this.#lastFrameTime = now2;
     }
     const { frames } = this.#spinner;
     let frame = frames[this.#frameIndex];
@@ -82979,23 +83533,23 @@ import {
   closeSync as closeSync3,
   existsSync as existsSync8,
   fsyncSync as fsyncSync3,
-  mkdirSync as mkdirSync6,
+  mkdirSync as mkdirSync7,
   openSync as openSync3,
   readFileSync as readFileSync10,
   renameSync as renameSync3,
   unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync7
 } from "fs";
-import { homedir as homedir6 } from "os";
-import { dirname as dirname7, join as join7 } from "path";
+import { homedir as homedir7 } from "os";
+import { dirname as dirname8, join as join8 } from "path";
 var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
 var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 5e3;
 var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
 var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
-function defaultCachePath2(env5 = process.env, home = homedir6()) {
-  const base = env5.XDG_CONFIG_HOME ?? join7(home, ".config");
-  return join7(base, "phone-a-friend", "update-check.json");
+function defaultCachePath2(env5 = process.env, home = homedir7()) {
+  const base = env5.XDG_CONFIG_HOME ?? join8(home, ".config");
+  return join8(base, "phone-a-friend", "update-check.json");
 }
 function emptySnapshot(currentVersion) {
   return {
@@ -83044,8 +83598,8 @@ function rotateCorruptCache(filePath, _reason) {
   }
 }
 function writeSnapshot(filePath, snapshot) {
-  const dir = dirname7(filePath);
-  mkdirSync6(dir, { recursive: true });
+  const dir = dirname8(filePath);
+  mkdirSync7(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   const payload = JSON.stringify(snapshot, null, 2);
   const tmpFd = openSync3(tmpPath, "w");
@@ -83295,7 +83849,7 @@ init_backends();
 init_version();
 import { execFile as execFile2 } from "child_process";
 import { accessSync, constants as fsConstants, realpathSync as realpathSync2, statSync as statSync2, readFileSync as readFileSync11 } from "fs";
-import { delimiter as pathDelimiter, dirname as dirname8, join as join8, resolve as resolvePath } from "path";
+import { delimiter as pathDelimiter, dirname as dirname9, join as join9, resolve as resolvePath } from "path";
 var DEFAULT_TIMEOUT_MS = 5e3;
 var DEFAULT_MAX_PROBES = 6;
 var VERSION_RE2 = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
@@ -83349,7 +83903,7 @@ function parseVersionOutput(stdout, stderr) {
 }
 function probeVersion(path4, deps = {}) {
   const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     execFileFn(
       path4,
       ["--version"],
@@ -83367,11 +83921,11 @@ function probeVersion(path4, deps = {}) {
         if (err) {
           const e = err;
           if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-            resolve4({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
+            resolve5({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
             return;
           }
           if (e.killed || e.signal === "SIGKILL") {
-            resolve4({
+            resolve5({
               version: null,
               versionStatus: "timeout",
               versionError: `--version did not finish within ${timeoutMs / 1e3}s`
@@ -83379,28 +83933,28 @@ function probeVersion(path4, deps = {}) {
             return;
           }
           if (e.code === "EACCES" || e.code === "EPERM") {
-            resolve4({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
+            resolve5({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
             return;
           }
           if (typeof e.code === "string") {
-            resolve4({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
+            resolve5({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
             return;
           }
           const parsed2 = parseVersionOutput(out, errOut);
           if (parsed2) {
-            resolve4({ version: parsed2, versionStatus: "ok" });
+            resolve5({ version: parsed2, versionStatus: "ok" });
             return;
           }
           const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
-          resolve4({ version: null, versionStatus: "failed", versionError: detail });
+          resolve5({ version: null, versionStatus: "failed", versionError: detail });
           return;
         }
         const parsed = parseVersionOutput(out, errOut);
         if (parsed) {
-          resolve4({ version: parsed, versionStatus: "ok" });
+          resolve5({ version: parsed, versionStatus: "ok" });
           return;
         }
-        resolve4({
+        resolve5({
           version: null,
           versionStatus: "unparsed",
           versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
@@ -83507,12 +84061,12 @@ function attachModelAndCapabilities(report, config) {
   }
 }
 function inspectPafPackage(entry) {
-  for (const root of [dirname8(entry), dirname8(dirname8(entry))]) {
+  for (const root of [dirname9(entry), dirname9(dirname9(entry))]) {
     try {
-      const pkg = JSON.parse(readFileSync11(join8(root, "package.json"), "utf8"));
+      const pkg = JSON.parse(readFileSync11(join9(root, "package.json"), "utf8"));
       if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
-      const isBundle = entry === join8(root, "dist", "index.js");
-      const isCheckoutWrapper = entry === join8(root, "phone-a-friend") && readFileSync11(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
+      const isBundle = entry === join9(root, "dist", "index.js");
+      const isCheckoutWrapper = entry === join9(root, "phone-a-friend") && readFileSync11(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
       if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
     } catch {
     }
@@ -83819,10 +84373,191 @@ async function doctor(opts) {
 init_config();
 init_version();
 init_verdict();
+
+// src/task-tracking.ts
+init_tasks();
+import { execFileSync as execFileSync6 } from "child_process";
+import { resolve as resolve4 } from "path";
+var PROMPT_PREVIEW_CHARS = 200;
+function git(repoPath, args) {
+  try {
+    return execFileSync6("git", ["-C", repoPath, ...args], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+function describeRepo(repoPath) {
+  const resolved = resolve4(repoPath);
+  const root = git(resolved, ["rev-parse", "--show-toplevel"]);
+  if (!root) return { root: resolved, branch: null, headSha: null };
+  const branch = git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  return {
+    root: resolve4(root),
+    branch: branch === "HEAD" ? null : branch,
+    headSha: git(root, ["rev-parse", "HEAD"])
+  };
+}
+function promptPreview(prompt) {
+  if (prompt === null) return null;
+  const single = prompt.replace(/\s+/g, " ").trim();
+  return single.length > PROMPT_PREVIEW_CHARS ? `${single.slice(0, PROMPT_PREVIEW_CHARS)}\u2026` : single;
+}
+function inferHost() {
+  const explicit = process.env.PHONE_A_FRIEND_HOST?.trim().toLowerCase();
+  if (explicit) return explicit;
+  if (process.env.CLAUDECODE === "1") return "claude";
+  return null;
+}
+function errorMessage(error2) {
+  if (error2 instanceof Error) return error2.message;
+  return String(error2);
+}
+var UNTRACKED = {
+  id: null,
+  observer: void 0,
+  drift: null,
+  complete() {
+  },
+  fail() {
+  },
+  close() {
+  }
+};
+function beginTrackedRun(input) {
+  if (input.mode === "off") return { ...UNTRACKED };
+  const warn = input.warn ?? ((message) => process.stderr.write(`${message}
+`));
+  const ownsStore = !input.openStore;
+  let store;
+  try {
+    store = (input.openStore ?? (() => new TaskStore()))();
+  } catch (err) {
+    warn(`[phone-a-friend] Task tracking disabled for this run: ${errorMessage(err)}`);
+    return { ...UNTRACKED };
+  }
+  const keepContent = input.mode === "results";
+  const repo = describeRepo(input.repoPath);
+  let task;
+  try {
+    task = store.create({
+      kind: input.kind,
+      backend: input.backend,
+      repoPath: repo.root,
+      model: input.model ?? null,
+      sandbox: input.sandbox ?? null,
+      branch: repo.branch,
+      headSha: repo.headSha,
+      reviewScope: input.reviewScope ?? null,
+      reviewBase: input.reviewBase ?? null,
+      promptPreview: keepContent ? promptPreview(input.prompt) : null,
+      promptHash: input.prompt === null ? null : hashText(input.prompt),
+      sessionLabel: input.sessionLabel ?? null,
+      host: input.host === void 0 ? inferHost() : input.host
+    });
+    store.start(task.id, input.pid ?? process.pid);
+    store.addEvent(task.id, "started", `${input.kind} started via ${input.backend}`);
+  } catch (err) {
+    warn(`[phone-a-friend] Task tracking disabled for this run: ${errorMessage(err)}`);
+    if (ownsStore) {
+      try {
+        store.close();
+      } catch {
+      }
+    }
+    return { ...UNTRACKED };
+  }
+  const id = task.id;
+  let closed = false;
+  let degraded = false;
+  const attempt = (fn) => {
+    if (closed || degraded) return;
+    try {
+      fn();
+    } catch (err) {
+      degraded = true;
+      warn(`[phone-a-friend] Task ${id}: tracking stopped: ${errorMessage(err)}`);
+    }
+  };
+  const run2 = {
+    id,
+    drift: null,
+    observer: {
+      onScope(info2) {
+        attempt(() => {
+          store.update(id, { diffHash: info2.diffHash, diffBytes: info2.diffBytes, diffFiles: info2.diffFiles, reviewBase: info2.base });
+          store.addEvent(id, "scope_captured", `Captured ${info2.diffFiles} changed file(s), ${info2.diffBytes} bytes (${info2.scope})`, {
+            scope: info2.scope,
+            base: info2.base,
+            diffHash: info2.diffHash,
+            diffFiles: info2.diffFiles,
+            diffBytes: info2.diffBytes
+          });
+        });
+      },
+      onSessionLinked(backendSessionId) {
+        attempt(() => {
+          store.update(id, { backendSessionId });
+          store.addEvent(id, "session_linked", `Backend session ${backendSessionId}`, { backendSessionId });
+        });
+      },
+      onEvent(event) {
+        if (event.type === "session_linked") return;
+        attempt(() => {
+          store.addEvent(id, event.type, event.message, event.data);
+        });
+      },
+      onDrift(info2) {
+        run2.drift = info2;
+        attempt(() => {
+          store.update(id, { driftDetected: info2.drifted });
+          if (info2.drifted === true) {
+            store.addEvent(id, "drift_detected", "Working tree changed during the review; result covers the original snapshot", { diffHash: info2.diffHash });
+          } else if (info2.drifted === false) {
+            store.addEvent(id, "scope_verified", "Working tree unchanged since the review started", { diffHash: info2.diffHash });
+          } else {
+            store.addEvent(id, "drift_unknown", "Could not re-check the working tree after the review");
+          }
+        });
+      }
+    },
+    complete(result) {
+      attempt(() => {
+        store.complete(id, keepContent ? result : null);
+        store.addEvent(id, "completed", keepContent ? `Result stored (${result.length} chars)` : "Completed (result not retained)");
+      });
+      run2.close();
+    },
+    fail(error2) {
+      attempt(() => {
+        const message = errorMessage(error2);
+        store.fail(id, message);
+        store.addEvent(id, "failed", message);
+      });
+      run2.close();
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (ownsStore) {
+        try {
+          store.close();
+        } catch {
+        }
+      }
+    }
+  };
+  return run2;
+}
+
+// src/cli.ts
+init_tasks();
 function repoRootDefault() {
   return getPackageRoot();
 }
-var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session", "__update-check"];
+var KNOWN_SUBCOMMANDS = ["relay", "install", "update", "uninstall", "setup", "doctor", "config", "plugin", "agentic", "job", "session", "task", "__update-check"];
 var TOP_LEVEL_FLAGS = /* @__PURE__ */ new Set(["-v", "-V", "--version", "-h", "--help"]);
 function normalizeArgv(argv) {
   if (argv.length === 0) return argv;
@@ -83837,6 +84572,64 @@ function normalizeArgv(argv) {
     return ["relay", ...argv];
   }
   return argv;
+}
+function announceTaskStart(tracked) {
+  if (!tracked.id) return;
+  process.stderr.write(`  ${theme.hint("\u25C7")} Task ${tracked.id} started ${theme.hint(`\xB7 phone-a-friend task show ${tracked.id}`)}
+`);
+}
+function announceTaskEnd(tracked, status) {
+  if (!tracked.id) return;
+  process.stderr.write(`  ${theme.hint("\u25C7")} Task ${tracked.id} ${status}
+`);
+  if (tracked.drift?.drifted === true) {
+    process.stderr.write(
+      `  ${theme.warning("!")} Working tree changed during the review. The result covers the original snapshot; re-run the review for the new changes.
+`
+    );
+  }
+}
+function taskStatusLabel(status) {
+  switch (status) {
+    case "completed":
+      return theme.success("completed");
+    case "running":
+      return theme.info("running");
+    case "failed":
+      return theme.error("failed");
+    case "interrupted":
+      return theme.warning("interrupted");
+    default:
+      return theme.hint("queued");
+  }
+}
+function formatTaskSummary(task) {
+  const lines = [];
+  lines.push(`  ${theme.bold(task.id)}  ${taskStatusLabel(task.status)}  ${theme.hint(timeSince(task.createdAt))}  ${theme.hint(`${task.backend} \xB7 ${task.kind}`)}`);
+  const head = task.headSha ? ` @ ${task.headSha.slice(0, 7)}` : "";
+  const where = task.branch ? `${task.repoPath} (${task.branch}${head})` : task.repoPath;
+  lines.push(`    ${theme.hint("repo:")} ${where}`);
+  if (task.kind === "review") {
+    const drift = task.driftDetected === true ? "changed during review" : task.driftDetected === false ? "unchanged since start" : "drift unknown";
+    const captured = task.diffFiles === null ? "scope not captured" : `${task.diffFiles} file(s) \xB7 ${task.diffBytes ?? 0} bytes \xB7 ${drift}`;
+    const against = task.reviewBase ? ` against ${task.reviewBase}` : "";
+    lines.push(`    ${theme.hint("scope:")} ${task.reviewScope ?? "branch"}${against} \xB7 ${captured}`);
+  }
+  if (task.backendSessionId) {
+    const label = task.sessionLabel ? ` (${task.sessionLabel})` : "";
+    lines.push(`    ${theme.hint("session:")} ${task.backendSessionId}${label}`);
+  }
+  if (task.host) lines.push(`    ${theme.hint("host:")} ${task.host}`);
+  if (task.promptPreview) lines.push(`    ${theme.hint("prompt:")} ${task.promptPreview}`);
+  if (task.status === "completed") {
+    const result = task.result === null ? "not retained (task_history=metadata)" : `${task.result.length} chars \xB7 phone-a-friend task result ${task.id}`;
+    lines.push(`    ${theme.hint("result:")} ${result}`);
+  }
+  if (task.error) lines.push(`    ${theme.hint("error:")} ${task.error}`);
+  return lines;
+}
+function formatTaskEvents(events) {
+  return events.map((event) => `    ${theme.hint(event.ts.slice(11, 19))}  ${event.type.padEnd(16)} ${event.message}`);
 }
 function timeSince(isoDate) {
   const seconds = Math.floor((Date.now() - new Date(isoDate).getTime()) / 1e3);
@@ -84051,7 +84844,7 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").action(async (opts, command) => {
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {
@@ -84075,6 +84868,7 @@ ${banner("AI coding agent relay")}
       const streamExplicit = command.getOptionValueSource("stream") === "cli";
       const includeDiffExplicit = command.getOptionValueSource("includeDiff") === "cli";
       const peerMessagingExplicit = command.getOptionValueSource("peerMessaging") === "cli";
+      const taskHistoryExplicit = command.getOptionValueSource("taskHistory") === "cli";
       if (isReview && includeDiffExplicit && opts.includeDiff === true) {
         console.error(
           `  ${theme.crossmark} ${theme.error("--include-diff cannot be combined with review mode. Use --review-scope working-tree or --review-scope all.")}`
@@ -84091,17 +84885,31 @@ ${banner("AI coding agent relay")}
           stream: streamExplicit ? String(opts.stream) : void 0,
           model: opts.model,
           base: opts.base,
-          peerMessaging: peerMessagingExplicit ? opts.peerMessaging : void 0
+          peerMessaging: peerMessagingExplicit ? opts.peerMessaging : void 0,
+          taskHistory: taskHistoryExplicit && opts.taskHistory === false ? "off" : void 0
         },
         process.env,
         opts.repo
       );
       const backendName = resolved.backend;
+      const taskMode = resolved.taskHistory ?? "results";
       if (peerMessagingExplicit && backendName !== "claude") {
         throw new RelayError("--peer-messaging is only supported by the Claude backend");
       }
       const peerMessaging = backendName === "claude" ? resolved.claudePeerMessaging : void 0;
       if (isReview) {
+        const tracked2 = beginTrackedRun({
+          mode: taskMode,
+          kind: "review",
+          backend: backendName,
+          repoPath: opts.repo,
+          prompt: opts.prompt ?? null,
+          model: resolved.model ?? null,
+          sandbox: resolved.sandbox,
+          reviewScope,
+          reviewBase: opts.base ?? resolved.reviewBase ?? null
+        });
+        announceTaskStart(tracked2);
         const baseLabel = opts.base ?? resolved.reviewBase ?? "auto-detect";
         const reviewTarget = reviewScope === "working-tree" ? "working-tree changes" : `${reviewScope} changes against ${baseLabel}`;
         const spinner = isVerdictJson ? null : ora({
@@ -84123,14 +84931,19 @@ ${banner("AI coding agent relay")}
             schema: opts.schema ?? null,
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
-            peerMessaging
+            peerMessaging,
+            observer: tracked2.observer
           });
           if (isVerdictJson) {
             try {
               const envelope = parseVerdict(feedback);
-              process.stdout.write(serializeVerdict(envelope) + "\n");
+              const serialized = serializeVerdict(envelope);
+              tracked2.complete(serialized);
+              process.stdout.write(serialized + "\n");
             } catch (err) {
               if (err instanceof VerdictParseError) {
+                tracked2.fail(new Error(`Verdict parse failed: ${err.message}`));
+                announceTaskEnd(tracked2, "failed");
                 process.stderr.write(
                   `  ${theme.crossmark} ${theme.error("Verdict parse failed")}: ${err.message}
   ${theme.hint("Raw response (between markers):")}
@@ -84145,15 +84958,30 @@ RAW_END>>>
               throw err;
             }
           } else {
+            tracked2.complete(feedback);
             spinner?.succeed(`${theme.bold(backendName)} reviewed`);
             process.stdout.write(feedback + "\n");
           }
+          announceTaskEnd(tracked2, "completed");
         } catch (err) {
+          tracked2.fail(err);
+          announceTaskEnd(tracked2, "failed");
           spinner?.fail(`${theme.bold(backendName)} review failed`);
           throw err;
         }
         return;
       }
+      const tracked = beginTrackedRun({
+        mode: taskMode,
+        kind: "relay",
+        backend: backendName,
+        repoPath: opts.repo,
+        prompt: opts.prompt ?? null,
+        model: resolved.model ?? null,
+        sandbox: resolved.sandbox,
+        sessionLabel: opts.session ?? null
+      });
+      announceTaskStart(tracked);
       const relayOpts = {
         prompt: opts.prompt,
         repoPath: opts.repo,
@@ -84168,7 +84996,8 @@ RAW_END>>>
         session: opts.session ?? null,
         backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
-        peerMessaging
+        peerMessaging,
+        observer: tracked.observer
       };
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
       if (opts.quiet) {
@@ -84185,13 +85014,17 @@ RAW_END>>>
         }
         const completed = manager.get(job.id);
         if (completed?.status === "completed") {
+          tracked.complete(completed.result ?? "");
           console.log(`  ${theme.success("\u2713")} ${theme.bold("Done")} ${theme.info(job.id)}`);
           if (opts.session) {
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
           }
+          announceTaskEnd(tracked, "completed");
         } else {
+          tracked.fail(completed?.error ?? `job ${completed?.status ?? "unknown"}`);
           console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
+          announceTaskEnd(tracked, "failed");
           exitCode = 1;
         }
         return;
@@ -84205,6 +85038,7 @@ RAW_END>>>
         }).start();
         let firstChunk = true;
         let hasOutput = false;
+        let collected = "";
         try {
           for await (const chunk of relayStream(relayOpts)) {
             if (firstChunk) {
@@ -84212,18 +85046,22 @@ RAW_END>>>
               firstChunk = false;
             }
             process.stdout.write(chunk);
+            collected += chunk;
             hasOutput = true;
           }
           if (hasOutput) {
             process.stdout.write("\n");
           }
+          tracked.complete(collected);
           process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
 `);
+          announceTaskEnd(tracked, "completed");
           if (opts.session) {
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
           }
         } catch (err) {
+          tracked.fail(err);
           if (firstChunk) {
             spinner.fail(`${theme.bold(backendName)} failed`);
           } else {
@@ -84231,6 +85069,7 @@ RAW_END>>>
   ${theme.crossmark} ${theme.error(`${backendName} stream error`)}
 `);
           }
+          announceTaskEnd(tracked, "failed");
           throw err;
         }
       } else {
@@ -84242,14 +85081,18 @@ RAW_END>>>
         }).start();
         try {
           const feedback = await relay(relayOpts);
+          tracked.complete(feedback);
           spinner.succeed(`${theme.bold(backendName)} responded`);
           process.stdout.write(feedback + "\n");
           if (opts.session) {
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
           }
+          announceTaskEnd(tracked, "completed");
         } catch (err) {
+          tracked.fail(err);
           spinner.fail(`${theme.bold(backendName)} failed`);
+          announceTaskEnd(tracked, "failed");
           throw err;
         }
       }
@@ -84567,6 +85410,149 @@ RAW_END>>>
       console.log(`  ${theme.success("\u2713")} Pruned ${theme.bold(String(removed.length))} session${removed.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}`);
       for (const id of removed) {
         console.log(`    ${theme.hint("-")} ${id}`);
+      }
+    });
+    const taskCmd = program2.command("task").description("Inspect tracked relays and reviews");
+    taskCmd.command("list").description("List tracked tasks, newest first").option("--repo <path>", "Only tasks for this repository (resolved to its worktree root)").option("--status <status>", `Filter by status: ${TASK_STATUSES.join(", ")}`).option("--limit <n>", "Maximum number of tasks to show", "20").option("--json", "Output as JSON", false).action(async (opts) => {
+      if (opts.status !== void 0 && !TASK_STATUSES.includes(opts.status)) {
+        console.error(`  ${theme.crossmark} Invalid status "${opts.status}". Allowed values: ${TASK_STATUSES.join(", ")}`);
+        exitCode = 1;
+        return;
+      }
+      const limit = Number(opts.limit);
+      if (!Number.isFinite(limit) || limit <= 0) {
+        console.error(`  ${theme.crossmark} --limit must be a positive number, got "${opts.limit}"`);
+        exitCode = 1;
+        return;
+      }
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        store.reconcileInterrupted();
+        const tasks = store.list({
+          repoPath: opts.repo ? describeRepo(opts.repo).root : void 0,
+          status: opts.status,
+          limit
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(tasks, null, 2));
+          return;
+        }
+        if (tasks.length === 0) {
+          console.log(`
+  ${theme.hint("No tracked tasks.")}
+`);
+          return;
+        }
+        console.log(`
+  ${theme.heading("Tracked Tasks")} ${theme.hint(`(${tasks.length})`)}
+`);
+        for (const task of tasks) {
+          for (const line of formatTaskSummary(task)) console.log(line);
+        }
+        console.log("");
+      } finally {
+        store.close();
+      }
+    });
+    taskCmd.command("show <id>").description("Show one task with its scope, session, and event log (id prefix accepted)").option("--json", "Output as JSON", false).action(async (id, opts) => {
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        store.reconcileInterrupted();
+        const task = store.get(id);
+        if (!task) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        const events = store.events(task.id);
+        if (opts.json) {
+          console.log(JSON.stringify({ task, events }, null, 2));
+          return;
+        }
+        console.log("");
+        for (const line of formatTaskSummary(task)) console.log(line);
+        if (events.length > 0) {
+          console.log(`
+  ${theme.heading("Events")}
+`);
+          for (const line of formatTaskEvents(events)) console.log(line);
+        }
+        console.log("");
+      } finally {
+        store.close();
+      }
+    });
+    taskCmd.command("result <id>").description("Print the stored result of a completed task (exit 3 while it is still running)").action(async (id) => {
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        store.reconcileInterrupted();
+        const task = store.get(id);
+        if (!task) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        if (task.status === "completed") {
+          if (task.result === null) {
+            console.error(`  ${theme.hint(`Task ${task.id} completed, but its result was not retained (task_history=metadata).`)}`);
+            return;
+          }
+          process.stdout.write(task.result + "\n");
+          return;
+        }
+        if (task.status === "failed" || task.status === "interrupted") {
+          console.error(`  ${theme.crossmark} Task ${task.id} ${task.status}: ${task.error ?? "no error recorded"}`);
+          exitCode = 1;
+          return;
+        }
+        console.error(`  ${theme.hint(`Task ${task.id} is ${task.status}; no result yet.`)}`);
+        exitCode = 3;
+      } finally {
+        store.close();
+      }
+    });
+    taskCmd.command("delete <id>").description("Remove one tracked task and its events").action(async (id) => {
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        const task = store.get(id);
+        if (!task || !store.delete(task.id)) {
+          console.error(`  ${theme.crossmark} Task ${id} not found`);
+          exitCode = 1;
+          return;
+        }
+        console.log(`  ${theme.success("\u2713")} Deleted task ${theme.bold(task.id)}`);
+      } finally {
+        store.close();
+      }
+    });
+    taskCmd.command("prune").description("Remove old tasks (default: older than 30 days)").option("--older-than <days>", "Drop tasks created more than N days ago", "30").option("--all", "Drop every tracked task", false).action(async (opts) => {
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        if (opts.all) {
+          const count = store.clear();
+          console.log(`  ${theme.success("\u2713")} Removed ${theme.bold(String(count))} task${count === 1 ? "" : "s"}`);
+          return;
+        }
+        const days = Number(opts.olderThan);
+        if (!Number.isFinite(days) || days <= 0) {
+          console.error(`  ${theme.crossmark} --older-than must be a positive number of days, got "${opts.olderThan}"`);
+          exitCode = 1;
+          return;
+        }
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1e3);
+        const removed = store.pruneOlderThan(cutoff);
+        if (removed.length === 0) {
+          console.log(`  ${theme.hint(`No tasks older than ${days} day${days === 1 ? "" : "s"}.`)}`);
+          return;
+        }
+        console.log(`  ${theme.success("\u2713")} Pruned ${theme.bold(String(removed.length))} task${removed.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}`);
+      } finally {
+        store.close();
       }
     });
     program2.command("__update-check <action>", { hidden: true }).description("(internal) refresh update-check cache").action(async (action) => {

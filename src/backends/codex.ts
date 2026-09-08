@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import {
   type BackendCapabilities,
+  type BackendEvent,
   type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
@@ -94,7 +95,10 @@ export class CodexBackend implements Backend {
         persistSession: opts.persistSession ?? false,
         sessionId: opts.sessionId ?? null,
         resumeSession: opts.resumeSession ?? false,
+        wantsJson: Boolean(opts.onEvent),
       });
+      const jsonRequested = args.includes('--json');
+      const tap = opts.onEvent ? createCodexJsonlTap(opts.onEvent) : undefined;
 
       if (schemaPath) {
         writeSchemaFile(schemaPath, opts.schema ?? '');
@@ -106,10 +110,13 @@ export class CodexBackend implements Backend {
           timeoutMs: opts.timeoutSeconds * 1000,
           env,
           label: 'codex exec',
+          onStdout: tap,
         });
+        tap?.flush();
         stdout = result.stdout;
         maybeEmitSessionId(stdout, opts.onSessionCreated);
       } catch (err: unknown) {
+        tap?.flush();
         if (err instanceof SpawnCliError) {
           maybeEmitSessionId(err.stdout, opts.onSessionCreated);
         }
@@ -130,9 +137,11 @@ export class CodexBackend implements Backend {
         return lastMessage;
       }
 
-      // Fall back to stdout
-      if (stdout) {
-        return stdout;
+      // Fall back to stdout. With JSONL requested, stdout is an event stream,
+      // so surface the final agent message rather than raw protocol lines.
+      const fallback = jsonRequested ? extractCodexFinalMessage(stdout) : stdout;
+      if (fallback) {
+        return fallback;
       }
 
       throw new CodexBackendError('codex exec completed without producing feedback');
@@ -170,6 +179,11 @@ export class CodexBackend implements Backend {
         outputPath,
         '--skip-git-repo-check',
       ];
+      const jsonRequested = Boolean(opts.onEvent);
+      if (jsonRequested) {
+        args.push('--json');
+      }
+      const tap = opts.onEvent ? createCodexJsonlTap(opts.onEvent) : undefined;
 
       if (opts.model) {
         args.push('-m', opts.model);
@@ -189,9 +203,12 @@ export class CodexBackend implements Backend {
           env: opts.env,
           cwd: opts.repoPath,
           label: 'codex exec review',
+          onStdout: tap,
         });
+        tap?.flush();
         stdout = result.stdout;
       } catch (err: unknown) {
+        tap?.flush();
         // On failure, check if codex wrote a useful last-message before dying
         const lastMessage = readOutputFile(outputPath);
         if (lastMessage) return lastMessage;
@@ -207,8 +224,9 @@ export class CodexBackend implements Backend {
         return lastMessage;
       }
 
-      if (stdout) {
-        return stdout;
+      const fallback = jsonRequested ? extractCodexFinalMessage(stdout) : stdout;
+      if (fallback) {
+        return fallback;
       }
 
       throw new CodexBackendError('codex exec review completed without producing feedback');
@@ -232,6 +250,8 @@ interface CodexExecArgsOptions {
   persistSession: boolean;
   sessionId: string | null;
   resumeSession: boolean;
+  /** Request JSONL events even for ephemeral runs (progress observers). */
+  wantsJson?: boolean;
 }
 
 interface CodexMetadata {
@@ -273,7 +293,7 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
   // Resume schema support is checked against the invoked CLI before reaching here.
   if (opts.schemaPath) {
     args.push('--output-schema', opts.schemaPath, '--json');
-  } else if (opts.persistSession || isResume) {
+  } else if (opts.persistSession || isResume || opts.wantsJson) {
     args.push('--json');
   }
 
@@ -364,6 +384,180 @@ function readOutputFile(outputPath: string): string {
       `Failed reading Codex output file: ${err}`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// JSONL progress events
+// ---------------------------------------------------------------------------
+//
+// Event and item shapes follow codex-rs/exec/src/exec_events.rs: events are
+// tagged by `type` (thread.started, turn.*, item.*, error) and items carry a
+// flattened `type` (agent_message, reasoning, command_execution, file_change,
+// mcp_tool_call, web_search, todo_list, error). Reasoning is private and is
+// never surfaced.
+
+const MAX_EVENT_COMMAND_CHARS = 200;
+const MAX_EVENT_MESSAGE_CHARS = 300;
+
+function truncateForEvent(text: string, max: number): string {
+  const single = text.replace(/\s+/g, ' ').trim();
+  return single.length > max ? `${single.slice(0, max)}…` : single;
+}
+
+function itemEvents(phase: string, item: unknown): BackendEvent[] {
+  if (!item || typeof item !== 'object') return [];
+  const record = item as Record<string, unknown>;
+  const itemId = typeof record.id === 'string' ? record.id : undefined;
+  const status = typeof record.status === 'string' ? record.status : undefined;
+
+  switch (record.type) {
+    case 'command_execution': {
+      const command = truncateForEvent(String(record.command ?? ''), MAX_EVENT_COMMAND_CHARS);
+      if (phase === 'item.started') {
+        return [{ type: 'activity', message: `Running: ${command}`, data: { itemId, status } }];
+      }
+      if (phase === 'item.completed') {
+        const exitCode = typeof record.exit_code === 'number' ? record.exit_code : null;
+        return [{
+          type: 'activity',
+          message: `Finished (exit ${exitCode ?? 'n/a'}): ${command}`,
+          data: { itemId, status, exitCode },
+        }];
+      }
+      return [];
+    }
+    case 'agent_message': {
+      if (phase !== 'item.completed') return [];
+      const text = typeof record.text === 'string' ? record.text : '';
+      return [{
+        type: 'message',
+        message: truncateForEvent(text, MAX_EVENT_MESSAGE_CHARS),
+        data: { itemId, length: text.length },
+      }];
+    }
+    case 'file_change': {
+      if (phase !== 'item.completed') return [];
+      const changes = Array.isArray(record.changes) ? record.changes : [];
+      const files = changes
+        .map((change) => (change && typeof change === 'object' && typeof (change as Record<string, unknown>).path === 'string'
+          ? (change as Record<string, unknown>).path as string
+          : null))
+        .filter((path): path is string => path !== null);
+      return [{ type: 'activity', message: `Changed ${changes.length} file(s)`, data: { itemId, status, files } }];
+    }
+    case 'mcp_tool_call': {
+      if (phase === 'item.updated') return [];
+      return [{
+        type: 'activity',
+        message: `Tool call: ${String(record.server ?? '?')}/${String(record.tool ?? '?')}`,
+        data: { itemId, status },
+      }];
+    }
+    case 'web_search': {
+      if (phase === 'item.updated') return [];
+      return [{ type: 'activity', message: `Web search: ${String(record.query ?? '')}`, data: { itemId } }];
+    }
+    case 'error': {
+      if (phase !== 'item.completed') return [];
+      return [{ type: 'error', message: String(record.message ?? 'Codex item error'), data: { itemId } }];
+    }
+    default:
+      // reasoning, todo_list, collab_tool_call: not surfaced.
+      return [];
+  }
+}
+
+/** Map one JSONL line from `codex exec --json` to zero or more backend events. */
+export function codexEventsFromLine(line: string): BackendEvent[] {
+  const trimmed = line.trim();
+  if (!trimmed) return [];
+  let event: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!parsed || typeof parsed !== 'object') return [];
+    event = parsed as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+
+  switch (event.type) {
+    case 'thread.started': {
+      const id = typeof event.thread_id === 'string' ? event.thread_id : null;
+      return id
+        ? [{ type: 'session_linked', message: `Codex thread ${id}`, data: { backendSessionId: id } }]
+        : [];
+    }
+    case 'turn.started':
+      return [{ type: 'turn_started', message: 'Codex turn started' }];
+    case 'turn.completed':
+      return [{ type: 'turn_completed', message: 'Codex turn completed', data: { usage: event.usage ?? null } }];
+    case 'turn.failed': {
+      const error = event.error as Record<string, unknown> | undefined;
+      const message = typeof error?.message === 'string' ? error.message : 'unknown error';
+      return [{ type: 'turn_failed', message: `Codex turn failed: ${message}` }];
+    }
+    case 'error':
+      return [{ type: 'error', message: typeof event.message === 'string' ? event.message : 'Codex error' }];
+    case 'item.started':
+    case 'item.updated':
+    case 'item.completed':
+      return itemEvents(event.type, event.item);
+    default:
+      return [];
+  }
+}
+
+export interface CodexJsonlTap {
+  (chunk: string): void;
+  /** Emit events for a trailing line that never received a newline. */
+  flush(): void;
+}
+
+/** Line-buffer stdout chunks and forward parsed events. Observer errors are swallowed. */
+export function createCodexJsonlTap(onEvent: (event: BackendEvent) => void): CodexJsonlTap {
+  let buffer = '';
+  const emitLine = (line: string): void => {
+    for (const event of codexEventsFromLine(line)) {
+      try {
+        onEvent(event);
+      } catch {
+        // Observers must never break the run.
+      }
+    }
+  };
+  const tap = ((chunk: string): void => {
+    buffer += chunk;
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      emitLine(buffer.slice(0, newline));
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+    }
+  }) as CodexJsonlTap;
+  tap.flush = (): void => {
+    if (buffer.trim()) emitLine(buffer);
+    buffer = '';
+  };
+  return tap;
+}
+
+/** The text of the last completed agent message in a JSONL stream, or ''. */
+export function extractCodexFinalMessage(jsonlOutput: string): string {
+  let last = '';
+  for (const line of jsonlOutput.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const event = JSON.parse(trimmed) as Record<string, unknown>;
+      const item = event?.item as Record<string, unknown> | undefined;
+      if (event?.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') {
+        last = item.text;
+      }
+    } catch {
+      // Ignore malformed JSONL lines from mixed stdout.
+    }
+  }
+  return last.trim();
 }
 
 export const CODEX_BACKEND = new CodexBackend();
