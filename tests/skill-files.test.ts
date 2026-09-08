@@ -190,7 +190,7 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
   it('routes Claude-host reviews through the paf-reviewer subagent with a Bash fallback', () => {
     expect(file).toContain('phone-a-friend:paf-reviewer');
     expect(file).toContain('run_in_background');
-    expect(file).toMatch(/do not (give it a|pass a)\s+`name`/i);|pass a) `name`/i);
+    expect(file).toMatch(/do not (give it a|pass a)\s+`name`/i);
   });
 
   it('does not direct-mode-leak PaF-only flags', () => {
