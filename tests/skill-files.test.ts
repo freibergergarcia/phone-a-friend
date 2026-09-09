@@ -44,13 +44,24 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toMatch(/^---\nname: phone-a-team\n/);
   });
 
-  it('still uses Claude Agent Teams primitives', () => {
-    // These are the four primitives the previous portable shim banned.
-    // Claude users rely on them; restoring them is the whole point of the fix.
-    expect(file).toContain('TeamCreate');
-    expect(file).toContain('Task');
+  it('uses current Agent Teams mechanics: named Agent spawns, SendMessage, no TeamCreate/TeamDelete', () => {
+    // Claude Code 2.1.178 removed TeamCreate/TeamDelete. A teammate now
+    // launches when the Agent tool is called with a `name` while
+    // CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1, and cleanup is automatic.
+    expect(file).toContain('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS');
+    expect(file).toMatch(/Agent tool[^\n]*`name`/);
     expect(file).toContain('SendMessage');
-    expect(file).toContain('TeamDelete');
+    expect(file).not.toContain('TeamCreate');
+    expect(file).not.toContain('TeamDelete');
+    expect(file).not.toContain('shutdown_request');
+    expect(file).not.toContain('team_name');
+    expect(file).not.toContain('bypassPermissions');
+  });
+
+  it('documents the teammate limitations that matter for relays', () => {
+    // Teammates cannot run background Bash and non-interactive sessions never spawn them.
+    expect(file).toMatch(/cannot run (a )?background Bash/i);
+    expect(file).toMatch(/teammateMode/);
   });
 
   it('supports --backend opencode and --backend all alongside the legacy values', () => {
@@ -176,11 +187,44 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
     expect(file).toContain('one-shot relays appear as\n`paf-relay`');
   });
 
+  it('routes Claude-host reviews through the paf-reviewer subagent with a Bash fallback', () => {
+    expect(file).toContain('phone-a-friend:paf-reviewer');
+    expect(file).toContain('run_in_background');
+    expect(file).toMatch(/do not (give it a|pass a)\s+`name`/i);
+  });
+
   it('does not direct-mode-leak PaF-only flags', () => {
     // PaF flags (--no-include-diff, --fast, --session) only exist on the
     // `phone-a-friend` binary. They must not appear in direct-mode codex/
     // gemini templates.
     expect(file).toMatch(/`--no-include-diff`[^\n]*only available in binary mode|do NOT pass PaF flags|only available in binary mode/);
+  });
+});
+
+describe('paf-reviewer plugin subagent (agents/paf-reviewer.md)', () => {
+  const file = readFile('agents/paf-reviewer.md');
+  const fm = parseFrontmatter(file) as Record<string, unknown>;
+
+  it('declares a background subagent with a narrow tool set', () => {
+    expect(fm.name).toBe('paf-reviewer');
+    expect(String(fm.description)).toMatch(/phone-a-friend/);
+    expect(fm.background).toBe(true);
+    expect(String(fm.tools).split(/,\s*/).sort()).toEqual(['Bash', 'Read']);
+  });
+
+  it('runs exactly one PaF command and reports receipt, verbatim findings, next action', () => {
+    expect(file).toMatch(/exactly one PaF\s+command/);
+    expect(file).toContain('never append `--include-diff`');
+    expect(file).toContain('**Receipt**');
+    expect(file).toContain('**Findings**');
+    expect(file).toContain('**Next action**');
+    expect(file).toContain('phone-a-friend task result <id>');
+    expect(file).toMatch(/Trust the `Task <id> completed\|failed`/);
+  });
+
+  it('ships in the npm package', () => {
+    const pkg = JSON.parse(readFile('package.json')) as { files: string[] };
+    expect(pkg.files).toContain('agents/');
   });
 });
 

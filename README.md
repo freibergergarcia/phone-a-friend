@@ -35,7 +35,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 | Skill auto-discovery | ✓ | ✓ | ✓ |
 | Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ |
 
-Claude `/phone-a-team` orchestrates rounds via the Agent Teams primitive (TeamCreate + Task + SendMessage). Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
+Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
 > [!IMPORTANT]
 > **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini and Antigravity). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Google CLI relays can hang until the timeout. Two workarounds today, both with tradeoffs:
@@ -272,6 +272,33 @@ Reviews hash the collected diff before the backend starts and re-check it afterw
 Retention is a setting: `defaults.task_history = "results"` (default) keeps the result text plus a short prompt preview and hashes, `"metadata"` drops the text, `"off"` records nothing. `PHONE_A_FRIEND_TASK_HISTORY` overrides the config and `--no-task-history` skips one run. Deleting a task never deletes the backend's own session.
 
 From Claude Code, the `/phone-a-friend` skill runs reviews as background shell tasks so you can keep working; the result returns to the conversation when the command exits, and the task record is the fallback when that context is gone.
+
+While a relay runs, PaF reports progress on stderr: one line per backend-reported event when stderr is not a terminal (`◇ 00:12 Running: git diff`), or folded into the spinner text when it is. Every run ends with a receipt such as `◇ Task 3f9a2c1d completed · 23s · scope unchanged`.
+
+#### Status line
+
+`phone-a-friend task status-line` prints one row for the repository your Claude Code session is in: `◇ codex review 00:45 · Running: git diff` while a task runs, then `◇ codex review done 40s ago · tree unchanged` for two minutes, then nothing. It reads Claude Code's status line JSON on stdin, so it drops straight into `settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "phone-a-friend task status-line",
+    "refreshInterval": 5
+  }
+}
+```
+
+If you already have a status line script, feed both commands the same stdin from a small wrapper:
+
+```bash
+#!/usr/bin/env bash
+input=$(cat)
+printf '%s' "$input" | bash ~/.claude/my-statusline.sh
+printf '%s' "$input" | phone-a-friend task status-line
+```
+
+It prints nothing when no task is running or finished within the last two minutes (`--recent <minutes>` changes the window), so the row only appears when there is something to say. It deliberately omits the task id; `phone-a-friend task list --repo .` has it.
 
 ### Review
 

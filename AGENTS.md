@@ -28,6 +28,8 @@ src/
   sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
   tasks.ts           Task store (SQLite at ~/.config/phone-a-friend/tasks.db): durable records + events for every relay/review
   task-tracking.ts   Bridges one CLI run to the task store (RelayObserver, retention modes, drift warning)
+  progress.ts        Progress reporter: observer hooks -> stderr lines or spinner text, plus the end-of-run receipt
+  status-line.ts     One-row status for Claude Code's status line (running or recently finished task for the cwd repo)
   backends/
     index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
     antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, one-shot)
@@ -66,6 +68,7 @@ src/
       ListSelect.tsx         Scrollable selectable list
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
 commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini model selection, etc.)
+agents/paf-reviewer.md   Claude plugin subagent (background, Bash+Read, sonnet): runs one PaF command and reports receipt + verbatim findings
 skills/<name>/SKILL.md         Canonical Agent Skills — primary OpenCode entry point, also auto-discovered by Claude Code as plugin-namespaced skills
 skills/<name>/COMMAND.opencode.md  Thin OpenCode command shim (overlay). Installer prefers this over commands/<name>.md when present, so OpenCode users get a small shim that delegates into SKILL.md while Claude users get the rich commands/<name>.md inline.
 dist/                Built bundle (committed, self-contained)
@@ -243,6 +246,7 @@ phone-a-friend task list                   # Newest tracked tasks across reposit
 phone-a-friend task list --repo . --json   # Tasks for this worktree, machine-readable
 phone-a-friend task show <id>              # Scope, session, drift, and event log (id prefix accepted)
 phone-a-friend task result <id>            # Stored result; exit 3 while running, 1 when failed/interrupted
+phone-a-friend task status-line            # One row for a Claude Code status line (reads the status line JSON on stdin)
 phone-a-friend task delete <id>            # Remove one task and its events
 phone-a-friend task prune --older-than 30  # Drop tasks older than N days (--all drops everything)
 ```
@@ -436,6 +440,12 @@ depends on the host's instructions and reasoning mode. See the current
 [Codex subagent guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
 Legacy `paf-*` personas are not installed; the installer removes stale symlinks.
 
+### Agent Teams and the paf-reviewer subagent
+
+`/phone-a-team` (Claude only) uses current Agent Teams mechanics: no `TeamCreate`/`TeamDelete` (removed in Claude Code 2.1.178); a teammate launches when the lead calls the Agent tool with a `name` while `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set; cleanup is automatic at session end and shutdown is a natural-language `SendMessage` per worker. Teammates inherit the lead's permission mode and cannot run background Bash, so workers run relays in the foreground. When teams are unavailable (env var unset, `-p` mode, no `name` parameter on the Agent tool) the command degrades to direct relays. `tests/skill-files.test.ts` pins this contract.
+
+`agents/paf-reviewer.md` is a plugin subagent (`phone-a-friend:paf-reviewer`, background, `Bash` + `Read`, sonnet). `/phone-a-friend` on a Claude host delegates reviews to it with `run_in_background: true` and no `name`, so the review shows in the agent panel and `/tasks`, its verbose output stays in the subagent's context, and the main conversation receives a receipt plus verbatim findings. A named subagent would become a teammate under agent teams and lose background Bash, hence the no-name rule. The Bash `run_in_background` path remains the fallback. `agents/` is in the npm `files` list so marketplace installs ship it.
+
 ### Claude workflow boundary
 
 The Claude relay uses explicit tool lists in limited modes and disables slash
@@ -467,6 +477,8 @@ Every CLI relay and review is recorded as a task so delegated work stays findabl
 - **Status.** `queued`, `running`, `completed`, `failed`, `interrupted`. `task list|show|result` call `reconcileInterrupted()`, which marks running tasks whose owner pid is gone as `interrupted` (event `owner_lost`). Silence never changes a status; only a dead owner does. Cancellation, follow-up routing, and forks are not implemented.
 - **Retention.** `defaults.task_history` (`results` default, `metadata`, `off`), `PHONE_A_FRIEND_TASK_HISTORY`, or `--no-task-history` for one run. `results` stores the result text, a 200-character prompt preview, prompt and diff hashes, and events. `metadata` drops the preview and result text. `off` writes nothing. `task delete` and `task prune` remove PaF records only; backend-native sessions are not erased.
 - Resolution key for hosts: worktree root (`task list --repo .`), then branch, backend session id, and recency. Ids accept unique prefixes of four or more characters.
+- **Progress on stderr.** `createProgressReporter()` in `src/progress.ts` is merged with the tracking observer (`mergeObservers()` in `src/relay.ts`) on every relay path except `--quiet`. When stderr is a TTY the spinner text is updated (`Reviewing … · 00:12 Running: git diff`); otherwise one line per `activity`/`message`/`turn_failed`/`error` event is printed (`◇ 00:12 Running: git diff`), preceded by `◇ scope: …` and `◇ session: …`. Every path ends with a receipt, `◇ Task <id> completed · 23s · scope unchanged`, which keeps the `Task <id> completed|failed` marker hosts match on. Turn markers are never printed.
+- **Status line.** `task status-line` (`src/status-line.ts`) reads Claude Code's status line JSON on stdin (`workspace.current_dir`, then `cwd`), reconciles dead owners, and prints one compact row for the repository: `◇ codex review 00:45 · Running: git diff` for the most recently started running task (prefixed `N running ·` when several run), else `◇ codex review done 40s ago · tree unchanged` for a task finished within `--recent` minutes (default 2), or the failure/interruption with its error head. No brand or task id on the row; `task list` has those. Prints nothing when idle. Intended for `settings.json` `statusLine` with a `refreshInterval`; each invocation is one SQLite read.
 
 ## Review scopes
 

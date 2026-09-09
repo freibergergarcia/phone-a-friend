@@ -529,7 +529,7 @@ function skipVoid(str, ptr, banNewLines, banComments) {
   }
   return ptr;
 }
-function skipUntil(str, ptr, sep2, end, banNewLines = false) {
+function skipUntil(str, ptr, sep3, end, banNewLines = false) {
   if (!end) {
     ptr = indexOfNewline(str, ptr);
     return ptr < 0 ? str.length : ptr;
@@ -540,7 +540,7 @@ function skipUntil(str, ptr, sep2, end, banNewLines = false) {
       i = indexOfNewline(str, i);
       if (i < 0)
         break;
-    } else if (c === sep2) {
+    } else if (c === sep3) {
       return i + 1;
     } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
       return i;
@@ -2539,6 +2539,7 @@ __export(relay_exports, {
   RelayError: () => RelayError,
   detectDefaultBranch: () => detectDefaultBranch,
   gitDiffBase: () => gitDiffBase,
+  mergeObservers: () => mergeObservers,
   relay: () => relay,
   relayBackground: () => relayBackground,
   relayStream: () => relayStream,
@@ -2790,6 +2791,26 @@ function gitDiffAll(repoPath, base) {
   const combined = [tracked, gitUntrackedDiff(repoPath)].filter(Boolean).join("\n");
   ensureSizeLimit("Git diff", combined, MAX_DIFF_BYTES);
   return combined;
+}
+function mergeObservers(...observers) {
+  const active = observers.filter((o) => Boolean(o));
+  if (active.length === 0) return void 0;
+  if (active.length === 1) return active[0];
+  const merged = {};
+  const fanOut = (hook) => {
+    const targets = active.filter((o) => typeof o[hook] === "function");
+    if (targets.length === 0) return;
+    merged[hook] = ((arg) => {
+      for (const target of targets) {
+        safeObserve(() => target[hook](arg));
+      }
+    });
+  };
+  fanOut("onScope");
+  fanOut("onDrift");
+  fanOut("onEvent");
+  fanOut("onSessionLinked");
+  return merged;
 }
 function safeObserve(fn) {
   try {
@@ -76353,7 +76374,7 @@ var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
 
 // src/cli.ts
-import { existsSync as existsSync13 } from "fs";
+import { existsSync as existsSync13, readFileSync as readFileSync13 } from "fs";
 import { spawnSync as spawnSync2 } from "child_process";
 
 // node_modules/commander/lib/error.js
@@ -84554,6 +84575,149 @@ function beginTrackedRun(input) {
 
 // src/cli.ts
 init_tasks();
+
+// src/status-line.ts
+import { realpathSync as realpathSync3 } from "fs";
+import { sep as sep2 } from "path";
+var STATUS_LINE_PREFIX = "\u25C7";
+var DEFAULT_RECENT_MINUTES = 2;
+var MAX_DETAIL_CHARS = 48;
+var DETAIL_EVENT_TYPES = /* @__PURE__ */ new Set(["activity", "message", "turn_failed", "error"]);
+function parseStatusLineStdin(text) {
+  if (!text.trim()) return { cwd: null };
+  try {
+    const json = JSON.parse(text);
+    const cwd2 = json?.workspace?.current_dir ?? json?.cwd;
+    return { cwd: typeof cwd2 === "string" && cwd2.length > 0 ? cwd2 : null };
+  } catch {
+    return { cwd: null };
+  }
+}
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1e3));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total % 3600 / 60);
+  const seconds = total % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function formatAgo(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1e3));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+function truncateDetail(text, max = MAX_DETAIL_CHARS) {
+  const single = text.replace(/\s+/g, " ").trim();
+  return single.length > max ? `${single.slice(0, max)}\u2026` : single;
+}
+function taskMatchesCwd(task, cwd2) {
+  const candidates = /* @__PURE__ */ new Set([cwd2]);
+  try {
+    candidates.add(realpathSync3(cwd2));
+  } catch {
+  }
+  const root = task.repoPath.endsWith(sep2) ? task.repoPath : task.repoPath + sep2;
+  for (const candidate of candidates) {
+    if (candidate === task.repoPath || candidate.startsWith(root)) return true;
+  }
+  return false;
+}
+function pickStatusTask(tasks, opts) {
+  const startKey = (t) => t.startedAt ?? t.createdAt;
+  const running = tasks.filter((t) => t.status === "running" || t.status === "queued").sort((a, b) => startKey(b).localeCompare(startKey(a)));
+  if (running.length > 0) return running[0];
+  const cutoff = opts.now.getTime() - opts.recentMinutes * 6e4;
+  const finished = tasks.filter((t) => t.finishedAt !== null && new Date(t.finishedAt).getTime() >= cutoff).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  return finished[0] ?? null;
+}
+function renderStatusLine(task, lastEvent, now2, opts = {}) {
+  const count = opts.runningCount ?? 0;
+  const prefix = count > 1 ? `${STATUS_LINE_PREFIX} ${count} running \xB7 ` : `${STATUS_LINE_PREFIX} `;
+  const head = `${prefix}${task.backend} ${task.kind}`;
+  if (task.status === "running" || task.status === "queued") {
+    const since = new Date(task.startedAt ?? task.createdAt).getTime();
+    const detail = lastEvent ? truncateDetail(lastEvent.message) : "no activity reported yet";
+    return `${head} ${formatElapsed(now2.getTime() - since)} \xB7 ${detail}`;
+  }
+  const ago = formatAgo(now2.getTime() - new Date(task.finishedAt ?? task.updatedAt).getTime());
+  if (task.status === "completed") {
+    let detail;
+    if (task.kind === "review") {
+      detail = task.driftDetected === true ? "tree changed, re-review" : task.driftDetected === false ? "tree unchanged" : "drift unknown";
+    } else {
+      detail = task.result === null ? "no result retained" : "result stored";
+    }
+    return `${head} done ${ago} \xB7 ${detail}`;
+  }
+  return `${head} ${task.status} ${ago} \xB7 ${truncateDetail(task.error ?? "no error recorded")}`;
+}
+function statusLineForCwd(store, cwd2, now2 = /* @__PURE__ */ new Date(), recentMinutes = DEFAULT_RECENT_MINUTES) {
+  if (!cwd2) return "";
+  store.reconcileInterrupted();
+  const tasks = store.list({ limit: 500 }).filter((t) => taskMatchesCwd(t, cwd2));
+  const task = pickStatusTask(tasks, { now: now2, recentMinutes });
+  if (!task) return "";
+  const runningCount = tasks.filter((t) => t.status === "running" || t.status === "queued").length;
+  const lastEvent = [...store.events(task.id)].reverse().find((e) => DETAIL_EVENT_TYPES.has(e.type)) ?? null;
+  return renderStatusLine(task, lastEvent, now2, { runningCount });
+}
+
+// src/progress.ts
+var MAX_DETAIL_CHARS2 = 96;
+var SHOWN_EVENT_TYPES = /* @__PURE__ */ new Set(["activity", "message", "turn_failed", "error"]);
+var DRIFT_WARNING = "  ! Working tree changed during the review. The result covers the original snapshot; re-run the review for the new changes.";
+function createProgressReporter(opts) {
+  const now2 = opts.now ?? (() => Date.now());
+  const startedAt = now2();
+  const spinner = opts.interactive ? opts.spinner ?? null : null;
+  const baseText = spinner?.text ?? "";
+  let drift = null;
+  const elapsed = () => formatElapsed(now2() - startedAt);
+  const show = (detail) => {
+    if (spinner) {
+      spinner.text = `${baseText} \xB7 ${detail}`;
+      return;
+    }
+    opts.write(`  \u25C7 ${detail}`);
+  };
+  return {
+    observer: {
+      onScope(info2) {
+        show(`scope: ${info2.diffFiles} file(s) \xB7 ${info2.diffBytes} bytes (${info2.scope} against ${info2.base})`);
+      },
+      onSessionLinked(backendSessionId) {
+        show(`session: ${backendSessionId}`);
+      },
+      onEvent(event) {
+        if (!SHOWN_EVENT_TYPES.has(event.type)) return;
+        show(`${elapsed()} ${truncateDetail(event.message, MAX_DETAIL_CHARS2)}`);
+      },
+      onDrift(info2) {
+        drift = info2;
+      }
+    },
+    finish(info2) {
+      const seconds = `${Math.round((now2() - startedAt) / 1e3)}s`;
+      const parts = [info2.taskId ? `Task ${info2.taskId} ${info2.status}` : info2.status, seconds];
+      if (info2.status === "completed" && drift) {
+        parts.push(
+          drift.drifted === true ? "tree changed during review" : drift.drifted === false ? "scope unchanged" : "drift unknown"
+        );
+      } else if (info2.status === "failed" && info2.error) {
+        parts.push(truncateDetail(info2.error, MAX_DETAIL_CHARS2));
+      }
+      opts.write(`  \u25C7 ${parts.join(" \xB7 ")}`);
+      if (drift?.drifted === true) opts.write(DRIFT_WARNING);
+    }
+  };
+}
+
+// src/cli.ts
 function repoRootDefault() {
   return getPackageRoot();
 }
@@ -84578,15 +84742,25 @@ function announceTaskStart(tracked) {
   process.stderr.write(`  ${theme.hint("\u25C7")} Task ${tracked.id} started ${theme.hint(`\xB7 phone-a-friend task show ${tracked.id}`)}
 `);
 }
-function announceTaskEnd(tracked, status) {
-  if (!tracked.id) return;
-  process.stderr.write(`  ${theme.hint("\u25C7")} Task ${tracked.id} ${status}
+function writeStderrLine(line) {
+  process.stderr.write(`${line}
 `);
-  if (tracked.drift?.drifted === true) {
-    process.stderr.write(
-      `  ${theme.warning("!")} Working tree changed during the review. The result covers the original snapshot; re-run the review for the new changes.
-`
-    );
+}
+function errorMessage2(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+function progressFor(spinner) {
+  return createProgressReporter({
+    write: writeStderrLine,
+    interactive: Boolean(process.stderr.isTTY),
+    spinner
+  });
+}
+function readStdinNow() {
+  try {
+    return readFileSync13(0, "utf8");
+  } catch {
+    return "";
   }
 }
 function taskStatusLabel(status) {
@@ -84918,6 +85092,7 @@ ${banner("AI coding agent relay")}
           color: "cyan",
           stream: process.stderr
         }).start();
+        const progress = progressFor(spinner);
         try {
           const feedback = await reviewRelay({
             repoPath: opts.repo,
@@ -84932,7 +85107,7 @@ ${banner("AI coding agent relay")}
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
-            observer: tracked2.observer
+            observer: mergeObservers(tracked2.observer, progress.observer)
           });
           if (isVerdictJson) {
             try {
@@ -84943,7 +85118,7 @@ ${banner("AI coding agent relay")}
             } catch (err) {
               if (err instanceof VerdictParseError) {
                 tracked2.fail(new Error(`Verdict parse failed: ${err.message}`));
-                announceTaskEnd(tracked2, "failed");
+                progress.finish({ taskId: tracked2.id, status: "failed", error: `Verdict parse failed: ${err.message}` });
                 process.stderr.write(
                   `  ${theme.crossmark} ${theme.error("Verdict parse failed")}: ${err.message}
   ${theme.hint("Raw response (between markers):")}
@@ -84962,11 +85137,11 @@ RAW_END>>>
             spinner?.succeed(`${theme.bold(backendName)} reviewed`);
             process.stdout.write(feedback + "\n");
           }
-          announceTaskEnd(tracked2, "completed");
+          progress.finish({ taskId: tracked2.id, status: "completed" });
         } catch (err) {
           tracked2.fail(err);
-          announceTaskEnd(tracked2, "failed");
           spinner?.fail(`${theme.bold(backendName)} review failed`);
+          progress.finish({ taskId: tracked2.id, status: "failed", error: errorMessage2(err) });
           throw err;
         }
         return;
@@ -84996,15 +85171,15 @@ RAW_END>>>
         session: opts.session ?? null,
         backendSession: opts.backendSession ?? null,
         fast: Boolean(opts.fast),
-        peerMessaging,
-        observer: tracked.observer
+        peerMessaging
       };
       const shouldStream = resolved.stream && !opts.schema && !opts.session && !opts.backendSession;
       if (opts.quiet) {
         const { relayBackground: relayBackground2 } = await Promise.resolve().then(() => (init_relay(), relay_exports));
         const { JobManager: JobManager2 } = await Promise.resolve().then(() => (init_jobs(), jobs_exports));
         const manager = new JobManager2();
-        const { job, promise } = relayBackground2({ ...relayOpts, jobManager: manager });
+        const progress = progressFor(null);
+        const { job, promise } = relayBackground2({ ...relayOpts, observer: tracked.observer, jobManager: manager });
         console.log(`  ${theme.success("\u2713")} ${theme.bold("Job started")} ${theme.info(job.id)}`);
         console.log(`  ${theme.hint("Check status:")} phone-a-friend job status`);
         console.log(`  ${theme.hint("Get result:")}  phone-a-friend job result ${job.id}`);
@@ -85020,11 +85195,12 @@ RAW_END>>>
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
           }
-          announceTaskEnd(tracked, "completed");
+          progress.finish({ taskId: tracked.id, status: "completed" });
         } else {
-          tracked.fail(completed?.error ?? `job ${completed?.status ?? "unknown"}`);
+          const failure = completed?.error ?? `job ${completed?.status ?? "unknown"}`;
+          tracked.fail(failure);
           console.error(`  ${theme.crossmark} Job ${job.id} ${completed?.status ?? "unknown"}: ${completed?.error ?? ""}`);
-          announceTaskEnd(tracked, "failed");
+          progress.finish({ taskId: tracked.id, status: "failed", error: failure });
           exitCode = 1;
         }
         return;
@@ -85036,11 +85212,12 @@ RAW_END>>>
           color: "cyan",
           stream: process.stderr
         }).start();
+        const progress = progressFor(spinner);
         let firstChunk = true;
         let hasOutput = false;
         let collected = "";
         try {
-          for await (const chunk of relayStream(relayOpts)) {
+          for await (const chunk of relayStream({ ...relayOpts, observer: mergeObservers(tracked.observer, progress.observer) })) {
             if (firstChunk) {
               spinner.stop();
               firstChunk = false;
@@ -85055,7 +85232,7 @@ RAW_END>>>
           tracked.complete(collected);
           process.stderr.write(`  ${theme.checkmark} ${theme.bold(backendName)} responded
 `);
-          announceTaskEnd(tracked, "completed");
+          progress.finish({ taskId: tracked.id, status: "completed" });
           if (opts.session) {
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
@@ -85069,7 +85246,7 @@ RAW_END>>>
   ${theme.crossmark} ${theme.error(`${backendName} stream error`)}
 `);
           }
-          announceTaskEnd(tracked, "failed");
+          progress.finish({ taskId: tracked.id, status: "failed", error: errorMessage2(err) });
           throw err;
         }
       } else {
@@ -85079,8 +85256,9 @@ RAW_END>>>
           color: "cyan",
           stream: process.stderr
         }).start();
+        const progress = progressFor(spinner);
         try {
-          const feedback = await relay(relayOpts);
+          const feedback = await relay({ ...relayOpts, observer: mergeObservers(tracked.observer, progress.observer) });
           tracked.complete(feedback);
           spinner.succeed(`${theme.bold(backendName)} responded`);
           process.stdout.write(feedback + "\n");
@@ -85088,11 +85266,11 @@ RAW_END>>>
             process.stderr.write(`  ${theme.hint("Session:")} ${theme.info(opts.session)}
 `);
           }
-          announceTaskEnd(tracked, "completed");
+          progress.finish({ taskId: tracked.id, status: "completed" });
         } catch (err) {
           tracked.fail(err);
           spinner.fail(`${theme.bold(backendName)} failed`);
-          announceTaskEnd(tracked, "failed");
+          progress.finish({ taskId: tracked.id, status: "failed", error: errorMessage2(err) });
           throw err;
         }
       }
@@ -85510,6 +85688,24 @@ RAW_END>>>
         }
         console.error(`  ${theme.hint(`Task ${task.id} is ${task.status}; no result yet.`)}`);
         exitCode = 3;
+      } finally {
+        store.close();
+      }
+    });
+    taskCmd.command("status-line").description("One line for a Claude Code status line: the running or most recent task for the current repository (reads the status line JSON on stdin)").option("--repo <path>", "Repository to report on (default: cwd from the stdin JSON, else the current directory)").option("--recent <minutes>", "Also show tasks that finished within this many minutes", String(DEFAULT_RECENT_MINUTES)).action(async (opts) => {
+      const recent = Number(opts.recent);
+      if (!Number.isFinite(recent) || recent < 0) {
+        console.error(`  ${theme.crossmark} --recent must be a non-negative number of minutes, got "${opts.recent}"`);
+        exitCode = 1;
+        return;
+      }
+      const stdin = process.stdin.isTTY ? "" : readStdinNow();
+      const cwd2 = opts.repo ?? parseStatusLineStdin(stdin).cwd ?? process.cwd();
+      const { TaskStore: TaskStore2 } = await Promise.resolve().then(() => (init_tasks(), tasks_exports));
+      const store = new TaskStore2();
+      try {
+        const line = statusLineForCwd(store, cwd2, /* @__PURE__ */ new Date(), recent);
+        if (line) console.log(line);
       } finally {
         store.close();
       }
