@@ -147,6 +147,22 @@ describe('doctor', () => {
     doctor = await import('../src/doctor.js');
   });
 
+  it.each([false, true])('includes optional API readiness in human and JSON reports (%s)', async available => {
+    mockDetectAll.mockResolvedValue(makeReport({ cli: [], local: [], host: [], api: [{
+      name: 'xai', category: 'api', available, optional: true,
+      detail: available ? 'XAI_API_KEY set (not validated)' : 'XAI_API_KEY not set',
+      installHint: 'Set XAI_API_KEY (https://console.x.ai)',
+    }] }));
+    const human = await doctor.doctor();
+    expect(human.output).toContain('API:');
+    expect(human.output).toContain('xai');
+    const result = await doctor.doctor({ json: true });
+    const json = JSON.parse(result.output);
+    expect(json.backends.api[0].available).toBe(available);
+    expect(json.summary).toEqual({ available: available ? 1 : 0, total: available ? 1 : 0 });
+    expect(result.exitCode).toBe(available ? 0 : 2);
+  });
+
   describe('human-readable output', () => {
     it('returns health check output with system info', async () => {
       mockDetectAll.mockResolvedValue(makeReport());

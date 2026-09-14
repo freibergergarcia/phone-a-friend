@@ -44,7 +44,7 @@ function formatBackendSummary(report: DetectionReport): string {
   const lines: string[] = [];
   const mark = (b: BackendStatus) => (b.available ? '✓' : '✗');
 
-  const relay: BackendStatus[] = [...report.cli, ...report.local];
+  const relay: BackendStatus[] = [...report.cli, ...report.local, ...(report.api ?? [])];
   const ready = relay.filter((b) => b.available && !b.planned).length;
   const total = relay.filter((b) => !b.planned && !(b.optional && !b.available)).length;
   lines.push(`Backend re-scan complete — ${ready} of ${total} relay backends ready`);

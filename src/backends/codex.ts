@@ -48,7 +48,7 @@ function assertNotCodexHost(env: Record<string, string>): void {
   if (!isCodexHostEnv(env)) return;
   throw new CodexBackendError(
     'Codex is already the host for this Phone-a-Friend invocation. ' +
-      'Choose another friend backend such as antigravity, claude, gemini, opencode, or ollama.',
+      'Choose another friend backend such as antigravity, claude, gemini, opencode, ollama, or xai.',
   );
 }
 

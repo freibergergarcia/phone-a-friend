@@ -534,7 +534,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .option('--prompt <text>', 'Prompt to relay (required unless review mode is selected)')
-    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok')
+    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok, xai')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context (repeat to attach several, in order)',
       (value: string, previous: string[] | undefined) => [...(previous ?? []), value])

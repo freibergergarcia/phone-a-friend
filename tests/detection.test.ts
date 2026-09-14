@@ -11,6 +11,15 @@ describe('detection', () => {
     detection = await import('../src/detection.js');
   });
 
+  it('detects xAI solely by credential presence without disclosing it', () => {
+    expect(detection.detectApiBackends({})[0]).toMatchObject({ name: 'xai', category: 'api', available: false, optional: true });
+    expect(detection.detectApiBackends({ XAI_API_KEY: '  ' })[0].available).toBe(false);
+    const report = detection.detectApiBackends({ XAI_API_KEY: 'test-credential' });
+    expect(report[0].available).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('test-credential');
+    expect(report[0].detail).toContain('not validated');
+  });
+
   describe('detectCliBackends', () => {
     it('marks CLI backends as available when their executables are found in PATH', async () => {
       const whichFn = vi.fn(() => true);

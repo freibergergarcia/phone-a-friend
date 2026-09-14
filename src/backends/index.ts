@@ -172,6 +172,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   codex: 'npm install -g @openai/codex',
   gemini: 'npm install -g @google/gemini-cli',
   ollama: 'https://ollama.com/download',
+  xai: 'Set XAI_API_KEY (https://console.x.ai)',
   claude: 'npm install -g @anthropic-ai/claude-code',
   opencode: 'npm install -g opencode-ai',
   pi: 'npm install -g @earendil-works/pi-coding-agent',
@@ -233,7 +234,7 @@ export function checkBackends(
 ): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = whichFn(BACKEND_COMMANDS[name] ?? name);
+    result[name] = name === 'xai' ? !!process.env.XAI_API_KEY?.trim() : whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }

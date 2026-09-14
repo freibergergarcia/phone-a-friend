@@ -241,8 +241,8 @@ Inlining repo content is wasteful, can leak tracked uncommitted edits or
 committed secrets into the relay payload, and bypasses the backend's
 normal file-access controls.
 
-Backend exception: `ollama` has `localFileAccess: false` and cannot read
-the repo on its own. For Ollama specifically, ask the user before sending
+Backend exceptions: `ollama` and `xai` have `localFileAccess: false` and cannot read
+the repo themselves. For either backend, ask the user before sending
 file content, and send a minimal excerpt rather than bulk-dumping files
 or git output.
 
@@ -512,3 +512,9 @@ When selecting Antigravity versus Gemini, pinning a Gemini model, or diagnosing 
   temp file — it muddies git status and risks accidental commit. Repo
   content itself does not need a temp file at all; see "Context hygiene"
   above.
+
+### xAI live research
+
+Use `--to xai` with `XAI_API_KEY` for web and X search (always on).
+Default model: `grok-4.6`; override with `--model` or `backends.xai.model`.
+Preserve cited `Sources:` URLs; schema mode omits the footer.

@@ -222,7 +222,7 @@ function assertNotOpenCodeHost(env: Record<string, string>): void {
   if (!isOpenCodeHostEnv(env)) return;
   throw new OpenCodeBackendError(
     'OpenCode is already the host for this Phone-a-Friend invocation. ' +
-      'Choose another friend backend such as antigravity, codex, gemini, claude, or ollama.',
+      'Choose another friend backend such as antigravity, codex, gemini, claude, ollama, or xai.',
   );
 }
 

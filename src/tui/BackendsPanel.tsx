@@ -160,7 +160,7 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
 
   // Clamp modelSelectedIndex when Ollama models change during modelSelect
   // (e.g., detection refresh completes while picker is open)
-  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.host] : [];
+  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...(report.api ?? []), ...report.host] : [];
   const currentModels = allBackendsForClamp[selectedIndex]?.models ?? [];
   useEffect(() => {
     if (mode === 'modelSelect' && currentModels.length > 0 && modelSelectedIndex >= currentModels.length) {
@@ -221,7 +221,7 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
   useInput((input, key) => {
     if (mode === 'modelSelect') {
       if (key.return) {
-        const allBackends = report ? [...report.cli, ...report.local, ...report.host] : [];
+        const allBackends = report ? [...report.cli, ...report.local, ...(report.api ?? []), ...report.host] : [];
         const selected = allBackends[selectedIndex];
         const models = selected?.models ?? [];
         const model = models[modelSelectedIndex];
@@ -238,7 +238,7 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
 
     // Nav mode: Enter on any backend with models → enter model select
     if (key.return) {
-      const allBackends = report ? [...report.cli, ...report.local, ...report.host] : [];
+      const allBackends = report ? [...report.cli, ...report.local, ...(report.api ?? []), ...report.host] : [];
       const selected = allBackends[selectedIndex];
       if (selected && (selected.models?.length ?? 0) > 0) {
         enterModelSelect(selected.name, selected.models!);
@@ -254,6 +254,7 @@ export function BackendsPanel({ report, onEditingChange }: BackendsPanelProps) {
   const allBackends = [
     ...report.cli,
     ...report.local,
+    ...(report.api ?? []),
     ...report.host,
   ];
 

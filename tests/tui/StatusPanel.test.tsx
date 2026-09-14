@@ -26,6 +26,18 @@ const MOCK_REPORT: DetectionReport = {
 };
 
 describe('StatusPanel', () => {
+  it('includes xAI under API and counts it as ready', () => {
+    const report: DetectionReport = { ...MOCK_REPORT, api: [{
+      name: 'xai', category: 'api', available: true, optional: true,
+      detail: 'XAI_API_KEY set (not validated)', installHint: '',
+    }] };
+    const { lastFrame, unmount } = render(<StatusPanel report={report} loading={false} refreshing={false} error={null} />);
+    expect(lastFrame()).toContain('API');
+    expect(lastFrame()).toContain('xai');
+    expect(lastFrame()).toContain('2 of 4 ready');
+    unmount();
+  });
+
   it('shows loading state when report is null', () => {
     const { lastFrame } = render(
       <StatusPanel report={null} loading={true} refreshing={false} error={null} />

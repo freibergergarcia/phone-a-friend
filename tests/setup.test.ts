@@ -110,6 +110,20 @@ describe('setup', () => {
     vi.restoreAllMocks();
   });
 
+  it('selects xAI as the default when it is the only available relay', async () => {
+    mockDetectAll.mockResolvedValue(makeReport({ cli: [], local: [], host: [], api: [{
+      name: 'xai', category: 'api', available: true, optional: true,
+      detail: 'XAI_API_KEY set (not validated)', installHint: '',
+    }] }));
+    mockConfirm.mockResolvedValue(false);
+    await setup.setup();
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockSaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+      defaults: expect.objectContaining({ backend: 'xai' }),
+    }), expect.any(String));
+    expect(output.join('\n')).toContain('API:');
+  });
+
   it('detects all backends before prompting', async () => {
     mockDetectAll.mockResolvedValue(makeReport());
     await setup.setup();
