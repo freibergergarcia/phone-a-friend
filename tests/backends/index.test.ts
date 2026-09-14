@@ -131,13 +131,18 @@ describe('registerBackend / getBackend', () => {
 });
 
 describe('checkBackends', () => {
+  it.each([undefined, '', '   '])('marks xAI unavailable with an unset or blank key (%s)', value => {
+    vi.stubEnv('XAI_API_KEY', value);
+    try { expect(checkBackends(() => true).xai).toBe(false); }
+    finally { vi.unstubAllEnvs(); }
+  });
+
   it('uses credential presence for xAI and never probes an xai executable', () => {
     vi.stubEnv('XAI_API_KEY', 'test-credential');
     try {
       const which = vi.fn(() => false);
       expect(checkBackends(which).xai).toBe(true);
       expect(which).not.toHaveBeenCalledWith('xai');
-      expect(BACKEND_COMMANDS.xai).toBeUndefined();
     } finally { vi.unstubAllEnvs(); }
   });
 

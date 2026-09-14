@@ -107,7 +107,7 @@ export function StatusPanel({ report, loading, refreshing, error, pluginInstalle
 
   // Count available relay backends with the same optional-backend semantics
   // used by doctor: optional missing backends do not degrade existing installs.
-  const allRelay = [...report.cli, ...report.local, ...(report.api ?? [])];
+  const allRelay = [...report.cli, ...report.local, ...report.api];
   const countable = allRelay.filter((b) => !b.planned && !(b.optional && !b.available));
   const available = countable.filter((b) => b.available).length;
   const total = countable.length;
@@ -142,7 +142,7 @@ export function StatusPanel({ report, loading, refreshing, error, pluginInstalle
         <Text bold underline>Relay Backends ({available} of {total} ready)</Text>
         <CategorySection label="CLI" backends={report.cli} />
         <CategorySection label="Local" backends={report.local} />
-        <CategorySection label="API" backends={report.api ?? []} />
+        <CategorySection label="API" backends={report.api} />
       </Box>
 
       {/* Host integrations */}

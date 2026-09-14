@@ -9,6 +9,7 @@ import { StatusPanel } from '../../src/tui/StatusPanel.js';
 import type { DetectionReport } from '../../src/detection.js';
 
 const MOCK_REPORT: DetectionReport = {
+  api: [],
   cli: [
     { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: '' },
     { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },

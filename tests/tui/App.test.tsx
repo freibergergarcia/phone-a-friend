@@ -9,6 +9,7 @@ import { render } from 'ink-testing-library';
 // Mock detection so App doesn't do real system calls
 vi.mock('../../src/detection.js', () => ({
   detectAll: vi.fn().mockResolvedValue({
+    api: [],
     cli: [],
     local: [],
     host: [],

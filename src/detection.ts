@@ -50,8 +50,7 @@ export interface EnvironmentStatus {
 export interface DetectionReport {
   cli: BackendStatus[];
   local: BackendStatus[];
-  /** Optional for compatibility with reports from older callers. */
-  api?: BackendStatus[];
+  api: BackendStatus[];
   host: BackendStatus[];
   environment: EnvironmentStatus;
 }

@@ -20,9 +20,20 @@ function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function answer(response: JsonObject): { text: string; sources: string } {
+function safeDetail(detail: string, key: string): string {
+  return detail.split(key).join('[REDACTED]').slice(0, 200);
+}
+
+function answer(response: JsonObject, key: string): { text: string; sources: string } {
   if (response.status !== 'completed' || response.error != null) {
-    throw new XaiBackendError('xAI response failed');
+    const error = object(response.error);
+    const detail = [
+      ['status', response.status ?? 'unknown'],
+      ['reason', object(response.incomplete_details).reason],
+      ['code', error.code],
+      ['message', error.message],
+    ].filter(([, value]) => typeof value === 'string').map(([name, value]) => `${name}=${value}`).join('; ');
+    throw new XaiBackendError(`xAI response failed: ${safeDetail(detail, key)}`);
   }
   const parts: string[] = [];
   const urls = new Set<string>();
@@ -57,33 +68,39 @@ export class XaiBackend implements Backend {
   async run(opts: BackendRunOptions): Promise<string> {
     const key = opts.env.XAI_API_KEY?.trim();
     if (!key) throw new XaiBackendError('Set XAI_API_KEY to use xai. Get an API key at https://console.x.ai');
+    let schema: unknown;
+    if (opts.schema) {
+      try { schema = JSON.parse(opts.schema); } catch { /* checked below */ }
+      if (object(schema) !== schema) throw new XaiBackendError('--schema must be a JSON object for xai');
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000);
     try {
-      const prompt = opts.schema
-        ? `${opts.prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${opts.schema}`
-        : opts.prompt;
       const resp = await fetch('https://api.x.ai/v1/responses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({
           model: opts.model ?? 'grok-4.6',
-          input: [...(opts.sessionHistory ?? []), { role: 'user', content: prompt }],
+          input: [...(opts.sessionHistory ?? []), { role: 'user', content: opts.prompt }],
           tools: [{ type: 'web_search' }, { type: 'x_search' }],
           stream: false,
+          store: false,
+          ...(schema ? { text: { format: {
+            type: 'json_schema', name: 'paf_response', schema, strict: true,
+          } } } : {}),
         }),
         signal: controller.signal,
       });
+      let body: string;
+      try { body = await resp.text(); }
+      catch { throw new XaiBackendError(`xAI response body could not be read (HTTP ${resp.status})`); }
       if (!resp.ok) {
-        let detail = '';
-        try { detail = await resp.text(); } catch { /* status still available */ }
-        detail = detail.split(key).join('[REDACTED]').slice(0, 200);
-        throw new XaiBackendError(`xAI returned HTTP ${resp.status}: ${detail}`);
+        throw new XaiBackendError(`xAI returned HTTP ${resp.status}: ${safeDetail(body, key)}`);
       }
       let data: unknown;
-      try { data = await resp.json(); }
+      try { data = JSON.parse(body); }
       catch { throw new XaiBackendError(`xAI returned invalid JSON (HTTP ${resp.status})`); }
-      const result = answer(object(data));
+      const result = answer(object(data), key);
       return result.text + (opts.schema ? '' : result.sources);
     } catch (err) {
       if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {

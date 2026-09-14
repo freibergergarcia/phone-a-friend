@@ -332,10 +332,14 @@ describe('detection', () => {
 
   describe('detectAll', () => {
     it('returns a complete DetectionReport with all categories', async () => {
+      vi.stubEnv('XAI_API_KEY', 'test-credential');
       const whichFn = vi.fn((name: string) => name === 'codex');
       const fetchFn = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
 
       const report = await detection.detectAll(whichFn, fetchFn);
+      vi.unstubAllEnvs();
+      expect(report.api).toHaveLength(1);
+      expect(report.api[0]).toMatchObject({ name: 'xai', available: true });
 
       expect(report.cli).toBeDefined();
       expect(report.local).toBeDefined();

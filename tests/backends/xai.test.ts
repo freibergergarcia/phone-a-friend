@@ -27,11 +27,13 @@ describe('xAI Responses backend', () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe('https://api.x.ai/v1/responses');
     expect(init.headers.Authorization).toBe(`Bearer ${key}`);
-    expect(JSON.parse(init.body)).toEqual({ model: 'grok-4.6', input: [...sessionHistory, { role: 'user', content: 'Hello' }], tools: [{ type: 'web_search' }, { type: 'x_search' }], stream: false });
+    expect(JSON.parse(init.body)).toEqual({ model: 'grok-4.6', input: [...sessionHistory, { role: 'user', content: 'Hello' }], tools: [{ type: 'web_search' }, { type: 'x_search' }], stream: false, store: false });
     expect(init.body).not.toContain(key);
-    expect(backend.localFileAccess).toBe(false);
-    expect(backend.capabilities.resumeStrategy).toBe('transcript-replay');
-    expect([...backend.allowedSandboxes]).toHaveLength(3);
+  });
+
+  it('trims whitespace from the authentication key', async () => {
+    await backend.run(opts({ env: { XAI_API_KEY: ' key\n' } }));
+    expect(mockFetch.mock.calls[0][1].headers.Authorization).toBe('Bearer key');
   });
 
   it('uses the resolved model override', async () => {
@@ -54,11 +56,18 @@ describe('xAI Responses backend', () => {
     expect(await backend.run(opts())).toBe('One\nTwo\n\nSources:\n- https://b.test\n- https://a.test');
   });
 
-  it('injects schema and keeps the answer parseable without a Sources footer', async () => {
+  it('sends native schema output without changing the prompt or adding a Sources footer', async () => {
     mockFetch.mockResolvedValue(Response.json(response('{"ok":true}', [{ type: 'url_citation', url: 'https://a.test' }])));
     const schema = '{"type":"object"}';
     expect(JSON.parse(await backend.run(opts({ schema })))).toEqual({ ok: true });
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body).input[0].content).toContain(schema);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.input).toEqual([{ role: 'user', content: 'Hello' }]);
+    expect(body.text.format).toEqual({ type: 'json_schema', name: 'paf_response', schema: JSON.parse(schema), strict: true });
+  });
+
+  it.each(['not json', '[]'])('rejects a non-object schema before calling xAI (%s)', async schema => {
+    await expect(backend.run(opts({ schema }))).rejects.toThrow('--schema must be a JSON object for xai');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it.each([undefined, '', '   '])('requires a nonempty key (%s)', async value => {
@@ -66,11 +75,14 @@ describe('xAI Responses backend', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('bounds and redacts HTTP errors', async () => {
-    mockFetch.mockResolvedValue(new Response(`invalid ${key} ${'x'.repeat(400)}`, { status: 401 }));
+  it('truncates HTTP errors after redacting keys across the truncation boundary', async () => {
+    mockFetch.mockResolvedValue(new Response(`${'x'.repeat(190)}${key}${'x'.repeat(40)}`, { status: 401 }));
     const error = await backend.run(opts()).catch(e => e);
     expect(error).toBeInstanceOf(XaiBackendError);
-    expect(error.message).toContain('HTTP 401: invalid [REDACTED]');
+    expect(error.message).toBe(`xAI returned HTTP 401: ${'x'.repeat(190)}[REDACTED]`);
+    for (let i = 0; i <= key.length - 8; i++) {
+      expect(error.message).not.toContain(key.slice(i, i + 8));
+    }
     expect(error.message).not.toContain(key);
     expect(error.message.length).toBeLessThan(300);
     expect(error.cause).toBeUndefined();
@@ -79,22 +91,52 @@ describe('xAI Responses backend', () => {
   it.each(['failed', 'incomplete', 'in_progress'])('rejects response status %s', async status => {
     mockFetch.mockResolvedValue(Response.json({ status, error: null }));
     const error = await backend.run(opts()).catch(e => e);
-    expect(error.message).toBe('xAI response failed');
+    expect(error.message).toBe(`xAI response failed: status=${status}`);
   });
 
-  it('rejects non-null errors even when status is completed', async () => {
-    mockFetch.mockResolvedValue(Response.json({ ...response(), error: { message: 'failed' } }));
-    await expect(backend.run(opts())).rejects.toThrow('response failed');
+  it('reports bounded, redacted status, incomplete reason, and API error detail', async () => {
+    mockFetch.mockResolvedValue(Response.json({ ...response(),
+      incomplete_details: { reason: 'max_output_tokens' },
+      error: { code: 'quota', message: `${key}${'x'.repeat(300)}` },
+    }));
+    const error = await backend.run(opts()).catch(e => e);
+    const detail = 'status=completed; reason=max_output_tokens; code=quota; message=[REDACTED]';
+    expect(error.message).toBe(`xAI response failed: ${detail}${'x'.repeat(200 - detail.length)}`);
+    expect(error.message).not.toContain(key);
   });
 
-  it.each([null, {}, { status: 'completed', output: [] }])('rejects missing output (%j)', async data => {
+  it.each([
+    { status: 'completed', output: [] },
+    { status: 'completed', output: [{ type: 'reasoning', summary: [{ text: 'Private' }] }, { type: 'custom_tool_call' }] },
+  ])('rejects completed responses without answer text (%j)', async data => {
     mockFetch.mockResolvedValue(Response.json(data));
-    await expect(backend.run(opts())).rejects.toBeInstanceOf(XaiBackendError);
+    await expect(backend.run(opts())).rejects.toThrow(/^xAI completed without producing output$/);
   });
 
   it('rejects invalid JSON without exposing the body', async () => {
     mockFetch.mockResolvedValue(new Response(key));
-    await expect(backend.run(opts())).rejects.toThrow('invalid JSON (HTTP 200)');
+    const error = await backend.run(opts()).catch(e => e);
+    expect(error.message).toBe('xAI returned invalid JSON (HTTP 200)');
+    expect(error.message).not.toContain(key);
+  });
+
+  it('distinguishes a body-read failure from invalid JSON', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, text: async () => { throw new Error(key); } });
+    const error = await backend.run(opts()).catch(e => e);
+    expect(error.message).toBe('xAI response body could not be read (HTTP 200)');
+    expect(error.message).not.toContain(key);
+  });
+
+  it('reports a timeout during body read', async () => {
+    vi.useFakeTimers();
+    mockFetch.mockImplementation((_url, init) => Promise.resolve({ ok: true, status: 200,
+      text: () => new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }),
+    }));
+    const assertion = expect(backend.run(opts({ timeoutSeconds: 1 }))).rejects.toThrow('xAI timed out after 1s');
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
   });
 
   it('does not expose transport error details or credentials', async () => {

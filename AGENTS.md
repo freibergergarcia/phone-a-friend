@@ -210,6 +210,7 @@ phone-a-friend --to codex --repo <path> --prompt "..."
 phone-a-friend --to antigravity --repo <path> --prompt "..." --sandbox read-only
 phone-a-friend --to claude --repo <path> --prompt "..."
 phone-a-friend --to gemini --repo <path> --prompt "..."
+phone-a-friend --to xai --prompt "..."
 phone-a-friend --to ollama --repo <path> --prompt "..." --model qwen3
 phone-a-friend --to opencode --repo <path> --prompt "..." --model qwen3-coder  # Local agentic (OpenCode + Ollama)
 phone-a-friend --prompt "..."               # Uses default backend from config

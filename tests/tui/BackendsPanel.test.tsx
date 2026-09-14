@@ -30,6 +30,7 @@ import { configSet } from '../../src/config.js';
 const mockConfigSet = vi.mocked(configSet);
 
 const MOCK_REPORT: DetectionReport = {
+  api: [],
   cli: [
     { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: '' },
     { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },
@@ -183,7 +184,7 @@ describe('BackendsPanel', () => {
   });
 
   it('handles empty backend list without crashing', () => {
-    const emptyReport: DetectionReport = { cli: [], local: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
+    const emptyReport: DetectionReport = { cli: [], local: [], api: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
     const { lastFrame } = render(<BackendsPanel report={emptyReport} />);
     const frame = lastFrame()!;
     expect(frame).toContain('Backends');

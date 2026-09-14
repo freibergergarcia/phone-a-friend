@@ -262,7 +262,7 @@ describe('config', () => {
   });
 
   describe('resolveConfig', () => {
-    it('keeps xAI model precedence scoped to the selected backend', () => {
+    it('model precedence is scoped to the selected backend', () => {
       const repo = join(tempDir, 'repo');
       mkdirSync(repo);
       writeFileSync(join(repo, '.phone-a-friend.toml'), '[backends.xai]\nmodel = "repo-grok"\n[backends.codex]\nmodel = "codex-model"\n');

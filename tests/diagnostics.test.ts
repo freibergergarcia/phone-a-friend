@@ -337,6 +337,7 @@ describe('inspectExecutable', () => {
 
 function makeReport(): DetectionReport {
   return {
+    api: [],
     cli: [
       { name: 'antigravity', category: 'cli', available: false, detail: 'agy not found', installHint: 'x', optional: true },
       { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
@@ -408,20 +409,16 @@ describe('inspectExecutables', () => {
 // ---------------------------------------------------------------------------
 
 describe('attachModelAndCapabilities', () => {
-  it('reports xAI model/capabilities without attempting executable probes', async () => {
+  it('reports xAI model and capabilities', () => {
     const report: DetectionReport = { ...makeReport(), cli: [], local: [], host: [], api: [{
       name: 'xai', category: 'api', available: true, optional: true, detail: 'key set', installHint: '',
     }] };
-    const execFileFn = vi.fn();
-    await inspectExecutables(report, { execFileFn });
-    expect(execFileFn).not.toHaveBeenCalled();
-    expect(report.api![0].executable).toBeUndefined();
     attachModelAndCapabilities(report, {
       defaults: { backend: 'xai', sandbox: 'read-only', timeout: 600, include_diff: false },
       backends: { xai: { model: 'config-grok' } },
     });
-    expect(report.api![0].model).toMatchObject({ requested: 'config-grok', requestedSource: 'paf-config', reported: null });
-    expect(report.api![0].capabilities?.declared).toEqual({ resumeStrategy: 'transcript-replay', requiresClientSessionId: false, localFileAccess: false });
+    expect(report.api[0].model).toMatchObject({ requested: 'config-grok', requestedSource: 'paf-config', reported: null });
+    expect(report.api[0].capabilities?.declared).toEqual({ resumeStrategy: 'transcript-replay', requiresClientSessionId: false, localFileAccess: false });
   });
 
   it('reports the configured model as requested and never manufactures a reported model', () => {

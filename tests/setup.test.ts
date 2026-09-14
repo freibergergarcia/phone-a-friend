@@ -58,6 +58,7 @@ vi.mock('../src/version.js', async (importOriginal) => {
 // Helper to build reports
 function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
   return {
+    api: [],
     cli: [
       { name: 'codex', category: 'cli', available: true, detail: 'found in PATH', installHint: '' },
       { name: 'gemini', category: 'cli', available: true, detail: 'found in PATH', installHint: '' },
