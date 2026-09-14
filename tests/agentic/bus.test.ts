@@ -46,6 +46,15 @@ describe('TranscriptBus', () => {
       expect(session!.endedAt).toBeDefined();
     });
 
+    it('persists terminal reasons across database reopen', () => {
+      bus.createSession('timed-out', 'test');
+      bus.endSession('timed-out', 'failed', 'timeout');
+      bus.close();
+      bus = new TranscriptBus(join(tmpDir, 'test.db'));
+      expect(bus.getSession('timed-out')).toMatchObject({ status: 'failed', endReason: 'timeout' });
+      expect(bus.listSessions()[0].endReason).toBe('timeout');
+    });
+
     it('lists sessions in reverse chronological order', () => {
       bus.createSession('sess-1', 'first');
       bus.createSession('sess-2', 'second');

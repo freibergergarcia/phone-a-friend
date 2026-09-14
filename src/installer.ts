@@ -48,8 +48,8 @@ const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
  *
  * `phone-a-team` is shipped via the `.codex/` overlay
  * (`skills/phone-a-team/.codex/SKILL.md`). On Codex, /phone-a-team
- * orchestrates the bundled subagent personas (paf-reviewer, paf-critic,
- * paf-synthesizer) which shell out to phone-a-friend per round.
+ * runs parallel phone-a-friend CLI relays through Bash and synthesizes
+ * their results in the host model between rounds.
  */
 const CODEX_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
 

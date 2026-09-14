@@ -235,10 +235,10 @@ describe('SessionManager', () => {
           .rejects.toThrow('Failed to spawn claude: ENOENT');
       });
 
-      it('resolves with stdout on non-zero exit if stdout is present', async () => {
+      it('rejects with partial stdout on non-zero exit', async () => {
         spawnMock.mockReturnValue(makeChild('some output', 1));
-        const result = await sm.spawn(makeAgent(), 'system', 'hello', '/repo');
-        expect(result.output).toBe('some output');
+        await expect(sm.spawn(makeAgent(), 'system', 'hello', '/repo')).rejects.toMatchObject({ stdout: 'some output', exitCode: 1 });
+        expect(sm.hasSession('reviewer')).toBe(false);
       });
 
       it('rejects with stderr message on non-zero exit with no stdout', async () => {
@@ -349,11 +349,11 @@ describe('SessionManager', () => {
         expect(args[args.indexOf('--max-turns') + 1]).toBe('3');
       });
 
-      it('does NOT pass --add-dir in resume args', async () => {
+      it('passes --add-dir in resume args', async () => {
         spawnMock.mockReturnValue(makeChild('resumed'));
         await sm.resume('reviewer', 'msg', '/repo');
         const args = spawnMock.mock.calls[0][1] as string[];
-        expect(args).not.toContain('--add-dir');
+        expect(args).toContain('--add-dir');
       });
 
       it('returns output string', async () => {
@@ -535,7 +535,7 @@ describe('SessionManager', () => {
       child.stdin = { end: vi.fn() };
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
-      child.kill = vi.fn();
+      child.kill = vi.fn((signal) => { if (signal === 'SIGKILL') child.emit('close', null); return true; });
       spawnMock.mockReturnValue(child);
 
       const promise = sm.spawn(makeAgent(), 'sys', 'hi', '/repo');
@@ -543,8 +543,8 @@ describe('SessionManager', () => {
       // Attach rejection handler BEFORE advancing timers to prevent unhandled rejection
       const rejectCheck = expect(promise).rejects.toThrow('timed out after 600s');
 
-      // Advance past timeout — settle() rejects with timeout message
-      await vi.advanceTimersByTimeAsync(600_001);
+      // Cancellation must wait for escalation and the child close event.
+      await vi.advanceTimersByTimeAsync(600_251);
 
       await rejectCheck;
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');

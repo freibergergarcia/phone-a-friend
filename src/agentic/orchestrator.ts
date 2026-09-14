@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { SpawnCliError } from '../backends/index.js';
 import { MessageQueue } from './queue.js';
 import { TranscriptBus } from './bus.js';
 import { SessionManager } from './session.js';
@@ -43,6 +44,10 @@ export class Orchestrator {
   private noProgressCount = 0;
 
   // Lifecycle
+  private controller = new AbortController();
+  private deadline?: ReturnType<typeof setTimeout>;
+  private pendingEndReason?: 'stopped' | 'timeout';
+  private hasErrors = false;
   private stopped = false;
   private sessionEnded = false;
   private runLoopPromise: Promise<void> | null = null;
@@ -59,6 +64,13 @@ export class Orchestrator {
     if (this.runLoopPromise) {
       throw new Error('Orchestrator is already running. Create a new instance for concurrent sessions.');
     }
+
+    if (!Number.isInteger(config.maxTurns) || config.maxTurns < 1) throw new Error('maxTurns must be a positive integer');
+    if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0) throw new Error('timeoutSeconds must be positive and finite');
+    if (!['read-only', 'workspace-write', 'danger-full-access'].includes(config.sandbox)) throw new Error('Invalid agentic sandbox');
+    this.controller = new AbortController();
+    this.pendingEndReason = undefined;
+    this.hasErrors = false;
 
     // Reset all session-scoped state for safe reuse
     this.sessionId = randomUUID().slice(0, 7);
@@ -106,6 +118,12 @@ export class Orchestrator {
       timestamp: new Date(),
     });
 
+    this.deadline = setTimeout(() => {
+      this.emit({ type: 'guardrail', sessionId: this.sessionId, guard: 'timeout',
+        detail: `Session timed out after ${config.timeoutSeconds}s`, timestamp: new Date() });
+      this.requestStop('timeout');
+    }, config.timeoutSeconds * 1000);
+
     // Spawn agents and seed initial prompt
     this.runLoopPromise = this.runLoop(config, knownTargets)
       .catch((err) => {
@@ -118,6 +136,8 @@ export class Orchestrator {
         this.endSession('error');
       })
       .finally(() => {
+        clearTimeout(this.deadline);
+        if (this.pendingEndReason) this.endSession(this.pendingEndReason);
         this.runLoopPromise = null;
       });
 
@@ -128,20 +148,25 @@ export class Orchestrator {
    * Stop the current session.
    */
   stop(): void {
-    this.stopped = true;
-    this.endSession('stopped');
+    this.requestStop('stopped');
   }
 
   /**
    * Stop the loop (if running) and close the transcript database.
    */
   async close(): Promise<void> {
-    this.stopped = true;
-    this.endSession('stopped');
+    this.requestStop('stopped');
     if (this.runLoopPromise) {
       await this.runLoopPromise;
     }
     this.bus.close();
+  }
+
+  private requestStop(reason: 'stopped' | 'timeout'): void {
+    if (!this.sessionId || this.sessionEnded || this.pendingEndReason) return;
+    this.pendingEndReason = reason;
+    this.stopped = true;
+    this.controller.abort();
   }
 
   // ---- Main loop ----------------------------------------------------------
@@ -168,6 +193,7 @@ export class Orchestrator {
       try {
         const result = await this.sessions.spawn(
           agent, systemPrompt, prompt, repoPath,
+          { signal: this.controller.signal, sandbox: config.sandbox },
         );
 
         this.bus.updateAgent(this.sessionId, agent.name, {
@@ -184,7 +210,15 @@ export class Orchestrator {
     const settled = await Promise.allSettled(spawnPromises);
 
     for (const result of settled) {
-      if (this.stopped) return;
+      if (this.stopped) {
+        if (result.status === 'fulfilled') {
+          this.logAndEmitMessage(result.value.agent.name, 'notes', result.value.output, 0);
+        } else {
+          const { agent, error } = result.reason as { agent: typeof agents[number]; error: unknown };
+          this.retainPartialOutput(agent.name, error, 0);
+        }
+        continue;
+      }
 
       if (result.status === 'fulfilled') {
         const { agent, output } = result.value;
@@ -193,6 +227,7 @@ export class Orchestrator {
         this.emitAgentStatus(agent.name, 'idle');
       } else {
         const { agent, error } = result.reason as { agent: typeof agents[number]; error: unknown };
+        this.retainPartialOutput(agent.name, error, 0);
         const errMsg = error instanceof Error ? error.message : String(error);
         this.emit({
           type: 'error',
@@ -204,6 +239,8 @@ export class Orchestrator {
         this.emitAgentStatus(agent.name, 'dead');
       }
     }
+
+    if (this.stopped) return;
 
     // No agent answered: this is a failed run, not a converged conversation.
     if (spawnResults.length === 0) {
@@ -340,6 +377,7 @@ export class Orchestrator {
         try {
           const output = await this.sessions.resume(
             agentName, incomingPrompt, repoPath,
+            { signal: this.controller.signal, sandbox: config.sandbox },
           );
           return { agentName, output };
         } catch (err) {
@@ -349,7 +387,17 @@ export class Orchestrator {
 
       const resumeResults = await Promise.allSettled(resumePromises);
 
-      if (this.stopped) break;
+      if (this.stopped) {
+        for (const result of resumeResults) {
+          if (result.status === 'fulfilled' && result.value) {
+            this.logAndEmitMessage(result.value.agentName, 'notes', result.value.output, this.turn);
+          } else if (result.status === 'rejected') {
+            const { agentName, error } = result.reason as { agentName: string; error: unknown };
+            this.retainPartialOutput(agentName, error, this.turn);
+          }
+        }
+        break;
+      }
 
       // Process results: parse responses and route outbound messages
       for (const result of resumeResults) {
@@ -359,6 +407,7 @@ export class Orchestrator {
               agentName: string;
               error: unknown;
             };
+            this.retainPartialOutput(failedAgent, error, this.turn);
             const errMsg = error instanceof Error ? error.message : String(error);
             this.emit({
               type: 'error',
@@ -424,7 +473,12 @@ export class Orchestrator {
 
     // Loop exited — determine reason
     if (this.stopped) {
-      // stop() or close() already called endSession
+      // Finalize only after in-flight subprocess cleanup has settled.
+      return;
+    }
+
+    if (this.queue.isEmpty()) {
+      this.endSession('converged');
       return;
     }
 
@@ -453,7 +507,14 @@ export class Orchestrator {
     };
   }
 
+  private retainPartialOutput(agent: string, error: unknown, turn: number): void {
+    if (error instanceof SpawnCliError && error.stdout) {
+      this.logAndEmitMessage(agent, 'notes', error.stdout, turn);
+    }
+  }
+
   private emit(event: AgenticEvent): void {
+    if (event.type === 'error') this.hasErrors = true;
     this.events.push(event);
     for (const listener of this.listeners) {
       try { listener(event); } catch { /* don't let listeners break the loop */ }
@@ -502,14 +563,18 @@ export class Orchestrator {
 
   private endSession(reason: 'converged' | 'max_turns' | 'timeout' | 'stopped' | 'error'): void {
     if (this.sessionEnded) return;
+    reason = this.pendingEndReason ?? (reason === 'converged' && this.hasErrors ? 'error' : reason);
     this.sessionEnded = true;
+    clearTimeout(this.deadline);
 
     const elapsed = Date.now() - this.startTime;
 
-    const busStatus = reason === 'error' ? 'failed'
-      : reason === 'stopped' ? 'stopped'
-      : 'completed';
-    this.bus.endSession(this.sessionId, busStatus);
+    const busStatus = reason === 'converged' ? 'completed'
+      : reason === 'stopped' ? 'stopped' : 'failed';
+    this.bus.endSession(this.sessionId, busStatus, reason);
+    for (const agent of this.agentStates.values()) {
+      if (agent.status === 'active') this.emitAgentStatus(agent.name, 'dead');
+    }
 
     this.emit({
       type: 'session_end',

@@ -2129,17 +2129,7 @@ var sessions_exports = {};
 __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
-import {
-  readFileSync as readFileSync5,
-  writeFileSync as writeFileSync5,
-  existsSync as existsSync5,
-  mkdirSync as mkdirSync5,
-  openSync as openSync2,
-  closeSync as closeSync2,
-  fsyncSync as fsyncSync2,
-  renameSync as renameSync2,
-  unlinkSync as unlinkSync2
-} from "fs";
+import { readFileSync as readFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync5, renameSync as renameSync2 } from "fs";
 import { dirname as dirname5, join as join6 } from "path";
 import { homedir as homedir5 } from "os";
 var MAX_SESSIONS, SessionStore;
@@ -2149,26 +2139,57 @@ var init_sessions = __esm({
     MAX_SESSIONS = 100;
     SessionStore = class {
       filePath;
+      dbPath;
+      db;
       constructor(filePath) {
         this.filePath = filePath ?? join6(
           process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
+        this.dbPath = this.filePath.endsWith(".json") ? this.filePath.slice(0, -5) + ".db" : this.filePath + ".db";
+      }
+      transaction(operation) {
+        mkdirSync5(dirname5(this.dbPath), { recursive: true });
+        const Sqlite = __require("better-sqlite3");
+        const db = new Sqlite(this.dbPath, { timeout: 5e3 });
+        try {
+          return db.transaction(() => {
+            this.db = db;
+            db.exec("CREATE TABLE IF NOT EXISTS relay_sessions (id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS migration (id INTEGER PRIMARY KEY)");
+            if (!db.prepare("SELECT id FROM migration WHERE id = 1").get()) {
+              this.save(this.loadLegacy());
+              db.prepare("INSERT INTO migration (id) VALUES (1)").run();
+            }
+            return operation();
+          }).immediate();
+        } finally {
+          this.db = void 0;
+          db.close();
+        }
       }
       load() {
+        const rows = this.db.prepare("SELECT payload FROM relay_sessions ORDER BY rowid").all();
+        return rows.map((row) => JSON.parse(row.payload));
+      }
+      loadLegacy() {
         if (!existsSync5(this.filePath)) return [];
         let raw;
         try {
           raw = readFileSync5(this.filePath, "utf-8");
         } catch (err) {
           console.error(`[phone-a-friend] Failed to read session store ${this.filePath}: ${err.message}`);
-          return [];
+          throw err;
         }
         try {
           const parsed = JSON.parse(raw);
           if (!Array.isArray(parsed)) {
             throw new Error("session store is not a JSON array");
+          }
+          for (const row of parsed) {
+            if (!row || typeof row.id !== "string" || typeof row.backend !== "string" || typeof row.repoPath !== "string" || !Array.isArray(row.history) || typeof row.createdAt !== "string" || typeof row.lastUsedAt !== "string") {
+              throw new Error("invalid session record");
+            }
           }
           return parsed;
         } catch (err) {
@@ -2181,114 +2202,97 @@ var init_sessions = __esm({
             );
           } catch (rotateErr) {
             console.error(
-              `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${err.message}) and could not be rotated (${rotateErr.message}). Starting with an empty store; the file will be overwritten on next write.`
+              `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${err.message}) and could not be rotated (${rotateErr.message}). Migration has been aborted.`
             );
+            throw rotateErr;
           }
           return [];
         }
       }
       save(sessions) {
-        const dir = dirname5(this.filePath);
-        mkdirSync5(dir, { recursive: true });
-        const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
-        const payload = JSON.stringify(sessions, null, 2);
-        const tmpFd = openSync2(tmpPath, "w");
-        try {
-          try {
-            writeFileSync5(tmpFd, payload, "utf-8");
-            fsyncSync2(tmpFd);
-          } finally {
-            closeSync2(tmpFd);
-          }
-          renameSync2(tmpPath, this.filePath);
-        } catch (err) {
-          try {
-            unlinkSync2(tmpPath);
-          } catch {
-          }
-          throw err;
-        }
-        try {
-          const dirFd = openSync2(dir, "r");
-          try {
-            fsyncSync2(dirFd);
-          } finally {
-            closeSync2(dirFd);
-          }
-        } catch {
-        }
+        this.db.prepare("DELETE FROM relay_sessions").run();
+        const insert = this.db.prepare("INSERT INTO relay_sessions (id, payload) VALUES (?, ?)");
+        for (const session of sessions) insert.run(session.id, JSON.stringify(session));
       }
       get(id) {
-        return this.load().find((session) => session.id === id) ?? null;
+        return this.transaction(() => this.load().find((session) => session.id === id) ?? null);
       }
       list() {
-        return this.load();
+        return this.transaction(() => this.load());
       }
       /** Remove a single session by label. Returns true if a row was removed. */
       delete(id) {
-        const sessions = this.load();
-        const filtered = sessions.filter((session) => session.id !== id);
-        if (filtered.length === sessions.length) return false;
-        this.save(filtered);
-        return true;
+        return this.transaction(() => {
+          const sessions = this.load();
+          const filtered = sessions.filter((session) => session.id !== id);
+          if (filtered.length === sessions.length) return false;
+          this.save(filtered);
+          return true;
+        });
       }
       /** Drop sessions whose `lastUsedAt` is older than `cutoff`. Returns the IDs removed. */
       pruneOlderThan(cutoff) {
-        const sessions = this.load();
-        const cutoffIso = cutoff.toISOString();
-        const removed = sessions.filter((s) => s.lastUsedAt < cutoffIso).map((s) => s.id);
-        if (removed.length === 0) return [];
-        const kept = sessions.filter((s) => s.lastUsedAt >= cutoffIso);
-        this.save(kept);
-        return removed;
+        return this.transaction(() => {
+          const sessions = this.load();
+          const cutoffIso = cutoff.toISOString();
+          const removed = sessions.filter((s) => s.lastUsedAt < cutoffIso).map((s) => s.id);
+          if (removed.length === 0) return [];
+          const kept = sessions.filter((s) => s.lastUsedAt >= cutoffIso);
+          this.save(kept);
+          return removed;
+        });
       }
       /** Drop every session. Returns the count removed. */
       clear() {
-        const sessions = this.load();
-        if (sessions.length === 0) return 0;
-        this.save([]);
-        return sessions.length;
+        return this.transaction(() => {
+          const sessions = this.load();
+          if (sessions.length === 0) return 0;
+          this.save([]);
+          return sessions.length;
+        });
       }
       upsert(opts) {
         if (opts.historyAppend !== void 0 && opts.replaceHistory !== void 0) {
           throw new Error("upsert: historyAppend and replaceHistory are mutually exclusive");
         }
-        const sessions = this.load();
-        const now2 = (/* @__PURE__ */ new Date()).toISOString();
-        const existing = sessions.find((session2) => session2.id === opts.id);
-        if (existing) {
-          existing.backend = opts.backend;
-          existing.repoPath = opts.repoPath;
-          if (opts.backendSessionId) {
-            existing.backendSessionId = opts.backendSessionId;
+        return this.transaction(() => {
+          const sessions = this.load();
+          const now2 = (/* @__PURE__ */ new Date()).toISOString();
+          const existing = sessions.find((session2) => session2.id === opts.id);
+          if (existing) {
+            existing.backend = opts.backend;
+            existing.repoPath = opts.repoPath;
+            if (opts.backendSessionId) {
+              existing.backendSessionId = opts.backendSessionId;
+            }
+            if (opts.replaceHistory !== void 0) {
+              existing.history = [...opts.replaceHistory];
+            } else if (opts.historyAppend?.length) {
+              existing.history.push(...opts.historyAppend);
+            }
+            existing.lastUsedAt = now2;
+            this.save(sessions);
+            return existing;
           }
-          if (opts.replaceHistory !== void 0) {
-            existing.history = [...opts.replaceHistory];
-          } else if (opts.historyAppend?.length) {
-            existing.history.push(...opts.historyAppend);
+          const initialHistory = opts.replaceHistory !== void 0 ? [...opts.replaceHistory] : [...opts.historyAppend ?? []];
+          const session = {
+            id: opts.id,
+            backend: opts.backend,
+            backendSessionId: opts.backendSessionId,
+            repoPath: opts.repoPath,
+            history: initialHistory,
+            createdAt: now2,
+            lastUsedAt: now2
+          };
+          sessions.push(session);
+          if (sessions.length > MAX_SESSIONS) {
+            const sorted = [...sessions].sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt));
+            this.save(sorted.slice(sorted.length - MAX_SESSIONS));
+            return session;
           }
-          existing.lastUsedAt = now2;
           this.save(sessions);
-          return existing;
-        }
-        const initialHistory = opts.replaceHistory !== void 0 ? [...opts.replaceHistory] : [...opts.historyAppend ?? []];
-        const session = {
-          id: opts.id,
-          backend: opts.backend,
-          backendSessionId: opts.backendSessionId,
-          repoPath: opts.repoPath,
-          history: initialHistory,
-          createdAt: now2,
-          lastUsedAt: now2
-        };
-        sessions.push(session);
-        if (sessions.length > MAX_SESSIONS) {
-          const sorted = [...sessions].sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt));
-          this.save(sorted.slice(sorted.length - MAX_SESSIONS));
           return session;
-        }
-        this.save(sessions);
-        return session;
+        });
       }
     };
   }
@@ -3370,7 +3374,7 @@ import {
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
-  unlinkSync as unlinkSync3
+  unlinkSync as unlinkSync2
 } from "fs";
 import { resolve as resolve3, join as join7, dirname as dirname7, isAbsolute, sep } from "path";
 import { homedir as homedir6 } from "os";
@@ -3386,7 +3390,7 @@ function removePath(filePath) {
     throw err;
   }
   if (stat.isSymbolicLink() || stat.isFile()) {
-    unlinkSync3(filePath);
+    unlinkSync2(filePath);
   } else if (stat.isDirectory()) {
     rmSync2(filePath, { recursive: true, force: true });
   }
@@ -15784,7 +15788,7 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
+import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
 import path3 from "path";
 import os3 from "os";
 import { randomUUID as randomUUID4 } from "crypto";
@@ -15892,7 +15896,7 @@ var init_dist8 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync6(this.tempFile, this.text, opt);
+          writeFileSync5(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
@@ -73534,13 +73538,16 @@ var init_bus = __esm({
         this.db.pragma("journal_mode = WAL");
         this.db.pragma("foreign_keys = ON");
         this.db.exec(SCHEMA2);
-        this.migrate();
+        this.db.transaction(() => this.migrate()).immediate();
       }
       /**
        * Idempotent schema migrations for existing databases.
        */
       migrate() {
         const columns = this.db.pragma("table_info(sessions)");
+        if (!columns.some((c) => c.name === "end_reason")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN end_reason TEXT");
+        }
         const hasMaxTurns = columns.some((c) => c.name === "max_turns");
         if (!hasMaxTurns) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0");
@@ -73552,10 +73559,10 @@ var init_bus = __esm({
           "INSERT INTO sessions (id, prompt, max_turns) VALUES (?, ?, ?)"
         ).run(id, prompt, maxTurns);
       }
-      endSession(id, status) {
+      endSession(id, status, reason) {
         this.db.prepare(
-          `UPDATE sessions SET status = ?, ended_at = datetime('now') WHERE id = ?`
-        ).run(status, id);
+          `UPDATE sessions SET status = ?, end_reason = ?, ended_at = datetime('now') WHERE id = ?`
+        ).run(status, reason ?? null, id);
       }
       getSession(id) {
         const row = this.db.prepare(
@@ -73571,7 +73578,8 @@ var init_bus = __esm({
           status: row.status,
           agents,
           turn: this.getMaxTurn(id),
-          maxTurns: row.max_turns ?? 0
+          maxTurns: row.max_turns ?? 0,
+          endReason: row.end_reason ?? void 0
         };
       }
       listSessions() {
@@ -73586,7 +73594,8 @@ var init_bus = __esm({
           status: row.status,
           agents: this.getAgents(row.id),
           turn: this.getMaxTurn(row.id),
-          maxTurns: row.max_turns ?? 0
+          maxTurns: row.max_turns ?? 0,
+          endReason: row.end_reason ?? void 0
         }));
       }
       // ---- Agents -------------------------------------------------------------
@@ -73971,7 +73980,7 @@ var init_session = __esm({
       /**
        * Spawn a new agent session. Returns the agent's first response.
        */
-      async spawn(agent, systemPrompt, initialPrompt, repoPath) {
+      async spawn(agent, systemPrompt, initialPrompt, repoPath, options = {}) {
         assertAgenticBackendSupported(agent.backend);
         const sessionId = randomUUID5();
         if (agent.backend === AGENTIC_NATIVE_BACKEND) {
@@ -73980,13 +73989,16 @@ var init_session = __esm({
             systemPrompt,
             initialPrompt,
             repoPath,
-            agent.model
+            agent.model,
+            options
           );
           this.sessions.set(agent.name, {
             agentName: agent.name,
             backend: agent.backend,
             sessionId,
-            history: [initialPrompt, output2]
+            history: [initialPrompt, output2],
+            sandbox: options.sandbox,
+            model: agent.model
           });
           return { output: output2, sessionId };
         }
@@ -74008,12 +74020,12 @@ var init_session = __esm({
       /**
        * Resume an agent session with a new message. Returns the agent's response.
        */
-      async resume(agentName, message, repoPath) {
+      async resume(agentName, message, repoPath, options = {}) {
         const session = this.sessions.get(agentName);
         if (!session) throw new Error(`No session for agent: ${agentName}`);
         assertAgenticBackendSupported(session.backend);
         if (session.backend === AGENTIC_NATIVE_BACKEND) {
-          const output2 = await this.resumeClaude(session.sessionId, message, repoPath);
+          const output2 = await this.resumeClaude(session.sessionId, message, repoPath, session.model, { ...options, sandbox: session.sandbox });
           session.history.push(message, output2);
           return output2;
         }
@@ -74040,7 +74052,7 @@ var init_session = __esm({
         this.sessions.clear();
       }
       // ---- Claude (persistent sessions) --------------------------------------
-      spawnClaude(sessionId, systemPrompt, prompt, repoPath, model) {
+      spawnClaude(sessionId, systemPrompt, prompt, repoPath, model, options = {}) {
         const args = [
           "-p",
           `${systemPrompt}
@@ -74060,64 +74072,101 @@ ${prompt}`,
         if (model) {
           args.push("--model", model);
         }
-        args.push("--tools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
-        args.push("--allowedTools", "Read,Grep,Glob,LS,WebFetch,WebSearch");
-        args.push("--disable-slash-commands");
-        args.push("--disallowedTools", "Task");
-        return this.execClaude(args, repoPath);
+        this.applyPolicy(args, options);
+        return this.execClaude(args, repoPath, options);
       }
-      resumeClaude(sessionId, message, repoPath) {
+      applyPolicy(args, options) {
+        const sandbox = options.sandbox ?? "read-only";
+        if (!["read-only", "workspace-write", "danger-full-access"].includes(sandbox)) {
+          throw new Error(`Unsupported agentic sandbox: ${sandbox}`);
+        }
+        if (sandbox === "danger-full-access") {
+          args.push("--dangerously-skip-permissions");
+        } else {
+          const tools = sandbox === "read-only" ? "Read,Grep,Glob,LS,WebFetch,WebSearch" : "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
+          args.push("--tools", tools, "--allowedTools", tools);
+        }
+        args.push("--disable-slash-commands", "--disallowedTools", "Task");
+      }
+      resumeClaude(sessionId, message, repoPath, model, options = {}) {
         const args = [
           "-p",
           message,
           "-r",
           sessionId,
+          "--add-dir",
+          repoPath,
           "--max-turns",
           "3",
           "--output-format",
           "text"
         ];
-        return this.execClaude(args, repoPath);
+        if (model) args.push("--model", model);
+        this.applyPolicy(args, options);
+        return this.execClaude(args, repoPath, options);
       }
-      execClaude(args, repoPath) {
+      execClaude(args, repoPath, options) {
+        if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
         return new Promise((resolve5, reject) => {
-          const env5 = this.cleanEnv();
+          const grouped = process.platform !== "win32";
           const child = spawn6("claude", args, {
-            env: env5,
+            env: this.cleanEnv(),
             cwd: repoPath,
+            detached: grouped,
             stdio: ["pipe", "pipe", "pipe"]
           });
-          let settled = false;
-          const settle = (fn, value) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            fn(value);
-          };
-          child.on("error", (err) => {
-            settle(reject, new Error(`Failed to spawn claude: ${err.message}`));
-          });
-          child.stdin?.end();
           const stdout = [];
           const stderr = [];
-          child.stdout.on("data", (chunk) => stdout.push(chunk));
-          child.stderr.on("data", (chunk) => stderr.push(chunk));
-          const timeoutMs = 6e5;
-          const timer = setTimeout(() => {
-            child.kill("SIGTERM");
-            settle(reject, new Error(`claude session timed out after ${timeoutMs / 1e3}s`));
-          }, timeoutMs);
-          child.on("close", (code) => {
+          let settled = false;
+          let closed = false;
+          let exitCode = null;
+          let cancellation;
+          let escalation;
+          const signalChild = (signal) => {
+            try {
+              if (grouped && child.pid) process.kill(-child.pid, signal);
+              else child.kill(signal);
+            } catch (error2) {
+              if (error2.code !== "ESRCH") {
+                child.kill(signal);
+              }
+            }
+          };
+          const finish = (spawnError) => {
+            if (settled || !spawnError && (!closed || escalation)) return;
+            settled = true;
+            clearTimeout(timer);
+            options.signal?.removeEventListener("abort", abort);
             const out = Buffer.concat(stdout).toString().trim();
             const err = Buffer.concat(stderr).toString().trim();
-            if (code === 0 && out) {
-              settle(resolve5, out);
-            } else if (out) {
-              settle(resolve5, out);
-            } else {
-              settle(reject, new Error(err || `claude exited with code ${code}`));
-            }
+            if (spawnError) reject(new Error(`Failed to spawn claude: ${spawnError.message}`));
+            else if (cancellation || exitCode !== 0 || !out) {
+              reject(new SpawnCliError(cancellation ?? `claude exited with code ${exitCode}${err ? `: ${err}` : ""}`, out, err, exitCode));
+            } else resolve5(out);
+          };
+          const cancel = (message) => {
+            if (settled || cancellation) return;
+            cancellation = message;
+            signalChild("SIGTERM");
+            escalation = setTimeout(() => {
+              signalChild("SIGKILL");
+              escalation = void 0;
+              finish();
+            }, 250);
+          };
+          const abort = () => cancel("Claude session cancelled");
+          const timer = setTimeout(() => cancel("claude session timed out after 600s"), 6e5);
+          child.on("error", (error2) => finish(error2));
+          child.on("close", (code) => {
+            closed = true;
+            exitCode = code;
+            finish();
           });
+          child.stdout.on("data", (chunk) => stdout.push(chunk));
+          child.stderr.on("data", (chunk) => stderr.push(chunk));
+          child.stdin?.end();
+          options.signal?.addEventListener("abort", abort, { once: true });
+          if (options.signal?.aborted) abort();
         });
       }
       // ---- Stateless fallback -------------------------------------------------
@@ -74451,6 +74500,7 @@ var Orchestrator;
 var init_orchestrator = __esm({
   "src/agentic/orchestrator.ts"() {
     "use strict";
+    init_backends();
     init_queue();
     init_bus();
     init_session();
@@ -74474,6 +74524,10 @@ var init_orchestrator = __esm({
       lastPingPongTurn = -1;
       noProgressCount = 0;
       // Lifecycle
+      controller = new AbortController();
+      deadline;
+      pendingEndReason;
+      hasErrors = false;
       stopped = false;
       sessionEnded = false;
       runLoopPromise = null;
@@ -74488,6 +74542,12 @@ var init_orchestrator = __esm({
         if (this.runLoopPromise) {
           throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
         }
+        if (!Number.isInteger(config.maxTurns) || config.maxTurns < 1) throw new Error("maxTurns must be a positive integer");
+        if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0) throw new Error("timeoutSeconds must be positive and finite");
+        if (!["read-only", "workspace-write", "danger-full-access"].includes(config.sandbox)) throw new Error("Invalid agentic sandbox");
+        this.controller = new AbortController();
+        this.pendingEndReason = void 0;
+        this.hasErrors = false;
         this.sessionId = randomUUID6().slice(0, 7);
         this.turn = 0;
         this.startTime = Date.now();
@@ -74523,6 +74583,16 @@ var init_orchestrator = __esm({
           agents: agentStatesArr,
           timestamp: /* @__PURE__ */ new Date()
         });
+        this.deadline = setTimeout(() => {
+          this.emit({
+            type: "guardrail",
+            sessionId: this.sessionId,
+            guard: "timeout",
+            detail: `Session timed out after ${config.timeoutSeconds}s`,
+            timestamp: /* @__PURE__ */ new Date()
+          });
+          this.requestStop("timeout");
+        }, config.timeoutSeconds * 1e3);
         this.runLoopPromise = this.runLoop(config, knownTargets).catch((err) => {
           this.emit({
             type: "error",
@@ -74532,6 +74602,8 @@ var init_orchestrator = __esm({
           });
           this.endSession("error");
         }).finally(() => {
+          clearTimeout(this.deadline);
+          if (this.pendingEndReason) this.endSession(this.pendingEndReason);
           this.runLoopPromise = null;
         });
         return this.events;
@@ -74540,19 +74612,23 @@ var init_orchestrator = __esm({
        * Stop the current session.
        */
       stop() {
-        this.stopped = true;
-        this.endSession("stopped");
+        this.requestStop("stopped");
       }
       /**
        * Stop the loop (if running) and close the transcript database.
        */
       async close() {
-        this.stopped = true;
-        this.endSession("stopped");
+        this.requestStop("stopped");
         if (this.runLoopPromise) {
           await this.runLoopPromise;
         }
         this.bus.close();
+      }
+      requestStop(reason) {
+        if (!this.sessionId || this.sessionEnded || this.pendingEndReason) return;
+        this.pendingEndReason = reason;
+        this.stopped = true;
+        this.controller.abort();
       }
       // ---- Main loop ----------------------------------------------------------
       async runLoop(config, knownTargets) {
@@ -74571,7 +74647,8 @@ var init_orchestrator = __esm({
               agent,
               systemPrompt,
               prompt,
-              repoPath
+              repoPath,
+              { signal: this.controller.signal, sandbox: config.sandbox }
             );
             this.bus.updateAgent(this.sessionId, agent.name, {
               backendSessionId: result.sessionId
@@ -74583,7 +74660,15 @@ var init_orchestrator = __esm({
         });
         const settled = await Promise.allSettled(spawnPromises);
         for (const result of settled) {
-          if (this.stopped) return;
+          if (this.stopped) {
+            if (result.status === "fulfilled") {
+              this.logAndEmitMessage(result.value.agent.name, "notes", result.value.output, 0);
+            } else {
+              const { agent, error: error2 } = result.reason;
+              this.retainPartialOutput(agent.name, error2, 0);
+            }
+            continue;
+          }
           if (result.status === "fulfilled") {
             const { agent, output } = result.value;
             this.logAndEmitMessage("user", agent.name, prompt, 0);
@@ -74591,6 +74676,7 @@ var init_orchestrator = __esm({
             this.emitAgentStatus(agent.name, "idle");
           } else {
             const { agent, error: error2 } = result.reason;
+            this.retainPartialOutput(agent.name, error2, 0);
             const errMsg = error2 instanceof Error ? error2.message : String(error2);
             this.emit({
               type: "error",
@@ -74602,6 +74688,7 @@ var init_orchestrator = __esm({
             this.emitAgentStatus(agent.name, "dead");
           }
         }
+        if (this.stopped) return;
         if (spawnResults.length === 0) {
           this.endSession("error");
           return;
@@ -74710,7 +74797,8 @@ var init_orchestrator = __esm({
               const output = await this.sessions.resume(
                 agentName,
                 incomingPrompt,
-                repoPath
+                repoPath,
+                { signal: this.controller.signal, sandbox: config.sandbox }
               );
               return { agentName, output };
             } catch (err) {
@@ -74718,11 +74806,22 @@ var init_orchestrator = __esm({
             }
           });
           const resumeResults = await Promise.allSettled(resumePromises);
-          if (this.stopped) break;
+          if (this.stopped) {
+            for (const result of resumeResults) {
+              if (result.status === "fulfilled" && result.value) {
+                this.logAndEmitMessage(result.value.agentName, "notes", result.value.output, this.turn);
+              } else if (result.status === "rejected") {
+                const { agentName, error: error2 } = result.reason;
+                this.retainPartialOutput(agentName, error2, this.turn);
+              }
+            }
+            break;
+          }
           for (const result of resumeResults) {
             if (result.status !== "fulfilled" || !result.value) {
               if (result.status === "rejected") {
                 const { agentName: failedAgent, error: error2 } = result.reason;
+                this.retainPartialOutput(failedAgent, error2, this.turn);
                 const errMsg = error2 instanceof Error ? error2.message : String(error2);
                 this.emit({
                   type: "error",
@@ -74780,6 +74879,10 @@ var init_orchestrator = __esm({
         if (this.stopped) {
           return;
         }
+        if (this.queue.isEmpty()) {
+          this.endSession("converged");
+          return;
+        }
         this.emit({
           type: "guardrail",
           sessionId: this.sessionId,
@@ -74801,7 +74904,13 @@ var init_orchestrator = __esm({
           if (idx >= 0) this.listeners.splice(idx, 1);
         };
       }
+      retainPartialOutput(agent, error2, turn) {
+        if (error2 instanceof SpawnCliError && error2.stdout) {
+          this.logAndEmitMessage(agent, "notes", error2.stdout, turn);
+        }
+      }
       emit(event) {
+        if (event.type === "error") this.hasErrors = true;
         this.events.push(event);
         for (const listener of this.listeners) {
           try {
@@ -74844,10 +74953,15 @@ var init_orchestrator = __esm({
       }
       endSession(reason) {
         if (this.sessionEnded) return;
+        reason = this.pendingEndReason ?? (reason === "converged" && this.hasErrors ? "error" : reason);
         this.sessionEnded = true;
+        clearTimeout(this.deadline);
         const elapsed = Date.now() - this.startTime;
-        const busStatus = reason === "error" ? "failed" : reason === "stopped" ? "stopped" : "completed";
-        this.bus.endSession(this.sessionId, busStatus);
+        const busStatus = reason === "converged" ? "completed" : reason === "stopped" ? "stopped" : "failed";
+        this.bus.endSession(this.sessionId, busStatus, reason);
+        for (const agent of this.agentStates.values()) {
+          if (agent.status === "active") this.emitAgentStatus(agent.name, "dead");
+        }
         this.emit({
           type: "session_end",
           sessionId: this.sessionId,
@@ -84040,15 +84154,15 @@ init_installer();
 // src/updates.ts
 import { spawn as spawn4 } from "child_process";
 import {
-  closeSync as closeSync3,
+  closeSync as closeSync2,
   existsSync as existsSync8,
-  fsyncSync as fsyncSync3,
+  fsyncSync as fsyncSync2,
   mkdirSync as mkdirSync7,
-  openSync as openSync3,
+  openSync as openSync2,
   readFileSync as readFileSync10,
   renameSync as renameSync3,
-  unlinkSync as unlinkSync4,
-  writeFileSync as writeFileSync7
+  unlinkSync as unlinkSync3,
+  writeFileSync as writeFileSync6
 } from "fs";
 import { homedir as homedir7 } from "os";
 import { dirname as dirname8, join as join8 } from "path";
@@ -84112,28 +84226,28 @@ function writeSnapshot(filePath, snapshot) {
   mkdirSync7(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   const payload = JSON.stringify(snapshot, null, 2);
-  const tmpFd = openSync3(tmpPath, "w");
+  const tmpFd = openSync2(tmpPath, "w");
   try {
     try {
-      writeFileSync7(tmpFd, payload, "utf-8");
-      fsyncSync3(tmpFd);
+      writeFileSync6(tmpFd, payload, "utf-8");
+      fsyncSync2(tmpFd);
     } finally {
-      closeSync3(tmpFd);
+      closeSync2(tmpFd);
     }
     renameSync3(tmpPath, filePath);
   } catch (err) {
     try {
-      unlinkSync4(tmpPath);
+      unlinkSync3(tmpPath);
     } catch {
     }
     throw err;
   }
   try {
-    const dirFd = openSync3(dir, "r");
+    const dirFd = openSync2(dir, "r");
     try {
-      fsyncSync3(dirFd);
+      fsyncSync2(dirFd);
     } finally {
-      closeSync3(dirFd);
+      closeSync2(dirFd);
     }
   } catch {
   }
@@ -85385,7 +85499,7 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills + subagents under $CODEX_HOME, default ~/.codex/)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUpdateOptions(cmd) {
   return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
@@ -85845,18 +85959,23 @@ RAW_END>>>
         return;
       }
       const orchestrator = new Orchestrator2();
+      const stop = () => orchestrator.stop();
+      process.on("SIGINT", stop);
+      process.on("SIGTERM", stop);
       try {
         const events = await orchestrator.run({
           agents,
           prompt: opts.prompt,
-          maxTurns: parseInt(opts.maxTurns, 10),
-          timeoutSeconds: parseInt(opts.timeout, 10),
+          maxTurns: Number(opts.maxTurns),
+          timeoutSeconds: Number(opts.timeout),
           repoPath: opts.repo,
           sandbox: opts.sandbox
         });
         if (await formatAgenticEvents(events)) exitCode = 1;
       } finally {
         await orchestrator.close();
+        process.off("SIGINT", stop);
+        process.off("SIGTERM", stop);
       }
     });
     agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
@@ -86367,7 +86486,7 @@ async function formatAgenticEvents(events) {
         console.log(`  ${theme.warning("\u26A0")} ${theme.warning(event.guard)}: ${event.detail}`);
         break;
       case "session_end": {
-        if (event.reason === "error") failed = true;
+        if (event.reason !== "converged") failed = true;
         const elapsed = (event.elapsed / 1e3).toFixed(1);
         console.log(`
   ${theme.heading("Session ended")}: ${event.reason}`);

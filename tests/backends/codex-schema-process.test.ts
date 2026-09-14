@@ -75,10 +75,10 @@ if (args.includes('--help')) {
     expect(new SessionStore(storePath).get('review')?.backendSessionId).toBe('fixture-thread');
     await expect(relay({ ...opts, session: 'review', sessionStore: new SessionStore(storePath) }))
       .resolves.toBe('{"status":"ok"}');
-    const persistedBeforeRaw = readFileSync(storePath, 'utf8');
+    const persistedBeforeRaw = new SessionStore(storePath).list();
     await expect(relay({ ...opts, backendSession: 'fixture-thread', sessionStore: new SessionStore(storePath) }))
       .resolves.toBe('{"status":"ok"}');
-    expect(readFileSync(storePath, 'utf8')).toBe(persistedBeforeRaw);
+    expect(new SessionStore(storePath).list()).toEqual(persistedBeforeRaw);
     await expect(relay({ ...opts, backendSession: 'fixture-thread', session: 'adopted', sessionStore: new SessionStore(storePath) }))
       .resolves.toBe('{"status":"ok"}');
     expect(new SessionStore(storePath).get('adopted')?.backendSessionId).toBe('fixture-thread');

@@ -326,7 +326,7 @@ function addInstallOptions(cmd: Command): Command {
   return cmd
     .option('--claude', 'Install for Claude', false)
     .option('--opencode', 'Install for OpenCode', false)
-    .option('--codex', 'Install for Codex (skills + subagents under $CODEX_HOME, default ~/.codex/)', false)
+    .option('--codex', 'Install for Codex (skills under $CODEX_HOME plus marketplace registration)', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
@@ -962,13 +962,16 @@ export async function run(argv: string[]): Promise<number> {
       }
 
       const orchestrator = new Orchestrator();
+      const stop = () => orchestrator.stop();
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
 
       try {
         const events = await orchestrator.run({
           agents,
           prompt: opts.prompt,
-          maxTurns: parseInt(opts.maxTurns, 10),
-          timeoutSeconds: parseInt(opts.timeout, 10),
+          maxTurns: Number(opts.maxTurns),
+          timeoutSeconds: Number(opts.timeout),
           repoPath: opts.repo,
           sandbox: opts.sandbox,
         });
@@ -976,6 +979,8 @@ export async function run(argv: string[]): Promise<number> {
         if (await formatAgenticEvents(events)) exitCode = 1;
       } finally {
         await orchestrator.close();
+        process.off('SIGINT', stop);
+        process.off('SIGTERM', stop);
       }
     });
 
@@ -1643,7 +1648,7 @@ async function formatAgenticEvents(events: AsyncIterable<import('./agentic/event
         console.log(`  ${theme.warning('⚠')} ${theme.warning(event.guard)}: ${event.detail}`);
         break;
       case 'session_end': {
-        if (event.reason === 'error') failed = true;
+        if (event.reason !== 'converged') failed = true;
         const elapsed = (event.elapsed / 1000).toFixed(1);
         console.log(`\n  ${theme.heading('Session ended')}: ${event.reason}`);
         console.log(`  ${theme.label('Turns:')} ${event.turn}  |  ${theme.label('Elapsed:')} ${elapsed}s\n`);

@@ -13,6 +13,7 @@ import type {
   AgentState,
   Message,
   SessionStatus,
+  SessionEndReason,
 } from './types.js';
 
 // Lazy-load better-sqlite3 (native addon can't be bundled by tsup).
@@ -94,7 +95,7 @@ export class TranscriptBus {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
-    this.migrate();
+    this.db.transaction(() => this.migrate()).immediate();
   }
 
   /**
@@ -102,6 +103,9 @@ export class TranscriptBus {
    */
   private migrate(): void {
     const columns = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === 'end_reason')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN end_reason TEXT');
+    }
     const hasMaxTurns = columns.some((c) => c.name === 'max_turns');
     if (!hasMaxTurns) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0');
@@ -116,10 +120,10 @@ export class TranscriptBus {
     ).run(id, prompt, maxTurns);
   }
 
-  endSession(id: string, status: SessionStatus): void {
+  endSession(id: string, status: SessionStatus, reason?: SessionEndReason): void {
     this.db.prepare(
-      `UPDATE sessions SET status = ?, ended_at = datetime('now') WHERE id = ?`,
-    ).run(status, id);
+      `UPDATE sessions SET status = ?, end_reason = ?, ended_at = datetime('now') WHERE id = ?`,
+    ).run(status, reason ?? null, id);
   }
 
   getSession(id: string): AgenticSession | null {
@@ -138,6 +142,7 @@ export class TranscriptBus {
       agents,
       turn: this.getMaxTurn(id),
       maxTurns: row.max_turns ?? 0,
+      endReason: row.end_reason ?? undefined,
     };
   }
 
@@ -155,6 +160,7 @@ export class TranscriptBus {
       agents: this.getAgents(row.id),
       turn: this.getMaxTurn(row.id),
       maxTurns: row.max_turns ?? 0,
+      endReason: row.end_reason ?? undefined,
     }));
   }
 
@@ -285,6 +291,7 @@ interface SessionRow {
   prompt: string;
   status: string;
   max_turns: number;
+  end_reason: SessionEndReason | null;
 }
 
 interface AgentRow {
