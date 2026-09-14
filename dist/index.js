@@ -328,54 +328,114 @@ ${codeblock}`, options);
   }
 });
 
+// node_modules/smol-toml/dist/util.js
+function indexOfNewline(str, start = 0) {
+  let idx = str.indexOf("\n", start);
+  if (str.charCodeAt(idx - 1) === 13)
+    idx--;
+  return idx;
+}
+function skipComment(ctx) {
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 10)
+      break;
+    if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10) {
+      ctx.p++;
+      break;
+    }
+    if (c < 32 && c !== 9 || c === 127) {
+      throw new TomlError("control characters are not allowed in comments", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+  }
+}
+function skipVoid(ctx, banNewLines, banComments) {
+  let c;
+  while (1) {
+    while ((c = ctx.s.charCodeAt(ctx.p)) === 32 || c === 9 || !banNewLines && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10))
+      ctx.p++;
+    if (banComments || c !== 35)
+      break;
+    skipComment(ctx);
+  }
+}
+function skipUntil(ctx, sep3, end) {
+  let ptr = ctx.p;
+  if (!end) {
+    ptr = indexOfNewline(ctx.s, ptr);
+    ctx.p = ptr < 0 ? ctx.s.length : ptr;
+    return;
+  }
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    let c = ctx.s.charCodeAt(ctx.p);
+    if (c === 35) {
+      skipComment(ctx);
+    } else if (c === end || c === sep3) {
+      return;
+    }
+  }
+  throw new TomlError("cannot find end of structure", {
+    toml: ctx.s,
+    ptr
+  });
+}
+var init_util = __esm({
+  "node_modules/smol-toml/dist/util.js"() {
+    "use strict";
+    init_error();
+  }
+});
+
 // node_modules/smol-toml/dist/primitive.js
-function parseString(str, ptr) {
-  let c = str[ptr++];
+function parseString(ctx) {
+  let start = ctx.p;
+  let c = ctx.s.charCodeAt(ctx.p++);
   let first = c;
-  let isLiteral = c === "'";
-  let isMultiline = c === str[ptr] && c === str[ptr + 1];
+  let isLiteral = c === 39;
+  let isMultiline = c === ctx.s.charCodeAt(ctx.p) && c === ctx.s.charCodeAt(ctx.p + 1);
   if (isMultiline) {
-    if (str[ptr += 2] === "\n")
-      ptr++;
-    else if (str[ptr] === "\r" && str[ptr + 1] === "\n")
-      ptr += 2;
+    if ((c = ctx.s.charCodeAt(ctx.p += 2)) === 10)
+      ctx.p++;
+    else if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)
+      ctx.p += 2;
   }
   let parsed = "";
-  let sliceStart = ptr;
+  let sliceStart = ctx.p;
   let state = 0;
-  for (let i = ptr; i < str.length; i++) {
-    c = str[i];
-    if (isMultiline && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    c = ctx.s.charCodeAt(ctx.p);
+    if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
       state = state && 3;
-    } else if (c < " " && c !== "	" || c === "\x7F") {
+    } else if (c < 32 && c !== 9 || c === 127) {
       throw new TomlError("control characters are not allowed in strings", {
-        toml: str,
-        ptr: i
+        toml: ctx.s,
+        ptr: ctx.p
       });
-    } else if ((!state || state === 3) && c === first && (!isMultiline || str[i + 1] === first && str[i + 2] === first)) {
+    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
       if (isMultiline) {
-        if (str[i + 3] === first)
-          i++;
-        if (str[i + 3] === first)
-          i++;
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
       }
-      return [
-        // If we're in a newline escape still, then there's nothing to add.
-        // Also try to avoid concat if there's nothing to add to parsed, or nothing has been added to parsed.
-        state ? parsed : parsed + str.slice(sliceStart, i),
-        i + (isMultiline ? 3 : 1)
-      ];
+      if (!state)
+        parsed += ctx.s.slice(sliceStart, ctx.p);
+      ctx.p += isMultiline ? 3 : 1;
+      return parsed;
     } else if (!state) {
-      if (!isLiteral && c === "\\") {
-        parsed += str.slice(sliceStart, sliceStart = i);
+      if (!isLiteral && c === 92) {
+        parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
         state = 1;
       }
     } else if (state === 1) {
-      if (c === "x" || c === "u" || c === "U") {
+      if (c === 120 || c === 117 || c === 85) {
         let value = 0;
-        let len = c === "x" ? 2 : c === "u" ? 4 : 8;
-        for (let j = 0; j < len; j++, i++) {
-          let hex = str.charCodeAt(i + 1);
+        let len = c === 120 ? 2 : c === 117 ? 4 : 8;
+        for (let j = 0; j < len; j++, ctx.p++) {
+          let hex = ctx.s.charCodeAt(ctx.p + 1);
           let digit = (
             /* 0-9 */
             hex >= 48 && hex <= 57 ? hex - 48 : (
@@ -387,57 +447,68 @@ function parseString(str, ptr) {
             )
           );
           if (digit < 0)
-            throw new TomlError("invalid non-hex character in unicode escape", { toml: str, ptr: i + 1 });
+            throw new TomlError("invalid non-hex character in unicode escape", { toml: ctx.s, ptr: ctx.p + 1 });
           value = value << 4 | digit;
         }
         if (value < 0 || value > 1114111 || value >= 55296 && value <= 57343) {
-          throw new TomlError("invalid unicode escape", { toml: str, ptr: i });
+          throw new TomlError("invalid unicode escape", { toml: ctx.s, ptr: ctx.p });
         }
         parsed += String.fromCodePoint(value);
-        sliceStart = i + 1;
+        sliceStart = ctx.p + 1;
         state = 0;
-      } else if (c === " " || c === "	") {
+      } else if (c === 32 || c === 9) {
         state = 2;
       } else {
-        if (c === "b")
+        if (c === 98)
           parsed += "\b";
-        else if (c === "t")
+        else if (c === 116)
           parsed += "	";
-        else if (c === "n")
+        else if (c === 110)
           parsed += "\n";
-        else if (c === "f")
+        else if (c === 102)
           parsed += "\f";
-        else if (c === "r")
+        else if (c === 114)
           parsed += "\r";
-        else if (c === "e")
+        else if (c === 101)
           parsed += "\x1B";
-        else if (c === '"')
+        else if (c === 34)
           parsed += '"';
-        else if (c === "\\")
+        else if (c === 92)
           parsed += "\\";
         else
-          throw new TomlError("unrecognized escape sequence", { toml: str, ptr: i });
-        sliceStart = i + 1;
+          throw new TomlError("unrecognized escape sequence", { toml: ctx.s, ptr: ctx.p });
+        sliceStart = ctx.p + 1;
         state = 0;
       }
-    } else if (c !== " " && c !== "	") {
+    } else if (c !== 32 && c !== 9) {
       if (state === 2) {
         throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
-          toml: str,
+          toml: ctx.s,
           ptr: sliceStart
         });
       }
-      state = !isLiteral && c === "\\" ? 1 : 0;
-      sliceStart = i;
+      state = !isLiteral && c === 92 ? 1 : 0;
+      sliceStart = ctx.p;
     }
   }
-  throw new TomlError("unfinished string", { toml: str, ptr });
+  throw new TomlError("unfinished string", { toml: ctx.s, ptr: start });
 }
-function parseValue(value, toml, ptr, integersAsBigInt) {
-  if (value === "true")
-    return true;
-  if (value === "false")
-    return false;
+function sliceAndTrimEndOf(ctx, start, end) {
+  let value = ctx.s.slice(start, end);
+  let commentIdx = value.indexOf("#");
+  if (commentIdx > 0) {
+    skipComment({ s: value, p: commentIdx, d: 0 });
+    value = value.slice(0, commentIdx);
+  }
+  return value.trimEnd();
+}
+function parseValue(ctx, integersAsBigInt, end) {
+  let ptr = ctx.p;
+  let err = { toml: ctx.s, ptr };
+  skipUntil(ctx, 44, end);
+  let value = sliceAndTrimEndOf(ctx, ptr, ctx.p);
+  if (!value)
+    throw new TomlError("incomplete declaration: value expected", err);
   if (value === "-inf")
     return -Infinity;
   if (value === "inf" || value === "+inf")
@@ -449,25 +520,16 @@ function parseValue(value, toml, ptr, integersAsBigInt) {
   let isInt = INT_REGEX.test(value);
   if (isInt || FLOAT_REGEX.test(value)) {
     if (LEADING_ZERO.test(value)) {
-      throw new TomlError("leading zeroes are not allowed", {
-        toml,
-        ptr
-      });
+      throw new TomlError("leading zeroes are not allowed", err);
     }
     value = value.replace(/_/g, "");
     let numeric = +value;
     if (isNaN(numeric)) {
-      throw new TomlError("invalid number", {
-        toml,
-        ptr
-      });
+      throw new TomlError("invalid number", err);
     }
     if (isInt) {
       if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
-        throw new TomlError("integer value cannot be represented losslessly", {
-          toml,
-          ptr
-        });
+        throw new TomlError("integer value cannot be represented losslessly", err);
       }
       if (isInt || integersAsBigInt === true)
         numeric = BigInt(value);
@@ -475,12 +537,8 @@ function parseValue(value, toml, ptr, integersAsBigInt) {
     return numeric;
   }
   const date = new TomlDate(value);
-  if (!date.isValid()) {
-    throw new TomlError("invalid value", {
-      toml,
-      ptr
-    });
-  }
+  if (!date.isValid())
+    throw new TomlError("invalid value", err);
   return date;
 }
 var INT_REGEX, FLOAT_REGEX, LEADING_ZERO;
@@ -489,290 +547,193 @@ var init_primitive = __esm({
     "use strict";
     init_date();
     init_error();
+    init_util();
     INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
     FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
     LEADING_ZERO = /^[+-]?0[0-9_]/;
   }
 });
 
-// node_modules/smol-toml/dist/util.js
-function indexOfNewline(str, start = 0, end = str.length) {
-  let idx = str.indexOf("\n", start);
-  if (str[idx - 1] === "\r")
-    idx--;
-  return idx <= end ? idx : -1;
-}
-function skipComment(str, ptr) {
-  for (let i = ptr; i < str.length; i++) {
-    let c = str[i];
-    if (c === "\n")
-      return i;
-    if (c === "\r" && str[i + 1] === "\n")
-      return i + 1;
-    if (c < " " && c !== "	" || c === "\x7F") {
-      throw new TomlError("control characters are not allowed in comments", {
-        toml: str,
+// node_modules/smol-toml/dist/extract.js
+function extractValue(ctx, end, integersAsBigInt) {
+  let ptr = ctx.p;
+  let c = ctx.s.charCodeAt(ptr);
+  if (c === 91 || c === 123) {
+    if (!ctx.d--) {
+      throw new TomlError("document contains excessively nested structures. aborting.", {
+        toml: ctx.s,
         ptr
       });
     }
+    let value = c === 91 ? parseArray(ctx, integersAsBigInt) : parseInlineTable(ctx, integersAsBigInt);
+    ctx.d++;
+    return value;
   }
-  return str.length;
-}
-function skipVoid(str, ptr, banNewLines, banComments) {
-  let c;
-  while (1) {
-    while ((c = str[ptr]) === " " || c === "	" || !banNewLines && (c === "\n" || c === "\r" && str[ptr + 1] === "\n"))
-      ptr++;
-    if (banComments || c !== "#")
-      break;
-    ptr = skipComment(str, ptr);
+  if (c === 34 || c === 39) {
+    return parseString(ctx);
   }
-  return ptr;
-}
-function skipUntil(str, ptr, sep3, end, banNewLines = false) {
-  if (!end) {
-    ptr = indexOfNewline(str, ptr);
-    return ptr < 0 ? str.length : ptr;
+  if (c === 116) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 114 || ctx.s.charCodeAt(++ctx.p) !== 117 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return true;
   }
-  for (let i = ptr; i < str.length; i++) {
-    let c = str[i];
-    if (c === "#") {
-      i = indexOfNewline(str, i);
-      if (i < 0)
-        break;
-    } else if (c === sep3) {
-      return i + 1;
-    } else if (c === end || banNewLines && (c === "\n" || c === "\r" && str[i + 1] === "\n")) {
-      return i;
-    }
+  if (c === 102) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 108 || ctx.s.charCodeAt(++ctx.p) !== 115 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      throw new TomlError("invalid value", { toml: ctx.s, ptr });
+    ctx.p++;
+    return false;
   }
-  throw new TomlError("cannot find end of structure", {
-    toml: str,
-    ptr
-  });
-}
-var init_util = __esm({
-  "node_modules/smol-toml/dist/util.js"() {
-    "use strict";
-    init_error();
-  }
-});
-
-// node_modules/smol-toml/dist/extract.js
-function sliceAndTrimEndOf(str, startPtr, endPtr) {
-  let value = str.slice(startPtr, endPtr);
-  let commentIdx = value.indexOf("#");
-  if (commentIdx > -1) {
-    skipComment(str, commentIdx);
-    value = value.slice(0, commentIdx);
-  }
-  return [value.trimEnd(), commentIdx];
-}
-function extractValue(str, ptr, end, depth, integersAsBigInt) {
-  if (depth === 0) {
-    throw new TomlError("document contains excessively nested structures. aborting.", {
-      toml: str,
-      ptr
-    });
-  }
-  let c = str[ptr];
-  if (c === "[" || c === "{") {
-    let [value, endPtr2] = c === "[" ? parseArray(str, ptr, depth, integersAsBigInt) : parseInlineTable(str, ptr, depth, integersAsBigInt);
-    if (end) {
-      endPtr2 = skipVoid(str, endPtr2);
-      if (str[endPtr2] === ",")
-        endPtr2++;
-      else if (str[endPtr2] !== end) {
-        throw new TomlError("expected comma or end of structure", {
-          toml: str,
-          ptr: endPtr2
-        });
-      }
-    }
-    return [value, endPtr2];
-  }
-  if (c === '"' || c === "'") {
-    let [parsed, endPtr2] = parseString(str, ptr);
-    if (end) {
-      endPtr2 = skipVoid(str, endPtr2);
-      if (str[endPtr2] && str[endPtr2] !== "," && str[endPtr2] !== end && str[endPtr2] !== "\n" && str[endPtr2] !== "\r") {
-        throw new TomlError("unexpected character encountered", {
-          toml: str,
-          ptr: endPtr2
-        });
-      }
-      if (str[endPtr2] === ",")
-        endPtr2++;
-    }
-    return [parsed, endPtr2];
-  }
-  let endPtr = skipUntil(str, ptr, ",", end);
-  let slice = sliceAndTrimEndOf(str, ptr, endPtr - (str[endPtr - 1] === "," ? 1 : 0));
-  if (!slice[0]) {
-    throw new TomlError("incomplete key-value declaration: no value specified", {
-      toml: str,
-      ptr
-    });
-  }
-  if (end && slice[1] > -1) {
-    endPtr = skipVoid(str, ptr + slice[1]);
-    if (str[endPtr] === ",")
-      endPtr++;
-  }
-  return [
-    parseValue(slice[0], str, ptr, integersAsBigInt),
-    endPtr
-  ];
+  return parseValue(ctx, integersAsBigInt, end);
 }
 var init_extract = __esm({
   "node_modules/smol-toml/dist/extract.js"() {
     "use strict";
     init_primitive();
     init_struct();
-    init_util();
     init_error();
   }
 });
 
 // node_modules/smol-toml/dist/struct.js
-function parseKey(str, ptr, end = "=") {
-  let dot = ptr - 1;
+function parseKey(ctx, end = "=") {
+  let start = ctx.p;
+  let dot = start - 1;
   let parsed = [];
-  let endPtr = str.indexOf(end, ptr);
+  let endPtr = ctx.s.indexOf(end, start);
   if (endPtr < 0) {
     throw new TomlError("incomplete key-value: cannot find end of key", {
-      toml: str,
-      ptr
+      toml: ctx.s,
+      ptr: start
     });
   }
   do {
-    let c = str[ptr = ++dot];
-    if (c !== " " && c !== "	") {
-      if (c === '"' || c === "'") {
-        if (c === str[ptr + 1] && c === str[ptr + 2]) {
+    let c = ctx.s.charCodeAt(ctx.p = ++dot);
+    if (c !== 32 && c !== 9) {
+      if (c === 34 || c === 39) {
+        if (c === ctx.s.charCodeAt(ctx.p + 1) && c === ctx.s.charCodeAt(ctx.p + 2)) {
           throw new TomlError("multiline strings are not allowed in keys", {
-            toml: str,
-            ptr
+            toml: ctx.s,
+            ptr: ctx.p
           });
         }
-        let [part, eos] = parseString(str, ptr);
-        dot = str.indexOf(".", eos);
-        let strEnd = str.slice(eos, dot < 0 || dot > endPtr ? endPtr : dot);
+        let part = parseString(ctx);
+        dot = ctx.s.indexOf(".", ctx.p);
+        let strEnd = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
         let newLine = indexOfNewline(strEnd);
         if (newLine > -1) {
           throw new TomlError("newlines are not allowed in keys", {
-            toml: str,
-            ptr: ptr + dot + newLine
+            toml: ctx.s,
+            ptr: newLine
           });
         }
         if (strEnd.trimStart()) {
           throw new TomlError("found extra tokens after the string part", {
-            toml: str,
-            ptr: eos
+            toml: ctx.s,
+            ptr: ctx.p
           });
         }
-        if (endPtr < eos) {
-          endPtr = str.indexOf(end, eos);
+        if (endPtr < ctx.p) {
+          endPtr = ctx.s.indexOf(end, ctx.p);
           if (endPtr < 0) {
             throw new TomlError("incomplete key-value: cannot find end of key", {
-              toml: str,
-              ptr
+              toml: ctx.s,
+              ptr: start
             });
           }
         }
         parsed.push(part);
       } else {
-        dot = str.indexOf(".", ptr);
-        let part = str.slice(ptr, dot < 0 || dot > endPtr ? endPtr : dot);
+        dot = ctx.s.indexOf(".", ctx.p);
+        let part = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
         if (!KEY_PART_RE.test(part)) {
           throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
-            toml: str,
-            ptr
+            toml: ctx.s,
+            ptr: ctx.p
           });
         }
         parsed.push(part.trimEnd());
       }
     }
   } while (dot + 1 && dot < endPtr);
-  return [parsed, skipVoid(str, endPtr + 1, true, true)];
+  ctx.p = endPtr + 1;
+  skipVoid(ctx, true, true);
+  return parsed;
 }
-function parseInlineTable(str, ptr, depth, integersAsBigInt) {
+function parseInlineTable(ctx, integersAsBigInt) {
   let res = {};
   let seen = /* @__PURE__ */ new Set();
   let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "}" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let k;
-      let t = res;
-      let hasOwn = false;
-      let [key, keyEndPtr] = parseKey(str, ptr - 1);
-      for (let i = 0; i < key.length; i++) {
-        if (i)
-          t = hasOwn ? t[k] : t[k] = {};
-        k = key[i];
-        if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
-          throw new TomlError("trying to redefine an already defined value", {
-            toml: str,
-            ptr
-          });
-        }
-        if (!hasOwn && k === "__proto__") {
-          Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
-        }
-      }
-      if (hasOwn) {
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 125) {
+      ctx.p++;
+      return res;
+    }
+    let k;
+    let t = res;
+    let hasOwn = false;
+    let p = ctx.p;
+    let key = parseKey(ctx);
+    for (let i = 0; i < key.length; i++) {
+      if (i)
+        t = hasOwn ? t[k] : t[k] = {};
+      k = key[i];
+      if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
         throw new TomlError("trying to redefine an already defined value", {
-          toml: str,
-          ptr
+          toml: ctx.s,
+          ptr: p
         });
       }
-      let [value, valueEndPtr] = extractValue(str, keyEndPtr, "}", depth - 1, integersAsBigInt);
-      seen.add(value);
-      t[k] = value;
-      ptr = valueEndPtr;
+      if (!hasOwn && k === "__proto__") {
+        Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
+      }
+    }
+    if (hasOwn) {
+      throw new TomlError("trying to redefine an already defined value", {
+        toml: ctx.s,
+        ptr: ctx.p
+      });
+    }
+    let value = extractValue(ctx, 125, integersAsBigInt);
+    seen.add(t[k] = value);
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 125) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
     }
   }
-  if (!c) {
-    throw new TomlError("unfinished table encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
+  throw new TomlError("unfinished table encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
 }
-function parseArray(str, ptr, depth, integersAsBigInt) {
+function parseArray(ctx, integersAsBigInt) {
   let res = [];
   let c;
-  ptr++;
-  while ((c = str[ptr++]) !== "]" && c) {
-    if (c === ",") {
-      throw new TomlError("expected value, found comma", {
-        toml: str,
-        ptr: ptr - 1
-      });
-    } else if (c === "#")
-      ptr = skipComment(str, ptr);
-    else if (c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
-      let e = extractValue(str, ptr - 1, "]", depth - 1, integersAsBigInt);
-      res.push(e[0]);
-      ptr = e[1];
+  ctx.p++;
+  while (ctx.p < ctx.s.length) {
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p)) === 93) {
+      ctx.p++;
+      return res;
+    }
+    res.push(extractValue(ctx, 93, integersAsBigInt));
+    skipVoid(ctx);
+    if ((c = ctx.s.charCodeAt(ctx.p++)) === 93) {
+      return res;
+    }
+    if (c !== 44) {
+      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
     }
   }
-  if (!c) {
-    throw new TomlError("unfinished array encountered", {
-      toml: str,
-      ptr
-    });
-  }
-  return [res, ptr];
+  throw new TomlError("unfinished array encountered", {
+    toml: ctx.s,
+    ptr: ctx.p
+  });
 }
 var KEY_PART_RE;
 var init_struct = __esm({
@@ -847,25 +808,29 @@ function peekTable(key, table, meta, type) {
   return [k, t, state.c];
 }
 function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
+  let ctx = { s: toml, p: 0, d: maxDepth };
   let res = {};
   let meta = {};
+  let tmp;
   let tbl = res;
   let m = meta;
-  for (let ptr = skipVoid(toml, 0); ptr < toml.length; ) {
-    if (toml[ptr] === "[") {
-      let isTableArray = toml[++ptr] === "[";
-      let k = parseKey(toml, ptr += +isTableArray, "]");
+  skipVoid(ctx);
+  while (ctx.p < toml.length) {
+    if (toml.charCodeAt(ctx.p) === 91) {
+      let isTableArray = toml.charCodeAt(++ctx.p) === 91;
+      tmp = ctx.p += +isTableArray;
+      let k = parseKey(ctx, "]");
       if (isTableArray) {
-        if (toml[k[1] - 1] !== "]") {
+        if (toml.charCodeAt(ctx.p - 1) !== 93) {
           throw new TomlError("expected end of table declaration", {
             toml,
-            ptr: k[1] - 1
+            ptr: ctx.p - 1
           });
         }
-        k[1]++;
+        ctx.p++;
       }
       let p = peekTable(
-        k[0],
+        k,
         res,
         meta,
         isTableArray ? 2 : 1
@@ -874,16 +839,16 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
       if (!p) {
         throw new TomlError("trying to redefine an already defined table or value", {
           toml,
-          ptr
+          ptr: tmp
         });
       }
       m = p[2];
       tbl = p[1];
-      ptr = k[1];
     } else {
-      let k = parseKey(toml, ptr);
+      tmp = ctx.p;
+      let k = parseKey(ctx);
       let p = peekTable(
-        k[0],
+        k,
         tbl,
         m,
         0
@@ -892,21 +857,19 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
       if (!p) {
         throw new TomlError("trying to redefine an already defined table or value", {
           toml,
-          ptr
+          ptr: tmp
         });
       }
-      let v = extractValue(toml, k[1], void 0, maxDepth, integersAsBigInt);
-      p[1][p[0]] = v[0];
-      ptr = v[1];
+      p[1][p[0]] = extractValue(ctx, void 0, integersAsBigInt);
     }
-    ptr = skipVoid(toml, ptr, true);
-    if (toml[ptr] && toml[ptr] !== "\n" && toml[ptr] !== "\r") {
+    skipVoid(ctx, true);
+    if (ctx.p < toml.length && (tmp = toml.charCodeAt(ctx.p)) !== 10 && tmp !== 13) {
       throw new TomlError("each key-value declaration must be followed by an end-of-line", {
         toml,
-        ptr
+        ptr: ctx.p
       });
     }
-    ptr = skipVoid(toml, ptr);
+    skipVoid(ctx);
   }
   return res;
 }
@@ -926,8 +889,12 @@ function extendedTypeOf(obj) {
   if (type === "object") {
     if (Array.isArray(obj))
       return "array";
-    if (obj instanceof Date)
+    if (typeof obj?.getUTCDate === "function" && obj instanceof Date)
       return "date";
+    if (globalThis.Temporal && // check for the 'since' property as an early bailout that avoids running all 5 instanceof checks
+    typeof obj?.since === "function" && (obj instanceof Temporal.Instant || obj instanceof Temporal.PlainDate || obj instanceof Temporal.PlainDateTime || obj instanceof Temporal.PlainTime || obj instanceof Temporal.ZonedDateTime)) {
+      return "temporal";
+    }
   }
   return type;
 }
@@ -941,38 +908,42 @@ function isArrayOfTables(obj) {
 function formatString(s) {
   return JSON.stringify(s).replace(/\x7f/g, "\\u007f");
 }
+function stringifyTemporal(temporal) {
+  return temporal.toString({
+    calendarName: "never",
+    timeZoneName: "never"
+  });
+}
 function stringifyValue(val, type, depth, numberAsFloat) {
   if (depth === 0) {
     throw new Error("Could not stringify the object: maximum object depth exceeded");
   }
-  if (type === "number") {
-    if (isNaN(val))
-      return "nan";
-    if (val === Infinity)
-      return "inf";
-    if (val === -Infinity)
-      return "-inf";
-    if (Number.isInteger(val) && (numberAsFloat || !Number.isSafeInteger(val)))
-      return val.toFixed(1);
-    return val.toString();
-  }
-  if (type === "bigint" || type === "boolean") {
-    return val.toString();
-  }
-  if (type === "string") {
-    return formatString(val);
-  }
-  if (type === "date") {
-    if (isNaN(val.getTime())) {
-      throw new TypeError("cannot serialize invalid date");
-    }
-    return val.toISOString();
-  }
-  if (type === "object") {
-    return stringifyInlineTable(val, depth, numberAsFloat);
-  }
-  if (type === "array") {
-    return stringifyArray(val, depth, numberAsFloat);
+  switch (type) {
+    // @ts-expect-error -- intentional fallthrough case
+    case "number":
+      if (isNaN(val))
+        return "nan";
+      if (val === Infinity)
+        return "inf";
+      if (val === -Infinity)
+        return "-inf";
+      if (Number.isInteger(val) && (numberAsFloat || !Number.isSafeInteger(val)))
+        return val.toFixed(1);
+    case "bigint":
+    case "boolean":
+      return val.toString();
+    case "string":
+      return formatString(val);
+    case "date":
+      if (isNaN(val.getTime()))
+        throw new TypeError("cannot serialize invalid date");
+      return val.toISOString();
+    case "object":
+      return stringifyInlineTable(val, depth, numberAsFloat);
+    case "array":
+      return stringifyArray(val, depth, numberAsFloat);
+    case "temporal":
+      return stringifyTemporal(val);
   }
 }
 function stringifyInlineTable(obj, depth, numberAsFloat) {
@@ -4238,11 +4209,16 @@ import { AsyncResource as AsyncResource2 } from "async_hooks";
 function isFactory(value) {
   return typeof value === "function";
 }
+function isReducer(value) {
+  return typeof value === "function";
+}
 function useState(defaultValue2) {
   return withPointer((pointer) => {
     const setState = AsyncResource2.bind(function setState2(newValue) {
-      if (pointer.get() !== newValue) {
-        pointer.set(newValue);
+      const currentValue = pointer.get();
+      const nextValue = isReducer(newValue) ? newValue(currentValue) : newValue;
+      if (!Object.is(currentValue, nextValue)) {
+        pointer.set(nextValue);
         handleChange();
       }
     });
@@ -4692,7 +4668,7 @@ var init_use_prefix = __esm({
 function useMemo(fn, dependencies) {
   return withPointer((pointer) => {
     const prev = pointer.get();
-    if (!prev || prev.dependencies.length !== dependencies.length || prev.dependencies.some((dep, i) => dep !== dependencies[i])) {
+    if (!pointer.initialized || prev.dependencies.length !== dependencies.length || prev.dependencies.some((dep, i) => dep !== dependencies[i])) {
       const value = fn();
       pointer.set({ value, dependencies });
       return value;
@@ -5504,6 +5480,14 @@ var init_promise_polyfill = __esm({
 import * as readline2 from "readline";
 import { AsyncResource as AsyncResource3 } from "async_hooks";
 import path2 from "path";
+function listenTo(target, event, listener) {
+  if ("on" in target) {
+    target.on(event, listener);
+    return () => target.removeListener(event, listener);
+  }
+  target.addEventListener(event, listener);
+  return () => target.removeEventListener(event, listener);
+}
 function getCallSites() {
   const savedPrepareStackTrace = Error.prepareStackTrace;
   let result = [];
@@ -5535,37 +5519,45 @@ function createPrompt(view) {
     output.mute();
     const screen = new ScreenManager(rl);
     const { promise, resolve: resolve5, reject } = PromisePolyfill.withResolver();
-    const cancel = () => reject(new CancelPromptError());
-    if (signal) {
-      const abort = () => reject(new AbortPromptError({ cause: signal.reason }));
-      if (signal.aborted) {
-        abort();
-        return Object.assign(promise, { cancel });
-      }
-      signal.addEventListener("abort", abort);
-      cleanups.add(() => signal.removeEventListener("abort", abort));
-    }
-    cleanups.add(onExit((code, signal2) => {
-      reject(new ExitPromptError(`User force closed the prompt with ${code} ${signal2}`));
-    }));
-    const sigint = () => reject(new ExitPromptError(`User force closed the prompt with SIGINT`));
-    rl.on("SIGINT", sigint);
-    cleanups.add(() => rl.removeListener("SIGINT", sigint));
     return withHooks(rl, (cycle) => {
-      const hooksCleanup = AsyncResource3.bind(() => effectScheduler.clearAll());
-      rl.on("close", hooksCleanup);
-      cleanups.add(() => rl.removeListener("close", hooksCleanup));
+      const clearEffects = AsyncResource3.bind(() => effectScheduler.clearAll());
+      const settlePrompt = (settle) => {
+        try {
+          clearEffects();
+          settle();
+        } catch (error2) {
+          reject(error2);
+        }
+      };
+      const resolvePrompt = (value) => settlePrompt(() => resolve5(value));
+      const rejectPrompt = (error2) => settlePrompt(() => reject(error2));
+      const promptPromise = Object.assign(promise.finally(() => {
+        cleanups.forEach((cleanup) => cleanup());
+        screen.done({ clearContent: Boolean(context.clearPromptOnDone) });
+        output.end();
+      }).then(() => promise), { cancel: () => rejectPrompt(new CancelPromptError()) });
+      if (signal) {
+        const abort = () => rejectPrompt(new AbortPromptError({ cause: signal.reason }));
+        if (signal.aborted) {
+          abort();
+          return promptPromise;
+        }
+        cleanups.add(listenTo(signal, "abort", abort));
+      }
+      cleanups.add(onExit((code, signal2) => {
+        rejectPrompt(new ExitPromptError(`User force closed the prompt with ${code} ${signal2}`));
+      }));
+      cleanups.add(listenTo(rl, "SIGINT", () => rejectPrompt(new ExitPromptError(`User force closed the prompt with SIGINT`))));
+      cleanups.add(listenTo(rl, "close", clearEffects));
       const startCycle = () => {
-        const checkCursorPos = () => screen.checkCursorPos();
-        rl.input.on("keypress", checkCursorPos);
-        cleanups.add(() => rl.input.removeListener("keypress", checkCursorPos));
+        cleanups.add(listenTo(rl.input, "keypress", () => screen.checkCursorPos()));
         let pendingDone = null;
         cycle(() => {
           let effectsSettled = false;
           try {
             const nextView = view(config, (value) => {
               if (effectsSettled) {
-                resolve5(value);
+                resolvePrompt(value);
               } else {
                 pendingDone = { value };
               }
@@ -5582,13 +5574,13 @@ function createPrompt(view) {
             screen.render(content, bottomContent);
             effectScheduler.run();
           } catch (error2) {
-            reject(error2);
+            rejectPrompt(error2);
           }
           effectsSettled = true;
           if (pendingDone !== null) {
             const { value } = pendingDone;
             pendingDone = null;
-            resolve5(value);
+            resolvePrompt(value);
           }
         });
       };
@@ -5597,17 +5589,7 @@ function createPrompt(view) {
       } else {
         startCycle();
       }
-      return Object.assign(promise.then((answer) => {
-        effectScheduler.clearAll();
-        return answer;
-      }, (error2) => {
-        effectScheduler.clearAll();
-        throw error2;
-      }).finally(() => {
-        cleanups.forEach((cleanup) => cleanup());
-        screen.done({ clearContent: Boolean(context.clearPromptOnDone) });
-        output.end();
-      }).then(() => promise), { cancel });
+      return promptPromise;
     });
   };
   return prompt;
@@ -6847,7 +6829,7 @@ var require_sbcs = __commonJS({
       return mod && mod.__esModule ? mod : { "default": mod };
     };
     Object.defineProperty(exports, "__esModule", { value: true });
-    exports.KOI8_R = exports.windows_1256 = exports.windows_1251 = exports.ISO_8859_9 = exports.ISO_8859_8 = exports.ISO_8859_7 = exports.ISO_8859_6 = exports.ISO_8859_5 = exports.ISO_8859_2 = exports.ISO_8859_1 = void 0;
+    exports.KOI8_R = exports.windows_874 = exports.windows_1258 = exports.windows_1257 = exports.windows_1256 = exports.windows_1251 = exports.ISO_8859_9 = exports.ISO_8859_8 = exports.ISO_8859_7 = exports.ISO_8859_6 = exports.ISO_8859_5 = exports.ISO_8859_2 = exports.ISO_8859_1 = void 0;
     var match_1 = __importDefault(require_match());
     var N_GRAM_MASK = 16777215;
     var NGramParser = class {
@@ -10850,6 +10832,443 @@ var require_sbcs = __commonJS({
       }
     };
     exports.windows_1256 = windows_1256;
+    var windows_1257 = class extends sbcs {
+      match(det) {
+        return det.inputBytes.some((byte) => byte >= 128) ? super.match(det) : null;
+      }
+      byteMap() {
+        const byteMap = new Array(256).fill(32);
+        byteMap[39] = 0;
+        for (let i = 65; i <= 90; i++)
+          byteMap[i] = i + 32;
+        for (let i = 97; i <= 122; i++)
+          byteMap[i] = i;
+        byteMap[142] = 142;
+        byteMap[168] = byteMap[184] = 184;
+        byteMap[170] = byteMap[186] = 186;
+        byteMap[175] = byteMap[191] = 191;
+        byteMap[181] = 181;
+        for (let i = 192; i <= 214; i++)
+          byteMap[i] = i + 32;
+        for (let i = 216; i <= 222; i++)
+          byteMap[i] = i + 32;
+        byteMap[223] = 223;
+        for (let i = 224; i <= 246; i++)
+          byteMap[i] = i;
+        for (let i = 248; i <= 254; i++)
+          byteMap[i] = i;
+        return byteMap;
+      }
+      ngrams() {
+        return [
+          new NGramsPlusLang("et", [
+            2122090,
+            2122098,
+            2123109,
+            2124135,
+            2124385,
+            2124641,
+            2124645,
+            2124649,
+            2124655,
+            2124661,
+            2124897,
+            2125417,
+            2125678,
+            2126441,
+            2126693,
+            2126949,
+            6365281,
+            6365290,
+            6365291,
+            6365292,
+            6382112,
+            6382624,
+            6384499,
+            6386549,
+            6386785,
+            6387297,
+            6561908,
+            6578464,
+            6583667,
+            6627435,
+            6627443,
+            6645100,
+            6645107,
+            6646816,
+            6646885,
+            6646900,
+            6648608,
+            6648692,
+            6889579,
+            6906912,
+            6910570,
+            6910752,
+            6971680,
+            7037299,
+            7038309,
+            7039346,
+            7040879,
+            7041893,
+            7041908,
+            7104875,
+            7107616,
+            7544929,
+            7544939,
+            7562528,
+            7562604,
+            7566437,
+            7566441,
+            7566708,
+            7627115,
+            7627124,
+            7629088,
+            7697184,
+            7697253,
+            7697505
+          ]),
+          new NGramsPlusLang("lv", [
+            2122098,
+            2122601,
+            2122849,
+            2124146,
+            2124154,
+            2124897,
+            2125282,
+            2125921,
+            2125938,
+            2126433,
+            2126689,
+            2126699,
+            2126949,
+            2127214,
+            2127457,
+            6365289,
+            6365301,
+            6365302,
+            6382185,
+            6383904,
+            6384499,
+            6384751,
+            6385778,
+            6386293,
+            6386464,
+            6386806,
+            6449509,
+            6452512,
+            6515052,
+            6515060,
+            6578464,
+            6578546,
+            6583584,
+            6584864,
+            6644850,
+            6646123,
+            6646643,
+            6647393,
+            6648608,
+            6680693,
+            6889577,
+            6907236,
+            6907376,
+            6908642,
+            6909046,
+            7041908,
+            7102836,
+            7106404,
+            7233824,
+            7300193,
+            7496043,
+            7501166,
+            7544947,
+            7544949,
+            7544950,
+            7566453,
+            7566574,
+            7632160,
+            7632489,
+            7676022,
+            7695904,
+            7697184,
+            7758188,
+            14840608
+          ]),
+          new NGramsPlusLang("lt", [
+            2122089,
+            2122341,
+            2124146,
+            2124641,
+            2124905,
+            2125167,
+            2126433,
+            2126689,
+            2126699,
+            2126709,
+            2126945,
+            2126949,
+            2126965,
+            2127457,
+            2127465,
+            6365300,
+            6365424,
+            6383904,
+            6383988,
+            6384112,
+            6384738,
+            6384993,
+            6385268,
+            6386274,
+            6386292,
+            6386976,
+            6387050,
+            6418553,
+            6447392,
+            6448489,
+            6448494,
+            6647401,
+            6648949,
+            6889569,
+            6889577,
+            6889579,
+            6889581,
+            6906217,
+            6907246,
+            6907252,
+            6909543,
+            6910496,
+            6910752,
+            6942827,
+            6971757,
+            6972704,
+            7037289,
+            7037292,
+            7103073,
+            7104869,
+            7170419,
+            7171947,
+            7269152,
+            7301733,
+            7302009,
+            7303968,
+            7496176,
+            7544937,
+            7544939,
+            7544950,
+            7564129,
+            7629088,
+            7632246,
+            7957356
+          ])
+        ];
+      }
+      name() {
+        return "windows-1257";
+      }
+    };
+    exports.windows_1257 = windows_1257;
+    var windows_1258 = class extends sbcs {
+      match(det) {
+        return det.inputBytes.some((byte) => byte >= 128) ? super.match(det) : null;
+      }
+      byteMap() {
+        const byteMap = new Array(256).fill(32);
+        byteMap[39] = 0;
+        for (let i = 65; i <= 90; i++)
+          byteMap[i] = i + 32;
+        for (let i = 97; i <= 122; i++)
+          byteMap[i] = i;
+        byteMap[131] = 131;
+        byteMap[136] = 136;
+        byteMap[140] = byteMap[156] = 156;
+        byteMap[159] = 255;
+        byteMap[170] = 170;
+        byteMap[181] = 181;
+        byteMap[186] = 186;
+        for (let i = 192; i <= 203; i++)
+          byteMap[i] = i + 32;
+        byteMap[204] = 204;
+        for (let i = 205; i <= 209; i++)
+          byteMap[i] = i + 32;
+        byteMap[210] = 210;
+        for (let i = 211; i <= 214; i++)
+          byteMap[i] = i + 32;
+        for (let i = 216; i <= 221; i++)
+          byteMap[i] = i + 32;
+        byteMap[222] = 222;
+        byteMap[223] = 223;
+        for (let i = 224; i <= 246; i++)
+          byteMap[i] = i;
+        for (let i = 248; i <= 253; i++)
+          byteMap[i] = i;
+        byteMap[255] = 255;
+        return byteMap;
+      }
+      ngrams() {
+        return [
+          2122600,
+          2122721,
+          2123625,
+          2123887,
+          2125415,
+          2125928,
+          2126952,
+          2126953,
+          2126962,
+          2127465,
+          2127584,
+          6419060,
+          6496355,
+          6496374,
+          6514720,
+          6514925,
+          6545763,
+          6758504,
+          6758510,
+          6758516,
+          6758518,
+          6812782,
+          6815198,
+          6815221,
+          6824052,
+          6844402,
+          6876526,
+          6889582,
+          6889588,
+          6941394,
+          6941420,
+          6941426,
+          7217251,
+          7217262,
+          7217268,
+          7235360,
+          7235572,
+          7235581,
+          7235616,
+          7302759,
+          7336547,
+          7610483,
+          7629053,
+          7629290,
+          7631471,
+          7676020,
+          7760362,
+          7790624,
+          13396256,
+          13397607,
+          14557288,
+          14771048,
+          15395950,
+          15397492,
+          15494759,
+          15496224,
+          15560296,
+          15885088,
+          15886624,
+          15887904,
+          15889440,
+          16018976,
+          16108649,
+          16643532
+        ];
+      }
+      name() {
+        return "windows-1258";
+      }
+      language() {
+        return "vi";
+      }
+    };
+    exports.windows_1258 = windows_1258;
+    var windows_874 = class extends sbcs {
+      byteMap() {
+        const byteMap = new Array(256).fill(32);
+        byteMap[39] = 0;
+        for (let i = 65; i <= 90; i++)
+          byteMap[i] = i + 32;
+        for (let i = 97; i <= 122; i++)
+          byteMap[i] = i;
+        for (let i = 161; i <= 218; i++)
+          byteMap[i] = i;
+        for (let i = 223; i <= 251; i++)
+          byteMap[i] = i;
+        return byteMap;
+      }
+      ngrams() {
+        return [
+          2138578,
+          2138856,
+          2146514,
+          2148291,
+          2154949,
+          10604985,
+          10605251,
+          10669479,
+          10671554,
+          10799058,
+          11064263,
+          11195847,
+          11200960,
+          11200995,
+          11910083,
+          12042976,
+          12042979,
+          12047848,
+          12132544,
+          12165586,
+          12173522,
+          12305360,
+          12314553,
+          12636873,
+          12828960,
+          12829619,
+          12829633,
+          12832936,
+          12832994,
+          12837026,
+          13091779,
+          13095353,
+          13095617,
+          13096117,
+          13226679,
+          13226724,
+          13293544,
+          13477063,
+          13674707,
+          13689538,
+          13744416,
+          13805473,
+          13812171,
+          13812452,
+          13812512,
+          13812704,
+          13814226,
+          13821111,
+          13879249,
+          13940155,
+          14009017,
+          14010324,
+          14149837,
+          14721749,
+          14728167,
+          14796240,
+          14860964,
+          14920425,
+          14924193,
+          14989250,
+          15258279,
+          15262634,
+          15319250,
+          15328185
+        ];
+      }
+      name() {
+        return "windows-874";
+      }
+      language() {
+        return "th";
+      }
+    };
+    exports.windows_874 = windows_874;
     var KOI8_R = class extends sbcs {
       byteMap() {
         return [
@@ -11401,6 +11820,9 @@ var require_lib2 = __commonJS({
       new sbcs.ISO_8859_9(),
       new sbcs.windows_1251(),
       new sbcs.windows_1256(),
+      new sbcs.windows_1257(),
+      new sbcs.windows_1258(),
+      new sbcs.windows_874(),
       new sbcs.KOI8_R(),
       new ascii_1.default()
     ];
@@ -11835,7 +12257,7 @@ var require_utf32 = __commonJS({
     }
     Utf32Encoder.prototype.write = function(str) {
       var src = Buffer2.from(str, "ucs2");
-      var dst = Buffer2.alloc(src.length * 2);
+      var dst = Buffer2.alloc(src.length * 2 + 4);
       var write32 = this.isLE ? dst.writeUInt32LE : dst.writeUInt32BE;
       var offset = 0;
       for (var i = 0; i < src.length; i += 2) {
@@ -11902,9 +12324,9 @@ var require_utf32 = __commonJS({
         }
         if (overflow.length === 4) {
           if (isLE) {
-            codepoint = overflow[i] | overflow[i + 1] << 8 | overflow[i + 2] << 16 | overflow[i + 3] << 24;
+            codepoint = overflow[0] | overflow[1] << 8 | overflow[2] << 16 | overflow[3] << 24;
           } else {
-            codepoint = overflow[i + 3] | overflow[i + 2] << 8 | overflow[i + 1] << 16 | overflow[i] << 24;
+            codepoint = overflow[3] | overflow[2] << 8 | overflow[1] << 16 | overflow[0] << 24;
           }
           overflow.length = 0;
           offset = _writeCodepoint(dst, offset, codepoint, badChar);
@@ -11939,7 +12361,11 @@ var require_utf32 = __commonJS({
       return offset;
     }
     Utf32Decoder.prototype.end = function() {
+      if (this.overflow.length === 0) {
+        return;
+      }
       this.overflow.length = 0;
+      return String.fromCharCode(this.badChar);
     };
     exports.utf32 = Utf32AutoCodec;
     exports.ucs4 = "utf32";
@@ -12564,6 +12990,8 @@ var require_sbcs_data = __commonJS({
       elot928: "iso88597",
       hebrew: "iso88598",
       hebrew8: "iso88598",
+      iso88598i: "iso88598",
+      iso88598e: "iso88598",
       turkish: "iso88599",
       turkish8: "iso88599",
       thai: "iso885911",
@@ -15569,28 +15997,50 @@ var init_dist9 = __esm({
 });
 
 // node_modules/@inquirer/confirm/dist/index.js
-function getBooleanValue(value, defaultValue2) {
-  let answer = defaultValue2 !== false;
-  if (/^(y|yes)/i.test(value))
-    answer = true;
-  else if (/^(n|no)/i.test(value))
-    answer = false;
-  return answer;
-}
-function boolToString(value) {
-  return value ? "Yes" : "No";
-}
-var dist_default6;
+import { styleText as styleText4 } from "util";
+var confirmTheme, dist_default6;
 var init_dist10 = __esm({
   "node_modules/@inquirer/confirm/dist/index.js"() {
     "use strict";
     init_dist6();
+    confirmTheme = {
+      keywords: {
+        yes: "Yes",
+        no: "No"
+      },
+      style: {
+        confirmDefault: (text) => {
+          const first = text[0] ?? "";
+          if (first.toLowerCase() === first.toUpperCase()) {
+            return styleText4("cyan", text);
+          }
+          return first.toUpperCase() + text.slice(1);
+        }
+      }
+    };
     dist_default6 = createPrompt((config, done) => {
-      const { transformer = boolToString } = config;
       const [status, setStatus] = useState("idle");
       const [value, setValue] = useState("");
-      const theme2 = makeTheme(config.theme);
+      const theme2 = makeTheme(confirmTheme, config.theme);
       const prefix = usePrefix({ status, theme: theme2 });
+      const { yes, no } = theme2.keywords;
+      const yesHint = (yes[0] ?? "").toLowerCase();
+      const noHint = (no[0] ?? "").toLowerCase();
+      const hint = config.default === false ? `${yesHint}/${theme2.style.confirmDefault(noHint)}` : `${theme2.style.confirmDefault(yesHint)}/${noHint}`;
+      function boolToString(value2) {
+        return value2 ? yes : no;
+      }
+      const { transformer = boolToString } = config;
+      function getBooleanValue(value2, defaultValue3) {
+        const v = value2.trim().toLowerCase();
+        if (v === "")
+          return defaultValue3 !== false;
+        if (yes.toLowerCase().startsWith(v))
+          return true;
+        if (no.toLowerCase().startsWith(v))
+          return false;
+        return defaultValue3 !== false;
+      }
       useKeypress((key, rl) => {
         if (status !== "idle")
           return;
@@ -15613,7 +16063,7 @@ var init_dist10 = __esm({
       if (status === "done") {
         formattedValue = theme2.style.answer(value);
       } else {
-        defaultValue2 = ` ${theme2.style.defaultAnswer(config.default === false ? "y/N" : "Y/n")}`;
+        defaultValue2 = ` ${theme2.style.defaultAnswer(hint)}`;
       }
       const message = theme2.style.message(config.message, status);
       return `${prefix} ${message}${defaultValue2} ${formattedValue}`;
@@ -15713,13 +16163,36 @@ var init_dist11 = __esm({
   }
 });
 
-// node_modules/@inquirer/number/dist/index.js
-function isStepOf(value, step, min) {
-  const valuePow = value * Math.pow(10, 6);
-  const stepPow = step * Math.pow(10, 6);
-  const minPow = min * Math.pow(10, 6);
-  return (valuePow - (Number.isFinite(min) ? minPow : 0)) % stepPow === 0;
+// node_modules/@inquirer/number/dist/is-step-of.js
+function toDecimal(value) {
+  const [coefficient = "", exponent = "0"] = value.toString().toLowerCase().split("e");
+  const [integer = "", fraction = ""] = coefficient.split(".");
+  return {
+    significand: BigInt(`${integer}${fraction}`),
+    exponent: Number(exponent) - fraction.length
+  };
 }
+function isStepOf(value, step, min) {
+  if (!Number.isFinite(value) || !Number.isFinite(step) || step === 0) {
+    return false;
+  }
+  const valueDecimal = toDecimal(value);
+  const stepDecimal = toDecimal(step);
+  const minDecimal = Number.isFinite(min) ? toDecimal(min) : void 0;
+  const exponent = Math.min(valueDecimal.exponent, stepDecimal.exponent, minDecimal?.exponent ?? Infinity);
+  const toInteger = (decimal) => decimal.significand * 10n ** BigInt(decimal.exponent - exponent);
+  const valueInteger = toInteger(valueDecimal);
+  const stepInteger = toInteger(stepDecimal);
+  const minInteger = minDecimal ? toInteger(minDecimal) : 0n;
+  return (valueInteger - minInteger) % stepInteger === 0n;
+}
+var init_is_step_of = __esm({
+  "node_modules/@inquirer/number/dist/is-step-of.js"() {
+    "use strict";
+  }
+});
+
+// node_modules/@inquirer/number/dist/index.js
 function validateNumber(value, { min, max, step }) {
   if (value == null || Number.isNaN(value)) {
     return false;
@@ -15735,6 +16208,7 @@ var init_dist12 = __esm({
   "node_modules/@inquirer/number/dist/index.js"() {
     "use strict";
     init_dist6();
+    init_is_step_of();
     dist_default8 = createPrompt((config, done) => {
       const { validate: validate2 = () => true, min = -Infinity, max = Infinity, step = 1, required = false } = config;
       const theme2 = makeTheme(config.theme);
@@ -15802,7 +16276,7 @@ var init_dist12 = __esm({
 });
 
 // node_modules/@inquirer/expand/dist/index.js
-import { styleText as styleText4 } from "util";
+import { styleText as styleText5 } from "util";
 function normalizeChoices2(choices) {
   return choices.map((choice) => {
     if (Separator.isSeparator(choice)) {
@@ -15851,7 +16325,7 @@ var init_dist13 = __esm({
             } else if (value === "") {
               setError("Please input a value");
             } else {
-              setError(`"${styleText4("red", value)}" isn't an available option`);
+              setError(`"${styleText5("red", value)}" isn't an available option`);
             }
           }
         } else {
@@ -15891,7 +16365,7 @@ var init_dist13 = __esm({
       let helpTip = "";
       const currentOption = choices.find((choice) => !Separator.isSeparator(choice) && choice.key === value.toLowerCase());
       if (currentOption) {
-        helpTip = `${styleText4("cyan", ">>")} ${currentOption.name}`;
+        helpTip = `${styleText5("cyan", ">>")} ${currentOption.name}`;
       }
       let error2 = "";
       if (errorMsg) {
@@ -15907,7 +16381,7 @@ var init_dist13 = __esm({
 });
 
 // node_modules/@inquirer/rawlist/dist/index.js
-import { styleText as styleText5 } from "util";
+import { styleText as styleText6 } from "util";
 function isSelectableChoice(choice) {
   return choice != null && !Separator.isSeparator(choice);
 }
@@ -15954,7 +16428,7 @@ var init_dist14 = __esm({
     numberRegex = /\d+/;
     rawlistTheme = {
       style: {
-        description: (text) => styleText5("cyan", text)
+        description: (text) => styleText6("cyan", text)
       }
     };
     dist_default10 = createPrompt((config, done) => {
@@ -15987,7 +16461,7 @@ var init_dist14 = __esm({
           } else if (value === "") {
             setError("Please input a value");
           } else {
-            setError(`"${styleText5("red", value)}" isn't an available option`);
+            setError(`"${styleText6("red", value)}" isn't an available option`);
           }
         } else if (isUpKey(key, keybindings2) || isDownKey(key, keybindings2)) {
           rl.clearLine(0);
@@ -16042,6 +16516,7 @@ var init_dist14 = __esm({
 });
 
 // node_modules/@inquirer/password/dist/index.js
+import { styleText as styleText7 } from "util";
 var passwordTheme, dist_default11;
 var init_dist15 = __esm({
   "node_modules/@inquirer/password/dist/index.js"() {
@@ -16050,15 +16525,17 @@ var init_dist15 = __esm({
     init_dist5();
     passwordTheme = {
       style: {
-        maskedText: "[input is masked]"
+        maskedText: "[input is masked]",
+        keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText7("bold", key)} ${styleText7("dim", action)}`).join(styleText7("dim", " \u2022 "))
       }
     };
     dist_default11 = createPrompt((config, done) => {
-      const { validate: validate2 = () => true } = config;
+      const { toggleMask = true, validate: validate2 = () => true } = config;
       const theme2 = makeTheme(passwordTheme, config.theme);
       const [status, setStatus] = useState("idle");
       const [errorMsg, setError] = useState();
       const [value, setValue] = useState("");
+      const [revealed, setRevealed] = useState(false);
       const prefix = usePrefix({ status, theme: theme2 });
       useKeypress(async (key, rl) => {
         if (status !== "idle") {
@@ -16077,34 +16554,41 @@ var init_dist15 = __esm({
             setError(isValid || "You must provide a valid value");
             setStatus("idle");
           }
+        } else if (toggleMask && key.ctrl && key.name === "t") {
+          setRevealed((prev) => !prev);
         } else {
           setValue(rl.line);
           setError(void 0);
         }
       });
       const message = theme2.style.message(config.message, status);
+      const showPlaintext = toggleMask && revealed && status === "idle";
       let formattedValue = "";
-      let helpTip;
-      if (config.mask) {
+      if (showPlaintext) {
+        formattedValue = value;
+      } else if (config.mask) {
         const maskChar = typeof config.mask === "string" ? config.mask : "*";
         formattedValue = maskChar.repeat(value.length);
       } else if (status !== "done") {
-        helpTip = `${theme2.style.help(theme2.style.maskedText)}${cursorHide}`;
+        formattedValue = theme2.style.help(theme2.style.maskedText);
       }
       if (status === "done") {
         formattedValue = theme2.style.answer(formattedValue);
+      } else if (!config.mask) {
+        formattedValue += cursorHide;
       }
-      let error2 = "";
-      if (errorMsg) {
-        error2 = theme2.style.error(errorMsg);
-      }
-      return [[prefix, message, config.mask ? formattedValue : helpTip].join(" "), error2];
+      const content = [prefix, message, formattedValue].filter(Boolean).join(" ");
+      const bottomContent = [
+        errorMsg ? theme2.style.error(errorMsg) : "",
+        toggleMask && status === "idle" ? theme2.style.keysHelpTip([["ctrl+t", "toggle visibility"]]) : ""
+      ].filter(Boolean).join("\n");
+      return [content, bottomContent];
     });
   }
 });
 
 // node_modules/@inquirer/search/dist/index.js
-import { styleText as styleText6 } from "util";
+import { styleText as styleText8 } from "util";
 function isSelectable2(item) {
   return !Separator.isSeparator(item) && !item.disabled;
 }
@@ -16143,17 +16627,17 @@ var init_dist16 = __esm({
     searchTheme = {
       icon: { cursor: dist_default.pointer },
       style: {
-        disabled: (text) => styleText6("dim", `- ${text}`),
-        searchTerm: (text) => styleText6("cyan", text),
-        description: (text) => styleText6("cyan", text),
-        keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText6("bold", key)} ${styleText6("dim", action)}`).join(styleText6("dim", " \u2022 "))
+        disabled: (text) => styleText8("dim", `- ${text}`),
+        searchTerm: (text) => styleText8("cyan", text),
+        description: (text) => styleText8("cyan", text),
+        keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText8("bold", key)} ${styleText8("dim", action)}`).join(styleText8("dim", " \u2022 "))
       }
     };
     dist_default12 = createPrompt((config, done) => {
       const { pageSize = 7, validate: validate2 = () => true } = config;
       const theme2 = makeTheme(searchTheme, config.theme);
       const [status, setStatus] = useState("loading");
-      const [searchTerm, setSearchTerm] = useState("");
+      const [searchTerm, setSearchTerm] = useState(config.initialValue ?? "");
       const [searchResults, setSearchResults] = useState([]);
       const [searchError, setSearchError] = useState();
       const defaultApplied = useRef(false);
@@ -16164,6 +16648,11 @@ var init_dist16 = __esm({
         return { first, last };
       }, [searchResults]);
       const [active = bounds.first, setActive] = useState();
+      useEffect((rl) => {
+        if (config.initialValue) {
+          rl.write(config.initialValue);
+        }
+      }, []);
       useEffect(() => {
         const controller = new AbortController();
         setStatus("loading");
@@ -16283,7 +16772,7 @@ var init_dist16 = __esm({
 });
 
 // node_modules/@inquirer/select/dist/index.js
-import { styleText as styleText7 } from "util";
+import { styleText as styleText9 } from "util";
 function isSelectable3(item) {
   return !Separator.isSeparator(item) && !item.disabled;
 }
@@ -16326,9 +16815,9 @@ var init_dist17 = __esm({
     selectTheme = {
       icon: { cursor: dist_default.pointer },
       style: {
-        disabled: (text) => styleText7("dim", text),
-        description: (text) => styleText7("cyan", text),
-        keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText7("bold", key)} ${styleText7("dim", action)}`).join(styleText7("dim", " \u2022 "))
+        disabled: (text) => styleText9("dim", text),
+        description: (text) => styleText9("cyan", text),
+        keysHelpTip: (keys) => keys.map(([key, action]) => `${styleText9("bold", key)} ${styleText9("dim", action)}`).join(styleText9("dim", " \u2022 "))
       },
       i18n: { disabledError: "This option is disabled and cannot be selected." },
       indexMode: "hidden"
@@ -85909,8 +86398,8 @@ run(process.argv.slice(2)).then(
 
 smol-toml/dist/date.js:
 smol-toml/dist/error.js:
-smol-toml/dist/primitive.js:
 smol-toml/dist/util.js:
+smol-toml/dist/primitive.js:
 smol-toml/dist/extract.js:
 smol-toml/dist/struct.js:
 smol-toml/dist/parse.js:
