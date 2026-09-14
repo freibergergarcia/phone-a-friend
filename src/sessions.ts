@@ -1,26 +1,8 @@
-/**
- * Relay session store with JSON file persistence.
- *
- * Stores up to 100 sessions at ~/.config/phone-a-friend/sessions.json.
- *
- * NOT parallel-write safe: two PaF processes writing concurrently can lose
- * updates (last-writer-wins). Single-process use only. SQLite migration is
- * the proper fix when concurrency materializes.
- */
-
-import {
-  readFileSync,
-  writeFileSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  closeSync,
-  fsyncSync,
-  renameSync,
-  unlinkSync,
-} from 'node:fs';
+/** Relay sessions with transactional SQLite persistence and one-time JSON import. */
+import { readFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import type Database from 'better-sqlite3';
 import type { SessionHistoryEntry } from './backends/index.js';
 
 export interface RelaySession {
@@ -37,6 +19,8 @@ const MAX_SESSIONS = 100;
 
 export class SessionStore {
   private filePath: string;
+  private dbPath: string;
+  private db?: Database.Database;
 
   constructor(filePath?: string) {
     this.filePath = filePath ?? join(
@@ -44,21 +28,55 @@ export class SessionStore {
       'phone-a-friend',
       'sessions.json',
     );
+    this.dbPath = this.filePath.endsWith('.json') ? this.filePath.slice(0, -5) + '.db' : this.filePath + '.db';
+  }
+
+  private transaction<T>(operation: () => T): T {
+    mkdirSync(dirname(this.dbPath), { recursive: true });
+    // Keep the native addon lazy so help and version work without loading it.
+    const Sqlite = require('better-sqlite3') as typeof Database;
+    const db = new Sqlite(this.dbPath, { timeout: 5000 });
+    try {
+      return db.transaction(() => {
+        this.db = db;
+        db.exec('CREATE TABLE IF NOT EXISTS relay_sessions (id TEXT PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS migration (id INTEGER PRIMARY KEY)');
+        if (!db.prepare('SELECT id FROM migration WHERE id = 1').get()) {
+          this.save(this.loadLegacy());
+          db.prepare('INSERT INTO migration (id) VALUES (1)').run();
+        }
+        return operation();
+      }).immediate();
+    } finally {
+      this.db = undefined;
+      db.close();
+    }
   }
 
   private load(): RelaySession[] {
+    const rows = this.db!.prepare('SELECT payload FROM relay_sessions ORDER BY rowid').all() as Array<{ payload: string }>;
+    return rows.map((row) => JSON.parse(row.payload) as RelaySession);
+  }
+
+  private loadLegacy(): RelaySession[] {
     if (!existsSync(this.filePath)) return [];
     let raw: string;
     try {
       raw = readFileSync(this.filePath, 'utf-8');
     } catch (err) {
       console.error(`[phone-a-friend] Failed to read session store ${this.filePath}: ${(err as Error).message}`);
-      return [];
+      throw err;
     }
     try {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) {
         throw new Error('session store is not a JSON array');
+      }
+      for (const row of parsed) {
+        if (!row || typeof row.id !== 'string' || typeof row.backend !== 'string'
+          || typeof row.repoPath !== 'string' || !Array.isArray(row.history)
+          || typeof row.createdAt !== 'string' || typeof row.lastUsedAt !== 'string') {
+          throw new Error('invalid session record');
+        }
       }
       return parsed as RelaySession[];
     } catch (err) {
@@ -75,91 +93,60 @@ export class SessionStore {
       } catch (rotateErr) {
         console.error(
           `[phone-a-friend] Session store at ${this.filePath} could not be parsed (${(err as Error).message}) ` +
-            `and could not be rotated (${(rotateErr as Error).message}). Starting with an empty store; the file will be overwritten on next write.`,
+            `and could not be rotated (${(rotateErr as Error).message}). Migration has been aborted.`,
         );
+        throw rotateErr;
       }
       return [];
     }
   }
 
   private save(sessions: RelaySession[]): void {
-    const dir = dirname(this.filePath);
-    mkdirSync(dir, { recursive: true });
-
-    // Atomic write: temp file → fsync → rename → fsync parent dir.
-    // Prevents torn JSON if the process crashes mid-write.
-    const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
-    const payload = JSON.stringify(sessions, null, 2);
-
-    const tmpFd = openSync(tmpPath, 'w');
-    try {
-      try {
-        writeFileSync(tmpFd, payload, 'utf-8');
-        fsyncSync(tmpFd);
-      } finally {
-        closeSync(tmpFd);
-      }
-      renameSync(tmpPath, this.filePath);
-    } catch (err) {
-      // If anything before/at the rename fails, clean up the temp file so we
-      // don't leave .tmp.<pid>.<ts> litter in the config dir. The real store
-      // is untouched (rename never happened).
-      try {
-        unlinkSync(tmpPath);
-      } catch {
-        // Best-effort: temp file may already be gone.
-      }
-      throw err;
-    }
-
-    // Fsync the parent directory so the rename is durable across crashes.
-    // Not supported on Windows; ignore EPERM/EISDIR there.
-    try {
-      const dirFd = openSync(dir, 'r');
-      try {
-        fsyncSync(dirFd);
-      } finally {
-        closeSync(dirFd);
-      }
-    } catch {
-      // Best-effort: directory fsync isn't available on every platform.
-    }
+    this.db!.prepare('DELETE FROM relay_sessions').run();
+    const insert = this.db!.prepare('INSERT INTO relay_sessions (id, payload) VALUES (?, ?)');
+    for (const session of sessions) insert.run(session.id, JSON.stringify(session));
   }
 
   get(id: string): RelaySession | null {
-    return this.load().find((session) => session.id === id) ?? null;
+    return this.transaction(() => this.load().find((session) => session.id === id) ?? null);
   }
 
   list(): RelaySession[] {
-    return this.load();
+    return this.transaction(() => this.load());
   }
 
   /** Remove a single session by label. Returns true if a row was removed. */
   delete(id: string): boolean {
-    const sessions = this.load();
-    const filtered = sessions.filter((session) => session.id !== id);
-    if (filtered.length === sessions.length) return false;
-    this.save(filtered);
-    return true;
+    return this.transaction(() => {
+      const sessions = this.load();
+      const filtered = sessions.filter((session) => session.id !== id);
+      if (filtered.length === sessions.length) return false;
+      this.save(filtered);
+      return true;
+    });
   }
 
   /** Drop sessions whose `lastUsedAt` is older than `cutoff`. Returns the IDs removed. */
   pruneOlderThan(cutoff: Date): string[] {
-    const sessions = this.load();
-    const cutoffIso = cutoff.toISOString();
-    const removed = sessions.filter((s) => s.lastUsedAt < cutoffIso).map((s) => s.id);
-    if (removed.length === 0) return [];
-    const kept = sessions.filter((s) => s.lastUsedAt >= cutoffIso);
-    this.save(kept);
-    return removed;
+    return this.transaction(() => {
+      const sessions = this.load();
+      const cutoffIso = cutoff.toISOString();
+      const removed = sessions.filter((s) => s.lastUsedAt < cutoffIso).map((s) => s.id);
+      if (removed.length === 0) return [];
+      const kept = sessions.filter((s) => s.lastUsedAt >= cutoffIso);
+      this.save(kept);
+      return removed;
+    });
   }
 
   /** Drop every session. Returns the count removed. */
   clear(): number {
-    const sessions = this.load();
-    if (sessions.length === 0) return 0;
-    this.save([]);
-    return sessions.length;
+    return this.transaction(() => {
+      const sessions = this.load();
+      if (sessions.length === 0) return 0;
+      this.save([]);
+      return sessions.length;
+    });
   }
 
   upsert(opts: {
@@ -177,48 +164,50 @@ export class SessionStore {
       throw new Error('upsert: historyAppend and replaceHistory are mutually exclusive');
     }
 
-    const sessions = this.load();
-    const now = new Date().toISOString();
-    const existing = sessions.find((session) => session.id === opts.id);
+    return this.transaction(() => {
+      const sessions = this.load();
+      const now = new Date().toISOString();
+      const existing = sessions.find((session) => session.id === opts.id);
 
-    if (existing) {
-      existing.backend = opts.backend;
-      existing.repoPath = opts.repoPath;
-      if (opts.backendSessionId) {
-        existing.backendSessionId = opts.backendSessionId;
+      if (existing) {
+        existing.backend = opts.backend;
+        existing.repoPath = opts.repoPath;
+        if (opts.backendSessionId) {
+          existing.backendSessionId = opts.backendSessionId;
+        }
+        if (opts.replaceHistory !== undefined) {
+          existing.history = [...opts.replaceHistory];
+        } else if (opts.historyAppend?.length) {
+          existing.history.push(...opts.historyAppend);
+        }
+        existing.lastUsedAt = now;
+        this.save(sessions);
+        return existing;
       }
-      if (opts.replaceHistory !== undefined) {
-        existing.history = [...opts.replaceHistory];
-      } else if (opts.historyAppend?.length) {
-        existing.history.push(...opts.historyAppend);
+
+      const initialHistory = opts.replaceHistory !== undefined
+        ? [...opts.replaceHistory]
+        : [...(opts.historyAppend ?? [])];
+
+      const session: RelaySession = {
+        id: opts.id,
+        backend: opts.backend,
+        backendSessionId: opts.backendSessionId,
+        repoPath: opts.repoPath,
+        history: initialHistory,
+        createdAt: now,
+        lastUsedAt: now,
+      };
+      sessions.push(session);
+
+      if (sessions.length > MAX_SESSIONS) {
+        const sorted = [...sessions].sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt));
+        this.save(sorted.slice(sorted.length - MAX_SESSIONS));
+        return session;
       }
-      existing.lastUsedAt = now;
+
       this.save(sessions);
-      return existing;
-    }
-
-    const initialHistory = opts.replaceHistory !== undefined
-      ? [...opts.replaceHistory]
-      : [...(opts.historyAppend ?? [])];
-
-    const session: RelaySession = {
-      id: opts.id,
-      backend: opts.backend,
-      backendSessionId: opts.backendSessionId,
-      repoPath: opts.repoPath,
-      history: initialHistory,
-      createdAt: now,
-      lastUsedAt: now,
-    };
-    sessions.push(session);
-
-    if (sessions.length > MAX_SESSIONS) {
-      const sorted = [...sessions].sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt));
-      this.save(sorted.slice(sorted.length - MAX_SESSIONS));
       return session;
-    }
-
-    this.save(sessions);
-    return session;
+    });
   }
 }

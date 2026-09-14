@@ -42,12 +42,15 @@ export interface AgentState {
   lastSeen?: Date;
 }
 
+export type SessionEndReason = 'converged' | 'max_turns' | 'timeout' | 'stopped' | 'error';
+
 export type SessionStatus = 'active' | 'completed' | 'failed' | 'stopped';
 
 export interface AgenticSession {
   id: string;
   createdAt: Date;
   endedAt?: Date;
+  endReason?: SessionEndReason;
   prompt: string;
   status: SessionStatus;
   agents: AgentState[];

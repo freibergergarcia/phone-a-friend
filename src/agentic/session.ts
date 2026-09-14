@@ -16,8 +16,8 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { getBackend } from '../backends/index.js';
-import type { AgentConfig } from './types.js';
+import { getBackend, SpawnCliError } from '../backends/index.js';
+import type { AgentConfig, AgenticSessionConfig } from './types.js';
 
 // Env vars that trigger Claude's nested-session guard
 const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'];
@@ -65,7 +65,14 @@ export function assertAgenticBackendSupported(backendName: string): void {
 // Types
 // ---------------------------------------------------------------------------
 
+export interface AgenticRunOptions {
+  signal?: AbortSignal;
+  sandbox?: AgenticSessionConfig['sandbox'];
+}
+
 export interface SessionInfo {
+  sandbox?: AgenticSessionConfig['sandbox'];
+  model?: string;
   agentName: string;
   backend: string;
   sessionId: string;
@@ -92,6 +99,7 @@ export class SessionManager {
     systemPrompt: string,
     initialPrompt: string,
     repoPath: string,
+    options: AgenticRunOptions = {},
   ): Promise<SpawnResult> {
     // Guard first: no UUID reuse concerns, but no subprocess and no session
     // record may exist for a rejected backend.
@@ -100,13 +108,15 @@ export class SessionManager {
 
     if (agent.backend === AGENTIC_NATIVE_BACKEND) {
       const output = await this.spawnClaude(
-        sessionId, systemPrompt, initialPrompt, repoPath, agent.model,
+        sessionId, systemPrompt, initialPrompt, repoPath, agent.model, options,
       );
       this.sessions.set(agent.name, {
         agentName: agent.name,
         backend: agent.backend,
         sessionId,
         history: [initialPrompt, output],
+        sandbox: options.sandbox,
+        model: agent.model,
       });
       return { output, sessionId };
     }
@@ -127,7 +137,7 @@ export class SessionManager {
   /**
    * Resume an agent session with a new message. Returns the agent's response.
    */
-  async resume(agentName: string, message: string, repoPath: string): Promise<string> {
+  async resume(agentName: string, message: string, repoPath: string, options: AgenticRunOptions = {}): Promise<string> {
     const session = this.sessions.get(agentName);
     if (!session) throw new Error(`No session for agent: ${agentName}`);
 
@@ -137,7 +147,7 @@ export class SessionManager {
     assertAgenticBackendSupported(session.backend);
 
     if (session.backend === AGENTIC_NATIVE_BACKEND) {
-      const output = await this.resumeClaude(session.sessionId, message, repoPath);
+      const output = await this.resumeClaude(session.sessionId, message, repoPath, session.model, { ...options, sandbox: session.sandbox });
       session.history.push(message, output);
       return output;
     }
@@ -176,6 +186,7 @@ export class SessionManager {
     prompt: string,
     repoPath: string,
     model?: string,
+    options: AgenticRunOptions = {},
   ): Promise<string> {
     const args = [
       '-p', `${systemPrompt}\n\n---\n\n${prompt}`,
@@ -189,82 +200,99 @@ export class SessionManager {
       args.push('--model', model);
     }
 
-    // Read-only tools for review sessions
-    args.push('--tools', 'Read,Grep,Glob,LS,WebFetch,WebSearch');
-    args.push('--allowedTools', 'Read,Grep,Glob,LS,WebFetch,WebSearch');
+    this.applyPolicy(args, options);
+    return this.execClaude(args, repoPath, options);
+  }
 
-    // Prevent recursion
-    args.push('--disable-slash-commands');
-    args.push('--disallowedTools', 'Task');
-
-    return this.execClaude(args, repoPath);
+  private applyPolicy(args: string[], options: AgenticRunOptions): void {
+    const sandbox = options.sandbox ?? 'read-only';
+    if (!['read-only', 'workspace-write', 'danger-full-access'].includes(sandbox)) {
+      throw new Error(`Unsupported agentic sandbox: ${sandbox}`);
+    }
+    if (sandbox === 'danger-full-access') {
+      args.push('--dangerously-skip-permissions');
+    } else {
+      const tools = sandbox === 'read-only'
+        ? 'Read,Grep,Glob,LS,WebFetch,WebSearch'
+        : 'Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch';
+      args.push('--tools', tools, '--allowedTools', tools);
+    }
+    args.push('--disable-slash-commands', '--disallowedTools', 'Task');
   }
 
   private resumeClaude(
     sessionId: string,
     message: string,
     repoPath: string,
+    model?: string,
+    options: AgenticRunOptions = {},
   ): Promise<string> {
-    const args = [
-      '-p', message,
-      '-r', sessionId,
-      '--max-turns', '3',
-      '--output-format', 'text',
-    ];
-
-    return this.execClaude(args, repoPath);
+    const args = ['-p', message, '-r', sessionId, '--add-dir', repoPath,
+      '--max-turns', '3', '--output-format', 'text'];
+    if (model) args.push('--model', model);
+    this.applyPolicy(args, options);
+    return this.execClaude(args, repoPath, options);
   }
 
-  private execClaude(args: string[], repoPath: string): Promise<string> {
+  private execClaude(args: string[], repoPath: string, options: AgenticRunOptions): Promise<string> {
+    if (options.signal?.aborted) return Promise.reject(new Error('Claude session cancelled'));
     return new Promise((resolve, reject) => {
-      const env = this.cleanEnv();
+      // A separate process group lets cancellation include tool subprocesses.
+      const grouped = process.platform !== 'win32';
       const child = spawn('claude', args, {
-        env,
-        cwd: repoPath,
+        env: this.cleanEnv(), cwd: repoPath, detached: grouped,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-
-      let settled = false;
-      const settle = (fn: typeof resolve | typeof reject, value: string | Error) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        (fn as (v: string | Error) => void)(value);
-      };
-
-      // Fail fast if binary not found or spawn fails
-      child.on('error', (err: Error) => {
-        settle(reject, new Error(`Failed to spawn claude: ${err.message}`));
-      });
-
-      // Close stdin immediately — Claude waits for EOF before processing
-      child.stdin?.end();
-
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
-
-      child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-      child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-
-      const timeoutMs = 600_000; // 10 minutes — Claude Code with tools needs time
-      const timer = setTimeout(() => {
-        child.kill('SIGTERM');
-        settle(reject, new Error(`claude session timed out after ${timeoutMs / 1000}s`));
-      }, timeoutMs);
-
-      child.on('close', (code) => {
+      let settled = false;
+      let closed = false;
+      let exitCode: number | null = null;
+      let cancellation: string | undefined;
+      let escalation: ReturnType<typeof setTimeout> | undefined;
+      const signalChild = (signal: NodeJS.Signals) => {
+        try {
+          if (grouped && child.pid) process.kill(-child.pid, signal);
+          else child.kill(signal);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+            child.kill(signal);
+          }
+        }
+      };
+      const finish = (spawnError?: Error) => {
+        if (settled || (!spawnError && (!closed || escalation))) return;
+        settled = true;
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abort);
         const out = Buffer.concat(stdout).toString().trim();
         const err = Buffer.concat(stderr).toString().trim();
-
-        if (code === 0 && out) {
-          settle(resolve, out);
-        } else if (out) {
-          // Non-zero exit but has output — use it
-          settle(resolve, out);
-        } else {
-          settle(reject, new Error(err || `claude exited with code ${code}`));
-        }
-      });
+        if (spawnError) reject(new Error(`Failed to spawn claude: ${spawnError.message}`));
+        else if (cancellation || exitCode !== 0 || !out) {
+          reject(new SpawnCliError(cancellation ?? `claude exited with code ${exitCode}${err ? `: ${err}` : ''}`, out, err, exitCode));
+        } else resolve(out);
+      };
+      const cancel = (message: string) => {
+        if (settled || cancellation) return;
+        cancellation = message;
+        signalChild('SIGTERM');
+        // Wait through escalation even if the leader exits: descendants may
+        // ignore TERM and close their inherited stdio independently.
+        escalation = setTimeout(() => {
+          signalChild('SIGKILL');
+          escalation = undefined;
+          finish();
+        }, 250);
+      };
+      const abort = () => cancel('Claude session cancelled');
+      const timer = setTimeout(() => cancel('claude session timed out after 600s'), 600_000);
+      child.on('error', (error: Error) => finish(error));
+      child.on('close', (code) => { closed = true; exitCode = code; finish(); });
+      child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+      child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+      child.stdin?.end();
+      options.signal?.addEventListener('abort', abort, { once: true });
+      if (options.signal?.aborted) abort();
     });
   }
 

@@ -349,7 +349,19 @@ phone-a-friend agentic replay --session <id>  # Replay transcript
 Agentic mode currently supports Claude only. Other native-session backends
 (Codex, Gemini, OpenCode) are rejected rather than routed to Claude; their normal
 relay mode remains available. Agentic errors produce a nonzero CLI exit code.
-When no agent starts successfully, the saved session is marked failed.
+Timeouts and turn caps with pending work are saved as failed with their end reason,
+and return a nonzero exit code. Partial output from failed agents remains in the
+transcript. Stop and timeout cancel in-flight calls; on POSIX, PaF terminates their
+process groups and waits for shutdown before closing the event stream.
+
+`--sandbox` sets Claude's tool policy on both initial and resumed calls:
+read-only allows read/search tools, workspace-write adds Edit/Write, and
+danger-full-access bypasses permissions. This is tool policy, not OS isolation.
+
+Relay labels and history use `~/.config/phone-a-friend/sessions.db`. SQLite
+transactions preserve concurrent team writes. The first access imports existing
+`sessions.json` once and leaves valid JSON as a recovery copy. Use the same PaF
+version for session writes after migration: older binaries still write JSON.
 
 ### Ops
 

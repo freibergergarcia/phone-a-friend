@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../src/sessions.js';
@@ -140,6 +140,30 @@ describe('SessionStore', () => {
     ).toThrow(/mutually exclusive/);
   });
 
+  it('imports legacy JSON once, preserves the source, and never resurrects deleted labels', () => {
+    const path = join(tmpDir, 'sessions.json');
+    const legacy = [{ id: 'legacy', backend: 'ollama', repoPath: '/repo',
+      history: [{ role: 'user', content: 'remember me' }],
+      createdAt: '2020-01-01T00:00:00.000Z', lastUsedAt: '2020-01-01T00:00:00.000Z' }];
+    const raw = JSON.stringify(legacy);
+    writeFileSync(path, raw);
+    expect(store.list()).toEqual(legacy);
+    expect(existsSync(join(tmpDir, 'sessions.db'))).toBe(true);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+    expect(store.clear()).toBe(1);
+    expect(new SessionStore(path).list()).toEqual([]);
+    expect(readFileSync(path, 'utf8')).toBe(raw);
+  });
+
+  it('aborts migration on a legacy read error and can retry after recovery', () => {
+    const path = join(tmpDir, 'sessions.json');
+    mkdirSync(path);
+    expect(() => store.list()).toThrow();
+    rmSync(path, { recursive: true });
+    writeFileSync(path, '[]');
+    expect(store.list()).toEqual([]);
+  });
+
   // --- delete / prune / clear ---
 
   it('delete removes a single row and reports whether it existed', () => {
@@ -152,12 +176,10 @@ describe('SessionStore', () => {
   });
 
   it('pruneOlderThan drops rows older than the cutoff and returns their ids', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
     const old = store.upsert({ id: 'old', backend: 'codex', repoPath: '/tmp' });
-    // Backdate the lastUsedAt by manipulating the file directly.
-    const path = join(tmpDir, 'sessions.json');
-    const data = JSON.parse(readFileSync(path, 'utf-8'));
-    data[0].lastUsedAt = '2020-01-01T00:00:00.000Z';
-    writeFileSync(path, JSON.stringify(data));
+    vi.useRealTimers();
 
     store.upsert({ id: 'fresh', backend: 'codex', repoPath: '/tmp' });
 

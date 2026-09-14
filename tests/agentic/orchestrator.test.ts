@@ -308,7 +308,7 @@ describe('Orchestrator', () => {
       const events = await collectEvents(await orch.run(makeConfig()));
       expect(events).toContainEqual(expect.objectContaining({ type: 'session_end', reason: 'error' }));
       expect(events).not.toContainEqual(expect.objectContaining({ type: 'session_end', reason: 'converged' }));
-      expect(mockBus.endSession).toHaveBeenCalledWith(expect.any(String), 'failed');
+      expect(mockBus.endSession).toHaveBeenCalledWith(expect.any(String), 'failed', 'error');
       expect(mockSessions.resume).not.toHaveBeenCalled();
     });
 
@@ -356,6 +356,7 @@ describe('Orchestrator', () => {
         'critic',
         expect.stringContaining('@reviewer says: question A'),
         '/repo',
+        expect.objectContaining({ sandbox: 'read-only', signal: expect.any(AbortSignal) }),
       );
     });
 

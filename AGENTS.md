@@ -25,7 +25,7 @@ src/
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
-  sessions.ts        Relay session store (JSON persistence at ~/.config/phone-a-friend/sessions.json)
+  sessions.ts        Relay session store (SQLite at ~/.config/phone-a-friend/sessions.db; imports legacy JSON)
   tasks.ts           Task store (SQLite at ~/.config/phone-a-friend/tasks.db): durable records + events for every relay/review
   task-tracking.ts   Bridges one CLI run to the task store (RelayObserver, retention modes, drift warning)
   progress.ts        Progress reporter: observer hooks -> stderr lines or spinner text, plus the end-of-run receipt
@@ -108,7 +108,7 @@ run(config)
   │                   Register agents in transcript bus
   │                   Emit: session_start
   │
-  ├─ 2. Spawn ────── Phase A — for each agent (sequential):
+  ├─ 2. Spawn ────── Phase A — spawn agents in parallel:
   │   (Turn 0)          Build system prompt (role, agent list, turn budget)
   │                     Spawn Claude subprocess: claude -p --session-id <uuid>
   │                     Log user→agent prompt delivery, collect response
@@ -122,7 +122,7 @@ run(config)
   │   (Turn 1..N)     Check timeout → endSession('timeout')
   │                   Check empty queue → endSession('converged')
   │                   Dequeue all pending messages, grouped by recipient
-  │                   For each recipient agent:
+  │                   For each recipient agent in parallel:
   │                     Check ping-pong detection → skip if cycling
   │                     Build prompt: "@sender says: content" (+ deadline warnings)
   │                     Resume Claude session: claude -p -r <uuid>
@@ -131,7 +131,7 @@ run(config)
   │                   Emit: turn_complete (once, after all recipients)
   │
   └─ 4. End ──────── Reason: converged | max_turns | timeout | stopped | error
-                      Update SQLite status, emit session_end, close EventChannel
+                      Persist status + end reason, emit session_end, close EventChannel
 ```
 
 **Key behaviors:**
@@ -151,6 +151,10 @@ run(config)
 - **In-memory MessageQueue** (`src/agentic/queue.ts`) handles runtime message routing between agents
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
 - **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and other consumers
+
+Timeout and explicit stop abort in-flight calls. On POSIX, PaF sends TERM to its owned process groups, escalates to KILL after 250ms, and waits for child close before ending the event stream. Only convergence without agent errors is `completed`; timeouts, pending work at the turn cap and child failures are `failed`, and explicit stops are `stopped`. The persisted `end_reason` distinguishes these outcomes. CLI exit is nonzero for every incomplete run. Partial failed output is retained as notes and is not routed.
+
+Agentic sandbox settings are Claude tool policies, not OS isolation. Read-only exposes read/search tools; workspace-write adds Edit/Write; danger-full-access skips permission prompts. Initial and resumed calls receive the same tool policy, model and recursion restrictions.
 
 ### Agent naming & message routing
 
@@ -404,7 +408,7 @@ Marketplace install provides Claude Code integration only (slash commands and sk
 For the full CLI (agentic mode and TUI dashboard), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
 
-OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is Claude-only.
+OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is supported in Claude Code and Codex, not OpenCode.
 
 The OpenCode command source uses **overlay inversion**: `installer.ts` `opencodeCommandSource()` prefers `skills/<name>/COMMAND.opencode.md` (the OpenCode-tuned thin shim, env-var-only diff suppression, `PHONE_A_FRIEND_HOST=opencode` prefix) when it exists, and falls back to the rich `commands/<name>.md` only when no overlay is shipped for that skill. This keeps the rich content host-neutral for Claude consumption while letting OpenCode ship a host-tuned shim per skill. Today both shared skills (`phone-a-friend`, `curiosity-engine`) ship overlays.
 
@@ -469,7 +473,7 @@ The `--quiet` flag runs a relay without interactive output and persists the resu
 
 Every CLI relay and review is recorded as a task so delegated work stays findable from another terminal, after the conversation moves on, or after a host compacts its context.
 
-- `TaskStore` in `src/tasks.ts` writes `~/.config/phone-a-friend/tasks.db` (SQLite, WAL, 5s busy timeout). Separate PaF processes can write concurrently without losing records, which `jobs.json` and `sessions.json` cannot guarantee. Two tables: `tasks` (identity, status, backend, repo/branch/HEAD, review scope, diff hash, backend session id, owner pid, result, error, timestamps) and `task_events` (ordered evidence per task). Neither JSON store is migrated; `--quiet` jobs are still written to `jobs.json` and additionally tracked as tasks.
+- `TaskStore` in `src/tasks.ts` writes `~/.config/phone-a-friend/tasks.db` (SQLite, WAL, 5s busy timeout). Separate PaF processes can write concurrently without losing records, as can the relay session store in `sessions.db`. Two tables: `tasks` (identity, status, backend, repo/branch/HEAD, review scope, diff hash, backend session id, owner pid, result, error, timestamps) and `task_events` (ordered evidence per task). Relay sessions import legacy JSON once; `--quiet` jobs are still written to `jobs.json` and additionally tracked as tasks.
 - `beginTrackedRun()` in `src/task-tracking.ts` is called by the CLI before every relay path (review, batch, stream, `--quiet`). It returns a `RelayObserver` for the relay core plus `complete()`/`fail()`. Tracking is best-effort: a store failure prints one stderr warning and the relay proceeds untracked.
 - The CLI prints `Task <id> started · phone-a-friend task show <id>` on stderr before the spinner and `Task <id> completed|failed` afterwards. The id is unstyled so hosts can match `Task ([0-9a-f]{8}) started`. stdout contracts (`--schema`, `--verdict-json`, plain text) are unchanged.
 - **Scope and drift.** Review mode hashes the collected diff before the backend call (`scope_captured`) and re-collects it afterwards. A different hash records `drift_detected`, prints a stderr warning, and sets `driftDetected = true`; an unchanged hash records `scope_verified`; a failed re-collection records `drift_unknown`. Backends with local file access read the live tree, so the hash is evidence of what the review covered, not a guarantee.
@@ -552,12 +556,12 @@ phone-a-friend --to codex --review --verdict-json --prompt "auth only"  # scoped
 
 Two flags handle session resume, with separate concerns:
 
-- `--session <label>` is a PaF-managed label. PaF stores the label and the underlying backend session ID together in `~/.config/phone-a-friend/sessions.json` and uses the label for lookup on subsequent calls.
+- `--session <label>` is a PaF-managed label. PaF stores the label and the underlying backend session ID together in `~/.config/phone-a-friend/sessions.db` and uses the label for lookup on subsequent calls.
 - `--backend-session <id>` is a raw passthrough. PaF skips the label store and resumes the backend session directly. Combine with `--session <label>` to also start tracking that backend session under a label (adoption). Adoption is idempotent: re-running the same `--session label --backend-session id` pair is fine; conflicts (same label pointing at a different backend, session id, or repo) error explicitly.
 
 Implementation notes:
 
-- `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.json`
+- `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.db`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
 - Antigravity: sessions unsupported for now (`resumeStrategy: unsupported`); PaF rejects `--session` and `--backend-session`.
@@ -573,13 +577,13 @@ Implementation notes:
 
 PaF only persists conversation `history` for backends whose resume mechanism actually replays it (`resumeStrategy === 'transcript-replay'` — currently only Ollama). For everything else (`native-session`, `unsupported`), the row stores metadata + `backendSessionId` and `history: []`. Existing rows that were created before this rule have their fat history trimmed on the next write to that label.
 
-Why: Codex/Claude/OpenCode resume from their own server-side state. Storing the full expanded prompts + replies on PaF's side is dead weight that bloats `sessions.json` without affecting resume behavior. For Ollama, history *is* the resume mechanism (replay), so it's kept intact.
+Why: Codex/Claude/OpenCode resume from their own server-side state. Storing the full expanded prompts + replies on PaF's side is dead weight that bloats the session store without affecting resume behavior. For Ollama, history *is* the resume mechanism (replay), so it's kept intact.
 
 ### Atomicity, corruption, concurrency
 
-- **Atomic writes:** `sessions.json` is written via temp file + `fsync` + rename + parent-dir `fsync`. A crash mid-write cannot produce torn JSON.
-- **Loud corruption recovery:** if the file fails to parse on load, PaF rotates it to `sessions.json.corrupt-<timestamp>`, logs the path to stderr, and starts with an empty store for the current process. The previous behavior silently dropped every session, which made partial writes catastrophic.
-- **Not parallel-write safe:** two PaF processes writing concurrently can lose updates (last-writer-wins on rename). Single-process use only. SQLite migration is the proper fix when concurrency materializes.
+- **Concurrent writes:** `sessions.db` uses SQLite immediate transactions with a 5s busy timeout. Reading, appending history, pruning and saving are one transaction, so parallel writers preserve updates.
+- **Migration:** the first access imports `sessions.json` once in the same transaction. Valid JSON remains untouched as a recovery copy. Later accesses use only SQLite, including after deleting all labels; old labels are never reimported. Older PaF versions still write JSON, so avoid mixing versions for session writes after migration.
+- **Recovery:** malformed legacy JSON is rotated to `sessions.json.corrupt-<timestamp>` with a stderr diagnostic. Read or rotation failures abort migration without overwriting the original. SQLite errors propagate; they never trigger an empty-store fallback.
 
 ### Session management commands
 
