@@ -378,8 +378,7 @@ Present the full session summary:
 
 For BACKEND=antigravity, omit `--model` by default. Antigravity model names
 are UI display names and PaF forwards explicit `--model` values unchanged
-only when the user asks for one. Antigravity is read-only and one-shot in
-PaF; do not add `--session`.
+only when the user asks for one. Antigravity is read-only and supports native session resume in PaF.
 
 By default, **omit `--model`** for `--to gemini` and let Gemini CLI's
 auto-routing pick. Set `--model` only when reproducibility, specific

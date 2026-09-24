@@ -47,14 +47,14 @@ describe('AntigravityBackend', () => {
     vi.restoreAllMocks();
   });
 
-  it('declares phase-one capabilities', () => {
+  it('declares native session capabilities', () => {
     expect(ANTIGRAVITY_BACKEND.name).toBe('antigravity');
     expect(ANTIGRAVITY_BACKEND.localFileAccess).toBe(true);
     expect(ANTIGRAVITY_BACKEND.allowedSandboxes.has('read-only')).toBe(true);
     expect(ANTIGRAVITY_BACKEND.allowedSandboxes.has('workspace-write')).toBe(false);
     expect(ANTIGRAVITY_BACKEND.allowedSandboxes.has('danger-full-access')).toBe(false);
     expect(ANTIGRAVITY_BACKEND.capabilities).toEqual({
-      resumeStrategy: 'unsupported',
+      resumeStrategy: 'native-session',
       requiresClientSessionId: false,
     });
   });
@@ -79,6 +79,59 @@ describe('AntigravityBackend', () => {
       '--prompt',
       'Review this.',
     ]);
+  });
+
+  it.each([false, true])('builds session args with resume=%s', (resumeSession) => {
+    expect(buildAntigravityArgs({
+      prompt: 'Follow up.', repoPath: '/repo', sandbox: 'read-only',
+      model: null, timeoutSeconds: 60, persistSession: !resumeSession,
+      resumeSession, sessionId: resumeSession ? 'agy-thread' : null,
+    })).toEqual([
+      '--add-dir', '/repo', '--print-timeout', '60s', '--sandbox', '--mode', 'plan',
+      '--output-format', 'json',
+      ...(resumeSession ? ['--conversation', 'agy-thread'] : []),
+      '--prompt', 'Follow up.',
+    ]);
+  });
+
+  it.each([false, true])('returns the response and emits the session ID with resume=%s', async (resumeSession) => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({
+      conversation_id: 'agy-thread', status: 'SUCCESS', response: 'noted.\n',
+    })));
+    const onSessionCreated = vi.fn();
+    const result = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'Remember this.', repoPath: '/repo', sandbox: 'read-only',
+      model: null, timeoutSeconds: 60, env: {}, persistSession: !resumeSession,
+      resumeSession, sessionId: resumeSession ? 'agy-thread' : null, onSessionCreated,
+    });
+    expect(result).toBe('noted.\n');
+    expect(onSessionCreated).toHaveBeenCalledExactlyOnceWith('agy-thread');
+    const args = mockSpawn.mock.calls[0][1];
+    expect(args).toContain('--output-format');
+    expect(args.includes('--conversation')).toBe(resumeSession);
+    expect(args.slice(-2)).toEqual(['--prompt', 'Remember this.']);
+  });
+
+  it.each([
+    ['not JSON', 'invalid session JSON'],
+    [JSON.stringify({ status: 'ERROR', response: 'failed' }), 'status: ERROR: failed'],
+    ['null', 'status: missing'],
+    [JSON.stringify({ status: 'SUCCESS', response: '' }), 'without producing a response'],
+    [JSON.stringify({ status: 'SUCCESS', response: '   ' }), 'without producing a response'],
+    [JSON.stringify({ status: 'SUCCESS' }), 'without producing a response'],
+  ])('rejects invalid session output %s', async (stdout, message) => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, stdout));
+    const onSessionCreated = vi.fn();
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 60, env: {}, persistSession: true, onSessionCreated,
+    }).catch((err) => err);
+    expect(error).toBeInstanceOf(AntigravityBackendError);
+    expect(error.message).toContain(message);
+    expect(onSessionCreated).not.toHaveBeenCalled();
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
   });
 
   it('forwards Antigravity display model names unchanged', () => {

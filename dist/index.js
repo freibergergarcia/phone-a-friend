@@ -75053,7 +75053,7 @@ var AntigravityBackend = class {
     "read-only"
   ]);
   capabilities = {
-    resumeStrategy: "unsupported",
+    resumeStrategy: "native-session",
     requiresClientSessionId: false
   };
   async run(opts) {
@@ -75068,7 +75068,10 @@ var AntigravityBackend = class {
       repoPath: opts.repoPath,
       sandbox: opts.sandbox,
       model: opts.model,
-      timeoutSeconds: opts.timeoutSeconds
+      timeoutSeconds: opts.timeoutSeconds,
+      persistSession: opts.persistSession,
+      resumeSession: opts.resumeSession,
+      sessionId: opts.sessionId
     });
     try {
       const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
@@ -75079,6 +75082,27 @@ var AntigravityBackend = class {
       });
       if (!result.stdout) {
         throw new AntigravityBackendError("antigravity completed without producing output");
+      }
+      if (opts.persistSession || opts.resumeSession) {
+        let payload;
+        try {
+          payload = JSON.parse(result.stdout);
+        } catch {
+          throw new AntigravityBackendError("Antigravity returned invalid session JSON");
+        }
+        if (payload?.status !== "SUCCESS") {
+          const detail = typeof payload?.response === "string" ? payload.response.trim() : "";
+          throw new AntigravityBackendError(
+            `Antigravity session failed with status: ${payload?.status ?? "missing"}` + (detail ? `: ${detail}` : "")
+          );
+        }
+        if (typeof payload.response !== "string" || !payload.response.trim()) {
+          throw new AntigravityBackendError("Antigravity session completed without producing a response");
+        }
+        if (typeof payload.conversation_id === "string" && payload.conversation_id.trim()) {
+          opts.onSessionCreated?.(payload.conversation_id);
+        }
+        return payload.response;
       }
       return result.stdout;
     } catch (err) {
@@ -75123,6 +75147,12 @@ function buildAntigravityArgs(opts) {
   ];
   if (opts.model) {
     args.push("--model", opts.model);
+  }
+  if (opts.persistSession || opts.resumeSession) {
+    args.push("--output-format", "json");
+  }
+  if (opts.resumeSession && opts.sessionId) {
+    args.push("--conversation", opts.sessionId);
   }
   args.push("--prompt", opts.prompt);
   return args;

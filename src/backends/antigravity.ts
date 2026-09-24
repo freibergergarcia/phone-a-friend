@@ -4,10 +4,7 @@
  * Antigravity is not a Gemini CLI drop-in replacement. The user-facing
  * backend is named `antigravity`, while the executable is `agy`.
  *
- * Phase 1 intentionally supports read-only, one-shot relay/review only. The
- * local `agy` CLI exposes conversation flags, write modes, and permission
- * bypasses, but PaF should not promise sessions or write support until those
- * surfaces are proven in non-interactive print mode.
+ * Supports read-only relay/review with native conversation resume.
  */
 
 import {
@@ -57,7 +54,7 @@ export class AntigravityBackend implements Backend {
     'read-only',
   ]);
   readonly capabilities: BackendCapabilities = {
-    resumeStrategy: 'unsupported',
+    resumeStrategy: 'native-session',
     requiresClientSessionId: false,
   };
 
@@ -78,6 +75,9 @@ export class AntigravityBackend implements Backend {
       sandbox: opts.sandbox,
       model: opts.model,
       timeoutSeconds: opts.timeoutSeconds,
+      persistSession: opts.persistSession,
+      resumeSession: opts.resumeSession,
+      sessionId: opts.sessionId,
     });
 
     try {
@@ -90,6 +90,29 @@ export class AntigravityBackend implements Backend {
 
       if (!result.stdout) {
         throw new AntigravityBackendError('antigravity completed without producing output');
+      }
+
+      if (opts.persistSession || opts.resumeSession) {
+        let payload;
+        try {
+          payload = JSON.parse(result.stdout);
+        } catch {
+          throw new AntigravityBackendError('Antigravity returned invalid session JSON');
+        }
+        if (payload?.status !== 'SUCCESS') {
+          const detail = typeof payload?.response === 'string' ? payload.response.trim() : '';
+          throw new AntigravityBackendError(
+            `Antigravity session failed with status: ${payload?.status ?? 'missing'}` +
+              (detail ? `: ${detail}` : ''),
+          );
+        }
+        if (typeof payload.response !== 'string' || !payload.response.trim()) {
+          throw new AntigravityBackendError('Antigravity session completed without producing a response');
+        }
+        if (typeof payload.conversation_id === 'string' && payload.conversation_id.trim()) {
+          opts.onSessionCreated?.(payload.conversation_id);
+        }
+        return payload.response;
       }
 
       return result.stdout;
@@ -117,6 +140,9 @@ interface AntigravityArgsOptions {
   sandbox: SandboxMode;
   model: string | null;
   timeoutSeconds: number;
+  persistSession?: boolean;
+  resumeSession?: boolean;
+  sessionId?: string | null;
 }
 
 export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
@@ -146,6 +172,13 @@ export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
 
   if (opts.model) {
     args.push('--model', opts.model);
+  }
+
+  if (opts.persistSession || opts.resumeSession) {
+    args.push('--output-format', 'json');
+  }
+  if (opts.resumeSession && opts.sessionId) {
+    args.push('--conversation', opts.sessionId);
   }
 
   args.push('--prompt', opts.prompt);
