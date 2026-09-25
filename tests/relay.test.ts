@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { BackendError, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
+import { BackendError, type BackendRunOptions, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
 import { SessionStore } from '../src/sessions.js';
 
 // Mock child_process for git diff calls
@@ -872,7 +872,7 @@ describe('reviewRelay', () => {
 
   it('uses generic run() review fallback for antigravity', async () => {
     const backend = {
-      ...makeUnsupportedBackend('antigravity'),
+      ...makeNativeSessionBackend('antigravity'),
       allowedSandboxes: new Set<SandboxMode>(['read-only']),
     };
     registerBackend(backend);
@@ -892,7 +892,7 @@ describe('reviewRelay', () => {
       sandbox: 'read-only',
     });
 
-    expect(result).toBe('unsupported reply');
+    expect(result).toBe('attached reply');
     expect(backend.run).toHaveBeenCalledOnce();
     const callArgs = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(callArgs.prompt).toContain('Review changes');
@@ -1460,7 +1460,7 @@ describe('relay history persistence rule', () => {
   });
 });
 
-describe('relay --session unsupported backend guard', () => {
+describe('relay Antigravity sessions and unsupported backend guard', () => {
   let repo: string;
   const originalEnv = { ...process.env };
 
@@ -1478,42 +1478,60 @@ describe('relay --session unsupported backend guard', () => {
   });
 
   it('errors when --session is used against an unsupported backend', async () => {
-    const backend = makeUnsupportedBackend('antigravity');
+    const backend = makeUnsupportedBackend('unsupported');
     registerBackend(backend);
 
     await expect(
       relay({
         prompt: 'follow up',
         repoPath: repo,
-        backend: 'antigravity',
+        backend: 'unsupported',
         session: 'should-fail',
       }),
-    ).rejects.toThrow(/--session is not supported by the antigravity backend/);
+    ).rejects.toThrow(/--session is not supported by the unsupported backend/);
   });
 
-  it('errors when --backend-session is used against antigravity', async () => {
-    const backend = makeUnsupportedBackend('antigravity');
+  it('creates and resumes an Antigravity session with a server-assigned ID', async () => {
+    const backend = makeNativeSessionBackend('antigravity');
+    backend.run = vi.fn(async (opts: BackendRunOptions) => {
+      opts.onSessionCreated?.('agy-thread');
+      return 'attached reply';
+    });
     registerBackend(backend);
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    const options = { repoPath: repo, backend: 'antigravity', session: 'agy-label', sessionStore: store };
+    await expect(relay({ ...options, prompt: 'first' })).resolves.toBe('attached reply');
+    expect(backend.run).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      sessionId: null, persistSession: true, resumeSession: false,
+    }));
+    expect(store.get('agy-label')?.backendSessionId).toBe('agy-thread');
+    expect(store.get('agy-label')?.history).toEqual([]);
+    await expect(relay({ ...options, prompt: 'follow up' })).resolves.toBe('attached reply');
+    expect(backend.run).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      sessionId: 'agy-thread', persistSession: true, resumeSession: true,
+    }));
+  });
 
-    await expect(
-      relay({
-        prompt: 'follow up',
-        repoPath: repo,
-        backend: 'antigravity',
-        backendSession: 'agy-thread',
-      }),
-    ).rejects.toThrow(/--backend-session is not supported by the antigravity backend/);
+  it('resumes a raw Antigravity backend session', async () => {
+    const backend = makeNativeSessionBackend('antigravity');
+    registerBackend(backend);
+    await expect(relay({
+      prompt: 'follow up', repoPath: repo, backend: 'antigravity', backendSession: 'agy-thread',
+    })).resolves.toBe('attached reply');
+    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'agy-thread', persistSession: false, resumeSession: true,
+    }));
   });
 
   it('does not error when --session is omitted on an unsupported backend', async () => {
-    const backend = makeUnsupportedBackend('antigravity');
+    const backend = makeUnsupportedBackend('unsupported');
     registerBackend(backend);
 
     await expect(
       relay({
         prompt: 'one-shot',
         repoPath: repo,
-        backend: 'antigravity',
+        backend: 'unsupported',
       }),
     ).resolves.toBe('unsupported reply');
   });

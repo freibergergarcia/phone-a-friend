@@ -15,7 +15,7 @@ You orchestrate the rounds yourself via Bash. Do not spawn Codex subagents for t
 `$ARGUMENTS` contains the user's request. Parse:
 
 - **TASK_DESCRIPTION**: free-form text with flags stripped.
-- **`--backend <name>`** (or `--backend a,b`): comma-separated list of friend backends to query each round. Allowed: `claude`, `gemini`, `opencode`, `ollama`. **Never** `codex` (the recursion guard refuses; you would be calling yourself). Default: `claude,gemini`. `antigravity` is deliberately excluded until the PaF backend supports session continuity; `/phone-a-friend` supports one-shot Antigravity relays.
+- **`--backend <name>`** (or `--backend a,b`): comma-separated list of friend backends to query each round. Allowed: `antigravity`, `claude`, `gemini`, `opencode`, `ollama`. **Never** `codex` (the recursion guard refuses; you would be calling yourself). Default: `claude,gemini`.
 - **`--max-rounds N`**: rounds before giving up. Clamp to [1, 5]. Default: 3.
 - **`--model <name>`**: only meaningful for `ollama` and `opencode`.
 
@@ -61,6 +61,7 @@ For each backend in the comma-separated list, the session label is `${TEAM_ID}-<
 
 | Backend | resumeStrategy | Pass `--session`? |
 |---|---|---|
+| antigravity | native-session | yes |
 | claude | native-session | yes |
 | codex | native-session | yes (never used here; recursion guard) |
 | opencode | native-session | yes |

@@ -64,8 +64,8 @@ describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
     expect(file).toMatch(/teammateMode/);
   });
 
-  it('supports --backend opencode and --backend all alongside the legacy values', () => {
-    expect(file).toMatch(/--backend codex\|gemini\|ollama\|opencode\|both\|all/);
+  it('supports --backend antigravity, opencode, and all alongside the legacy values', () => {
+    expect(file).toMatch(/--backend antigravity\|codex\|gemini\|ollama\|opencode\|both\|all/);
     expect(file).toContain('### Backend selection for `--backend all`');
   });
 
@@ -511,7 +511,7 @@ describe('Shell materialization hardening', () => {
         /apply the override ONLY[\s\S]{0,120}`ollama` and `opencode`/,
       );
       expect(file).toMatch(
-        /Do NOT pass it to\s+`codex`, `gemini`, or `claude`/,
+        /Do NOT pass it to\s+`antigravity`, `codex`, `gemini`, or `claude`/,
       );
       // `both` is codex + gemini, so no member can ever receive the override.
       expect(file).toMatch(/BACKEND is `both` and `--model` is present:\s+\*\*abort\*\*/);

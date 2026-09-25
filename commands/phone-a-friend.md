@@ -204,8 +204,8 @@ PAF_PROMPT_EOF
 PAF_CONTEXT_EOF
 
    "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
-   # Antigravity is read-only and one-shot; do not add --session.
-   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast]
+   # Antigravity supports native session resume in read-only mode.
+   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Gemini supports --session via native resume (see "Session continuity" below):
    "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
@@ -413,8 +413,7 @@ when the selected CLI cannot accept it; never silently remove the schema.
 Use `doctor --json` to diagnose PATH/version mismatches before retrying.
 
 **Backend-specific behavior:**
-- **Antigravity**: no session support yet. Do not add `--session` or
-  `--backend-session` to Antigravity relay calls.
+- **Antigravity**: native session resume via `--session` or `--backend-session`.
 - **Codex, Claude, Gemini, OpenCode**: native session resume. Follow-up
   prompts can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt

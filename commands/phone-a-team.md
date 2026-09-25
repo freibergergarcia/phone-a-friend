@@ -1,7 +1,7 @@
 ---
 name: phone-a-team
 description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
-argument-hint: <task description> [--backend codex|gemini|ollama|opencode|both|all] [--max-rounds N] [--model <name>]
+argument-hint: <task description> [--backend antigravity|codex|gemini|ollama|opencode|both|all] [--max-rounds N] [--model <name>]
 ---
 
 # /phone-a-team
@@ -37,12 +37,15 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 | Backend | Direct command |
 |---------|---------------|
+| **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
 | **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
 
 Sandbox mapping for direct mode:
+- **Antigravity**: always `--sandbox --mode plan` (read-only). Antigravity
+  has no write mode; see Step 6.
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
   `--sandbox workspace-write`)
 - **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
@@ -82,6 +85,7 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 
 ### Backend parsing
 
+- If `$ARGUMENTS` contains `--backend antigravity`: set BACKEND = `antigravity`
 - If `$ARGUMENTS` contains `--backend codex`: set BACKEND = `codex`
 - If `$ARGUMENTS` contains `--backend gemini`: set BACKEND = `gemini`
 - If `$ARGUMENTS` contains `--backend ollama`: set BACKEND = `ollama`
@@ -89,13 +93,11 @@ Extract the `--backend` flag, `--max-rounds` flag, and task description from
 - If `$ARGUMENTS` contains `--backend both`: set BACKEND = `both`
 - If `$ARGUMENTS` contains `--backend all`: set BACKEND = `all`
 - If no `--backend` flag is present: set BACKEND = `codex` (default)
-- If `--backend` is present but the value is not `codex`, `gemini`, `ollama`,
+- If `--backend` is present but the value is not `antigravity`, `codex`, `gemini`, `ollama`,
   `opencode`, `both`, or `all`: report an error and stop. Valid values:
-  `codex`, `gemini`, `ollama`, `opencode`, `both`, `all`. `antigravity` is
-  deliberately excluded until the PaF backend supports session continuity;
-  `/phone-a-friend` supports one-shot Antigravity relays.
+  `antigravity`, `codex`, `gemini`, `ollama`, `opencode`, `both`, `all`.
 
-Note: `both` means `codex + gemini` (the two CLI backends). Ollama and
+Note: `both` means `codex + gemini`. Ollama and
 OpenCode are separate single-backend options that run alone. `all` includes
 every available friend backend (see Step 2 — Backend selection for the
 resolution matrix and skip rules).
@@ -143,7 +145,7 @@ Extract a model name from the task arguments.
   backend directly.
 - When BACKEND is `all` and `--model` is present: apply the override ONLY
   to `ollama` and `opencode` members of that round. Do NOT pass it to
-  `codex`, `gemini`, or `claude` relay calls in that case. If no eligible
+  `antigravity`, `codex`, `gemini`, or `claude` relay calls in that case. If no eligible
   member is available on this machine, report that and continue — do not
   abort, since which backends pass probes is a property of the machine,
   not of the command.
@@ -243,11 +245,12 @@ version to the user (e.g., when explaining why a flag was rejected).
 
 Verify that the requested backend(s) are installed and available.
 
-### CLI backends (codex, gemini)
+### CLI backends (antigravity, codex, gemini)
 
 Run these checks using `command -v`:
 
 ```bash
+command -v agy     # check if the Antigravity CLI is available
 command -v codex   # check if codex CLI is available
 command -v gemini  # check if gemini CLI is available
 ```
@@ -385,13 +388,14 @@ and report skipped backends with reasons. Never fail silently. (`opencode`
 is also directly selectable as its own `--backend opencode` value — see
 Backend parsing in Step 1. When `all` includes opencode alongside other
 backends, the model-scoping rule from Step 1 applies: `MODEL_OVERRIDE` goes
-to `ollama` and `opencode` members only, never to `codex`, `gemini`, or
+to `ollama` and `opencode` members only, never to `antigravity`, `codex`, `gemini`, or
 `claude` relay calls.)
 
 Resolution matrix:
 
 | Friend backend | Include when |
 |----------------|--------------|
+| `antigravity`  | `command -v agy` succeeds |
 | `codex`        | `command -v codex` AND `codex --version` succeeds |
 | `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini auto-routing) |
 | `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry AND `OLLAMA_SKIP_REASON` is unset |
@@ -465,11 +469,12 @@ command:
 
   **Generate session IDs for every backend that supports session resume.**
   PaF declares a resume strategy per backend (`native-session` for
-  codex, claude, gemini, opencode; `transcript-replay` for ollama).
+  antigravity, codex, claude, gemini, opencode; `transcript-replay` for ollama).
   Generate a session ID for every backend:
 
   | Backend | resumeStrategy | Generate SESSION_ID? |
   |---|---|---|
+  | antigravity | native-session | yes |
   | codex | native-session | yes |
   | claude | native-session | yes |
   | opencode | native-session | yes |
@@ -477,7 +482,7 @@ command:
   | gemini | native-session | YES, generate a SESSION_ID |
 
   For `--backend both` (codex + gemini), generate a SESSION_ID for both
-  codex and gemini. For `--backend all`, generate SESSION_IDs for codex,
+  codex and gemini. For `--backend all`, generate SESSION_IDs for antigravity, codex,
   claude, opencode, ollama, and gemini (every backend that runs).
 
 ### Algorithm
@@ -493,7 +498,7 @@ command:
    pick from a fixed list). Announce to the user as **Name** (role / backend),
    e.g. **Leila** (relay / codex), **Tomás** (relay / ollama:qwen3).
 
-   - **Single backend** (`codex`, `gemini`, `ollama`, or `opencode`): one
+   - **Single backend** (`antigravity`, `codex`, `gemini`, `ollama`, or `opencode`): one
      Agent call with:
      - `name`: a creative human first name
      - `subagent_type: "general-purpose"`
@@ -550,7 +555,7 @@ command:
    asked for a diff/branch/staged review.
 
    Include `--session <SESSION_ID>` for every session-capable backend
-   (`codex`, `claude`, `gemini`, `opencode`, `ollama`).
+   (`antigravity`, `codex`, `claude`, `gemini`, `opencode`, `ollama`).
 
    Run the command in the foreground and wait for it. Teammates cannot run
    background Bash, so do not use `run_in_background`, `&`, or `nohup`.
@@ -766,7 +771,7 @@ PAF_TEAM_CONTEXT_EOF
 
   Always include `--fast` (relay prompts are self-contained). For
   `--to claude`, `--fast` has no effect. Include `--session` for every
-  session-capable backend: `codex`, `claude`, `gemini`, `opencode`,
+  session-capable backend: `antigravity`, `codex`, `claude`, `gemini`, `opencode`,
   `ollama`. Pass the backend-specific ID from `SESSION_IDS`.
 
   When `--session` is used, the session lets the backend remember
@@ -957,10 +962,13 @@ task requires writes.
   OpenCode review or other read-only round, add this explicit instruction
   to the relay prompt: "Do not modify files. Review or advise only." This is
   a behavioral instruction, not a sandbox guarantee.
+- Antigravity is read-only only: PaF rejects `--sandbox workspace-write`
+  for it. Never escalate its sandbox. On write tasks, Antigravity advises
+  and the lead applies the file changes.
 - If the task asks to **create or modify files** (e.g., "create .md files
   under /architecture", "refactor the backend", "apply these changes"),
   the relay call MUST use `--sandbox workspace-write` so the backend writes
-  the files directly.
+  the files directly (except Antigravity; see above).
 - The lead should only review and synthesize — not re-create what the
   backend already produced. The backend does the writing; the lead does
   the reviewing.
@@ -1107,7 +1115,7 @@ happened and whether the result is complete.
 - **Context hygiene.** Do not generate `--context-text` or
   `--context-file` from repository files, `git show`, `git diff`,
   `git status`, or other local file/git output for relays sent to
-  repo-aware backends (codex, gemini, claude, opencode). Pass
+  repo-aware backends (antigravity, codex, gemini, claude, opencode). Pass
   `--repo "$PWD"` and let the backend read files with its own tools.
   `--context-text` and `--context-file` are reserved for narrative
   context that does not exist in the repo: prior round outputs,

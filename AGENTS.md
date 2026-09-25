@@ -32,7 +32,7 @@ src/
   status-line.ts     One-row status for Claude Code's status line (running or recently finished task for the cwd repo)
   backends/
     index.ts         Backend interface, registry, types, BackendCapabilities, spawnCli() async subprocess utility
-    antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, one-shot)
+    antigravity.ts  Google Antigravity CLI subprocess backend (`agy`, read-only, native sessions)
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
@@ -82,7 +82,7 @@ dist/                Built bundle (committed, self-contained)
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
 - Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
-- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, no sessions yet)
+- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume)
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
@@ -564,12 +564,12 @@ Implementation notes:
 - `SessionStore` in `src/sessions.ts` reads/writes `~/.config/phone-a-friend/sessions.db`
 - Sessions are capped at 100, oldest by last-used are pruned on overflow
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
-- Antigravity: sessions unsupported for now (`resumeStrategy: unsupported`); PaF rejects `--session` and `--backend-session`.
+- Antigravity: server-assigned ID captured from `conversation_id` in `--output-format json` output; resume with `--conversation <id>`.
 - Gemini: `--session-id <uuid>` on start, `--resume <uuid>` on resume. UUID generated client-side (mirrors Claude). Never `--resume latest`, so a label always maps to one conversation.
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
 - Ollama: stateless replay (full history prepended to each request)
-- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Codex, Claude, Gemini, OpenCode)
-- `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call (currently Antigravity)
+- `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Antigravity, Codex, Claude, Gemini, OpenCode)
+- `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call
 - An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
 - Streaming is disabled when `--session` or `--backend-session` is active
 

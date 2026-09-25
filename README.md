@@ -203,7 +203,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work reliably with Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations). Antigravity is one-shot only in this release, so `--session` is rejected for `--to antigravity`.
+Sessions work with Antigravity, Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations).
 
 ### Claude peer messaging
 
@@ -453,7 +453,7 @@ Antigravity notes:
 - Antigravity is read-only only for now. Plain `--to antigravity` calls resolve
   to `read-only`; explicit write sandboxes such as `--sandbox workspace-write`
   are rejected.
-- `--session` and `--backend-session` are not supported yet.
+- `--session` and `--backend-session` resume the Antigravity conversation.
 - If Gemini CLI says individual Google sign-in is no longer supported, use `--to antigravity` for the Google subscription path or use Gemini CLI with an API key/Vertex flow.
 
 OpenCode configuration via TOML:
