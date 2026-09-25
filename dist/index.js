@@ -75034,6 +75034,7 @@ var init_agentic = __esm({
 init_backends();
 var ANTIGRAVITY_COMMAND = BACKEND_COMMANDS.antigravity ?? "agy";
 var OUTER_TIMEOUT_GRACE_SECONDS = 15;
+var PRINT_TIMEOUT_PATTERN = /print timeout after/;
 var AntigravityBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -75080,8 +75081,9 @@ var AntigravityBackend = class {
         cwd: opts.repoPath,
         label: "antigravity"
       });
+      const host = opts.env.PHONE_A_FRIEND_HOST ?? "";
       if (!result.stdout) {
-        throw new AntigravityBackendError("antigravity completed without producing output");
+        throw emptyOutputError("antigravity completed without producing output", result.stderr, host);
       }
       if (opts.persistSession || opts.resumeSession) {
         let payload;
@@ -75091,17 +75093,25 @@ var AntigravityBackend = class {
           throw new AntigravityBackendError("Antigravity returned invalid session JSON");
         }
         if (payload?.status !== "SUCCESS") {
-          const detail = typeof payload?.response === "string" ? payload.response.trim() : "";
+          const detail = [payload?.response, payload?.error, payload?.message].find((value) => typeof value === "string" && value.trim())?.trim() ?? "";
           throw new AntigravityBackendError(
             `Antigravity session failed with status: ${payload?.status ?? "missing"}` + (detail ? `: ${detail}` : "")
           );
         }
         if (typeof payload.response !== "string" || !payload.response.trim()) {
-          throw new AntigravityBackendError("Antigravity session completed without producing a response");
+          throw emptyOutputError("Antigravity session completed without producing a response", result.stderr, host);
         }
-        if (typeof payload.conversation_id === "string" && payload.conversation_id.trim()) {
-          opts.onSessionCreated?.(payload.conversation_id);
+        const conversationId = typeof payload.conversation_id === "string" ? payload.conversation_id.trim() : "";
+        if (!conversationId) {
+          throw new AntigravityBackendError("Antigravity session completed without a conversation_id");
         }
+        if (opts.resumeSession && opts.sessionId && conversationId !== opts.sessionId) {
+          throw new AntigravityBackendError(
+            `Antigravity did not resume conversation ${opts.sessionId}; it started ${conversationId} instead.` + (result.stderr.trim() ? `
+stderr: ${result.stderr.trim()}` : "")
+          );
+        }
+        opts.onSessionCreated?.(conversationId);
         return payload.response;
       }
       return result.stdout;
@@ -75162,6 +75172,14 @@ function injectSchemaPrompt(prompt, schema) {
 
 Respond with JSON only. The response must match this JSON Schema exactly:
 ${schema}`;
+}
+function emptyOutputError(message, stderr, host) {
+  const detail = stderr.trim();
+  if (!detail) return new AntigravityBackendError(message);
+  const remediation = PRINT_TIMEOUT_PATTERN.test(detail) ? `
+${antigravityTimeoutRemediation(host)}` : "";
+  return new AntigravityBackendError(`${message}
+stderr: ${detail}${remediation}`);
 }
 function formatAntigravitySpawnError(err) {
   const lines = [`Antigravity exited with code ${err.exitCode ?? "unknown"}.`];

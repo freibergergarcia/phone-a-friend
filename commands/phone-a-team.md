@@ -44,6 +44,8 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
 
 Sandbox mapping for direct mode:
+- **Antigravity**: always `--sandbox --mode plan` (read-only). Antigravity
+  has no write mode; see Step 6.
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
   `--sandbox workspace-write`)
 - **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
@@ -241,15 +243,14 @@ version to the user (e.g., when explaining why a flag was rejected).
 
 ## Step 2 — Preflight Check
 
-Verify that the requested backend(s) are installed and available. For
-`--backend antigravity`, check `command -v agy`; if missing, abort and ask
-the user to install the Antigravity CLI.
+Verify that the requested backend(s) are installed and available.
 
-### CLI backends (codex, gemini)
+### CLI backends (antigravity, codex, gemini)
 
 Run these checks using `command -v`:
 
 ```bash
+command -v agy     # check if the Antigravity CLI is available
 command -v codex   # check if codex CLI is available
 command -v gemini  # check if gemini CLI is available
 ```
@@ -961,6 +962,9 @@ task requires writes.
   OpenCode review or other read-only round, add this explicit instruction
   to the relay prompt: "Do not modify files. Review or advise only." This is
   a behavioral instruction, not a sandbox guarantee.
+- Antigravity is read-only only: PaF rejects `--sandbox workspace-write`
+  for it. Never escalate its sandbox. On write tasks, Antigravity advises
+  and the lead applies the file changes.
 - If the task asks to **create or modify files** (e.g., "create .md files
   under /architecture", "refactor the backend", "apply these changes"),
   the relay call MUST use `--sandbox workspace-write` so the backend writes

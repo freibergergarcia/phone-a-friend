@@ -120,6 +120,9 @@ describe('AntigravityBackend', () => {
     [JSON.stringify({ status: 'SUCCESS', response: '' }), 'without producing a response'],
     [JSON.stringify({ status: 'SUCCESS', response: '   ' }), 'without producing a response'],
     [JSON.stringify({ status: 'SUCCESS' }), 'without producing a response'],
+    [JSON.stringify({ status: 'ERROR', error: 'quota exceeded' }), 'status: ERROR: quota exceeded'],
+    [JSON.stringify({ status: 'SUCCESS', response: 'ok' }), 'without a conversation_id'],
+    [JSON.stringify({ status: 'SUCCESS', response: 'ok', conversation_id: ' ' }), 'without a conversation_id'],
   ])('rejects invalid session output %s', async (stdout, message) => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
     mockSpawn.mockImplementation(() => fakeChild(0, stdout));
@@ -157,6 +160,48 @@ describe('AntigravityBackend', () => {
       model: null,
       timeoutSeconds: 60,
     })).toThrow(AntigravityBackendError);
+  });
+
+  it('refuses a resume that started a new conversation', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({
+      conversation_id: 'fresh-thread', status: 'SUCCESS', response: 'OK\n',
+    }), 'warning: conversation "agy-thread" not found\n'));
+    const onSessionCreated = vi.fn();
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 60, env: {}, resumeSession: true, sessionId: 'agy-thread', onSessionCreated,
+    }).catch((err) => err);
+    expect(error).toBeInstanceOf(AntigravityBackendError);
+    expect(error.message).toContain('did not resume conversation agy-thread');
+    expect(error.message).toContain('conversation "agy-thread" not found');
+    expect(onSessionCreated).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [false, ''],
+    [true, JSON.stringify({ conversation_id: 'agy-thread', status: 'SUCCESS', response: '' })],
+  ])('reports agy print timeouts with stderr and remediation (session=%s)', async (persistSession, stdout) => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, stdout,
+      '[agy] print timeout after 3s with turn in progress; returning partial output\n'));
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 3, env: { PHONE_A_FRIEND_HOST: 'codex' }, persistSession,
+    }).catch((err) => err);
+    expect(error).toBeInstanceOf(AntigravityBackendError);
+    expect(error.message).toContain('stderr: [agy] print timeout after 3s');
+    expect(error.message).toContain('danger-full-access');
+  });
+
+  it('appends stderr to empty output without timeout remediation', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, '', 'something odd\n'));
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 60, env: {},
+    }).catch((err) => err);
+    expect(error.message).toBe('antigravity completed without producing output\nstderr: something odd');
   });
 
   it('checks for the agy executable using backend env and runs with cwd set to repo path', async () => {
