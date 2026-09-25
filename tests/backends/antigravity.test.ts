@@ -194,6 +194,38 @@ describe('AntigravityBackend', () => {
     expect(error.message).toContain('danger-full-access');
   });
 
+  it.each([
+    [false, 'Unix began in 1969 at Bell Lab'],
+    [true, JSON.stringify({ conversation_id: 'agy-thread', status: 'SUCCESS', response: 'Unix began in 1969 at Bell Lab' })],
+  ])('rejects partial output cut off by the agy print timeout (session=%s)', async (persistSession, stdout) => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, stdout,
+      '[agy] print timeout after 3s with turn in progress; returning partial output\n'));
+    const onSessionCreated = vi.fn();
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 3, env: {}, persistSession, onSessionCreated,
+    }).catch((err) => err);
+    expect(error).toBeInstanceOf(AntigravityBackendError);
+    expect(error.message).toContain('returned partial output; raise --timeout');
+    expect(error.message).toContain('stderr: [agy] print timeout after 3s');
+    expect(error.message).toContain('Antigravity timed out.');
+    expect(error.message).toMatch(/partial output:\nUnix began in 1969 at Bell Lab$/);
+    expect(onSessionCreated).not.toHaveBeenCalled();
+  });
+
+  it('keeps only the tail of long stderr in errors', async () => {
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+    mockSpawn.mockImplementation(() => fakeChild(0, '', `${'x'.repeat(5000)}END`));
+    const error = await ANTIGRAVITY_BACKEND.run({
+      prompt: 'x', repoPath: '/repo', sandbox: 'read-only', model: null,
+      timeoutSeconds: 60, env: {},
+    }).catch((err) => err);
+    const stderr = error.message.split('stderr: ')[1];
+    expect(stderr).toMatch(/^…x+END$/);
+    expect(stderr.length).toBe(2049);
+  });
+
   it('appends stderr to empty output without timeout remediation', async () => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
     mockSpawn.mockImplementation(() => fakeChild(0, '', 'something odd\n'));

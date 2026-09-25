@@ -75035,6 +75035,7 @@ init_backends();
 var ANTIGRAVITY_COMMAND = BACKEND_COMMANDS.antigravity ?? "agy";
 var OUTER_TIMEOUT_GRACE_SECONDS = 15;
 var PRINT_TIMEOUT_PATTERN = /print timeout after/;
+var STDERR_TAIL_CHARS = 2048;
 var AntigravityBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -75085,6 +75086,9 @@ var AntigravityBackend = class {
       if (!result.stdout) {
         throw emptyOutputError("antigravity completed without producing output", result.stderr, host);
       }
+      if (!opts.persistSession && !opts.resumeSession && PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
+        throw partialTimeoutError(result.stdout, result.stderr, host);
+      }
       if (opts.persistSession || opts.resumeSession) {
         let payload;
         try {
@@ -75101,14 +75105,17 @@ var AntigravityBackend = class {
         if (typeof payload.response !== "string" || !payload.response.trim()) {
           throw emptyOutputError("Antigravity session completed without producing a response", result.stderr, host);
         }
+        if (PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
+          throw partialTimeoutError(payload.response, result.stderr, host);
+        }
         const conversationId = typeof payload.conversation_id === "string" ? payload.conversation_id.trim() : "";
         if (!conversationId) {
           throw new AntigravityBackendError("Antigravity session completed without a conversation_id");
         }
         if (opts.resumeSession && opts.sessionId && conversationId !== opts.sessionId) {
           throw new AntigravityBackendError(
-            `Antigravity did not resume conversation ${opts.sessionId}; it started ${conversationId} instead.` + (result.stderr.trim() ? `
-stderr: ${result.stderr.trim()}` : "")
+            `Antigravity did not resume conversation ${opts.sessionId}; it started ${conversationId} instead.` + (stderrTail(result.stderr) ? `
+stderr: ${stderrTail(result.stderr)}` : "")
           );
         }
         opts.onSessionCreated?.(conversationId);
@@ -75173,13 +75180,26 @@ function injectSchemaPrompt(prompt, schema) {
 Respond with JSON only. The response must match this JSON Schema exactly:
 ${schema}`;
 }
-function emptyOutputError(message, stderr, host) {
+function stderrTail(stderr) {
   const detail = stderr.trim();
+  return detail.length > STDERR_TAIL_CHARS ? `\u2026${detail.slice(-STDERR_TAIL_CHARS)}` : detail;
+}
+function emptyOutputError(message, stderr, host) {
+  const detail = stderrTail(stderr);
   if (!detail) return new AntigravityBackendError(message);
-  const remediation = PRINT_TIMEOUT_PATTERN.test(detail) ? `
+  const remediation = PRINT_TIMEOUT_PATTERN.test(stderr) ? `
 ${antigravityTimeoutRemediation(host)}` : "";
   return new AntigravityBackendError(`${message}
 stderr: ${detail}${remediation}`);
+}
+function partialTimeoutError(partial, stderr, host) {
+  return new AntigravityBackendError(
+    `antigravity hit its print timeout and returned partial output; raise --timeout to allow more time
+stderr: ${stderrTail(stderr)}
+${antigravityTimeoutRemediation(host)}
+partial output:
+${partial}`
+  );
 }
 function formatAntigravitySpawnError(err) {
   const lines = [`Antigravity exited with code ${err.exitCode ?? "unknown"}.`];

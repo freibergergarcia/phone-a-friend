@@ -968,7 +968,7 @@ task requires writes.
 - If the task asks to **create or modify files** (e.g., "create .md files
   under /architecture", "refactor the backend", "apply these changes"),
   the relay call MUST use `--sandbox workspace-write` so the backend writes
-  the files directly.
+  the files directly (except Antigravity; see above).
 - The lead should only review and synthesize — not re-create what the
   backend already produced. The backend does the writing; the lead does
   the reviewing.
