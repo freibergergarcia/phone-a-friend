@@ -78,6 +78,8 @@ export class AntigravityBackend implements Backend {
       );
     }
 
+    // Refuses unsupported non-string enums before anything is spawned.
+    const schemaPlan = opts.schema ? planAntigravitySchema(opts.schema) : null;
     const args = buildAntigravityArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -130,7 +132,18 @@ export class AntigravityBackend implements Backend {
         }
         opts.onSessionCreated?.(conversationId);
       }
-      return opts.schema ? structuredOutputOf(payload) : payload.response;
+      if (!schemaPlan) return payload.response;
+      const structured = structuredOutputOf(payload);
+      if (schemaPlan.droppedEnums.length > 0) {
+        let value: unknown;
+        try {
+          value = JSON.parse(structured);
+        } catch {
+          throw new AntigravityBackendError('Antigravity structured output is not valid JSON');
+        }
+        assertDroppedEnums(value, schemaPlan.droppedEnums);
+      }
+      return structured;
     } catch (err) {
       if (err instanceof AntigravityBackendError) throw err;
       if (err instanceof SpawnCliTimeoutError) {
@@ -260,34 +273,110 @@ export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
   return args;
 }
 
+/** A non-string enum PaF removed from the schema sent to agy, and where it applied. */
+export interface DroppedEnum {
+  /** JSON path segments from the root: a property name, or '[]' for every array item. */
+  path: string[];
+  values: unknown[];
+}
+
+export interface AntigravitySchemaPlan {
+  schema: string;
+  droppedEnums: DroppedEnum[];
+}
+
+const UNSUPPORTED_ENUM_CONTAINERS = new Set(['anyOf', 'oneOf', 'allOf', 'not', 'if', 'then', 'else', 'patternProperties', 'additionalProperties', 'prefixItems', 'dependentSchemas', '$defs', 'definitions']);
+
 /**
  * The Gemini API behind agy accepts `enum` only with string values; an
  * integer enum such as the verdict envelope's `schema_version: [1]` fails the
- * whole request with INVALID_ARGUMENT (verified on 1.2.11). Drop non-string
- * enums recursively and leave everything else as written. PaF validates the
- * parsed value afterwards, so nothing is lost. Unparseable text is returned
- * as is so agy produces the error.
+ * whole request with INVALID_ARGUMENT (verified on 1.2.11). Remove non-string
+ * enums from what is sent, remember where they were, and enforce them on the
+ * returned value ourselves (see `assertDroppedEnums`), so the caller's schema
+ * contract still holds. An enum under a combinator (`anyOf`, `oneOf`, ...)
+ * cannot be mapped back to one path, so such schemas are refused up front
+ * rather than silently weakened. Unparseable text is passed through for agy
+ * to report.
  */
-export function sanitizeAntigravitySchema(schema: string): string {
+export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
   let parsed: unknown;
   try {
     parsed = JSON.parse(schema);
   } catch {
-    return schema;
+    return { schema, droppedEnums: [] };
   }
-  const strip = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(strip);
-    if (node && typeof node === 'object') {
-      const out: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-        if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) continue;
-        out[key] = strip(value);
+  const droppedEnums: DroppedEnum[] = [];
+  const walk = (node: unknown, path: string[], underUnsupported: string | null): unknown => {
+    if (Array.isArray(node)) return node.map((item) => walk(item, path, underUnsupported));
+    if (!node || typeof node !== 'object') return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) {
+        if (underUnsupported) {
+          throw new AntigravityBackendError(
+            `Antigravity cannot enforce the non-string enum at $.${path.join('.') || '<root>'} because it sits under ` +
+              `\`${underUnsupported}\`, which PaF cannot map back to the response. Use a string enum or restructure the schema.`,
+          );
+        }
+        droppedEnums.push({ path: [...path], values: value });
+        continue;
       }
-      return out;
+      if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+        const props: Record<string, unknown> = {};
+        for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
+          props[name] = walk(sub, [...path, name], underUnsupported);
+        }
+        out[key] = props;
+        continue;
+      }
+      if (key === 'items' && value && typeof value === 'object' && !Array.isArray(value)) {
+        out[key] = walk(value, [...path, '[]'], underUnsupported);
+        continue;
+      }
+      out[key] = walk(value, path, UNSUPPORTED_ENUM_CONTAINERS.has(key) ? key : underUnsupported);
     }
-    return node;
+    return out;
   };
-  return JSON.stringify(strip(parsed));
+  const sanitized = walk(parsed, [], null);
+  return { schema: JSON.stringify(sanitized), droppedEnums };
+}
+
+/** The schema text actually sent to agy. */
+export function sanitizeAntigravitySchema(schema: string): string {
+  return planAntigravitySchema(schema).schema;
+}
+
+function isEnumMember(value: unknown, allowed: unknown[]): boolean {
+  return allowed.some((candidate) => Object.is(candidate, value) || JSON.stringify(candidate) === JSON.stringify(value));
+}
+
+/** Enforce every enum PaF removed before sending, against the returned value. */
+export function assertDroppedEnums(value: unknown, dropped: DroppedEnum[]): void {
+  for (const entry of dropped) {
+    const visit = (node: unknown, index: number, at: string[]): void => {
+      if (index === entry.path.length) {
+        if (!isEnumMember(node, entry.values)) {
+          const where = at.length ? `$${at.map((s) => (s.startsWith('[') ? s : `.${s}`)).join('')}` : '$';
+          throw new AntigravityBackendError(
+            `Antigravity structured output violates the schema at ${where}: got ${JSON.stringify(node)}, ` +
+              `expected one of ${JSON.stringify(entry.values)}.`,
+          );
+        }
+        return;
+      }
+      const segment = entry.path[index];
+      if (segment === '[]') {
+        if (!Array.isArray(node)) return;
+        node.forEach((item, i) => visit(item, index + 1, [...at, `[${i}]`]));
+        return;
+      }
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      const record = node as Record<string, unknown>;
+      if (!(segment in record)) return;
+      visit(record[segment], index + 1, [...at, segment]);
+    };
+    visit(value, 0, []);
+  }
 }
 
 function stderrTail(stderr: string): string {

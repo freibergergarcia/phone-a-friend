@@ -75078,6 +75078,7 @@ ${prompt}`;
         `Antigravity CLI not found in PATH. Install it: ${INSTALL_HINTS.antigravity}`
       );
     }
+    const schemaPlan = opts.schema ? planAntigravitySchema(opts.schema) : null;
     const args = buildAntigravityArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -75122,7 +75123,18 @@ stderr: ${stderrTail(result.stderr)}` : "")
         }
         opts.onSessionCreated?.(conversationId);
       }
-      return opts.schema ? structuredOutputOf(payload) : payload.response;
+      if (!schemaPlan) return payload.response;
+      const structured = structuredOutputOf(payload);
+      if (schemaPlan.droppedEnums.length > 0) {
+        let value;
+        try {
+          value = JSON.parse(structured);
+        } catch {
+          throw new AntigravityBackendError("Antigravity structured output is not valid JSON");
+        }
+        assertDroppedEnums(value, schemaPlan.droppedEnums);
+      }
+      return structured;
     } catch (err) {
       if (err instanceof AntigravityBackendError) throw err;
       if (err instanceof SpawnCliTimeoutError) {
@@ -75207,26 +75219,79 @@ function buildAntigravityArgs(opts) {
   args.push("--prompt", opts.prompt);
   return args;
 }
-function sanitizeAntigravitySchema(schema) {
+var UNSUPPORTED_ENUM_CONTAINERS = /* @__PURE__ */ new Set(["anyOf", "oneOf", "allOf", "not", "if", "then", "else", "patternProperties", "additionalProperties", "prefixItems", "dependentSchemas", "$defs", "definitions"]);
+function planAntigravitySchema(schema) {
   let parsed;
   try {
     parsed = JSON.parse(schema);
   } catch {
-    return schema;
+    return { schema, droppedEnums: [] };
   }
-  const strip = (node) => {
-    if (Array.isArray(node)) return node.map(strip);
-    if (node && typeof node === "object") {
-      const out = {};
-      for (const [key, value] of Object.entries(node)) {
-        if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) continue;
-        out[key] = strip(value);
+  const droppedEnums = [];
+  const walk = (node, path4, underUnsupported) => {
+    if (Array.isArray(node)) return node.map((item) => walk(item, path4, underUnsupported));
+    if (!node || typeof node !== "object") return node;
+    const out = {};
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) {
+        if (underUnsupported) {
+          throw new AntigravityBackendError(
+            `Antigravity cannot enforce the non-string enum at $.${path4.join(".") || "<root>"} because it sits under \`${underUnsupported}\`, which PaF cannot map back to the response. Use a string enum or restructure the schema.`
+          );
+        }
+        droppedEnums.push({ path: [...path4], values: value });
+        continue;
       }
-      return out;
+      if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+        const props = {};
+        for (const [name, sub] of Object.entries(value)) {
+          props[name] = walk(sub, [...path4, name], underUnsupported);
+        }
+        out[key] = props;
+        continue;
+      }
+      if (key === "items" && value && typeof value === "object" && !Array.isArray(value)) {
+        out[key] = walk(value, [...path4, "[]"], underUnsupported);
+        continue;
+      }
+      out[key] = walk(value, path4, UNSUPPORTED_ENUM_CONTAINERS.has(key) ? key : underUnsupported);
     }
-    return node;
+    return out;
   };
-  return JSON.stringify(strip(parsed));
+  const sanitized = walk(parsed, [], null);
+  return { schema: JSON.stringify(sanitized), droppedEnums };
+}
+function sanitizeAntigravitySchema(schema) {
+  return planAntigravitySchema(schema).schema;
+}
+function isEnumMember(value, allowed) {
+  return allowed.some((candidate) => Object.is(candidate, value) || JSON.stringify(candidate) === JSON.stringify(value));
+}
+function assertDroppedEnums(value, dropped) {
+  for (const entry of dropped) {
+    const visit = (node, index, at) => {
+      if (index === entry.path.length) {
+        if (!isEnumMember(node, entry.values)) {
+          const where = at.length ? `$${at.map((s) => s.startsWith("[") ? s : `.${s}`).join("")}` : "$";
+          throw new AntigravityBackendError(
+            `Antigravity structured output violates the schema at ${where}: got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`
+          );
+        }
+        return;
+      }
+      const segment = entry.path[index];
+      if (segment === "[]") {
+        if (!Array.isArray(node)) return;
+        node.forEach((item, i) => visit(item, index + 1, [...at, `[${i}]`]));
+        return;
+      }
+      if (!node || typeof node !== "object" || Array.isArray(node)) return;
+      const record = node;
+      if (!(segment in record)) return;
+      visit(record[segment], index + 1, [...at, segment]);
+    };
+    visit(value, 0, []);
+  }
 }
 function stderrTail(stderr) {
   const detail = stderr.trim();

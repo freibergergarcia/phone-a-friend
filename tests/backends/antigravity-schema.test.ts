@@ -185,6 +185,52 @@ describe('Antigravity schema sanitising', () => {
   });
 });
 
+describe('Antigravity enforces dropped enums after the response', () => {
+  const numericSchema = '{"type":"object","properties":{"v":{"type":"integer","enum":[1,2]},"items":{"type":"array","items":{"type":"object","properties":{"flag":{"type":"boolean","enum":[true]}}}}},"required":["v"]}';
+  const opts = { ...baseOpts, schema: numericSchema };
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    mockSpawn.mockReset();
+    mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
+  });
+
+  it('accepts a response that satisfies every dropped enum', async () => {
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({
+      ...LIVE_ENVELOPE, structured_output: { v: 2, items: [{ flag: true }, { flag: true }] },
+    })));
+    expect(await ANTIGRAVITY_BACKEND.run(opts)).toBe('{"v":2,"items":[{"flag":true},{"flag":true}]}');
+  });
+
+  it('rejects a response that violates a dropped enum at the top level', async () => {
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { v: 3 } })));
+    const err = await ANTIGRAVITY_BACKEND.run(opts).catch((e) => e);
+    expect(err).toBeInstanceOf(AntigravityBackendError);
+    expect(err.message).toMatch(/structured output.*\$\.v/);
+    expect(err.message).toContain('3');
+  });
+
+  it('rejects a violation inside an array item', async () => {
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({
+      ...LIVE_ENVELOPE, structured_output: { v: 1, items: [{ flag: true }, { flag: false }] },
+    })));
+    await expect(ANTIGRAVITY_BACKEND.run(opts)).rejects.toThrow(/\$\.items\[1\]\.flag/);
+  });
+
+  it('refuses, before spawning, a schema whose non-string enum it could not enforce', async () => {
+    const schema = '{"type":"object","properties":{"v":{"anyOf":[{"type":"integer","enum":[1]},{"type":"string"}]}}}';
+    await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(/anyOf/);
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('leaves string enums to the native enforcement and never re-checks them', async () => {
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
+    const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';
+    // Not PaF's job: agy enforces string enums natively; PaF only guards what it removed.
+    expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"verdict":"nonsense"}');
+  });
+});
+
 describe('Antigravity headless prompt preamble', () => {
   it('prefixes the no-shell instruction for relay and review', () => {
     const prepared = ANTIGRAVITY_BACKEND.preparePrompt!('Request:\nreview this', { mode: 'review' });
