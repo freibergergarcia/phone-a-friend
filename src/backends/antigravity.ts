@@ -285,7 +285,17 @@ export interface AntigravitySchemaPlan {
   droppedEnums: DroppedEnum[];
 }
 
-const UNSUPPORTED_ENUM_CONTAINERS = new Set(['anyOf', 'oneOf', 'allOf', 'not', 'if', 'then', 'else', 'patternProperties', 'additionalProperties', 'prefixItems', 'dependentSchemas', '$defs', 'definitions']);
+/**
+ * Subschema keywords whose enums cannot be mapped back to one response path.
+ * Only `properties.<name>` and `items` paths are enforceable; an enum found
+ * under any of these is refused before spawning.
+ */
+const UNSUPPORTED_ENUM_CONTAINERS = new Set([
+  'anyOf', 'oneOf', 'allOf', 'not', 'if', 'then', 'else',
+  'contains', 'prefixItems', 'additionalItems', 'unevaluatedItems',
+  'patternProperties', 'additionalProperties', 'propertyNames', 'unevaluatedProperties',
+  'dependentSchemas', 'dependencies', '$defs', 'definitions',
+]);
 
 /**
  * The Gemini API behind agy accepts `enum` only with string values; an

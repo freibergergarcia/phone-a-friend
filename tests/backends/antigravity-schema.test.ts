@@ -223,6 +223,17 @@ describe('Antigravity enforces dropped enums after the response', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['contains', '{"type":"array","contains":{"type":"integer","enum":[1]}}'],
+    ['patternProperties', '{"type":"object","patternProperties":{"^x":{"type":"integer","enum":[1]}}}'],
+    ['additionalProperties', '{"type":"object","additionalProperties":{"type":"integer","enum":[1]}}'],
+    ['prefixItems', '{"type":"array","prefixItems":[{"type":"integer","enum":[1]}]}'],
+    ['$defs', '{"$defs":{"v":{"type":"integer","enum":[1]}},"type":"object"}'],
+  ])('refuses a non-string enum under %s before spawning', async (keyword, schema) => {
+    await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(new RegExp(keyword.replace('$', '\\$')));
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
   it('leaves string enums to the native enforcement and never re-checks them', async () => {
     mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
     const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';
