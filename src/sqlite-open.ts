@@ -32,13 +32,19 @@ export interface OpenDatabaseOptions {
   maxAttempts?: number;
   /** Inclusive [min, max] sleep between attempts in ms. Default [25, 75]. */
   delayMs?: [number, number];
+  /** Connection factory; only tests replace it, to force open-time contention. */
+  open?: (path: string) => SqliteHandle;
 }
 
-const RETRYABLE = new Set(['SQLITE_BUSY', 'SQLITE_LOCKED']);
-
-function isLockContention(err: unknown): boolean {
+/**
+ * better-sqlite3 reports extended result codes as their names, e.g.
+ * SQLITE_BUSY_SNAPSHOT or SQLITE_LOCKED_SHAREDCACHE. Every BUSY and LOCKED
+ * variant means another connection holds a lock, so match on the base code.
+ */
+export function isLockContention(err: unknown): boolean {
   const code = (err as { code?: unknown })?.code;
-  return typeof code === 'string' && RETRYABLE.has(code);
+  return typeof code === 'string' && (code === 'SQLITE_BUSY' || code.startsWith('SQLITE_BUSY_')
+    || code === 'SQLITE_LOCKED' || code.startsWith('SQLITE_LOCKED_'));
 }
 
 /** Synchronous sleep: the store constructors are synchronous. */
@@ -59,16 +65,21 @@ export function openDatabase(
   const maxAttempts = Math.max(1, opts.maxAttempts ?? 20);
   const [minDelay, maxDelay] = opts.delayMs ?? [25, 75];
   mkdirSync(dirname(path), { recursive: true });
-  const Database = getDatabase();
+  const open = opts.open ?? ((p: string) => new (getDatabase())(p));
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const db = new Database(path);
+    // Opening the file can itself report contention, so it is inside the
+    // retry boundary; only a handle that was actually created gets closed.
+    let db: SqliteHandle | null = null;
     try {
+      db = open(path);
       init(db);
       return db;
     } catch (err) {
-      try { db.close(); } catch { /* the handle is being discarded */ }
+      if (db) {
+        try { db.close(); } catch { /* the handle is being discarded */ }
+      }
       if (!isLockContention(err)) throw err;
       lastError = err;
       if (attempt < maxAttempts) {

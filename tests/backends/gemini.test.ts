@@ -324,14 +324,18 @@ describe('GeminiBackend', () => {
     ).rejects.toThrow(/without producing output/);
   });
 
-  it('always passes --yolo flag', async () => {
+  it('auto-approves through the flag that matches each sandbox', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
 
-    // Every sandbox auto-approves in headless mode: read-only through
-    // --approval-mode plan, danger-full-access through --yolo.
+    // Every sandbox auto-approves in headless mode, each through its own
+    // flag: read-only via --approval-mode plan, danger-full-access via --yolo.
+    const expected: Record<string, string[]> = {
+      'read-only': ['--approval-mode', 'plan'],
+      'danger-full-access': ['--yolo'],
+    };
     for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
       let capturedArgs: string[] = [];
       mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
@@ -348,7 +352,8 @@ describe('GeminiBackend', () => {
         env: {},
       });
 
-      expect(capturedArgs.includes('--yolo') || capturedArgs.includes('--approval-mode')).toBe(true);
+      expect(capturedArgs).toEqual(expect.arrayContaining(expected[sandbox]));
+      expect(capturedArgs.includes('--yolo')).toBe(sandbox === 'danger-full-access');
     }
   });
 });

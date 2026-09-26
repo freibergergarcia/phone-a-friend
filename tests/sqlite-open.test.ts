@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDatabase, type SqliteHandle } from '../src/sqlite-open.js';
+import { isLockContention, openDatabase, type SqliteHandle } from '../src/sqlite-open.js';
 
 function busy(code = 'SQLITE_BUSY'): Error & { code: string } {
   return Object.assign(new Error(`${code}: database is locked`), { code });
@@ -58,6 +60,34 @@ describe('openDatabase()', () => {
     expect(() => openDatabase(path, init, { maxAttempts: 4, delayMs: [0, 1] })).toThrow(/database is locked/);
     expect(handles).toHaveLength(4);
     expect(handles.every((h) => h.open === false)).toBe(true);
+    rmSync(join(path, '..'), { recursive: true, force: true });
+  });
+
+  it('treats extended BUSY and LOCKED result codes as contention', () => {
+    for (const code of ['SQLITE_BUSY', 'SQLITE_BUSY_RECOVERY', 'SQLITE_BUSY_SNAPSHOT', 'SQLITE_BUSY_TIMEOUT', 'SQLITE_LOCKED', 'SQLITE_LOCKED_SHAREDCACHE']) {
+      expect(isLockContention(busy(code))).toBe(true);
+    }
+    for (const code of ['SQLITE_CORRUPT', 'SQLITE_CANTOPEN', 'SQLITE_IOERR_LOCK', 'ENOENT']) {
+      expect(isLockContention(busy(code))).toBe(false);
+    }
+    expect(isLockContention(new Error('no code'))).toBe(false);
+  });
+
+  it('retries when opening the file itself reports contention', () => {
+    const path = tempDb();
+    let opens = 0;
+    const Database = require('better-sqlite3');
+    const open = (p: string) => {
+      opens += 1;
+      if (opens < 3) throw busy('SQLITE_BUSY');
+      return new Database(p);
+    };
+    const init = vi.fn((db: SqliteHandle) => { db.pragma('journal_mode = WAL'); });
+    const db = openDatabase(path, init, { open, maxAttempts: 5, delayMs: [0, 1] });
+    expect(opens).toBe(3);
+    expect(init).toHaveBeenCalledTimes(1);
+    expect(db.open).toBe(true);
+    db.close();
     rmSync(join(path, '..'), { recursive: true, force: true });
   });
 
