@@ -4,27 +4,20 @@
  * One SQLite file at ~/.config/phone-a-friend/tasks.db (XDG_CONFIG_HOME honored).
  * WAL mode plus a busy timeout let separate PaF processes write concurrently
  * without losing each other's records, which the JSON job store cannot do.
+ * The first open of a fresh database (WAL switch plus schema) is retried on
+ * lock contention by openDatabase(), because SQLite returns SQLITE_BUSY for
+ * that switch without waiting on the busy handler.
  *
  * Retention is a product choice made by the caller (see task-tracking.ts):
  * this store persists whatever it is handed and nothing more.
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { openDatabase } from './sqlite-open.js';
 import { randomUUID } from 'node:crypto';
 
-// Lazy-load better-sqlite3 (native addon can't be bundled by tsup).
-// Uses the `require` shim injected by tsup's banner (createRequire).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _Database: any;
-function getDatabase() {
-  if (!_Database) {
-    _Database = require('better-sqlite3');
-  }
-  return _Database;
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -301,13 +294,14 @@ export class TaskStore {
 
   constructor(dbPath?: string) {
     const path = dbPath ?? defaultTaskDbPath();
-    mkdirSync(dirname(path), { recursive: true });
-    const Database = getDatabase();
-    this.db = new Database(path);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA);
+    // The WAL switch and the schema race other PaF processes on a fresh
+    // database; openDatabase retries the whole sequence on lock contention.
+    this.db = openDatabase(path, (db) => {
+      db.pragma('busy_timeout = 5000');
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      db.exec(SCHEMA);
+    });
   }
 
   close(): void {

@@ -230,6 +230,19 @@ export class GeminiBackend implements Backend {
         }
         throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
       }
+      if (err instanceof SpawnCliError && isIneligibleTierError(err.stderr)) {
+        throw new GeminiBackendError(
+          `${err.stderr.trim()}\n` +
+            'Gemini CLI no longer serves individual Google sign-in. Set GEMINI_API_KEY (or a Vertex ' +
+            'project) to keep using --to gemini, or use --to antigravity for the Google subscription path.',
+        );
+      }
+      if (err instanceof SpawnCliError && isUnknownApprovalModeError(err.stderr)) {
+        throw new GeminiBackendError(
+          'The installed Gemini CLI does not support `--approval-mode`, which PaF uses to keep ' +
+            `read-only relays read-only. Upgrade it (\`${INSTALL_HINTS.gemini}\`).`,
+        );
+      }
       // A resume/start was requested but the installed Gemini CLI rejects the
       // session flags. Surface an actionable upgrade hint instead of failing
       // closed AND silently — and never fall back to a fresh spawn, which
@@ -280,8 +293,17 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
     args.push('--sandbox');
   }
 
-  // Auto-approve tool actions in headless mode (--sandbox constrains scope)
-  args.push('--yolo');
+  // Tool approval per sandbox. Gemini CLI documents `plan` as read-only mode
+  // and `auto_edit` as auto-approving edits; `--yolo` (deprecated alias of
+  // `--approval-mode yolo`) is kept for danger-full-access only. PaF used to
+  // send `--yolo` for every sandbox, so read-only was not read-only.
+  if (opts.sandbox === 'read-only') {
+    args.push('--approval-mode', 'plan');
+  } else if (opts.sandbox === 'workspace-write') {
+    args.push('--approval-mode', 'auto_edit');
+  } else {
+    args.push('--yolo');
+  }
   args.push('--include-directories', opts.repoPath);
   args.push('--output-format', opts.useJsonOutput ? 'json' : 'text');
 
@@ -308,6 +330,20 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
  * session having been requested by the caller, so this never masks unrelated
  * argument errors.
  */
+/**
+ * Exact markers of the retired individual-account path (captured from
+ * gemini 0.50.0, 2026-09-26). Anything else in stderr passes through.
+ */
+function isIneligibleTierError(stderr: string): boolean {
+  return stderr.includes('IneligibleTierError')
+    || stderr.includes('no longer supported for Gemini Code Assist');
+}
+
+function isUnknownApprovalModeError(stderr: string): boolean {
+  const text = stderr.toLowerCase();
+  return /unknown argument|unknown option|unrecognized/.test(text) && text.includes('approval-mode');
+}
+
 function isUnknownSessionFlagError(stderr: string): boolean {
   const text = stderr.toLowerCase();
   if (!/unknown argument|unknown option|unrecognized/.test(text)) return false;

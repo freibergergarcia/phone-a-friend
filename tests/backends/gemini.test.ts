@@ -92,7 +92,9 @@ describe('GeminiBackend', () => {
 
     expect(result).toBe('Gemini feedback');
     expect(capturedArgs).toContain('--sandbox');
-    expect(capturedArgs).toContain('--yolo');
+    // read-only maps to Gemini's read-only approval mode; --yolo only on danger-full-access
+    expect(capturedArgs).toContain('--approval-mode');
+    expect(capturedArgs).not.toContain('--yolo');
     expect(capturedArgs).toContain('--include-directories');
     expect(capturedArgs).toContain('/tmp/repo');
     expect(capturedArgs).toContain('--output-format');
@@ -328,7 +330,8 @@ describe('GeminiBackend', () => {
       throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
 
-    // Test with both sandbox modes to confirm --yolo is always present
+    // Every sandbox auto-approves in headless mode: read-only through
+    // --approval-mode plan, danger-full-access through --yolo.
     for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
       let capturedArgs: string[] = [];
       mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
@@ -345,7 +348,7 @@ describe('GeminiBackend', () => {
         env: {},
       });
 
-      expect(capturedArgs).toContain('--yolo');
+      expect(capturedArgs.includes('--yolo') || capturedArgs.includes('--approval-mode')).toBe(true);
     }
   });
 });

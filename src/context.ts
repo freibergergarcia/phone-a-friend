@@ -14,6 +14,6 @@ export interface RelayContext {
   repoPath: string;
   includeDiff: boolean;
   prompt: string;
-  contextFile: string | null;
+  contextFile: string | string[] | null;
   contextText: string | null;
 }
