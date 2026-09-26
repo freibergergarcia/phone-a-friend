@@ -445,5 +445,40 @@ describe('OpenCode backend', () => {
       await OPENCODE_BACKEND.run(withPath());
       expect(spawnedArgs()).toEqual(['run', '--format', 'json', 'Review this code']);
     });
+
+    it('backends.opencode.standalone = true in config.toml reaches run(), runStream() and review() on 2.x and is dropped on 1.x', async () => {
+      // A real TOML file read through loadConfig(): this pins the config-to-spawn
+      // path end to end, not only the argument builder.
+      mkdirSync(join(stubRoot, 'phone-a-friend'));
+      writeFileSync(join(stubRoot, 'phone-a-friend', 'config.toml'), '[backends.opencode]\nstandalone = true\n');
+      vi.stubEnv('XDG_CONFIG_HOME', stubRoot);
+      try {
+        mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+        stubVersion('opencode v2.0.14');
+        mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+        await OPENCODE_BACKEND.run(withPath());
+        expect(spawnedArgs()).toEqual(['run', '--format', 'json', '--standalone', 'Review this code']);
+
+        mockSpawn.mockReset();
+        mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+        for await (const _chunk of OPENCODE_BACKEND.runStream!(withPath())) { /* drain */ }
+        expect(spawnedArgs()).toContain('--standalone');
+
+        mockSpawn.mockReset();
+        mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+        await OPENCODE_BACKEND.review!({ ...withPath(), base: 'main' });
+        expect(spawnedArgs()).toContain('--standalone');
+
+        // 1.x has no --standalone; the setting must not leak into its argument vector.
+        mockSpawn.mockReset();
+        _resetOpenCodeMajorCache();
+        stubVersion('1.18.32');
+        mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+        await OPENCODE_BACKEND.run(withPath());
+        expect(spawnedArgs()).toEqual(['run', '--format', 'json', '--dir', '/tmp/repo', 'Review this code']);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 });
