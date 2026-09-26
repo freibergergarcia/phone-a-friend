@@ -75219,6 +75219,14 @@ function buildAntigravityArgs(opts) {
   args.push("--prompt", opts.prompt);
   return args;
 }
+function renderEnumPath(path4, indices) {
+  let out = "$";
+  let i = 0;
+  for (const segment of path4) {
+    out += segment.kind === "items" ? `[${indices[i++]}]` : `.${segment.name}`;
+  }
+  return out;
+}
 function containsNonStringEnum(node) {
   if (Array.isArray(node)) return node.some(containsNonStringEnum);
   if (!node || typeof node !== "object") return false;
@@ -75247,18 +75255,18 @@ function planAntigravitySchema(schema) {
       if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
         const props = /* @__PURE__ */ Object.create(null);
         for (const [name, sub] of Object.entries(value)) {
-          props[name] = walk(sub, [...path4, name]);
+          props[name] = walk(sub, [...path4, { kind: "property", name }]);
         }
         out[key] = props;
         continue;
       }
       if (key === "items" && value && typeof value === "object" && !Array.isArray(value)) {
-        out[key] = walk(value, [...path4, "[]"]);
+        out[key] = walk(value, [...path4, { kind: "items" }]);
         continue;
       }
       if (containsNonStringEnum(value)) {
         throw new AntigravityBackendError(
-          `Antigravity cannot enforce the non-string enum under \`${key}\` at $.${path4.join(".") || "<root>"}: only enums directly under \`properties.<name>\` or an object-form \`items\` can be checked on the response. Use a string enum or restructure the schema.`
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path4, [])}: only enums directly under \`properties.<name>\` or an object-form \`items\` can be checked on the response. Use a string enum or restructure the schema.`
         );
       }
       out[key] = value;
@@ -75288,26 +75296,25 @@ function isEnumMember(value, allowed) {
 }
 function assertDroppedEnums(value, dropped) {
   for (const entry of dropped) {
-    const visit = (node, index, at) => {
+    const visit = (node, index, indices) => {
       if (index === entry.path.length) {
         if (!isEnumMember(node, entry.values)) {
-          const where = at.length ? `$${at.map((s) => s.startsWith("[") ? s : `.${s}`).join("")}` : "$";
           throw new AntigravityBackendError(
-            `Antigravity structured output violates the schema at ${where}: got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`
+            `Antigravity structured output violates the schema at ${renderEnumPath(entry.path, indices)}: got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`
           );
         }
         return;
       }
       const segment = entry.path[index];
-      if (segment === "[]") {
+      if (segment.kind === "items") {
         if (!Array.isArray(node)) return;
-        node.forEach((item, i) => visit(item, index + 1, [...at, `[${i}]`]));
+        node.forEach((item, i) => visit(item, index + 1, [...indices, i]));
         return;
       }
       if (!node || typeof node !== "object" || Array.isArray(node)) return;
       const record = node;
-      if (!Object.prototype.hasOwnProperty.call(record, segment)) return;
-      visit(record[segment], index + 1, [...at, segment]);
+      if (!Object.prototype.hasOwnProperty.call(record, segment.name)) return;
+      visit(record[segment.name], index + 1, indices);
     };
     visit(value, 0, []);
   }

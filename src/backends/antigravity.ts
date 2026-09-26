@@ -273,11 +273,22 @@ export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
   return args;
 }
 
+/** One step from the root of the response to a dropped enum: a named member or every array item. */
+export type EnumPathSegment = { kind: 'property'; name: string } | { kind: 'items' };
+
 /** A non-string enum PaF removed from the schema sent to agy, and where it applied. */
 export interface DroppedEnum {
-  /** JSON path segments from the root: a property name, or '[]' for every array item. */
-  path: string[];
+  path: EnumPathSegment[];
   values: unknown[];
+}
+
+function renderEnumPath(path: EnumPathSegment[], indices: number[]): string {
+  let out = '$';
+  let i = 0;
+  for (const segment of path) {
+    out += segment.kind === 'items' ? `[${indices[i++]}]` : `.${segment.name}`;
+  }
+  return out;
 }
 
 export interface AntigravitySchemaPlan {
@@ -318,7 +329,7 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
     return { schema, droppedEnums: [] };
   }
   const droppedEnums: DroppedEnum[] = [];
-  const walk = (node: unknown, path: string[]): unknown => {
+  const walk = (node: unknown, path: EnumPathSegment[]): unknown => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
     // Null-prototype maps: a schema may legally define a property named
     // __proto__, and assigning that key on a plain object would set the
@@ -332,18 +343,18 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
       if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
         const props: Record<string, unknown> = Object.create(null);
         for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
-          props[name] = walk(sub, [...path, name]);
+          props[name] = walk(sub, [...path, { kind: 'property', name }]);
         }
         out[key] = props;
         continue;
       }
       if (key === 'items' && value && typeof value === 'object' && !Array.isArray(value)) {
-        out[key] = walk(value, [...path, '[]']);
+        out[key] = walk(value, [...path, { kind: 'items' }]);
         continue;
       }
       if (containsNonStringEnum(value)) {
         throw new AntigravityBackendError(
-          `Antigravity cannot enforce the non-string enum under \`${key}\` at $.${path.join('.') || '<root>'}: ` +
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path, [])}: ` +
             'only enums directly under `properties.<name>` or an object-form `items` can be checked on the response. ' +
             'Use a string enum or restructure the schema.',
         );
@@ -384,29 +395,28 @@ function isEnumMember(value: unknown, allowed: unknown[]): boolean {
 /** Enforce every enum PaF removed before sending, against the returned value. */
 export function assertDroppedEnums(value: unknown, dropped: DroppedEnum[]): void {
   for (const entry of dropped) {
-    const visit = (node: unknown, index: number, at: string[]): void => {
+    const visit = (node: unknown, index: number, indices: number[]): void => {
       if (index === entry.path.length) {
         if (!isEnumMember(node, entry.values)) {
-          const where = at.length ? `$${at.map((s) => (s.startsWith('[') ? s : `.${s}`)).join('')}` : '$';
           throw new AntigravityBackendError(
-            `Antigravity structured output violates the schema at ${where}: got ${JSON.stringify(node)}, ` +
-              `expected one of ${JSON.stringify(entry.values)}.`,
+            `Antigravity structured output violates the schema at ${renderEnumPath(entry.path, indices)}: ` +
+              `got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`,
           );
         }
         return;
       }
       const segment = entry.path[index];
-      if (segment === '[]') {
+      if (segment.kind === 'items') {
         if (!Array.isArray(node)) return;
-        node.forEach((item, i) => visit(item, index + 1, [...at, `[${i}]`]));
+        node.forEach((item, i) => visit(item, index + 1, [...indices, i]));
         return;
       }
       if (!node || typeof node !== 'object' || Array.isArray(node)) return;
       const record = node as Record<string, unknown>;
       // Own properties only: an omitted optional property named __proto__,
       // constructor or toString must not be "found" on Object.prototype.
-      if (!Object.prototype.hasOwnProperty.call(record, segment)) return;
-      visit(record[segment], index + 1, [...at, segment]);
+      if (!Object.prototype.hasOwnProperty.call(record, segment.name)) return;
+      visit(record[segment.name], index + 1, indices);
     };
     visit(value, 0, []);
   }

@@ -258,6 +258,14 @@ describe('Antigravity enforces dropped enums after the response', () => {
     expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"ok":true}');
   });
 
+  it('does not confuse a property literally named "[]" with array traversal', async () => {
+    const schema = '{"type":"object","properties":{"[]":{"type":"integer","enum":[1]}}}';
+    mockSpawn.mockImplementation(() => fakeChild(0, '{"conversation_id":"c","status":"SUCCESS","response":"x","structured_output":{"[]":2}}'));
+    await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(/\$\.\[\]: got 2/);
+    mockSpawn.mockImplementation(() => fakeChild(0, '{"conversation_id":"c","status":"SUCCESS","response":"x","structured_output":{"[]":1}}'));
+    expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"[]":1}');
+  });
+
   it('leaves string enums to the native enforcement and never re-checks them', async () => {
     mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
     const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';
