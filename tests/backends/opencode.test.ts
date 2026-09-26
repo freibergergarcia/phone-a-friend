@@ -1,19 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { SandboxMode } from '../../src/backends/index.js';
 
-const { mockExecFileSync, mockSpawn } = vi.hoisted(() => ({
+const { mockExecFileSync, mockExecFile, mockSpawn } = vi.hoisted(() => ({
   mockExecFileSync: vi.fn(),
+  mockExecFile: vi.fn(),
   mockSpawn: vi.fn(),
 }));
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
+  return { ...actual, execFileSync: mockExecFileSync, execFile: mockExecFile, spawn: mockSpawn };
 });
 
+/** Make `opencode --version` (the major probe) answer with the given banner. */
+function stubVersion(banner: string | Error) {
+  mockExecFile.mockImplementation((_path: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+    if (banner instanceof Error) cb(banner, '', '');
+    else cb(null, banner, '');
+  });
+}
+
 import {
+  _resetOpenCodeMajorCache,
   buildOpenCodeArgs,
   describeOpenCodeError,
   isOpenCodeHostEnv,
@@ -60,7 +73,11 @@ function mockChildProcess(stdout: string, exitCode = 0, opts?: { stderr?: string
 describe('OpenCode backend', () => {
   beforeEach(() => {
     mockExecFileSync.mockReset();
+    mockExecFile.mockReset();
     mockSpawn.mockReset();
+    _resetOpenCodeMajorCache();
+    // Existing tests were written against the 1.x line; keep them there.
+    stubVersion('1.18.32');
   });
 
   it('builds basic opencode run args', () => {
@@ -72,6 +89,7 @@ describe('OpenCode backend', () => {
       fast: true,
       sessionId: null,
       resumeSession: false,
+      major: 1,
     })).toEqual([
       'run',
       '--format',
@@ -157,6 +175,16 @@ describe('OpenCode backend', () => {
       const jsonl = '{"type":"error","sessionID":"ses_z","error":{"name":"ProviderAuthError"}}';
       const parsed = parseOpenCodeTranscript(jsonl);
       expect(parsed.error).toContain('ProviderAuthError');
+    });
+
+    it('surfaces a 2.x error event, which carries error.type and error.message', () => {
+      // Captured from @opencode/cli 2.0.14 (`opencode run --format json`):
+      const jsonl =
+        '{"type":"error","timestamp":1790411474875,"sessionID":"ses_f2328f916ffetISG9mGJPcw5A8",' +
+        '"error":{"type":"provider.auth","message":"Request failed: 401"}}';
+      const parsed = parseOpenCodeTranscript(jsonl);
+      expect(parsed.error).toBe('Request failed: 401 (provider.auth)');
+      expect(parsed.sessionId).toBe('ses_f2328f916ffetISG9mGJPcw5A8');
     });
 
     it('leaves error unset for a healthy transcript', () => {
@@ -343,6 +371,79 @@ describe('OpenCode backend', () => {
       expect(err).toBeInstanceOf(Error);
       expect(err?.message).toMatch(/Model not found: ollama\/bogus-model/);
       expect(err?.message).not.toMatch(/produced no text output/);
+    });
+  });
+
+  describe('major-aware spawn arguments', () => {
+    // The probe resolves `opencode` through PATH, so give it a stub binary in a
+    // temp dir. execFile is mocked, so the stub is never actually executed.
+    let stubRoot: string;
+    beforeEach(() => {
+      stubRoot = mkdtempSync(join(tmpdir(), 'paf-opencode-stub-'));
+      mkdirSync(join(stubRoot, 'bin'));
+      writeFileSync(join(stubRoot, 'bin', 'opencode'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    });
+    afterEach(() => rmSync(stubRoot, { recursive: true, force: true }));
+    const withPath = (overrides: Record<string, unknown> = {}) =>
+      makeOpts({ env: { PATH: `${stubRoot}/bin` }, ...overrides });
+
+    const okTranscript =
+      '{"type":"step_start","timestamp":1,"sessionID":"ses_w","part":{}}\n' +
+      '{"type":"text","timestamp":2,"sessionID":"ses_w","part":{"text":"ok"}}\n';
+
+    function spawnedArgs(): string[] {
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      return mockSpawn.mock.calls[0][1] as string[];
+    }
+
+    it('run() keeps --dir on 1.x and drops it on 2.x', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      await OPENCODE_BACKEND.run(withPath());
+      expect(spawnedArgs()).toEqual(['run', '--format', 'json', '--dir', '/tmp/repo', 'Review this code']);
+
+      mockSpawn.mockReset();
+      _resetOpenCodeMajorCache();
+      stubVersion('opencode v2.0.14');
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      await OPENCODE_BACKEND.run(withPath());
+      expect(spawnedArgs()).toEqual(['run', '--format', 'json', 'Review this code']);
+    });
+
+    it('run() spawns with cwd set to the repo on both lines', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      stubVersion('opencode v2.0.14');
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      await OPENCODE_BACKEND.run(withPath({ repoPath: '/tmp/elsewhere' }));
+      expect((mockSpawn.mock.calls[0][2] as { cwd?: string }).cwd).toBe('/tmp/elsewhere');
+    });
+
+    it('runStream() and review() follow the same rule', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      stubVersion('opencode v2.0.14');
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      for await (const _chunk of OPENCODE_BACKEND.runStream!(withPath())) { /* drain */ }
+      expect(spawnedArgs()).not.toContain('--dir');
+
+      mockSpawn.mockReset();
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      await OPENCODE_BACKEND.review!({ ...withPath(), base: 'main' });
+      expect(spawnedArgs()).not.toContain('--dir');
+    });
+
+    it('run() with --fast fails closed when the version cannot be read, without spawning', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      stubVersion(new Error('spawn opencode ENOENT'));
+      await expect(OPENCODE_BACKEND.run(withPath({ fast: true }))).rejects.toThrow(/version/i);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('run() without version-specific options proceeds with neutral args when the version is unknown', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/opencode');
+      stubVersion(new Error('spawn opencode ENOENT'));
+      mockSpawn.mockReturnValue(mockChildProcess(okTranscript, 0));
+      await OPENCODE_BACKEND.run(withPath());
+      expect(spawnedArgs()).toEqual(['run', '--format', 'json', 'Review this code']);
     });
   });
 });

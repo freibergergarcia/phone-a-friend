@@ -1,0 +1,42 @@
+#!/bin/bash
+# Live end-to-end probe of one phone-a-friend backend against a scratch config
+# directory and a throwaway git repo. Used before merging backend changes.
+#
+#   scripts/probe-backends.sh <backend> [model]
+#
+# Runs, in order: one-shot relay, two-turn --session recall, --schema,
+# --review, --verdict-json, then `session list` and `task list`. Writes
+# per-step stdout/stderr and a summary under $PAF_PROBE_OUT (default: a temp
+# dir). Nothing touches ~/.config/phone-a-friend: XDG_CONFIG_HOME is scratch.
+set -u
+B=${1:?backend}; MODEL=${2:-}
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PAF="node $ROOT/dist/index.js"
+OUTROOT=${PAF_PROBE_OUT:-$(mktemp -d)}
+export XDG_CONFIG_HOME="$OUTROOT/xdg-$B"; mkdir -p "$XDG_CONFIG_HOME"
+REPO="$OUTROOT/repo-$B"; rm -rf "$REPO"; mkdir -p "$REPO"; cd "$REPO"
+git init -q -b main; git config user.email p@x; git config user.name p
+printf 'function add(a, b) {\n  return a + b;\n}\nmodule.exports = { add };\n' > math.js
+git add math.js; git commit -qm init
+git checkout -qb feature
+printf 'function add(a, b) {\n  return a - b;\n}\nmodule.exports = { add };\n' > math.js
+git commit -qam "change add"
+OUT="$OUTROOT/out-$B"; mkdir -p "$OUT"; : > "$OUT/summary.txt"
+M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
+run() {
+  local name=$1; shift
+  local t0=$(date +%s)
+  $PAF --to "$B" --repo "$REPO" --timeout "${PAF_PROBE_TIMEOUT:-120}" --no-stream ${M[@]+"${M[@]}"} "$@" > "$OUT/$name.out" 2> "$OUT/$name.err"
+  local rc=$?
+  printf '%s rc=%s t=%ss stdout=%sB | %s\n' "$name" "$rc" "$(( $(date +%s) - t0 ))" "$(wc -c < "$OUT/$name.out" | tr -d ' ')" "$(head -c 160 "$OUT/$name.out" | tr '\n' ' ')" >> "$OUT/summary.txt"
+}
+run oneshot --prompt "Reply with exactly the single word PONG and nothing else."
+run sess1 --session probe --prompt "Remember the secret word MARMALADE. Reply with exactly OK."
+run sess2 --session probe --prompt "What was the secret word I asked you to remember? Reply with just that word."
+run schema --schema '{"type":"object","properties":{"ok":{"type":"boolean"},"word":{"type":"string"}},"required":["ok","word"],"additionalProperties":false}' --prompt "Return ok=true and word=PONG."
+run review --review --base main
+run verdict --review --base main --verdict-json
+$PAF session list >> "$OUT/summary.txt" 2>&1
+$PAF task list --repo "$REPO" >> "$OUT/summary.txt" 2>&1
+echo "DONE $B" >> "$OUT/summary.txt"
+cat "$OUT/summary.txt"

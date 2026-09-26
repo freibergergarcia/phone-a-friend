@@ -1492,6 +1492,7 @@ function resolveConfig(cliOpts, env5 = process.env, repoRoot, xdgConfigHome) {
   const reviewBase = cliOpts.base ?? env5.PHONE_A_FRIEND_REVIEW_BASE ?? cfg.defaults.review_base ?? void 0;
   const opencodeProvider = cfg.backends?.opencode?.provider ?? "ollama";
   const opencodePure = cfg.backends?.opencode?.pure ?? false;
+  const opencodeStandalone = cfg.backends?.opencode?.standalone ?? false;
   const peerMessagingRaw = cliOpts.peerMessaging ?? env5.PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING ?? cfg.backends?.claude?.peer_messaging ?? "native";
   if (!CLAUDE_PEER_MESSAGING_MODES.includes(peerMessagingRaw)) {
     throw new Error(
@@ -1516,6 +1517,7 @@ function resolveConfig(cliOpts, env5 = process.env, repoRoot, xdgConfigHome) {
     reviewBase,
     opencodeProvider,
     opencodePure,
+    opencodeStandalone,
     claudePeerMessaging,
     taskHistory
   };
@@ -1543,6 +1545,29 @@ var init_config = __esm({
         }
       }
     };
+  }
+});
+
+// src/version.ts
+import { readFileSync as readFileSync4 } from "fs";
+import { resolve, dirname as dirname4 } from "path";
+import { fileURLToPath } from "url";
+function getPackageRoot() {
+  const thisDir = dirname4(fileURLToPath(import.meta.url));
+  return resolve(thisDir, "..");
+}
+function getVersion() {
+  const pkgPath = resolve(getPackageRoot(), "package.json");
+  try {
+    const pkg = JSON.parse(readFileSync4(pkgPath, "utf-8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+var init_version = __esm({
+  "src/version.ts"() {
+    "use strict";
   }
 });
 
@@ -2048,8 +2073,8 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync4, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4 } from "fs";
-import { dirname as dirname4, join as join5 } from "path";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4 } from "fs";
+import { dirname as dirname6, join as join6 } from "path";
 import { homedir as homedir4 } from "os";
 import { randomUUID as randomUUID2 } from "crypto";
 var MAX_JOBS, JobManager;
@@ -2060,8 +2085,8 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join5(
-          process.env.XDG_CONFIG_HOME ?? join5(homedir4(), ".config"),
+        this.filePath = filePath ?? join6(
+          process.env.XDG_CONFIG_HOME ?? join6(homedir4(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
@@ -2069,13 +2094,13 @@ var init_jobs = __esm({
       load() {
         if (!existsSync4(this.filePath)) return [];
         try {
-          return JSON.parse(readFileSync4(this.filePath, "utf-8"));
+          return JSON.parse(readFileSync6(this.filePath, "utf-8"));
         } catch {
           return [];
         }
       }
       save(jobs) {
-        mkdirSync4(dirname4(this.filePath), { recursive: true });
+        mkdirSync4(dirname6(this.filePath), { recursive: true });
         writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
@@ -2129,8 +2154,8 @@ var sessions_exports = {};
 __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
-import { readFileSync as readFileSync5, existsSync as existsSync5, mkdirSync as mkdirSync5, renameSync as renameSync2 } from "fs";
-import { dirname as dirname5, join as join6 } from "path";
+import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync5, renameSync as renameSync2 } from "fs";
+import { dirname as dirname7, join as join7 } from "path";
 import { homedir as homedir5 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
@@ -2142,15 +2167,15 @@ var init_sessions = __esm({
       dbPath;
       db;
       constructor(filePath) {
-        this.filePath = filePath ?? join6(
-          process.env.XDG_CONFIG_HOME ?? join6(homedir5(), ".config"),
+        this.filePath = filePath ?? join7(
+          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
         this.dbPath = this.filePath.endsWith(".json") ? this.filePath.slice(0, -5) + ".db" : this.filePath + ".db";
       }
       transaction(operation) {
-        mkdirSync5(dirname5(this.dbPath), { recursive: true });
+        mkdirSync5(dirname7(this.dbPath), { recursive: true });
         const Sqlite = __require("better-sqlite3");
         const db = new Sqlite(this.dbPath, { timeout: 5e3 });
         try {
@@ -2176,7 +2201,7 @@ var init_sessions = __esm({
         if (!existsSync5(this.filePath)) return [];
         let raw;
         try {
-          raw = readFileSync5(this.filePath, "utf-8");
+          raw = readFileSync7(this.filePath, "utf-8");
         } catch (err) {
           console.error(`[phone-a-friend] Failed to read session store ${this.filePath}: ${err.message}`);
           throw err;
@@ -2522,8 +2547,8 @@ __export(relay_exports, {
 });
 import { execFileSync as execFileSync3 } from "child_process";
 import { createHash as createHash2, randomUUID as randomUUID3 } from "crypto";
-import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
-import { resolve } from "path";
+import { readFileSync as readFileSync8, existsSync as existsSync6, statSync as statSync2 } from "fs";
+import { resolve as resolve2 } from "path";
 function backendErrorToRelayError(err) {
   const remediation = err.remediation;
   if (typeof remediation === "string" && remediation.trim().length > 0) {
@@ -2551,16 +2576,16 @@ function gitDiffTooLargeError() {
 }
 function readContextFile(contextFile) {
   if (contextFile === null) return "";
-  const resolved = resolve(contextFile);
+  const resolved = resolve2(contextFile);
   if (!existsSync6(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
   }
-  const stat = statSync(resolved);
+  const stat = statSync2(resolved);
   if (!stat.isFile()) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync6(resolved, "utf-8").trim();
+    const contents = readFileSync8(resolved, "utf-8").trim();
     ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
     return contents;
   } catch (err) {
@@ -2590,7 +2615,7 @@ function resolveGitWorktreeRoot(repoPath) {
         stdio: ["pipe", "pipe", "pipe"]
       }
     ).trim();
-    return root ? resolve(root) : repoPath;
+    return root ? resolve2(root) : repoPath;
   } catch {
     return repoPath;
   }
@@ -2919,8 +2944,8 @@ function prepareRelay(opts) {
   if (timeoutSeconds <= 0) {
     throw new RelayError("Timeout must be greater than zero");
   }
-  const resolvedRepo = resolve(repoPath);
-  if (!existsSync6(resolvedRepo) || !statSync(resolvedRepo).isDirectory()) {
+  const resolvedRepo = resolve2(repoPath);
+  if (!existsSync6(resolvedRepo) || !statSync2(resolvedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${resolvedRepo}`
     );
@@ -3211,8 +3236,8 @@ async function reviewRelay(opts) {
   if (timeoutSeconds <= 0) {
     throw new RelayError("Timeout must be greater than zero");
   }
-  const requestedRepo = resolve(repoPath);
-  if (!existsSync6(requestedRepo) || !statSync(requestedRepo).isDirectory()) {
+  const requestedRepo = resolve2(repoPath);
+  if (!existsSync6(requestedRepo) || !statSync2(requestedRepo).isDirectory()) {
     throw new RelayError(
       `Repository path does not exist or is not a directory: ${requestedRepo}`
     );
@@ -3338,29 +3363,6 @@ var init_relay = __esm({
   }
 });
 
-// src/version.ts
-import { readFileSync as readFileSync7 } from "fs";
-import { resolve as resolve2, dirname as dirname6 } from "path";
-import { fileURLToPath } from "url";
-function getPackageRoot() {
-  const thisDir = dirname6(fileURLToPath(import.meta.url));
-  return resolve2(thisDir, "..");
-}
-function getVersion() {
-  const pkgPath = resolve2(getPackageRoot(), "package.json");
-  try {
-    const pkg = JSON.parse(readFileSync7(pkgPath, "utf-8"));
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-var init_version = __esm({
-  "src/version.ts"() {
-    "use strict";
-  }
-});
-
 // src/installer.ts
 import { execFileSync as execFileSync4 } from "child_process";
 import {
@@ -3368,18 +3370,18 @@ import {
   lstatSync,
   mkdirSync as mkdirSync6,
   readdirSync,
-  readFileSync as readFileSync8,
+  readFileSync as readFileSync9,
   readlinkSync,
-  realpathSync,
+  realpathSync as realpathSync2,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync as unlinkSync2
 } from "fs";
-import { resolve as resolve3, join as join7, dirname as dirname7, isAbsolute, sep } from "path";
+import { resolve as resolve3, join as join8, dirname as dirname8, isAbsolute, sep } from "path";
 import { homedir as homedir6 } from "os";
 function ensureParent(filePath) {
-  mkdirSync6(dirname7(filePath), { recursive: true });
+  mkdirSync6(dirname8(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -3400,7 +3402,7 @@ function installPath(src, dst, mode, force) {
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
-        if (realpathSync(dst) === realpathSync(src)) {
+        if (realpathSync2(dst) === realpathSync2(src)) {
           return "already-installed";
         }
       } catch {
@@ -3541,60 +3543,60 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join7(homedir6(), ".claude");
-  return join7(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join8(homedir6(), ".claude");
+  return join8(base, "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join7(homedir6(), ".config");
-  return join7(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config");
+  return join8(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join7(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join8(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join7(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join8(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join7(repoRoot, "skills", name, "COMMAND.opencode.md");
+  const overlay = join8(repoRoot, "skills", name, "COMMAND.opencode.md");
   if (existsSync7(overlay)) return overlay;
-  return join7(repoRoot, "commands", `${name}.md`);
+  return join8(repoRoot, "commands", `${name}.md`);
 }
 function codexConfigRoot(codexHome) {
   if (codexHome) return codexHome;
   if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
-  return join7(homedir6(), ".codex");
+  return join8(homedir6(), ".codex");
 }
 function codexSkillTarget(name, codexHome) {
-  return join7(codexConfigRoot(codexHome), "skills", name);
+  return join8(codexConfigRoot(codexHome), "skills", name);
 }
 function codexSkillSource(repoRoot, name) {
-  const overlay = join7(repoRoot, "skills", name, ".codex");
-  if (existsSync7(join7(overlay, "SKILL.md"))) return overlay;
-  return join7(repoRoot, "skills", name);
+  const overlay = join8(repoRoot, "skills", name, ".codex");
+  if (existsSync7(join8(overlay, "SKILL.md"))) return overlay;
+  return join8(repoRoot, "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
   let realRepo;
   try {
-    realRepo = realpathSync(repoRoot);
+    realRepo = realpathSync2(repoRoot);
   } catch {
     return false;
   }
   try {
-    const realTarget = realpathSync(target);
+    const realTarget = realpathSync2(target);
     return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
   } catch {
     try {
       const link2 = readlinkSync(target);
-      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname7(target), link2);
+      const absLink = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
       let probe = absLink;
-      while (probe !== dirname7(probe)) {
+      while (probe !== dirname8(probe)) {
         if (existsSync7(probe)) {
-          const realProbe = realpathSync(probe);
+          const realProbe = realpathSync2(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
-        probe = dirname7(probe);
+        probe = dirname8(probe);
       }
       return false;
     } catch {
@@ -3605,13 +3607,13 @@ function isStalePafSymlink(target, repoRoot) {
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
-    const resolved = realpathSync(target);
+    const resolved = realpathSync2(target);
     if (existsSync7(resolved)) return true;
   } catch {
   }
   if (existsSync7(target)) return true;
-  const home = claudeHome ?? join7(homedir6(), ".claude");
-  const cacheBase = join7(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  const home = claudeHome ?? join8(homedir6(), ".claude");
+  const cacheBase = join8(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
   } catch {
@@ -3619,14 +3621,14 @@ function isPluginInstalled(claudeHome) {
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync7(join7(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join8(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
   const looseFileOk = CODEX_SKILLS.every(
-    (name) => existsSync7(join7(codexSkillTarget(name, codexHome), "SKILL.md"))
+    (name) => existsSync7(join8(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
   if (looseFileOk) return true;
-  const cacheRoot = join7(
+  const cacheRoot = join8(
     codexConfigRoot(codexHome),
     "plugins",
     "cache",
@@ -3638,7 +3640,7 @@ function isCodexInstalled(codexHome) {
     const versions = readdirSync(cacheRoot);
     return versions.some(
       (ver) => CODEX_SKILLS.every(
-        (name) => existsSync7(join7(cacheRoot, ver, "skills", name, "SKILL.md"))
+        (name) => existsSync7(join8(cacheRoot, ver, "skills", name, "SKILL.md"))
       )
     );
   } catch {
@@ -3748,10 +3750,10 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join7(repoRoot, "skills", name);
+    const skillSource = join8(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync7(join7(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join7(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join8(skillSource, "SKILL.md")}`);
     }
     if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
@@ -3780,17 +3782,17 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   for (const name of CODEX_SKILLS) {
     const skillSource = codexSkillSource(repoRoot, name);
-    if (!existsSync7(join7(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing Codex skill source: ${join7(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Codex skill source: ${join8(skillSource, "SKILL.md")}`);
     }
     const skillTarget = codexSkillTarget(name, codexHome);
     const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
-  const legacyAgentsDir = join7(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join7(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
     if (isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
@@ -3815,9 +3817,9 @@ function uninstallCodex(codexHome, repoRoot) {
       lines.push(`- codex_skill:${name}: not-installed`);
     }
   }
-  const legacyAgentsDir = join7(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join7(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
     if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
@@ -3869,13 +3871,13 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync7(join7(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join8(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join7(homedir6(), ".claude");
-  const registryPath = join7(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join8(homedir6(), ".claude");
+  const registryPath = join8(home, "plugins", "known_marketplaces.json");
   try {
-    const data = JSON.parse(readFileSync8(registryPath, "utf-8"));
+    const data = JSON.parse(readFileSync9(registryPath, "utf-8"));
     const entry = data[marketplaceName];
     if (!entry?.source?.source) return null;
     const sourceType = entry.source.source;
@@ -15788,7 +15790,7 @@ var init_parse_editor_command = __esm({
 
 // node_modules/@inquirer/external-editor/dist/index.js
 import { spawn as spawn3, spawnSync } from "child_process";
-import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
+import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
 import path3 from "path";
 import os3 from "os";
 import { randomUUID as randomUUID4 } from "crypto";
@@ -15906,7 +15908,7 @@ var init_dist8 = __esm({
       }
       readTemporaryFile() {
         try {
-          const tempFileBuffer = readFileSync9(this.tempFile);
+          const tempFileBuffer = readFileSync10(this.tempFile);
           if (tempFileBuffer.length === 0) {
             this.text = "";
           } else {
@@ -76178,6 +76180,10 @@ function extractOpenCodeErrorMessage(event) {
     if (data && typeof data.message === "string" && data.message.trim()) {
       return data.message;
     }
+    if (typeof error2.message === "string" && error2.message.trim()) {
+      const kind = typeof error2.type === "string" && error2.type.trim() ? ` (${error2.type})` : "";
+      return `${error2.message}${kind}`;
+    }
     if (typeof error2.name === "string" && error2.name.trim()) {
       return error2.name;
     }
@@ -76752,6 +76758,264 @@ registerBackend(CLAUDE_BACKEND);
 init_backends();
 import { spawn as spawn2 } from "child_process";
 init_config();
+
+// src/diagnostics.ts
+init_backends();
+init_version();
+import { execFile as execFile2 } from "child_process";
+import { accessSync, constants as fsConstants, realpathSync, statSync, readFileSync as readFileSync5 } from "fs";
+import { delimiter as pathDelimiter, dirname as dirname5, join as join5, resolve as resolvePath } from "path";
+var DEFAULT_TIMEOUT_MS = 5e3;
+var DEFAULT_MAX_PROBES = 6;
+var VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
+var SHELL_NOTE = "Interactive shell aliases and functions do not affect PaF subprocesses; only PATH order does.";
+function defaultDeps(overrides) {
+  return {
+    env: process.env,
+    execFileFn: execFile2,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxProbes: DEFAULT_MAX_PROBES,
+    argv1: process.argv[1],
+    ...overrides
+  };
+}
+function isExecutableFile(path4) {
+  try {
+    if (!statSync(path4).isFile()) return false;
+    accessSync(path4, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function safeRealpath(path4) {
+  try {
+    return realpathSync(path4);
+  } catch {
+    return path4;
+  }
+}
+function resolveExecutableCandidates(command, env5 = process.env) {
+  const pathValue = env5.PATH ?? "/usr/bin:/bin";
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const dir of pathValue.split(pathDelimiter)) {
+    const candidate = resolvePath(dir || ".", command);
+    if (!isExecutableFile(candidate)) continue;
+    const resolved = safeRealpath(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push({ path: candidate, resolvedPath: resolved });
+  }
+  return out;
+}
+function parseVersionOutput(stdout, stderr) {
+  for (const text of [stdout, stderr]) {
+    const match = VERSION_RE.exec(text);
+    if (match) return match[1];
+  }
+  return null;
+}
+function probeVersion(path4, deps = {}) {
+  const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
+  return new Promise((resolve5) => {
+    execFileFn(
+      path4,
+      ["--version"],
+      {
+        timeout: timeoutMs,
+        killSignal: "SIGKILL",
+        maxBuffer: 64 * 1024,
+        windowsHide: true,
+        env: env5,
+        encoding: "utf8"
+      },
+      (err, stdout, stderr) => {
+        const out = typeof stdout === "string" ? stdout : String(stdout ?? "");
+        const errOut = typeof stderr === "string" ? stderr : String(stderr ?? "");
+        if (err) {
+          const e = err;
+          if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+            resolve5({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
+            return;
+          }
+          if (e.killed || e.signal === "SIGKILL") {
+            resolve5({
+              version: null,
+              versionStatus: "timeout",
+              versionError: `--version did not finish within ${timeoutMs / 1e3}s`
+            });
+            return;
+          }
+          if (e.code === "EACCES" || e.code === "EPERM") {
+            resolve5({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
+            return;
+          }
+          if (typeof e.code === "string") {
+            resolve5({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
+            return;
+          }
+          const parsed2 = parseVersionOutput(out, errOut);
+          if (parsed2) {
+            resolve5({ version: parsed2, versionStatus: "ok" });
+            return;
+          }
+          const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
+          resolve5({ version: null, versionStatus: "failed", versionError: detail });
+          return;
+        }
+        const parsed = parseVersionOutput(out, errOut);
+        if (parsed) {
+          resolve5({ version: parsed, versionStatus: "ok" });
+          return;
+        }
+        resolve5({
+          version: null,
+          versionStatus: "unparsed",
+          versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
+        });
+      }
+    );
+  });
+}
+function buildExecutableGuidance(info2) {
+  const guidance = [];
+  const { command, selected, candidates } = info2;
+  if (!selected) {
+    return guidance;
+  }
+  const describe = (c) => {
+    const version = c.version ?? `version ${c.versionStatus}`;
+    return `${c.path} (${version})`;
+  };
+  if (candidates.length > 1) {
+    const others = candidates.filter((c) => c !== selected).map(describe).join(", ");
+    guidance.push(
+      `The first PATH match for "${command}" is ${describe(selected)}. Also on PATH: ${others}.`
+    );
+    if (info2.versionMismatch) {
+      guidance.push(
+        `These installs report different versions. If a relay fails on a model or flag that a newer ${command} supports, put that install's directory earlier in PATH for the PaF process, or remove the duplicates. A newer version does not by itself guarantee support for a given model.`
+      );
+    } else if (candidates.every((c) => c.versionStatus === "ok")) {
+      guidance.push("All probed candidates report the same version; no action needed unless one is stale.");
+    }
+    guidance.push(SHELL_NOTE);
+  }
+  for (const c of candidates) {
+    if (c.versionStatus === "ok" || c.versionStatus === "not-probed") continue;
+    guidance.push(
+      `Could not determine the version of ${c.path}: ${c.versionError ?? c.versionStatus}. Run "${c.path} --version" manually to inspect it.`
+    );
+  }
+  const skipped = candidates.filter((c) => c.versionStatus === "not-probed").length;
+  if (skipped > 0) {
+    guidance.push(`${skipped} additional PATH candidate(s) were not probed (probe cap reached).`);
+  }
+  return guidance;
+}
+async function inspectExecutable(command, deps = {}) {
+  const d = defaultDeps(deps);
+  const found = resolveExecutableCandidates(command, d.env);
+  const candidates = await Promise.all(
+    found.map(async (c, index) => {
+      if (index >= d.maxProbes) {
+        return { ...c, version: null, versionStatus: "not-probed" };
+      }
+      const probe = await probeVersion(c.path, d);
+      return { ...c, ...probe };
+    })
+  );
+  const selected = candidates[0] ?? null;
+  const versions = new Set(candidates.filter((c) => c.version).map((c) => c.version));
+  const partial = {
+    command,
+    selected,
+    candidates,
+    shadowed: candidates.length > 1,
+    versionMismatch: versions.size > 1
+  };
+  return { ...partial, guidance: buildExecutableGuidance(partial) };
+}
+function commandFor(backend) {
+  return BACKEND_COMMANDS[backend.name] ?? backend.name;
+}
+async function inspectExecutables(report, deps = {}) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  const commands = [...new Set(entries.map(commandFor))];
+  const results = await Promise.all(commands.map((cmd) => inspectExecutable(cmd, deps)));
+  const byCommand = new Map(commands.map((cmd, i) => [cmd, results[i]]));
+  for (const b of entries) {
+    const info2 = byCommand.get(commandFor(b));
+    if (info2) b.executable = info2;
+  }
+}
+function attachModelAndCapabilities(report, config) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  for (const b of entries) {
+    const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
+    b.model = {
+      requested: configured,
+      requestedSource: configured ? "paf-config" : "backend-default",
+      reported: null,
+      reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
+    };
+    try {
+      const backend = getBackend(b.name);
+      b.capabilities = {
+        declared: {
+          resumeStrategy: backend.capabilities.resumeStrategy,
+          requiresClientSessionId: backend.capabilities.requiresClientSessionId,
+          localFileAccess: backend.localFileAccess
+        },
+        verification: "declared-only",
+        verificationNote: "Declared by the PaF adapter in source; not verified against the installed CLI."
+      };
+    } catch {
+    }
+  }
+}
+function inspectPafPackage(entry) {
+  for (const root of [dirname5(entry), dirname5(dirname5(entry))]) {
+    try {
+      const pkg = JSON.parse(readFileSync5(join5(root, "package.json"), "utf8"));
+      if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
+      const isBundle = entry === join5(root, "dist", "index.js");
+      const isCheckoutWrapper = entry === join5(root, "phone-a-friend") && readFileSync5(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
+      if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
+    } catch {
+    }
+  }
+  return null;
+}
+function inspectPafIdentity(deps = {}) {
+  const d = defaultDeps(deps);
+  const packageRoot = getPackageRoot();
+  const version = getVersion();
+  const entry = d.argv1 ? safeRealpath(d.argv1) : null;
+  const pathCandidates = resolveExecutableCandidates("phone-a-friend", d.env).map((c) => {
+    const pkg = inspectPafPackage(c.resolvedPath);
+    return pkg ? { ...c, version: pkg.version, versionStatus: "ok" } : { ...c, version: null, versionStatus: "unparsed", versionError: "unrecognized PaF installation layout" };
+  });
+  const selected = pathCandidates[0];
+  const runningRoot = safeRealpath(packageRoot);
+  const selectedPackage = selected ? inspectPafPackage(selected.resolvedPath) : null;
+  const selectedRoot = selectedPackage ? safeRealpath(selectedPackage.root) : null;
+  const runningDiffersFromPath = selectedRoot !== null && selectedRoot !== runningRoot;
+  const guidance = [];
+  if (runningDiffersFromPath && selected) {
+    guidance.push(
+      `This doctor run is PaF ${version} at ${packageRoot}, but "phone-a-friend" on PATH resolves to ${selected.path} (${selected.version ?? "unknown version"}). Host skills and slash commands that call "phone-a-friend" use the PATH install, so their behavior may differ from this checkout.`
+    );
+  }
+  if (pathCandidates.length > 1) {
+    const list = pathCandidates.map((c) => `${c.path} (${c.version ?? "unknown version"})`).join(", ");
+    guidance.push(`Multiple phone-a-friend installs are on PATH: ${list}. The first one wins for subprocess calls.`);
+  }
+  return { version, packageRoot, entry, pathCandidates, runningDiffersFromPath, guidance };
+}
+
+// src/backends/opencode.ts
 var OpenCodeBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -76760,6 +77024,28 @@ var OpenCodeBackendError = class extends BackendError {
 };
 var OPENCODE_NO_OUTPUT_MESSAGE = "opencode produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a more direct prompt, or use antigravity/codex/gemini/claude for one-shot relays.";
 var OPENCODE_REVIEW_NO_OUTPUT_MESSAGE = "opencode review produced no text output. The build agent may have terminated mid tool-call without finalizing a reply. Try a different backend (antigravity, codex, gemini, claude) for this review.";
+function parseOpenCodeMajor(versionOutput) {
+  const match = versionOutput.match(/(?:^|[^\d.])v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  const major = Number(match[1]);
+  if (major === 1 || major === 2) return major;
+  return null;
+}
+var OPENCODE_VERSION_PROBE_TIMEOUT_MS = 3e3;
+var majorCache = /* @__PURE__ */ new Map();
+function detectOpenCodeMajor(env5, opts = {}) {
+  const candidate = resolveExecutableCandidates("opencode", env5)[0];
+  if (!candidate) return Promise.resolve(null);
+  const key = `${candidate.resolvedPath}\0${env5.PATH ?? ""}`;
+  const cached = majorCache.get(key);
+  if (cached) return cached;
+  const probe = probeVersion(candidate.path, {
+    env: env5,
+    timeoutMs: opts.timeoutMs ?? OPENCODE_VERSION_PROBE_TIMEOUT_MS
+  }).then((result) => result.version ? parseOpenCodeMajor(result.version) : null).catch(() => null);
+  majorCache.set(key, probe);
+  return probe;
+}
 function normalizeOpenCodeModel(model, provider = "ollama") {
   if (!model) return null;
   return model.includes("/") ? model : `${provider}/${model}`;
@@ -76768,16 +77054,28 @@ function formatOpenCodeErrorEvent(raw) {
   if (!raw || typeof raw !== "object") return void 0;
   const err = raw;
   const data = err.data && typeof err.data === "object" ? err.data : void 0;
-  const message = typeof data?.message === "string" ? data.message : void 0;
+  const dataMessage = typeof data?.message === "string" ? data.message : void 0;
+  if (dataMessage) {
+    const ref = typeof data?.ref === "string" ? data.ref : void 0;
+    return ref ? `${dataMessage} (opencode ref: ${ref})` : dataMessage;
+  }
+  if (typeof err.message === "string" && err.message.trim()) {
+    const kind = typeof err.type === "string" && err.type.trim() ? ` (${err.type})` : "";
+    return `${err.message}${kind}`;
+  }
   const name = typeof err.name === "string" ? err.name : void 0;
-  const base = message ?? (name ? `opencode reported ${name}` : void 0);
-  if (!base) return void 0;
-  const ref = typeof data?.ref === "string" ? data.ref : void 0;
-  return ref ? `${base} (opencode ref: ${ref})` : base;
+  return name ? `opencode reported ${name}` : void 0;
 }
 function describeOpenCodeError(message, model) {
   if (!model) return message;
   return `${message} Model "${model}" may not exist for its provider \u2014 run \`opencode models\` to list valid provider/model ids.`;
+}
+function requireKnownMajor(major, what) {
+  if (major === null) {
+    throw new OpenCodeBackendError(
+      `${what} needs the OpenCode version, but \`opencode --version\` could not be read. Run \`opencode --version\` at the terminal, or drop the option to use only version-neutral arguments.`
+    );
+  }
 }
 function isOpenCodeHostEnv(env5) {
   return env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "opencode";
@@ -76789,10 +77087,18 @@ function assertNotOpenCodeHost(env5) {
   );
 }
 function buildOpenCodeArgs(opts) {
-  const args = ["run", "--format", "json", "--dir", opts.repoPath];
+  const args = ["run", "--format", "json"];
+  if (opts.major === 1) args.push("--dir", opts.repoPath);
+  if (opts.standalone) {
+    requireKnownMajor(opts.major, "--standalone");
+    if (opts.major === 2) args.push("--standalone");
+  }
   const model = normalizeOpenCodeModel(opts.model, opts.provider);
   if (model) args.push("--model", model);
-  if (opts.fast) args.push("--pure");
+  if (opts.fast) {
+    requireKnownMajor(opts.major, "Fast mode (--fast or backends.opencode.pure)");
+    if (opts.major === 1) args.push("--pure");
+  }
   if (opts.resumeSession && opts.sessionId) {
     args.push("--session", opts.sessionId);
   } else if (opts.title) {
@@ -76845,7 +77151,11 @@ var OpenCodeBackend = class {
     const cfg = loadConfig();
     return {
       provider: cfg.backends?.opencode?.provider ?? "ollama",
-      pure: cfg.backends?.opencode?.pure ?? false
+      pure: cfg.backends?.opencode?.pure ?? false,
+      // 2.x only. Off by default: a private server re-boots every configured
+      // MCP server per relay, which stalled for minutes on a real config,
+      // while the shared background service answers in seconds.
+      standalone: cfg.backends?.opencode?.standalone ?? false
     };
   }
   async run(opts) {
@@ -76855,7 +77165,8 @@ var OpenCodeBackend = class {
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
       );
     }
-    const { provider, pure } = this.getConfig();
+    const { provider, pure, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env);
     const promptWithSchema = opts.schema ? injectSchemaPrompt4(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
@@ -76864,7 +77175,9 @@ var OpenCodeBackend = class {
       provider,
       fast: opts.fast || pure,
       sessionId: opts.sessionId ?? null,
-      resumeSession: opts.resumeSession ?? false
+      resumeSession: opts.resumeSession ?? false,
+      major,
+      standalone
     });
     try {
       const result = await spawnCli("opencode", args, {
@@ -76910,7 +77223,8 @@ var OpenCodeBackend = class {
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
       );
     }
-    const { provider, pure } = this.getConfig();
+    const { provider, pure, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env);
     const args = buildOpenCodeArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -76918,7 +77232,9 @@ var OpenCodeBackend = class {
       provider,
       fast: opts.fast || pure,
       sessionId: opts.sessionId ?? null,
-      resumeSession: opts.resumeSession ?? false
+      resumeSession: opts.resumeSession ?? false,
+      major,
+      standalone
     });
     const child = spawn2("opencode", args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -77001,7 +77317,8 @@ var OpenCodeBackend = class {
         `opencode CLI not found in PATH. Install it: ${INSTALL_HINTS.opencode}`
       );
     }
-    const { provider } = this.getConfig();
+    const { provider, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env);
     const prompt = opts.prompt ?? `Review the changes on this branch against ${opts.base}. Run git diff ${opts.base}...HEAD to see what changed.`;
     const args = buildOpenCodeArgs({
       prompt,
@@ -77010,7 +77327,9 @@ var OpenCodeBackend = class {
       provider,
       fast: false,
       sessionId: null,
-      resumeSession: false
+      resumeSession: false,
+      major,
+      standalone
     });
     try {
       const result = await spawnCli("opencode", args, {
@@ -84227,21 +84546,21 @@ import {
   fsyncSync as fsyncSync2,
   mkdirSync as mkdirSync7,
   openSync as openSync2,
-  readFileSync as readFileSync10,
+  readFileSync as readFileSync11,
   renameSync as renameSync3,
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync6
 } from "fs";
 import { homedir as homedir7 } from "os";
-import { dirname as dirname8, join as join8 } from "path";
+import { dirname as dirname9, join as join9 } from "path";
 var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
 var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 5e3;
 var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
 var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
 function defaultCachePath2(env5 = process.env, home = homedir7()) {
-  const base = env5.XDG_CONFIG_HOME ?? join8(home, ".config");
-  return join8(base, "phone-a-friend", "update-check.json");
+  const base = env5.XDG_CONFIG_HOME ?? join9(home, ".config");
+  return join9(base, "phone-a-friend", "update-check.json");
 }
 function emptySnapshot(currentVersion) {
   return {
@@ -84257,7 +84576,7 @@ function readSnapshot(filePath, currentVersion) {
   if (!existsSync8(filePath)) return emptySnapshot(currentVersion);
   let raw;
   try {
-    raw = readFileSync10(filePath, "utf-8");
+    raw = readFileSync11(filePath, "utf-8");
   } catch {
     return emptySnapshot(currentVersion);
   }
@@ -84290,7 +84609,7 @@ function rotateCorruptCache(filePath, _reason) {
   }
 }
 function writeSnapshot(filePath, snapshot) {
-  const dir = dirname8(filePath);
+  const dir = dirname9(filePath);
   mkdirSync7(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   const payload = JSON.stringify(snapshot, null, 2);
@@ -84320,11 +84639,11 @@ function writeSnapshot(filePath, snapshot) {
   } catch {
   }
 }
-var VERSION_RE = /^[0-9]+(?:\.[0-9]+){0,3}(?:-[A-Za-z0-9.\-]+)?(?:\+[A-Za-z0-9.\-]+)?$/;
+var VERSION_RE2 = /^[0-9]+(?:\.[0-9]+){0,3}(?:-[A-Za-z0-9.\-]+)?(?:\+[A-Za-z0-9.\-]+)?$/;
 function isValidVersionString(v) {
   if (typeof v !== "string") return false;
   if (v.length === 0 || v.length > 64) return false;
-  return VERSION_RE.test(v);
+  return VERSION_RE2.test(v);
 }
 function compareVersions(a, b) {
   const stripPre = (v) => v.split("-")[0].split(".").map((part) => {
@@ -84534,262 +84853,6 @@ function detectMachineFlag(argv) {
   if (sub === "doctor" && argv.includes("--json")) return true;
   if (sub === "config" && argv[1] === "show") return true;
   return false;
-}
-
-// src/diagnostics.ts
-init_backends();
-init_version();
-import { execFile as execFile2 } from "child_process";
-import { accessSync, constants as fsConstants, realpathSync as realpathSync2, statSync as statSync2, readFileSync as readFileSync11 } from "fs";
-import { delimiter as pathDelimiter, dirname as dirname9, join as join9, resolve as resolvePath } from "path";
-var DEFAULT_TIMEOUT_MS = 5e3;
-var DEFAULT_MAX_PROBES = 6;
-var VERSION_RE2 = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
-var SHELL_NOTE = "Interactive shell aliases and functions do not affect PaF subprocesses; only PATH order does.";
-function defaultDeps(overrides) {
-  return {
-    env: process.env,
-    execFileFn: execFile2,
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    maxProbes: DEFAULT_MAX_PROBES,
-    argv1: process.argv[1],
-    ...overrides
-  };
-}
-function isExecutableFile(path4) {
-  try {
-    if (!statSync2(path4).isFile()) return false;
-    accessSync(path4, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function safeRealpath(path4) {
-  try {
-    return realpathSync2(path4);
-  } catch {
-    return path4;
-  }
-}
-function resolveExecutableCandidates(command, env5 = process.env) {
-  const pathValue = env5.PATH ?? "/usr/bin:/bin";
-  const seen = /* @__PURE__ */ new Set();
-  const out = [];
-  for (const dir of pathValue.split(pathDelimiter)) {
-    const candidate = resolvePath(dir || ".", command);
-    if (!isExecutableFile(candidate)) continue;
-    const resolved = safeRealpath(candidate);
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    out.push({ path: candidate, resolvedPath: resolved });
-  }
-  return out;
-}
-function parseVersionOutput(stdout, stderr) {
-  for (const text of [stdout, stderr]) {
-    const match = VERSION_RE2.exec(text);
-    if (match) return match[1];
-  }
-  return null;
-}
-function probeVersion(path4, deps = {}) {
-  const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
-  return new Promise((resolve5) => {
-    execFileFn(
-      path4,
-      ["--version"],
-      {
-        timeout: timeoutMs,
-        killSignal: "SIGKILL",
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-        env: env5,
-        encoding: "utf8"
-      },
-      (err, stdout, stderr) => {
-        const out = typeof stdout === "string" ? stdout : String(stdout ?? "");
-        const errOut = typeof stderr === "string" ? stderr : String(stderr ?? "");
-        if (err) {
-          const e = err;
-          if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-            resolve5({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
-            return;
-          }
-          if (e.killed || e.signal === "SIGKILL") {
-            resolve5({
-              version: null,
-              versionStatus: "timeout",
-              versionError: `--version did not finish within ${timeoutMs / 1e3}s`
-            });
-            return;
-          }
-          if (e.code === "EACCES" || e.code === "EPERM") {
-            resolve5({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
-            return;
-          }
-          if (typeof e.code === "string") {
-            resolve5({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
-            return;
-          }
-          const parsed2 = parseVersionOutput(out, errOut);
-          if (parsed2) {
-            resolve5({ version: parsed2, versionStatus: "ok" });
-            return;
-          }
-          const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
-          resolve5({ version: null, versionStatus: "failed", versionError: detail });
-          return;
-        }
-        const parsed = parseVersionOutput(out, errOut);
-        if (parsed) {
-          resolve5({ version: parsed, versionStatus: "ok" });
-          return;
-        }
-        resolve5({
-          version: null,
-          versionStatus: "unparsed",
-          versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
-        });
-      }
-    );
-  });
-}
-function buildExecutableGuidance(info2) {
-  const guidance = [];
-  const { command, selected, candidates } = info2;
-  if (!selected) {
-    return guidance;
-  }
-  const describe = (c) => {
-    const version = c.version ?? `version ${c.versionStatus}`;
-    return `${c.path} (${version})`;
-  };
-  if (candidates.length > 1) {
-    const others = candidates.filter((c) => c !== selected).map(describe).join(", ");
-    guidance.push(
-      `The first PATH match for "${command}" is ${describe(selected)}. Also on PATH: ${others}.`
-    );
-    if (info2.versionMismatch) {
-      guidance.push(
-        `These installs report different versions. If a relay fails on a model or flag that a newer ${command} supports, put that install's directory earlier in PATH for the PaF process, or remove the duplicates. A newer version does not by itself guarantee support for a given model.`
-      );
-    } else if (candidates.every((c) => c.versionStatus === "ok")) {
-      guidance.push("All probed candidates report the same version; no action needed unless one is stale.");
-    }
-    guidance.push(SHELL_NOTE);
-  }
-  for (const c of candidates) {
-    if (c.versionStatus === "ok" || c.versionStatus === "not-probed") continue;
-    guidance.push(
-      `Could not determine the version of ${c.path}: ${c.versionError ?? c.versionStatus}. Run "${c.path} --version" manually to inspect it.`
-    );
-  }
-  const skipped = candidates.filter((c) => c.versionStatus === "not-probed").length;
-  if (skipped > 0) {
-    guidance.push(`${skipped} additional PATH candidate(s) were not probed (probe cap reached).`);
-  }
-  return guidance;
-}
-async function inspectExecutable(command, deps = {}) {
-  const d = defaultDeps(deps);
-  const found = resolveExecutableCandidates(command, d.env);
-  const candidates = await Promise.all(
-    found.map(async (c, index) => {
-      if (index >= d.maxProbes) {
-        return { ...c, version: null, versionStatus: "not-probed" };
-      }
-      const probe = await probeVersion(c.path, d);
-      return { ...c, ...probe };
-    })
-  );
-  const selected = candidates[0] ?? null;
-  const versions = new Set(candidates.filter((c) => c.version).map((c) => c.version));
-  const partial = {
-    command,
-    selected,
-    candidates,
-    shadowed: candidates.length > 1,
-    versionMismatch: versions.size > 1
-  };
-  return { ...partial, guidance: buildExecutableGuidance(partial) };
-}
-function commandFor(backend) {
-  return BACKEND_COMMANDS[backend.name] ?? backend.name;
-}
-async function inspectExecutables(report, deps = {}) {
-  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
-  const commands = [...new Set(entries.map(commandFor))];
-  const results = await Promise.all(commands.map((cmd) => inspectExecutable(cmd, deps)));
-  const byCommand = new Map(commands.map((cmd, i) => [cmd, results[i]]));
-  for (const b of entries) {
-    const info2 = byCommand.get(commandFor(b));
-    if (info2) b.executable = info2;
-  }
-}
-function attachModelAndCapabilities(report, config) {
-  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
-  for (const b of entries) {
-    const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
-    b.model = {
-      requested: configured,
-      requestedSource: configured ? "paf-config" : "backend-default",
-      reported: null,
-      reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
-    };
-    try {
-      const backend = getBackend(b.name);
-      b.capabilities = {
-        declared: {
-          resumeStrategy: backend.capabilities.resumeStrategy,
-          requiresClientSessionId: backend.capabilities.requiresClientSessionId,
-          localFileAccess: backend.localFileAccess
-        },
-        verification: "declared-only",
-        verificationNote: "Declared by the PaF adapter in source; not verified against the installed CLI."
-      };
-    } catch {
-    }
-  }
-}
-function inspectPafPackage(entry) {
-  for (const root of [dirname9(entry), dirname9(dirname9(entry))]) {
-    try {
-      const pkg = JSON.parse(readFileSync11(join9(root, "package.json"), "utf8"));
-      if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
-      const isBundle = entry === join9(root, "dist", "index.js");
-      const isCheckoutWrapper = entry === join9(root, "phone-a-friend") && readFileSync11(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
-      if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
-    } catch {
-    }
-  }
-  return null;
-}
-function inspectPafIdentity(deps = {}) {
-  const d = defaultDeps(deps);
-  const packageRoot = getPackageRoot();
-  const version = getVersion();
-  const entry = d.argv1 ? safeRealpath(d.argv1) : null;
-  const pathCandidates = resolveExecutableCandidates("phone-a-friend", d.env).map((c) => {
-    const pkg = inspectPafPackage(c.resolvedPath);
-    return pkg ? { ...c, version: pkg.version, versionStatus: "ok" } : { ...c, version: null, versionStatus: "unparsed", versionError: "unrecognized PaF installation layout" };
-  });
-  const selected = pathCandidates[0];
-  const runningRoot = safeRealpath(packageRoot);
-  const selectedPackage = selected ? inspectPafPackage(selected.resolvedPath) : null;
-  const selectedRoot = selectedPackage ? safeRealpath(selectedPackage.root) : null;
-  const runningDiffersFromPath = selectedRoot !== null && selectedRoot !== runningRoot;
-  const guidance = [];
-  if (runningDiffersFromPath && selected) {
-    guidance.push(
-      `This doctor run is PaF ${version} at ${packageRoot}, but "phone-a-friend" on PATH resolves to ${selected.path} (${selected.version ?? "unknown version"}). Host skills and slash commands that call "phone-a-friend" use the PATH install, so their behavior may differ from this checkout.`
-    );
-  }
-  if (pathCandidates.length > 1) {
-    const list = pathCandidates.map((c) => `${c.path} (${c.version ?? "unknown version"})`).join(", ");
-    guidance.push(`Multiple phone-a-friend installs are on PATH: ${list}. The first one wins for subprocess calls.`);
-  }
-  return { version, packageRoot, entry, pathCandidates, runningDiffersFromPath, guidance };
 }
 
 // src/doctor.ts
@@ -85018,10 +85081,22 @@ function semverLt(a, b) {
   }
   return false;
 }
+function opencodeLineAdvisory(opencode) {
+  const selected = opencode.executable?.selected;
+  if (!selected?.version) return null;
+  if (parseOpenCodeMajor(selected.version) !== 2) return null;
+  return `OpenCode 2.x (${selected.version}) detected at ${selected.path}. PaF adapts its arguments to this line; --fast and backends.opencode.pure have no effect on 2.x (no --pure), and the published docs at opencode.ai/docs describe 1.x. See opencode.ai/v2/docs for 2.x.`;
+}
 async function collectAdvisories(report) {
   const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
   if (!opencode) return [];
-  const version = await probeOllamaVersion();
+  const out = [];
+  const lineAdvisory = opencodeLineAdvisory(opencode);
+  if (lineAdvisory) out.push(lineAdvisory);
+  out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  return out;
+}
+function collectOllamaAdvisories(version) {
   if (!version) {
     return ["OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17."];
   }

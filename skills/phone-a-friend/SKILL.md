@@ -325,7 +325,8 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
   CLAUDE.md rules that the backend needs to read
 - The task does NOT need MCP tools (GitHub API, Slack, database queries)
 
-`--fast` maps to `--pure` for OpenCode, skipping external plugins. It is a
+`--fast` maps to `--pure` for OpenCode 1.x, skipping external plugins; OpenCode
+2.x has no `--pure`, so `--fast` has no effect there. It is a
 no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not
 use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.

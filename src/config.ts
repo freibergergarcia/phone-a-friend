@@ -55,6 +55,7 @@ export interface ResolvedConfig {
   reviewBase?: string;
   opencodeProvider: string;
   opencodePure: boolean;
+  opencodeStandalone: boolean;
   claudePeerMessaging: ClaudePeerMessagingMode;
   taskHistory: TaskHistoryMode;
 }
@@ -310,6 +311,8 @@ export function resolveConfig(
     (cfg.backends?.opencode?.provider as string | undefined) ?? 'ollama';
   const opencodePure =
     (cfg.backends?.opencode?.pure as boolean | undefined) ?? false;
+  const opencodeStandalone =
+    (cfg.backends?.opencode?.standalone as boolean | undefined) ?? false;
 
   const peerMessagingRaw =
     cliOpts.peerMessaging ??
@@ -347,6 +350,7 @@ export function resolveConfig(
     reviewBase,
     opencodeProvider,
     opencodePure,
+    opencodeStandalone,
     claudePeerMessaging,
     taskHistory,
   };
