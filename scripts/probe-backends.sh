@@ -5,8 +5,11 @@
 #   scripts/probe-backends.sh <backend> [model]
 #
 # Runs, in order: one-shot relay, two-turn --session recall, --schema,
-# --review, --verdict-json (plus --fast for opencode), then `session list`
-# and `task list`. Writes per-step stdout/stderr and a summary under
+# --review, --verdict-json (plus --fast for opencode), a --stream relay
+# (backends without runStream fall back to batch inside the relay), a
+# --quiet relay checked through `job result`, then `session list` and
+# `task list`. Ollama needs OLLAMA_HOST in the environment; the backend
+# reads it. Writes per-step stdout/stderr and a summary under
 # $PAF_PROBE_OUT (default: a temp dir). Nothing touches
 # ~/.config/phone-a-friend: XDG_CONFIG_HOME is scratch.
 #
@@ -30,10 +33,11 @@ git commit -qam "change add"
 OUT="$OUTROOT/out-$B"; mkdir -p "$OUT"; : > "$OUT/summary.txt"
 M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
 FAILED=0
+STREAM=--no-stream
 run() {
   local name=$1; shift
   local t0=$(date +%s)
-  $PAF --to "$B" --repo "$REPO" --timeout "${PAF_PROBE_TIMEOUT:-120}" --no-stream ${M[@]+"${M[@]}"} "$@" > "$OUT/$name.out" 2> "$OUT/$name.err"
+  $PAF --to "$B" --repo "$REPO" --timeout "${PAF_PROBE_TIMEOUT:-120}" "$STREAM" ${M[@]+"${M[@]}"} "$@" > "$OUT/$name.out" 2> "$OUT/$name.err"
   local rc=$?
   [ "$rc" -ne 0 ] && FAILED=$((FAILED + 1))
   printf '%s rc=%s t=%ss stdout=%sB | %s\n' "$name" "$rc" "$(( $(date +%s) - t0 ))" "$(wc -c < "$OUT/$name.out" | tr -d ' ')" "$(head -c 160 "$OUT/$name.out" | tr '\n' ' ')" >> "$OUT/summary.txt"
@@ -46,6 +50,10 @@ run review --review --base main
 run verdict --review --base main --verdict-json
 # OpenCode: --fast maps to --pure on 1.x and must be a no-op on 2.x.
 [ "$B" = opencode ] && run fast --fast --prompt "Reply with exactly the single word PONG and nothing else."
+STREAM=--stream
+run stream --prompt "Reply with exactly the single word PONG and nothing else."
+STREAM=--no-stream
+run quiet --quiet --prompt "Reply with exactly the single word PONG and nothing else."
 step() { # name, command...
   local name=$1; shift
   "$@" >> "$OUT/summary.txt" 2>&1
@@ -53,6 +61,11 @@ step() { # name, command...
   [ "$rc" -ne 0 ] && FAILED=$((FAILED + 1))
   echo "$name rc=$rc" >> "$OUT/summary.txt"
 }
+# --quiet prints "Job started <id>"; the stored result must hold the reply.
+JOB=$(sed -n 's/.*Job started \([a-z0-9-]*\).*/\1/p' "$OUT/quiet.out" | head -1)
+$PAF job result "${JOB:-missing}" > "$OUT/job-result.out" 2>&1
+if grep -q PONG "$OUT/job-result.out"; then echo "job-result rc=0 | $(head -c 80 "$OUT/job-result.out" | tr '\n' ' ')" >> "$OUT/summary.txt"
+else echo "job-result rc=1 | $(head -c 160 "$OUT/job-result.out" | tr '\n' ' ')" >> "$OUT/summary.txt"; FAILED=$((FAILED + 1)); fi
 step session-list $PAF session list
 step task-list $PAF task list --repo "$REPO"
 echo "DONE $B failed=$FAILED" >> "$OUT/summary.txt"
