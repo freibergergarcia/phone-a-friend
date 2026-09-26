@@ -252,6 +252,12 @@ describe('Antigravity enforces dropped enums after the response', () => {
     await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(/\$\.__proto__/);
   });
 
+  it.each(['__proto__', 'constructor', 'toString'])('accepts output that omits an optional property named %s', async (name) => {
+    const schema = JSON.stringify({ type: 'object', properties: { [name]: { type: 'integer', enum: [1] }, ok: { type: 'boolean' } }, required: ['ok'] });
+    mockSpawn.mockImplementation(() => fakeChild(0, '{"conversation_id":"c","status":"SUCCESS","response":"x","structured_output":{"ok":true}}'));
+    expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"ok":true}');
+  });
+
   it('leaves string enums to the native enforcement and never re-checks them', async () => {
     mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
     const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';

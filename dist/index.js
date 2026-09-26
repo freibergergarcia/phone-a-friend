@@ -75306,7 +75306,7 @@ function assertDroppedEnums(value, dropped) {
       }
       if (!node || typeof node !== "object" || Array.isArray(node)) return;
       const record = node;
-      if (!(segment in record)) return;
+      if (!Object.prototype.hasOwnProperty.call(record, segment)) return;
       visit(record[segment], index + 1, [...at, segment]);
     };
     visit(value, 0, []);

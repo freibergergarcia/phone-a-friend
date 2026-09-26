@@ -403,7 +403,9 @@ export function assertDroppedEnums(value: unknown, dropped: DroppedEnum[]): void
       }
       if (!node || typeof node !== 'object' || Array.isArray(node)) return;
       const record = node as Record<string, unknown>;
-      if (!(segment in record)) return;
+      // Own properties only: an omitted optional property named __proto__,
+      // constructor or toString must not be "found" on Object.prototype.
+      if (!Object.prototype.hasOwnProperty.call(record, segment)) return;
       visit(record[segment], index + 1, [...at, segment]);
     };
     visit(value, 0, []);
