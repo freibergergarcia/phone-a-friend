@@ -320,14 +320,17 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
   const droppedEnums: DroppedEnum[] = [];
   const walk = (node: unknown, path: string[]): unknown => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
-    const out: Record<string, unknown> = {};
+    // Null-prototype maps: a schema may legally define a property named
+    // __proto__, and assigning that key on a plain object would set the
+    // prototype instead of creating the member.
+    const out: Record<string, unknown> = Object.create(null);
     for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
       if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) {
         droppedEnums.push({ path: [...path], values: value });
         continue;
       }
       if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
-        const props: Record<string, unknown> = {};
+        const props: Record<string, unknown> = Object.create(null);
         for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
           props[name] = walk(sub, [...path, name]);
         }
@@ -358,8 +361,24 @@ export function sanitizeAntigravitySchema(schema: string): string {
   return planAntigravitySchema(schema).schema;
 }
 
+/** JSON Schema equality: structural, with object member order ignored. */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => jsonEqual(item, b[i]));
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const ka = Object.keys(a as Record<string, unknown>);
+    const kb = Object.keys(b as Record<string, unknown>);
+    return ka.length === kb.length
+      && ka.every((key) => Object.prototype.hasOwnProperty.call(b, key)
+        && jsonEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+  }
+  return false;
+}
+
 function isEnumMember(value: unknown, allowed: unknown[]): boolean {
-  return allowed.some((candidate) => Object.is(candidate, value) || JSON.stringify(candidate) === JSON.stringify(value));
+  return allowed.some((candidate) => jsonEqual(candidate, value));
 }
 
 /** Enforce every enum PaF removed before sending, against the returned value. */

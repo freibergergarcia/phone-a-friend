@@ -75238,14 +75238,14 @@ function planAntigravitySchema(schema) {
   const droppedEnums = [];
   const walk = (node, path4) => {
     if (!node || typeof node !== "object" || Array.isArray(node)) return node;
-    const out = {};
+    const out = /* @__PURE__ */ Object.create(null);
     for (const [key, value] of Object.entries(node)) {
       if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) {
         droppedEnums.push({ path: [...path4], values: value });
         continue;
       }
       if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
-        const props = {};
+        const props = /* @__PURE__ */ Object.create(null);
         for (const [name, sub] of Object.entries(value)) {
           props[name] = walk(sub, [...path4, name]);
         }
@@ -75271,8 +75271,20 @@ function planAntigravitySchema(schema) {
 function sanitizeAntigravitySchema(schema) {
   return planAntigravitySchema(schema).schema;
 }
+function jsonEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => jsonEqual(item, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((key) => Object.prototype.hasOwnProperty.call(b, key) && jsonEqual(a[key], b[key]));
+  }
+  return false;
+}
 function isEnumMember(value, allowed) {
-  return allowed.some((candidate) => Object.is(candidate, value) || JSON.stringify(candidate) === JSON.stringify(value));
+  return allowed.some((candidate) => jsonEqual(candidate, value));
 }
 function assertDroppedEnums(value, dropped) {
   for (const entry of dropped) {

@@ -237,6 +237,21 @@ describe('Antigravity enforces dropped enums after the response', () => {
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 
+  it('compares object-valued enums structurally, ignoring member order', async () => {
+    const schema = '{"type":"object","properties":{"pt":{"type":"object","enum":[{"x":1,"y":2}]}}}';
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { pt: { y: 2, x: 1 } } })));
+    expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"pt":{"y":2,"x":1}}');
+    mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { pt: { x: 1, y: 3 } } })));
+    await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(/\$\.pt/);
+  });
+
+  it('keeps a property literally named __proto__ in the sanitised schema and enforces it', async () => {
+    const schema = '{"type":"object","properties":{"__proto__":{"type":"integer","enum":[1]},"ok":{"type":"boolean"}}}';
+    expect(sanitizeAntigravitySchema(schema)).toBe('{"type":"object","properties":{"__proto__":{"type":"integer"},"ok":{"type":"boolean"}}}');
+    mockSpawn.mockImplementation(() => fakeChild(0, '{"conversation_id":"c","status":"SUCCESS","response":"x","structured_output":{"__proto__":2,"ok":true}}'));
+    await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(/\$\.__proto__/);
+  });
+
   it('leaves string enums to the native enforcement and never re-checks them', async () => {
     mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
     const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';
