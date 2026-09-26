@@ -1049,6 +1049,59 @@ var init_dist = __esm({
   }
 });
 
+// src/sqlite-open.ts
+import { mkdirSync as mkdirSync2 } from "fs";
+import { dirname as dirname2 } from "path";
+function getDatabase() {
+  if (!_Database) {
+    _Database = __require("better-sqlite3");
+  }
+  return _Database;
+}
+function isLockContention(err) {
+  const code = err?.code;
+  return typeof code === "string" && (code === "SQLITE_BUSY" || code.startsWith("SQLITE_BUSY_") || code === "SQLITE_LOCKED" || code.startsWith("SQLITE_LOCKED_"));
+}
+function sleepSync(ms) {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+function openDatabase(path4, init, opts = {}) {
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 20);
+  const [minDelay, maxDelay] = opts.delayMs ?? [25, 75];
+  mkdirSync2(dirname2(path4), { recursive: true });
+  const open = opts.open ?? ((p) => new (getDatabase())(p));
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let db = null;
+    try {
+      db = open(path4);
+      init(db);
+      return db;
+    } catch (err) {
+      if (db) {
+        try {
+          db.close();
+        } catch {
+        }
+      }
+      if (!isLockContention(err)) throw err;
+      lastError = err;
+      if (attempt < maxAttempts) {
+        sleepSync(minDelay + Math.random() * Math.max(0, maxDelay - minDelay));
+      }
+    }
+  }
+  throw lastError;
+}
+var _Database;
+var init_sqlite_open = __esm({
+  "src/sqlite-open.ts"() {
+    "use strict";
+    _Database = null;
+  }
+});
+
 // src/tasks.ts
 var tasks_exports = {};
 __export(tasks_exports, {
@@ -1060,16 +1113,9 @@ __export(tasks_exports, {
   isProcessAlive: () => isProcessAlive
 });
 import { createHash } from "crypto";
-import { mkdirSync as mkdirSync2 } from "fs";
 import { homedir as homedir2 } from "os";
-import { dirname as dirname2, join as join3 } from "path";
+import { join as join3 } from "path";
 import { randomUUID } from "crypto";
-function getDatabase() {
-  if (!_Database) {
-    _Database = __require("better-sqlite3");
-  }
-  return _Database;
-}
 function defaultTaskDbPath() {
   const configBase = process.env.XDG_CONFIG_HOME ?? join3(homedir2(), ".config");
   return join3(configBase, "phone-a-friend", "tasks.db");
@@ -1135,10 +1181,11 @@ function toColumnValue(value) {
   if (value === void 0) return null;
   return value;
 }
-var _Database, TASK_STATUSES, SCHEMA, COLUMN_BY_FIELD, MIN_PREFIX_LENGTH, TaskStore, TASK_HISTORY_MODES;
+var TASK_STATUSES, SCHEMA, COLUMN_BY_FIELD, MIN_PREFIX_LENGTH, TaskStore, TASK_HISTORY_MODES;
 var init_tasks = __esm({
   "src/tasks.ts"() {
     "use strict";
+    init_sqlite_open();
     TASK_STATUSES = ["queued", "running", "completed", "failed", "interrupted"];
     SCHEMA = `
   CREATE TABLE IF NOT EXISTS tasks (
@@ -1203,13 +1250,12 @@ var init_tasks = __esm({
       db;
       constructor(dbPath) {
         const path4 = dbPath ?? defaultTaskDbPath();
-        mkdirSync2(dirname2(path4), { recursive: true });
-        const Database = getDatabase();
-        this.db = new Database(path4);
-        this.db.pragma("journal_mode = WAL");
-        this.db.pragma("busy_timeout = 5000");
-        this.db.pragma("foreign_keys = ON");
-        this.db.exec(SCHEMA);
+        this.db = openDatabase(path4, (db) => {
+          db.pragma("busy_timeout = 5000");
+          db.pragma("journal_mode = WAL");
+          db.pragma("foreign_keys = ON");
+          db.exec(SCHEMA);
+        });
       }
       close() {
         this.db.close();
@@ -2523,7 +2569,7 @@ __export(relay_exports, {
 import { execFileSync as execFileSync3 } from "child_process";
 import { createHash as createHash2, randomUUID as randomUUID3 } from "crypto";
 import { readFileSync as readFileSync6, existsSync as existsSync6, statSync } from "fs";
-import { resolve } from "path";
+import { resolve, basename } from "path";
 function backendErrorToRelayError(err) {
   const remediation = err.remediation;
   if (typeof remediation === "string" && remediation.trim().length > 0) {
@@ -2549,8 +2595,7 @@ function isGitBufferOverflow(err) {
 function gitDiffTooLargeError() {
   return new RelayError(`Git diff is too large (exceeds max ${MAX_DIFF_BYTES} bytes)`);
 }
-function readContextFile(contextFile) {
-  if (contextFile === null) return "";
+function readOneContextFile(contextFile) {
   const resolved = resolve(contextFile);
   if (!existsSync6(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
@@ -2560,13 +2605,19 @@ function readContextFile(contextFile) {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync6(resolved, "utf-8").trim();
-    ensureSizeLimit("Context file", contents, MAX_CONTEXT_FILE_BYTES);
-    return contents;
+    return readFileSync6(resolved, "utf-8").trim();
   } catch (err) {
-    if (err instanceof RelayError) throw err;
     throw new RelayError(`Failed reading context file: ${err}`);
   }
+}
+function readContextFile(contextFile) {
+  if (contextFile === null) return "";
+  const files = Array.isArray(contextFile) ? contextFile : [contextFile];
+  const contents = files.map((file) => readOneContextFile(file));
+  const joined = contents.length === 1 ? contents[0] : contents.map((text, i) => i === 0 ? text : `--- ${basename(files[i])} ---
+${text}`).join("\n\n");
+  ensureSizeLimit("Context file", joined, MAX_CONTEXT_FILE_BYTES);
+  return joined;
 }
 function resolveContextText(contextFile, contextText) {
   const fileText = readContextFile(contextFile);
@@ -73466,12 +73517,6 @@ var init_usePluginStatus = __esm({
 import { join as join10 } from "path";
 import { mkdirSync as mkdirSync9 } from "fs";
 import { homedir as homedir8 } from "os";
-function getDatabase2() {
-  if (!_Database2) {
-    _Database2 = __require("better-sqlite3");
-  }
-  return _Database2;
-}
 function defaultDbPath() {
   const configBase = process.env.XDG_CONFIG_HOME ?? join10(homedir8(), ".config");
   const dir = join10(configBase, "phone-a-friend");
@@ -73489,10 +73534,11 @@ function rowToMessage(row) {
     turn: row.turn
   };
 }
-var _Database2, SCHEMA2, TranscriptBus;
+var SCHEMA2, TranscriptBus;
 var init_bus = __esm({
   "src/agentic/bus.ts"() {
     "use strict";
+    init_sqlite_open();
     SCHEMA2 = `
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -73533,24 +73579,25 @@ var init_bus = __esm({
     TranscriptBus = class {
       db;
       constructor(dbPath) {
-        const Database = getDatabase2();
-        this.db = new Database(dbPath ?? defaultDbPath());
-        this.db.pragma("journal_mode = WAL");
-        this.db.pragma("foreign_keys = ON");
-        this.db.exec(SCHEMA2);
-        this.db.transaction(() => this.migrate()).immediate();
+        this.db = openDatabase(dbPath ?? defaultDbPath(), (db) => {
+          db.pragma("busy_timeout = 5000");
+          db.pragma("journal_mode = WAL");
+          db.pragma("foreign_keys = ON");
+          db.exec(SCHEMA2);
+          db.transaction(() => this.migrateOn(db)).immediate();
+        });
       }
       /**
        * Idempotent schema migrations for existing databases.
        */
-      migrate() {
-        const columns = this.db.pragma("table_info(sessions)");
+      migrateOn(db) {
+        const columns = db.pragma("table_info(sessions)");
         if (!columns.some((c) => c.name === "end_reason")) {
-          this.db.exec("ALTER TABLE sessions ADD COLUMN end_reason TEXT");
+          db.exec("ALTER TABLE sessions ADD COLUMN end_reason TEXT");
         }
         const hasMaxTurns = columns.some((c) => c.name === "max_turns");
         if (!hasMaxTurns) {
-          this.db.exec("ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0");
+          db.exec("ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0");
         }
       }
       // ---- Sessions -----------------------------------------------------------
@@ -76013,6 +76060,17 @@ var GeminiBackend = class {
         }
         throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
       }
+      if (err instanceof SpawnCliError && isIneligibleTierError(err.stderr)) {
+        throw new GeminiBackendError(
+          `${err.stderr.trim()}
+Gemini CLI no longer serves individual Google sign-in. Set GEMINI_API_KEY (or a Vertex project) to keep using --to gemini, or use --to antigravity for the Google subscription path.`
+        );
+      }
+      if (err instanceof SpawnCliError && isUnknownApprovalModeError(err.stderr)) {
+        throw new GeminiBackendError(
+          `The installed Gemini CLI does not support \`--approval-mode\`, which PaF uses to keep read-only relays read-only. Upgrade it (\`${INSTALL_HINTS.gemini}\`).`
+        );
+      }
       if (err instanceof SpawnCliError && opts.sessionId && isUnknownSessionFlagError(err.stderr)) {
         const flag = opts.resumeSession ? "--resume" : "--session-id";
         throw new GeminiBackendError(
@@ -76028,7 +76086,13 @@ function buildGeminiArgs(opts) {
   if (opts.sandbox !== "danger-full-access") {
     args.push("--sandbox");
   }
-  args.push("--yolo");
+  if (opts.sandbox === "read-only") {
+    args.push("--approval-mode", "plan");
+  } else if (opts.sandbox === "workspace-write") {
+    args.push("--approval-mode", "auto_edit");
+  } else {
+    args.push("--yolo");
+  }
   args.push("--include-directories", opts.repoPath);
   args.push("--output-format", opts.useJsonOutput ? "json" : "text");
   if (opts.sessionId) {
@@ -76043,6 +76107,13 @@ function buildGeminiArgs(opts) {
   }
   args.push("--prompt", opts.prompt);
   return args;
+}
+function isIneligibleTierError(stderr) {
+  return stderr.includes("IneligibleTierError") || stderr.includes("no longer supported for Gemini Code Assist");
+}
+function isUnknownApprovalModeError(stderr) {
+  const text = stderr.toLowerCase();
+  return /unknown argument|unknown option|unrecognized/.test(text) && text.includes("approval-mode");
 }
 function isUnknownSessionFlagError(stderr) {
   const text = stderr.toLowerCase();
@@ -85389,6 +85460,10 @@ function createProgressReporter(opts) {
 }
 
 // src/cli.ts
+function normalizeContextFiles(value) {
+  if (!value || value.length === 0) return null;
+  return value.length === 1 ? value[0] : value;
+}
 function repoRootDefault() {
   return getPackageRoot();
 }
@@ -85689,7 +85764,11 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option("--context-file <path>", "File with additional context").option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option(
+      "--context-file <path>",
+      "File with additional context (repeat to attach several, in order)",
+      (value, previous) => [...previous ?? [], value]
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {
@@ -85832,7 +85911,7 @@ RAW_END>>>
         prompt: opts.prompt,
         repoPath: opts.repo,
         backend: backendName,
-        contextFile: opts.contextFile ?? null,
+        contextFile: normalizeContextFiles(opts.contextFile),
         contextText: opts.contextText ?? null,
         includeDiff: resolved.includeDiff,
         timeoutSeconds: resolved.timeout,

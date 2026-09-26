@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
 import type { BackendEvent } from './backends/index.js';
 import {
   getBackend,
@@ -92,8 +92,7 @@ function gitDiffTooLargeError(): RelayError {
   return new RelayError(`Git diff is too large (exceeds max ${MAX_DIFF_BYTES} bytes)`);
 }
 
-function readContextFile(contextFile: string | null): string {
-  if (contextFile === null) return '';
+function readOneContextFile(contextFile: string): string {
   const resolved = resolve(contextFile);
   if (!existsSync(resolved)) {
     throw new RelayError(`Context file does not exist: ${resolved}`);
@@ -103,16 +102,30 @@ function readContextFile(contextFile: string | null): string {
     throw new RelayError(`Context path is not a file: ${resolved}`);
   }
   try {
-    const contents = readFileSync(resolved, 'utf-8').trim();
-    ensureSizeLimit('Context file', contents, MAX_CONTEXT_FILE_BYTES);
-    return contents;
+    return readFileSync(resolved, 'utf-8').trim();
   } catch (err) {
-    if (err instanceof RelayError) throw err;
     throw new RelayError(`Failed reading context file: ${err}`);
   }
 }
 
-function resolveContextText(contextFile: string | null, contextText: string | null): string {
+/**
+ * One file is passed through exactly as before. Several are concatenated in
+ * order with a `--- <basename> ---` line between them (never before the
+ * first). The size limit applies to the total, separators included, and any
+ * missing file fails the relay before a backend is spawned.
+ */
+function readContextFile(contextFile: string | string[] | null): string {
+  if (contextFile === null) return '';
+  const files = Array.isArray(contextFile) ? contextFile : [contextFile];
+  const contents = files.map((file) => readOneContextFile(file));
+  const joined = contents.length === 1
+    ? contents[0]
+    : contents.map((text, i) => (i === 0 ? text : `--- ${basename(files[i])} ---\n${text}`)).join('\n\n');
+  ensureSizeLimit('Context file', joined, MAX_CONTEXT_FILE_BYTES);
+  return joined;
+}
+
+function resolveContextText(contextFile: string | string[] | null, contextText: string | null): string {
   const fileText = readContextFile(contextFile);
   const inlineText = (contextText ?? '').trim();
   if (contextFile !== null && inlineText) {
@@ -584,7 +597,7 @@ export interface RelayOptions {
   prompt: string;
   repoPath: string;
   backend?: string;
-  contextFile?: string | null;
+  contextFile?: string | string[] | null;
   contextText?: string | null;
   includeDiff?: boolean;
   timeoutSeconds?: number;

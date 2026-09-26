@@ -85,7 +85,7 @@ dist/                Built bundle (committed, self-contained)
 - Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume)
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
-- Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
+- Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`). Sandbox maps to Gemini's approval mode: `read-only` sends `--sandbox --approval-mode plan` (Gemini's read-only mode), `workspace-write` sends `--sandbox --approval-mode auto_edit`, `danger-full-access` sends `--yolo`. Before this mapping every sandbox sent `--yolo`. A CLI that rejects `--approval-mode` gets an upgrade error; the retired individual-account error (`IneligibleTierError`) is rewritten to name `GEMINI_API_KEY` and `--to antigravity`.
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
 - OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access via `--dir`, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`)
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
@@ -199,6 +199,7 @@ phone-a-friend --to codex --review --review-scope working-tree # Review staged, 
 phone-a-friend --to codex --review --review-scope all          # Review branch commits plus working-tree changes
 phone-a-friend --to codex --prompt "..." --base develop # Review against specific branch
 phone-a-friend --prompt "..." --context-file notes.md  # Attach file as extra context
+phone-a-friend --prompt "..." --context-file plan.md --context-file review.md  # Several files, in order, separated by `--- <name> ---` lines
 phone-a-friend --prompt "..." --context-text "..."     # Inline extra context
 phone-a-friend --prompt "..." --include-diff           # Append git diff to prompt
 phone-a-friend --prompt "..." --no-include-diff        # Do not append git diff, overriding defaults.include_diff
@@ -473,7 +474,7 @@ The `--quiet` flag runs a relay without interactive output and persists the resu
 
 Every CLI relay and review is recorded as a task so delegated work stays findable from another terminal, after the conversation moves on, or after a host compacts its context.
 
-- `TaskStore` in `src/tasks.ts` writes `~/.config/phone-a-friend/tasks.db` (SQLite, WAL, 5s busy timeout). Separate PaF processes can write concurrently without losing records, as can the relay session store in `sessions.db`. Two tables: `tasks` (identity, status, backend, repo/branch/HEAD, review scope, diff hash, backend session id, owner pid, result, error, timestamps) and `task_events` (ordered evidence per task). Relay sessions import legacy JSON once; `--quiet` jobs are still written to `jobs.json` and additionally tracked as tasks.
+- `TaskStore` in `src/tasks.ts` writes `~/.config/phone-a-friend/tasks.db` (SQLite, WAL, 5s busy timeout). Separate PaF processes can write concurrently without losing records, as can the relay session store in `sessions.db`. The first open of a fresh database races on the WAL switch, which SQLite refuses with `SQLITE_BUSY` without waiting on the busy handler (issue #173); `openDatabase()` in `src/sqlite-open.ts` retries open plus pragmas plus schema (and the transcript bus's migration) with jittered backoff, used by `TaskStore` and `TranscriptBus`. Two tables: `tasks` (identity, status, backend, repo/branch/HEAD, review scope, diff hash, backend session id, owner pid, result, error, timestamps) and `task_events` (ordered evidence per task). Relay sessions import legacy JSON once; `--quiet` jobs are still written to `jobs.json` and additionally tracked as tasks.
 - `beginTrackedRun()` in `src/task-tracking.ts` is called by the CLI before every relay path (review, batch, stream, `--quiet`). It returns a `RelayObserver` for the relay core plus `complete()`/`fail()`. Tracking is best-effort: a store failure prints one stderr warning and the relay proceeds untracked.
 - The CLI prints `Task <id> started · phone-a-friend task show <id>` on stderr before the spinner and `Task <id> completed|failed` afterwards. The id is unstyled so hosts can match `Task ([0-9a-f]{8}) started`. stdout contracts (`--schema`, `--verdict-json`, plain text) are unchanged.
 - **Scope and drift.** Review mode hashes the collected diff before the backend call (`scope_captured`) and re-collects it afterwards. A different hash records `drift_detected`, prints a stderr warning, and sets `driftDetected = true`; an unchanged hash records `scope_verified`; a failed re-collection records `drift_unknown`. Backends with local file access read the live tree, so the hash is evidence of what the review covered, not a guarantee.

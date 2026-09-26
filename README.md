@@ -164,6 +164,7 @@ Delegate a task to any backend and get the result back:
 ```bash
 phone-a-friend --to codex --prompt "Review this code"
 phone-a-friend --to antigravity --prompt "Review this code" --sandbox read-only
+phone-a-friend --prompt "Compare these" --context-file plan.md --context-file review.md  # several context files, in order
 phone-a-friend --to gemini --prompt "Analyze the architecture"
 phone-a-friend --to claude --prompt "Refactor this module"
 phone-a-friend --to ollama --prompt "Explain this function"

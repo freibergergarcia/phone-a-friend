@@ -67,6 +67,12 @@ import {
 // Repo root default
 // ---------------------------------------------------------------------------
 
+/** Commander accumulates repeated --context-file into an array; keep a single file as a string. */
+function normalizeContextFiles(value: string[] | undefined): string | string[] | null {
+  if (!value || value.length === 0) return null;
+  return value.length === 1 ? value[0] : value;
+}
+
 function repoRootDefault(): string {
   return getPackageRoot();
 }
@@ -512,7 +518,8 @@ export async function run(argv: string[]): Promise<number> {
     .option('--prompt <text>', 'Prompt to relay (required unless review mode is selected)')
     .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode')
     .option('--repo <path>', 'Repository path', process.cwd())
-    .option('--context-file <path>', 'File with additional context')
+    .option('--context-file <path>', 'File with additional context (repeat to attach several, in order)',
+      (value: string, previous: string[] | undefined) => [...(previous ?? []), value])
     .option('--context-text <text>', 'Inline context text')
     .option('--include-diff', 'Append git diff to prompt')
     .option('--no-include-diff', 'Do not append git diff (overrides config defaults.include_diff)')
@@ -696,7 +703,7 @@ export async function run(argv: string[]): Promise<number> {
         prompt: opts.prompt,
         repoPath: opts.repo,
         backend: backendName,
-        contextFile: opts.contextFile ?? null,
+        contextFile: normalizeContextFiles(opts.contextFile),
         contextText: opts.contextText ?? null,
         includeDiff: resolved.includeDiff,
         timeoutSeconds: resolved.timeout,

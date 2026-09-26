@@ -92,7 +92,9 @@ describe('GeminiBackend', () => {
 
     expect(result).toBe('Gemini feedback');
     expect(capturedArgs).toContain('--sandbox');
-    expect(capturedArgs).toContain('--yolo');
+    // read-only maps to Gemini's read-only approval mode; --yolo only on danger-full-access
+    expect(capturedArgs).toContain('--approval-mode');
+    expect(capturedArgs).not.toContain('--yolo');
     expect(capturedArgs).toContain('--include-directories');
     expect(capturedArgs).toContain('/tmp/repo');
     expect(capturedArgs).toContain('--output-format');
@@ -322,13 +324,18 @@ describe('GeminiBackend', () => {
     ).rejects.toThrow(/without producing output/);
   });
 
-  it('always passes --yolo flag', async () => {
+  it('auto-approves through the flag that matches each sandbox', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
       throw new Error(`unexpected execFileSync call: ${cmd}`);
     });
 
-    // Test with both sandbox modes to confirm --yolo is always present
+    // Every sandbox auto-approves in headless mode, each through its own
+    // flag: read-only via --approval-mode plan, danger-full-access via --yolo.
+    const expected: Record<string, string[]> = {
+      'read-only': ['--approval-mode', 'plan'],
+      'danger-full-access': ['--yolo'],
+    };
     for (const sandbox of ['read-only', 'danger-full-access'] as SandboxMode[]) {
       let capturedArgs: string[] = [];
       mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
@@ -345,7 +352,8 @@ describe('GeminiBackend', () => {
         env: {},
       });
 
-      expect(capturedArgs).toContain('--yolo');
+      expect(capturedArgs).toEqual(expect.arrayContaining(expected[sandbox]));
+      expect(capturedArgs.includes('--yolo')).toBe(sandbox === 'danger-full-access');
     }
   });
 });

@@ -1692,3 +1692,76 @@ describe('relay observer', () => {
     expect(opts.onEvent).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Repeated --context-file
+// ---------------------------------------------------------------------------
+
+describe('relay with several context files', () => {
+  let repo: string;
+  let backend: Backend;
+  const originalEnv = { ...process.env };
+
+  function sentPrompt(): string {
+    return ((backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0] as BackendRunOptions).prompt;
+  }
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    backend = makeMockBackend('codex');
+    registerBackend(backend);
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('keeps a single file byte-identical to the string form, with no separator', async () => {
+    const one = path.join(repo, 'plan.md');
+    fs.writeFileSync(one, 'the plan');
+    await relay({ prompt: 'go', repoPath: repo, contextFile: [one] });
+    const asArray = sentPrompt();
+    (backend.run as ReturnType<typeof vi.fn>).mockClear();
+    await relay({ prompt: 'go', repoPath: repo, contextFile: one });
+    expect(asArray).toBe(sentPrompt());
+    expect(asArray).toContain('Additional Context:\nthe plan');
+    expect(asArray).not.toContain('---');
+  });
+
+  it('concatenates several files in order with a separator only between them', async () => {
+    const a = path.join(repo, 'plan.md');
+    const b = path.join(repo, 'review.md');
+    fs.writeFileSync(a, 'first');
+    fs.writeFileSync(b, 'second');
+    await relay({ prompt: 'go', repoPath: repo, contextFile: [a, b] });
+    expect(sentPrompt()).toContain('Additional Context:\nfirst\n\n--- review.md ---\nsecond');
+  });
+
+  it('applies the context size limit to the total including separators', async () => {
+    const a = path.join(repo, 'a.md');
+    const b = path.join(repo, 'b.md');
+    fs.writeFileSync(a, 'x'.repeat(MAX_CONTEXT_FILE_BYTES - 5));
+    fs.writeFileSync(b, 'y'.repeat(10));
+    await expect(relay({ prompt: 'go', repoPath: repo, contextFile: [a, b] })).rejects.toThrow(/Context file/);
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
+  it('spawns nothing when any listed file is missing', async () => {
+    const a = path.join(repo, 'a.md');
+    fs.writeFileSync(a, 'ok');
+    await expect(relay({ prompt: 'go', repoPath: repo, contextFile: [a, path.join(repo, 'missing.md')] }))
+      .rejects.toThrow(/Context file does not exist/);
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
+  it('still rejects mixing files with --context-text', async () => {
+    const a = path.join(repo, 'a.md');
+    fs.writeFileSync(a, 'ok');
+    await expect(relay({ prompt: 'go', repoPath: repo, contextFile: [a], contextText: 'inline' }))
+      .rejects.toThrow('either context_file or context_text');
+  });
+});
