@@ -46,8 +46,15 @@ run review --review --base main
 run verdict --review --base main --verdict-json
 # OpenCode: --fast maps to --pure on 1.x and must be a no-op on 2.x.
 [ "$B" = opencode ] && run fast --fast --prompt "Reply with exactly the single word PONG and nothing else."
-$PAF session list >> "$OUT/summary.txt" 2>&1
-$PAF task list --repo "$REPO" >> "$OUT/summary.txt" 2>&1
+step() { # name, command...
+  local name=$1; shift
+  "$@" >> "$OUT/summary.txt" 2>&1
+  local rc=$?
+  [ "$rc" -ne 0 ] && FAILED=$((FAILED + 1))
+  echo "$name rc=$rc" >> "$OUT/summary.txt"
+}
+step session-list $PAF session list
+step task-list $PAF task list --repo "$REPO"
 echo "DONE $B failed=$FAILED" >> "$OUT/summary.txt"
 cat "$OUT/summary.txt"
 exit "$FAILED"
