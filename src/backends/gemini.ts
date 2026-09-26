@@ -324,13 +324,6 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
 }
 
 /**
- * Detect the stderr a stale Gemini CLI emits when it doesn't recognize the
- * session flags. yargs-based CLIs print "Unknown argument: <flag>" or
- * "Unknown arguments:"; older builds may say "unknown option". Gated on a
- * session having been requested by the caller, so this never masks unrelated
- * argument errors.
- */
-/**
  * Exact markers of the retired individual-account path (captured from
  * gemini 0.50.0, 2026-09-26). Anything else in stderr passes through.
  */
@@ -344,6 +337,13 @@ function isUnknownApprovalModeError(stderr: string): boolean {
   return /unknown argument|unknown option|unrecognized/.test(text) && text.includes('approval-mode');
 }
 
+/**
+ * Detect the stderr a stale Gemini CLI emits when it doesn't recognize the
+ * session flags. yargs-based CLIs print "Unknown argument: <flag>" or
+ * "Unknown arguments:"; older builds may say "unknown option". Gated on a
+ * session having been requested by the caller, so this never masks unrelated
+ * argument errors.
+ */
 function isUnknownSessionFlagError(stderr: string): boolean {
   const text = stderr.toLowerCase();
   if (!/unknown argument|unknown option|unrecognized/.test(text)) return false;
