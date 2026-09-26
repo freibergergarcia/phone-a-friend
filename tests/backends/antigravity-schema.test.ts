@@ -266,6 +266,17 @@ describe('Antigravity enforces dropped enums after the response', () => {
     expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"[]":1}');
   });
 
+  it.each([
+    ['default', '{"type":"object","properties":{"v":{"type":"object","default":{"enum":[1]}}}}'],
+    ['examples', '{"type":"object","properties":{"v":{"type":"object","examples":[{"enum":[1,2]}]}}}'],
+    ['const', '{"type":"object","properties":{"v":{"const":{"enum":[1]}}}}'],
+    ['a vendor annotation', '{"type":"object","properties":{"v":{"type":"integer","x-meta":{"enum":[1]}}}}'],
+  ])('treats %s as opaque data, not a constraint to remove or enforce', async (_name, schema) => {
+    expect(sanitizeAntigravitySchema(schema)).toBe(schema);
+    mockSpawn.mockImplementation(() => fakeChild(0, '{"conversation_id":"c","status":"SUCCESS","response":"x","structured_output":{"v":{"enum":[7]}}}'));
+    expect(await ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).toBe('{"v":{"enum":[7]}}');
+  });
+
   it('leaves string enums to the native enforcement and never re-checks them', async () => {
     mockSpawn.mockImplementation(() => fakeChild(0, JSON.stringify({ ...LIVE_ENVELOPE, structured_output: { verdict: 'nonsense' } })));
     const schema = '{"type":"object","properties":{"verdict":{"type":"string","enum":["ship"]}}}';

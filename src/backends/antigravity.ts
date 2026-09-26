@@ -296,13 +296,40 @@ export interface AntigravitySchemaPlan {
   droppedEnums: DroppedEnum[];
 }
 
-/** True when a non-string enum appears anywhere inside `node`. */
-function containsNonStringEnum(node: unknown): boolean {
-  if (Array.isArray(node)) return node.some(containsNonStringEnum);
-  if (!node || typeof node !== 'object') return false;
-  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-    if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) return true;
-    if (containsNonStringEnum(value)) return true;
+/**
+ * JSON Schema keywords whose value is a subschema, a list of subschemas, or a
+ * map of subschemas. Everything else (`default`, `examples`, `const`, `enum`
+ * values, annotations, unknown vendor keywords) is opaque data and is never
+ * inspected for constraints.
+ */
+const SUBSCHEMA_KEYWORDS = new Set([
+  'properties', 'patternProperties', 'additionalProperties', 'unevaluatedProperties', 'propertyNames',
+  'items', 'prefixItems', 'additionalItems', 'unevaluatedItems', 'contains',
+  'allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else',
+  'dependentSchemas', 'dependencies', '$defs', 'definitions', 'contentSchema',
+]);
+
+const SUBSCHEMA_MAP_KEYWORDS = new Set([
+  'properties', 'patternProperties', 'dependentSchemas', 'dependencies', '$defs', 'definitions',
+]);
+
+function isNonStringEnum(key: string, value: unknown): boolean {
+  return key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string');
+}
+
+/** True when a non-string enum constraint is reachable through subschema keywords of `schema`. */
+function schemaHasNonStringEnum(schema: unknown): boolean {
+  if (Array.isArray(schema)) return schema.some(schemaHasNonStringEnum);
+  if (!schema || typeof schema !== 'object') return false;
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (isNonStringEnum(key, value)) return true;
+    if (!SUBSCHEMA_KEYWORDS.has(key)) continue;
+    if (SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)
+        && Object.values(value as Record<string, unknown>).some((sub) => Array.isArray(sub) ? false : schemaHasNonStringEnum(sub))) return true;
+      continue;
+    }
+    if (schemaHasNonStringEnum(value)) return true;
   }
   return false;
 }
@@ -336,8 +363,8 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
     // prototype instead of creating the member.
     const out: Record<string, unknown> = Object.create(null);
     for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-      if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) {
-        droppedEnums.push({ path: [...path], values: value });
+      if (isNonStringEnum(key, value)) {
+        droppedEnums.push({ path: [...path], values: value as unknown[] });
         continue;
       }
       if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
@@ -352,7 +379,9 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
         out[key] = walk(value, [...path, { kind: 'items' }]);
         continue;
       }
-      if (containsNonStringEnum(value)) {
+      if (SUBSCHEMA_KEYWORDS.has(key) && (SUBSCHEMA_MAP_KEYWORDS.has(key)
+        ? value && typeof value === 'object' && !Array.isArray(value) && Object.values(value as Record<string, unknown>).some(schemaHasNonStringEnum)
+        : schemaHasNonStringEnum(value))) {
         throw new AntigravityBackendError(
           `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path, [])}: ` +
             'only enums directly under `properties.<name>` or an object-form `items` can be checked on the response. ' +

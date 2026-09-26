@@ -75227,12 +75227,52 @@ function renderEnumPath(path4, indices) {
   }
   return out;
 }
-function containsNonStringEnum(node) {
-  if (Array.isArray(node)) return node.some(containsNonStringEnum);
-  if (!node || typeof node !== "object") return false;
-  for (const [key, value] of Object.entries(node)) {
-    if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) return true;
-    if (containsNonStringEnum(value)) return true;
+var SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
+  "properties",
+  "patternProperties",
+  "additionalProperties",
+  "unevaluatedProperties",
+  "propertyNames",
+  "items",
+  "prefixItems",
+  "additionalItems",
+  "unevaluatedItems",
+  "contains",
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "not",
+  "if",
+  "then",
+  "else",
+  "dependentSchemas",
+  "dependencies",
+  "$defs",
+  "definitions",
+  "contentSchema"
+]);
+var SUBSCHEMA_MAP_KEYWORDS = /* @__PURE__ */ new Set([
+  "properties",
+  "patternProperties",
+  "dependentSchemas",
+  "dependencies",
+  "$defs",
+  "definitions"
+]);
+function isNonStringEnum(key, value) {
+  return key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string");
+}
+function schemaHasNonStringEnum(schema) {
+  if (Array.isArray(schema)) return schema.some(schemaHasNonStringEnum);
+  if (!schema || typeof schema !== "object") return false;
+  for (const [key, value] of Object.entries(schema)) {
+    if (isNonStringEnum(key, value)) return true;
+    if (!SUBSCHEMA_KEYWORDS.has(key)) continue;
+    if (SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+      if (value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some((sub) => Array.isArray(sub) ? false : schemaHasNonStringEnum(sub))) return true;
+      continue;
+    }
+    if (schemaHasNonStringEnum(value)) return true;
   }
   return false;
 }
@@ -75248,7 +75288,7 @@ function planAntigravitySchema(schema) {
     if (!node || typeof node !== "object" || Array.isArray(node)) return node;
     const out = /* @__PURE__ */ Object.create(null);
     for (const [key, value] of Object.entries(node)) {
-      if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) {
+      if (isNonStringEnum(key, value)) {
         droppedEnums.push({ path: [...path4], values: value });
         continue;
       }
@@ -75264,7 +75304,7 @@ function planAntigravitySchema(schema) {
         out[key] = walk(value, [...path4, { kind: "items" }]);
         continue;
       }
-      if (containsNonStringEnum(value)) {
+      if (SUBSCHEMA_KEYWORDS.has(key) && (SUBSCHEMA_MAP_KEYWORDS.has(key) ? value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some(schemaHasNonStringEnum) : schemaHasNonStringEnum(value))) {
         throw new AntigravityBackendError(
           `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path4, [])}: only enums directly under \`properties.<name>\` or an object-form \`items\` can be checked on the response. Use a string enum or restructure the schema.`
         );
