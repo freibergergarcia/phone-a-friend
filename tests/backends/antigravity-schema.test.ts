@@ -229,6 +229,9 @@ describe('Antigravity enforces dropped enums after the response', () => {
     ['additionalProperties', '{"type":"object","additionalProperties":{"type":"integer","enum":[1]}}'],
     ['prefixItems', '{"type":"array","prefixItems":[{"type":"integer","enum":[1]}]}'],
     ['$defs', '{"$defs":{"v":{"type":"integer","enum":[1]}},"type":"object"}'],
+    ['contentSchema', '{"type":"string","contentMediaType":"application/json","contentSchema":{"type":"integer","enum":[1]}}'],
+    ['items', '{"type":"array","items":[{"type":"integer","enum":[1]},{"type":"string"}]}'],
+    ['then', '{"type":"object","if":{"type":"object"},"then":{"properties":{"v":{"type":"integer","enum":[1]}}}}'],
   ])('refuses a non-string enum under %s before spawning', async (keyword, schema) => {
     await expect(ANTIGRAVITY_BACKEND.run({ ...baseOpts, schema })).rejects.toThrow(new RegExp(keyword.replace('$', '\\$')));
     expect(mockSpawn).not.toHaveBeenCalled();

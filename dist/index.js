@@ -75219,27 +75219,15 @@ function buildAntigravityArgs(opts) {
   args.push("--prompt", opts.prompt);
   return args;
 }
-var UNSUPPORTED_ENUM_CONTAINERS = /* @__PURE__ */ new Set([
-  "anyOf",
-  "oneOf",
-  "allOf",
-  "not",
-  "if",
-  "then",
-  "else",
-  "contains",
-  "prefixItems",
-  "additionalItems",
-  "unevaluatedItems",
-  "patternProperties",
-  "additionalProperties",
-  "propertyNames",
-  "unevaluatedProperties",
-  "dependentSchemas",
-  "dependencies",
-  "$defs",
-  "definitions"
-]);
+function containsNonStringEnum(node) {
+  if (Array.isArray(node)) return node.some(containsNonStringEnum);
+  if (!node || typeof node !== "object") return false;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) return true;
+    if (containsNonStringEnum(value)) return true;
+  }
+  return false;
+}
 function planAntigravitySchema(schema) {
   let parsed;
   try {
@@ -75248,37 +75236,36 @@ function planAntigravitySchema(schema) {
     return { schema, droppedEnums: [] };
   }
   const droppedEnums = [];
-  const walk = (node, path4, underUnsupported) => {
-    if (Array.isArray(node)) return node.map((item) => walk(item, path4, underUnsupported));
-    if (!node || typeof node !== "object") return node;
+  const walk = (node, path4) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
     const out = {};
     for (const [key, value] of Object.entries(node)) {
       if (key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string")) {
-        if (underUnsupported) {
-          throw new AntigravityBackendError(
-            `Antigravity cannot enforce the non-string enum at $.${path4.join(".") || "<root>"} because it sits under \`${underUnsupported}\`, which PaF cannot map back to the response. Use a string enum or restructure the schema.`
-          );
-        }
         droppedEnums.push({ path: [...path4], values: value });
         continue;
       }
       if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
         const props = {};
         for (const [name, sub] of Object.entries(value)) {
-          props[name] = walk(sub, [...path4, name], underUnsupported);
+          props[name] = walk(sub, [...path4, name]);
         }
         out[key] = props;
         continue;
       }
       if (key === "items" && value && typeof value === "object" && !Array.isArray(value)) {
-        out[key] = walk(value, [...path4, "[]"], underUnsupported);
+        out[key] = walk(value, [...path4, "[]"]);
         continue;
       }
-      out[key] = walk(value, path4, UNSUPPORTED_ENUM_CONTAINERS.has(key) ? key : underUnsupported);
+      if (containsNonStringEnum(value)) {
+        throw new AntigravityBackendError(
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at $.${path4.join(".") || "<root>"}: only enums directly under \`properties.<name>\` or an object-form \`items\` can be checked on the response. Use a string enum or restructure the schema.`
+        );
+      }
+      out[key] = value;
     }
     return out;
   };
-  const sanitized = walk(parsed, [], null);
+  const sanitized = walk(parsed, []);
   return { schema: JSON.stringify(sanitized), droppedEnums };
 }
 function sanitizeAntigravitySchema(schema) {

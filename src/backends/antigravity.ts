@@ -285,17 +285,16 @@ export interface AntigravitySchemaPlan {
   droppedEnums: DroppedEnum[];
 }
 
-/**
- * Subschema keywords whose enums cannot be mapped back to one response path.
- * Only `properties.<name>` and `items` paths are enforceable; an enum found
- * under any of these is refused before spawning.
- */
-const UNSUPPORTED_ENUM_CONTAINERS = new Set([
-  'anyOf', 'oneOf', 'allOf', 'not', 'if', 'then', 'else',
-  'contains', 'prefixItems', 'additionalItems', 'unevaluatedItems',
-  'patternProperties', 'additionalProperties', 'propertyNames', 'unevaluatedProperties',
-  'dependentSchemas', 'dependencies', '$defs', 'definitions',
-]);
+/** True when a non-string enum appears anywhere inside `node`. */
+function containsNonStringEnum(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(containsNonStringEnum);
+  if (!node || typeof node !== 'object') return false;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) return true;
+    if (containsNonStringEnum(value)) return true;
+  }
+  return false;
+}
 
 /**
  * The Gemini API behind agy accepts `enum` only with string values; an
@@ -303,10 +302,13 @@ const UNSUPPORTED_ENUM_CONTAINERS = new Set([
  * whole request with INVALID_ARGUMENT (verified on 1.2.11). Remove non-string
  * enums from what is sent, remember where they were, and enforce them on the
  * returned value ourselves (see `assertDroppedEnums`), so the caller's schema
- * contract still holds. An enum under a combinator (`anyOf`, `oneOf`, ...)
- * cannot be mapped back to one path, so such schemas are refused up front
- * rather than silently weakened. Unparseable text is passed through for agy
- * to report.
+ * contract still holds.
+ *
+ * Only two locations map back to one response path: `properties.<name>` and
+ * the object form of `items`. A non-string enum reachable any other way
+ * (`anyOf`, `contains`, `$defs`, tuple `items`, `contentSchema`, anything
+ * else) is refused before spawning rather than silently weakened. Unparseable
+ * text is passed through for agy to report.
  */
 export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
   let parsed: unknown;
@@ -316,38 +318,38 @@ export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
     return { schema, droppedEnums: [] };
   }
   const droppedEnums: DroppedEnum[] = [];
-  const walk = (node: unknown, path: string[], underUnsupported: string | null): unknown => {
-    if (Array.isArray(node)) return node.map((item) => walk(item, path, underUnsupported));
-    if (!node || typeof node !== 'object') return node;
+  const walk = (node: unknown, path: string[]): unknown => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
       if (key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string')) {
-        if (underUnsupported) {
-          throw new AntigravityBackendError(
-            `Antigravity cannot enforce the non-string enum at $.${path.join('.') || '<root>'} because it sits under ` +
-              `\`${underUnsupported}\`, which PaF cannot map back to the response. Use a string enum or restructure the schema.`,
-          );
-        }
         droppedEnums.push({ path: [...path], values: value });
         continue;
       }
       if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
         const props: Record<string, unknown> = {};
         for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
-          props[name] = walk(sub, [...path, name], underUnsupported);
+          props[name] = walk(sub, [...path, name]);
         }
         out[key] = props;
         continue;
       }
       if (key === 'items' && value && typeof value === 'object' && !Array.isArray(value)) {
-        out[key] = walk(value, [...path, '[]'], underUnsupported);
+        out[key] = walk(value, [...path, '[]']);
         continue;
       }
-      out[key] = walk(value, path, UNSUPPORTED_ENUM_CONTAINERS.has(key) ? key : underUnsupported);
+      if (containsNonStringEnum(value)) {
+        throw new AntigravityBackendError(
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at $.${path.join('.') || '<root>'}: ` +
+            'only enums directly under `properties.<name>` or an object-form `items` can be checked on the response. ' +
+            'Use a string enum or restructure the schema.',
+        );
+      }
+      out[key] = value;
     }
     return out;
   };
-  const sanitized = walk(parsed, [], null);
+  const sanitized = walk(parsed, []);
   return { schema: JSON.stringify(sanitized), droppedEnums };
 }
 
