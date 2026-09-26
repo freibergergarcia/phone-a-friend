@@ -19,6 +19,7 @@ import {
   spawnCli,
   SpawnCliTimeoutError,
   type Backend,
+  type PreparePromptContext,
   type SandboxMode,
 } from './index.js';
 
@@ -60,6 +61,16 @@ export class AntigravityBackend implements Backend {
     requiresClientSessionId: false,
   };
 
+  /**
+   * Headless `agy` auto-denies the `command` permission and then returns
+   * nothing, which is how every review used to fail: the model reached for
+   * `git`. Workspace reads are granted, so say so up front. Verified live on
+   * 1.2.11: the same review passes once the prompt carries this line.
+   */
+  preparePrompt(prompt: string, _ctx: PreparePromptContext): string {
+    return `${ANTIGRAVITY_HEADLESS_PREAMBLE}\n\n${prompt}`;
+  }
+
   async run(opts: BackendRunOptions): Promise<string> {
     if (!isInPath(ANTIGRAVITY_COMMAND, opts.env)) {
       throw new AntigravityBackendError(
@@ -67,12 +78,10 @@ export class AntigravityBackend implements Backend {
       );
     }
 
-    const prompt = opts.schema
-      ? injectSchemaPrompt(opts.prompt, opts.schema)
-      : opts.prompt;
-
+    // Refuses unsupported non-string enums before anything is spawned.
+    const schemaPlan = opts.schema ? planAntigravitySchema(opts.schema) : null;
     const args = buildAntigravityArgs({
-      prompt,
+      prompt: opts.prompt,
       repoPath: opts.repoPath,
       sandbox: opts.sandbox,
       model: opts.model,
@@ -80,7 +89,10 @@ export class AntigravityBackend implements Backend {
       persistSession: opts.persistSession,
       resumeSession: opts.resumeSession,
       sessionId: opts.sessionId,
+      schema: opts.schema ?? null,
     });
+    const session = Boolean(opts.persistSession || opts.resumeSession);
+    const jsonEnvelope = session || Boolean(opts.schema);
 
     try {
       const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
@@ -94,31 +106,20 @@ export class AntigravityBackend implements Backend {
       if (!result.stdout) {
         throw emptyOutputError('antigravity completed without producing output', result.stderr, host);
       }
-      if (!opts.persistSession && !opts.resumeSession && PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
-        throw partialTimeoutError(result.stdout, result.stderr, host);
+
+      if (!jsonEnvelope) {
+        if (PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
+          throw partialTimeoutError(result.stdout, result.stderr, host);
+        }
+        return result.stdout;
       }
 
-      if (opts.persistSession || opts.resumeSession) {
-        let payload;
-        try {
-          payload = JSON.parse(result.stdout);
-        } catch {
-          throw new AntigravityBackendError('Antigravity returned invalid session JSON');
-        }
-        if (payload?.status !== 'SUCCESS') {
-          const detail = [payload?.response, payload?.error, payload?.message]
-            .find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
-          throw new AntigravityBackendError(
-            `Antigravity session failed with status: ${payload?.status ?? 'missing'}` +
-              (detail ? `: ${detail}` : ''),
-          );
-        }
-        if (typeof payload.response !== 'string' || !payload.response.trim()) {
-          throw emptyOutputError('Antigravity session completed without producing a response', result.stderr, host);
-        }
-        if (PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
-          throw partialTimeoutError(payload.response, result.stderr, host);
-        }
+      // Session and schema modes share the JSON envelope and every guard
+      // from the session work: status, response, print timeout, and (for
+      // sessions) conversation id and resume identity, in that order. Only
+      // then is the session linked or the structured value returned.
+      const payload = parseAntigravityEnvelope(result.stdout, result.stderr, host);
+      if (session) {
         const conversationId = typeof payload.conversation_id === 'string' ? payload.conversation_id.trim() : '';
         if (!conversationId) {
           throw new AntigravityBackendError('Antigravity session completed without a conversation_id');
@@ -130,10 +131,19 @@ export class AntigravityBackend implements Backend {
           );
         }
         opts.onSessionCreated?.(conversationId);
-        return payload.response;
       }
-
-      return result.stdout;
+      if (!schemaPlan) return payload.response;
+      const structured = structuredOutputOf(payload);
+      if (schemaPlan.droppedEnums.length > 0) {
+        let value: unknown;
+        try {
+          value = JSON.parse(structured);
+        } catch {
+          throw new AntigravityBackendError('Antigravity structured output is not valid JSON');
+        }
+        assertDroppedEnums(value, schemaPlan.droppedEnums);
+      }
+      return structured;
     } catch (err) {
       if (err instanceof AntigravityBackendError) throw err;
       if (err instanceof SpawnCliTimeoutError) {
@@ -152,6 +162,61 @@ export class AntigravityBackend implements Backend {
   }
 }
 
+const ANTIGRAVITY_HEADLESS_PREAMBLE =
+  'This is a headless session: shell and terminal commands are auto-denied. ' +
+  'The Git Diff is included below when relevant. Use only file-viewing tools if you need more context.';
+
+interface AntigravityEnvelope {
+  status: string;
+  response: string;
+  conversation_id?: unknown;
+  structured_output?: unknown;
+}
+
+/**
+ * Validate the `--output-format json` envelope. Throws in the same order the
+ * session path always has: invalid JSON, non-SUCCESS (detail from response,
+ * error or message), empty response, print timeout with partial output.
+ */
+function parseAntigravityEnvelope(stdout: string, stderr: string, host: string): AntigravityEnvelope {
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(stdout) as Record<string, unknown>;
+  } catch {
+    throw new AntigravityBackendError('Antigravity returned invalid session JSON');
+  }
+  if (payload?.status !== 'SUCCESS') {
+    const detail = ([payload?.response, payload?.error, payload?.message]
+      .find((value) => typeof value === 'string' && value.trim()) as string | undefined)?.trim() ?? '';
+    throw new AntigravityBackendError(
+      `Antigravity session failed with status: ${payload?.status ?? 'missing'}` +
+        (detail ? `: ${detail}` : ''),
+    );
+  }
+  if (typeof payload.response !== 'string' || !payload.response.trim()) {
+    throw emptyOutputError('Antigravity session completed without producing a response', stderr, host);
+  }
+  if (PRINT_TIMEOUT_PATTERN.test(stderr)) {
+    throw partialTimeoutError(payload.response, stderr, host);
+  }
+  return payload as unknown as AntigravityEnvelope;
+}
+
+/**
+ * The schema-conforming value lives under `structured_output`; `response`
+ * may carry extra keys the model added (verified on 1.2.11). Return the
+ * value as JSON text only when the key is an own property and serializable
+ * (functions and symbols stringify to undefined); otherwise fall back to the
+ * validated response text.
+ */
+function structuredOutputOf(payload: AntigravityEnvelope): string {
+  if (Object.prototype.hasOwnProperty.call(payload, 'structured_output')) {
+    const text = JSON.stringify(payload.structured_output);
+    if (typeof text === 'string') return text;
+  }
+  return payload.response;
+}
+
 interface AntigravityArgsOptions {
   prompt: string;
   repoPath: string;
@@ -161,6 +226,8 @@ interface AntigravityArgsOptions {
   persistSession?: boolean;
   resumeSession?: boolean;
   sessionId?: string | null;
+  /** JSON Schema enforced natively via --json-schema; requires the JSON envelope. */
+  schema?: string | null;
 }
 
 export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
@@ -192,8 +259,11 @@ export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
     args.push('--model', opts.model);
   }
 
-  if (opts.persistSession || opts.resumeSession) {
+  if (opts.persistSession || opts.resumeSession || opts.schema) {
     args.push('--output-format', 'json');
+  }
+  if (opts.schema) {
+    args.push('--json-schema', sanitizeAntigravitySchema(opts.schema));
   }
   if (opts.resumeSession && opts.sessionId) {
     args.push('--conversation', opts.sessionId);
@@ -203,8 +273,182 @@ export function buildAntigravityArgs(opts: AntigravityArgsOptions): string[] {
   return args;
 }
 
-function injectSchemaPrompt(prompt: string, schema: string): string {
-  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
+/** One step from the root of the response to a dropped enum: a named member or every array item. */
+export type EnumPathSegment = { kind: 'property'; name: string } | { kind: 'items' };
+
+/** A non-string enum PaF removed from the schema sent to agy, and where it applied. */
+export interface DroppedEnum {
+  path: EnumPathSegment[];
+  values: unknown[];
+}
+
+function renderEnumPath(path: EnumPathSegment[], indices: number[]): string {
+  let out = '$';
+  let i = 0;
+  for (const segment of path) {
+    out += segment.kind === 'items' ? `[${indices[i++]}]` : `.${segment.name}`;
+  }
+  return out;
+}
+
+export interface AntigravitySchemaPlan {
+  schema: string;
+  droppedEnums: DroppedEnum[];
+}
+
+/**
+ * JSON Schema keywords whose value is a subschema, a list of subschemas, or a
+ * map of subschemas. Everything else (`default`, `examples`, `const`, `enum`
+ * values, annotations, unknown vendor keywords) is opaque data and is never
+ * inspected for constraints.
+ */
+const SUBSCHEMA_KEYWORDS = new Set([
+  'properties', 'patternProperties', 'additionalProperties', 'unevaluatedProperties', 'propertyNames',
+  'items', 'prefixItems', 'additionalItems', 'unevaluatedItems', 'contains',
+  'allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else',
+  'dependentSchemas', 'dependencies', '$defs', 'definitions', 'contentSchema',
+]);
+
+const SUBSCHEMA_MAP_KEYWORDS = new Set([
+  'properties', 'patternProperties', 'dependentSchemas', 'dependencies', '$defs', 'definitions',
+]);
+
+function isNonStringEnum(key: string, value: unknown): boolean {
+  return key === 'enum' && Array.isArray(value) && !value.every((v) => typeof v === 'string');
+}
+
+/** True when a non-string enum constraint is reachable through subschema keywords of `schema`. */
+function schemaHasNonStringEnum(schema: unknown): boolean {
+  if (Array.isArray(schema)) return schema.some(schemaHasNonStringEnum);
+  if (!schema || typeof schema !== 'object') return false;
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (isNonStringEnum(key, value)) return true;
+    if (!SUBSCHEMA_KEYWORDS.has(key)) continue;
+    if (SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)
+        && Object.values(value as Record<string, unknown>).some((sub) => Array.isArray(sub) ? false : schemaHasNonStringEnum(sub))) return true;
+      continue;
+    }
+    if (schemaHasNonStringEnum(value)) return true;
+  }
+  return false;
+}
+
+/**
+ * The Gemini API behind agy accepts `enum` only with string values; an
+ * integer enum such as the verdict envelope's `schema_version: [1]` fails the
+ * whole request with INVALID_ARGUMENT (verified on 1.2.11). Remove non-string
+ * enums from what is sent, remember where they were, and enforce them on the
+ * returned value ourselves (see `assertDroppedEnums`), so the caller's schema
+ * contract still holds.
+ *
+ * Only two locations map back to one response path: `properties.<name>` and
+ * the object form of `items`. A non-string enum reachable any other way
+ * (`anyOf`, `contains`, `$defs`, tuple `items`, `contentSchema`, anything
+ * else) is refused before spawning rather than silently weakened. Unparseable
+ * text is passed through for agy to report.
+ */
+export function planAntigravitySchema(schema: string): AntigravitySchemaPlan {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(schema);
+  } catch {
+    return { schema, droppedEnums: [] };
+  }
+  const droppedEnums: DroppedEnum[] = [];
+  const walk = (node: unknown, path: EnumPathSegment[]): unknown => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return node;
+    // Null-prototype maps: a schema may legally define a property named
+    // __proto__, and assigning that key on a plain object would set the
+    // prototype instead of creating the member.
+    const out: Record<string, unknown> = Object.create(null);
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (isNonStringEnum(key, value)) {
+        droppedEnums.push({ path: [...path], values: value as unknown[] });
+        continue;
+      }
+      if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+        const props: Record<string, unknown> = Object.create(null);
+        for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
+          props[name] = walk(sub, [...path, { kind: 'property', name }]);
+        }
+        out[key] = props;
+        continue;
+      }
+      if (key === 'items' && value && typeof value === 'object' && !Array.isArray(value)) {
+        out[key] = walk(value, [...path, { kind: 'items' }]);
+        continue;
+      }
+      if (SUBSCHEMA_KEYWORDS.has(key) && (SUBSCHEMA_MAP_KEYWORDS.has(key)
+        ? value && typeof value === 'object' && !Array.isArray(value) && Object.values(value as Record<string, unknown>).some(schemaHasNonStringEnum)
+        : schemaHasNonStringEnum(value))) {
+        throw new AntigravityBackendError(
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path, [])}: ` +
+            'only enums directly under `properties.<name>` or an object-form `items` can be checked on the response. ' +
+            'Use a string enum or restructure the schema.',
+        );
+      }
+      out[key] = value;
+    }
+    return out;
+  };
+  const sanitized = walk(parsed, []);
+  return { schema: JSON.stringify(sanitized), droppedEnums };
+}
+
+/** The schema text actually sent to agy. */
+export function sanitizeAntigravitySchema(schema: string): string {
+  return planAntigravitySchema(schema).schema;
+}
+
+/** JSON Schema equality: structural, with object member order ignored. */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => jsonEqual(item, b[i]));
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const ka = Object.keys(a as Record<string, unknown>);
+    const kb = Object.keys(b as Record<string, unknown>);
+    return ka.length === kb.length
+      && ka.every((key) => Object.prototype.hasOwnProperty.call(b, key)
+        && jsonEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]));
+  }
+  return false;
+}
+
+function isEnumMember(value: unknown, allowed: unknown[]): boolean {
+  return allowed.some((candidate) => jsonEqual(candidate, value));
+}
+
+/** Enforce every enum PaF removed before sending, against the returned value. */
+export function assertDroppedEnums(value: unknown, dropped: DroppedEnum[]): void {
+  for (const entry of dropped) {
+    const visit = (node: unknown, index: number, indices: number[]): void => {
+      if (index === entry.path.length) {
+        if (!isEnumMember(node, entry.values)) {
+          throw new AntigravityBackendError(
+            `Antigravity structured output violates the schema at ${renderEnumPath(entry.path, indices)}: ` +
+              `got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`,
+          );
+        }
+        return;
+      }
+      const segment = entry.path[index];
+      if (segment.kind === 'items') {
+        if (!Array.isArray(node)) return;
+        node.forEach((item, i) => visit(item, index + 1, [...indices, i]));
+        return;
+      }
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      const record = node as Record<string, unknown>;
+      // Own properties only: an omitted optional property named __proto__,
+      // constructor or toString must not be "found" on Object.prototype.
+      if (!Object.prototype.hasOwnProperty.call(record, segment.name)) return;
+      visit(record[segment.name], index + 1, indices);
+    };
+    visit(value, 0, []);
+  }
 }
 
 function stderrTail(stderr: string): string {

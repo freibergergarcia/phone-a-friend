@@ -2883,6 +2883,11 @@ function buildPrompt(opts) {
   }
   return sections.join("\n").trim();
 }
+function finalizePrompt(backend, prompt, mode) {
+  const prepared = typeof backend.preparePrompt === "function" ? backend.preparePrompt(prompt, { mode }) : prompt;
+  ensureSizeLimit("Relay prompt", prepared, MAX_PROMPT_BYTES);
+  return prepared;
+}
 function nextRelayEnv() {
   const depthRaw = process.env.PHONE_A_FRIEND_DEPTH ?? "0";
   const depth = /^\d+$/.test(depthRaw) ? Number(depthRaw) : 0;
@@ -2947,14 +2952,13 @@ function prepareRelay(opts) {
   }
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : "";
-  const fullPrompt = buildPrompt({
+  const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt,
     repoPath: resolvedRepo,
     contextText: resolvedContext,
     diffText,
     localFileAccess: selectedBackend.localFileAccess
-  });
-  ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
+  }), "relay");
   const env5 = nextRelayEnv();
   return {
     selectedBackend,
@@ -3261,14 +3265,13 @@ async function reviewRelay(opts) {
   }
   const diffText = collectedDiff;
   const reviewPrompt = prompt ?? defaultReviewRequest(scope);
-  const fullPrompt = buildPrompt({
+  const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
     contextText: "",
     diffText,
     localFileAccess: selectedBackend.localFileAccess
-  });
-  ensureSizeLimit("Relay prompt", fullPrompt, MAX_PROMPT_BYTES);
+  }), "review");
   try {
     const result = await selectedBackend.run({
       prompt: fullPrompt,
@@ -75058,23 +75061,37 @@ var AntigravityBackend = class {
     resumeStrategy: "native-session",
     requiresClientSessionId: false
   };
+  /**
+   * Headless `agy` auto-denies the `command` permission and then returns
+   * nothing, which is how every review used to fail: the model reached for
+   * `git`. Workspace reads are granted, so say so up front. Verified live on
+   * 1.2.11: the same review passes once the prompt carries this line.
+   */
+  preparePrompt(prompt, _ctx) {
+    return `${ANTIGRAVITY_HEADLESS_PREAMBLE}
+
+${prompt}`;
+  }
   async run(opts) {
     if (!isInPath(ANTIGRAVITY_COMMAND, opts.env)) {
       throw new AntigravityBackendError(
         `Antigravity CLI not found in PATH. Install it: ${INSTALL_HINTS.antigravity}`
       );
     }
-    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+    const schemaPlan = opts.schema ? planAntigravitySchema(opts.schema) : null;
     const args = buildAntigravityArgs({
-      prompt,
+      prompt: opts.prompt,
       repoPath: opts.repoPath,
       sandbox: opts.sandbox,
       model: opts.model,
       timeoutSeconds: opts.timeoutSeconds,
       persistSession: opts.persistSession,
       resumeSession: opts.resumeSession,
-      sessionId: opts.sessionId
+      sessionId: opts.sessionId,
+      schema: opts.schema ?? null
     });
+    const session = Boolean(opts.persistSession || opts.resumeSession);
+    const jsonEnvelope = session || Boolean(opts.schema);
     try {
       const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
         timeoutMs: (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1e3,
@@ -75086,28 +75103,14 @@ var AntigravityBackend = class {
       if (!result.stdout) {
         throw emptyOutputError("antigravity completed without producing output", result.stderr, host);
       }
-      if (!opts.persistSession && !opts.resumeSession && PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
-        throw partialTimeoutError(result.stdout, result.stderr, host);
-      }
-      if (opts.persistSession || opts.resumeSession) {
-        let payload;
-        try {
-          payload = JSON.parse(result.stdout);
-        } catch {
-          throw new AntigravityBackendError("Antigravity returned invalid session JSON");
-        }
-        if (payload?.status !== "SUCCESS") {
-          const detail = [payload?.response, payload?.error, payload?.message].find((value) => typeof value === "string" && value.trim())?.trim() ?? "";
-          throw new AntigravityBackendError(
-            `Antigravity session failed with status: ${payload?.status ?? "missing"}` + (detail ? `: ${detail}` : "")
-          );
-        }
-        if (typeof payload.response !== "string" || !payload.response.trim()) {
-          throw emptyOutputError("Antigravity session completed without producing a response", result.stderr, host);
-        }
+      if (!jsonEnvelope) {
         if (PRINT_TIMEOUT_PATTERN.test(result.stderr)) {
-          throw partialTimeoutError(payload.response, result.stderr, host);
+          throw partialTimeoutError(result.stdout, result.stderr, host);
         }
+        return result.stdout;
+      }
+      const payload = parseAntigravityEnvelope(result.stdout, result.stderr, host);
+      if (session) {
         const conversationId = typeof payload.conversation_id === "string" ? payload.conversation_id.trim() : "";
         if (!conversationId) {
           throw new AntigravityBackendError("Antigravity session completed without a conversation_id");
@@ -75119,9 +75122,19 @@ stderr: ${stderrTail(result.stderr)}` : "")
           );
         }
         opts.onSessionCreated?.(conversationId);
-        return payload.response;
       }
-      return result.stdout;
+      if (!schemaPlan) return payload.response;
+      const structured = structuredOutputOf(payload);
+      if (schemaPlan.droppedEnums.length > 0) {
+        let value;
+        try {
+          value = JSON.parse(structured);
+        } catch {
+          throw new AntigravityBackendError("Antigravity structured output is not valid JSON");
+        }
+        assertDroppedEnums(value, schemaPlan.droppedEnums);
+      }
+      return structured;
     } catch (err) {
       if (err instanceof AntigravityBackendError) throw err;
       if (err instanceof SpawnCliTimeoutError) {
@@ -75139,6 +75152,35 @@ stderr: ${stderrTail(result.stderr)}` : "")
     }
   }
 };
+var ANTIGRAVITY_HEADLESS_PREAMBLE = "This is a headless session: shell and terminal commands are auto-denied. The Git Diff is included below when relevant. Use only file-viewing tools if you need more context.";
+function parseAntigravityEnvelope(stdout, stderr, host) {
+  let payload;
+  try {
+    payload = JSON.parse(stdout);
+  } catch {
+    throw new AntigravityBackendError("Antigravity returned invalid session JSON");
+  }
+  if (payload?.status !== "SUCCESS") {
+    const detail = [payload?.response, payload?.error, payload?.message].find((value) => typeof value === "string" && value.trim())?.trim() ?? "";
+    throw new AntigravityBackendError(
+      `Antigravity session failed with status: ${payload?.status ?? "missing"}` + (detail ? `: ${detail}` : "")
+    );
+  }
+  if (typeof payload.response !== "string" || !payload.response.trim()) {
+    throw emptyOutputError("Antigravity session completed without producing a response", stderr, host);
+  }
+  if (PRINT_TIMEOUT_PATTERN.test(stderr)) {
+    throw partialTimeoutError(payload.response, stderr, host);
+  }
+  return payload;
+}
+function structuredOutputOf(payload) {
+  if (Object.prototype.hasOwnProperty.call(payload, "structured_output")) {
+    const text = JSON.stringify(payload.structured_output);
+    if (typeof text === "string") return text;
+  }
+  return payload.response;
+}
 function buildAntigravityArgs(opts) {
   switch (opts.sandbox) {
     case "read-only":
@@ -75165,8 +75207,11 @@ function buildAntigravityArgs(opts) {
   if (opts.model) {
     args.push("--model", opts.model);
   }
-  if (opts.persistSession || opts.resumeSession) {
+  if (opts.persistSession || opts.resumeSession || opts.schema) {
     args.push("--output-format", "json");
+  }
+  if (opts.schema) {
+    args.push("--json-schema", sanitizeAntigravitySchema(opts.schema));
   }
   if (opts.resumeSession && opts.sessionId) {
     args.push("--conversation", opts.sessionId);
@@ -75174,11 +75219,145 @@ function buildAntigravityArgs(opts) {
   args.push("--prompt", opts.prompt);
   return args;
 }
-function injectSchemaPrompt(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
+function renderEnumPath(path4, indices) {
+  let out = "$";
+  let i = 0;
+  for (const segment of path4) {
+    out += segment.kind === "items" ? `[${indices[i++]}]` : `.${segment.name}`;
+  }
+  return out;
+}
+var SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
+  "properties",
+  "patternProperties",
+  "additionalProperties",
+  "unevaluatedProperties",
+  "propertyNames",
+  "items",
+  "prefixItems",
+  "additionalItems",
+  "unevaluatedItems",
+  "contains",
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "not",
+  "if",
+  "then",
+  "else",
+  "dependentSchemas",
+  "dependencies",
+  "$defs",
+  "definitions",
+  "contentSchema"
+]);
+var SUBSCHEMA_MAP_KEYWORDS = /* @__PURE__ */ new Set([
+  "properties",
+  "patternProperties",
+  "dependentSchemas",
+  "dependencies",
+  "$defs",
+  "definitions"
+]);
+function isNonStringEnum(key, value) {
+  return key === "enum" && Array.isArray(value) && !value.every((v) => typeof v === "string");
+}
+function schemaHasNonStringEnum(schema) {
+  if (Array.isArray(schema)) return schema.some(schemaHasNonStringEnum);
+  if (!schema || typeof schema !== "object") return false;
+  for (const [key, value] of Object.entries(schema)) {
+    if (isNonStringEnum(key, value)) return true;
+    if (!SUBSCHEMA_KEYWORDS.has(key)) continue;
+    if (SUBSCHEMA_MAP_KEYWORDS.has(key)) {
+      if (value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some((sub) => Array.isArray(sub) ? false : schemaHasNonStringEnum(sub))) return true;
+      continue;
+    }
+    if (schemaHasNonStringEnum(value)) return true;
+  }
+  return false;
+}
+function planAntigravitySchema(schema) {
+  let parsed;
+  try {
+    parsed = JSON.parse(schema);
+  } catch {
+    return { schema, droppedEnums: [] };
+  }
+  const droppedEnums = [];
+  const walk = (node, path4) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+    const out = /* @__PURE__ */ Object.create(null);
+    for (const [key, value] of Object.entries(node)) {
+      if (isNonStringEnum(key, value)) {
+        droppedEnums.push({ path: [...path4], values: value });
+        continue;
+      }
+      if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+        const props = /* @__PURE__ */ Object.create(null);
+        for (const [name, sub] of Object.entries(value)) {
+          props[name] = walk(sub, [...path4, { kind: "property", name }]);
+        }
+        out[key] = props;
+        continue;
+      }
+      if (key === "items" && value && typeof value === "object" && !Array.isArray(value)) {
+        out[key] = walk(value, [...path4, { kind: "items" }]);
+        continue;
+      }
+      if (SUBSCHEMA_KEYWORDS.has(key) && (SUBSCHEMA_MAP_KEYWORDS.has(key) ? value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some(schemaHasNonStringEnum) : schemaHasNonStringEnum(value))) {
+        throw new AntigravityBackendError(
+          `Antigravity cannot enforce the non-string enum under \`${key}\` at ${renderEnumPath(path4, [])}: only enums directly under \`properties.<name>\` or an object-form \`items\` can be checked on the response. Use a string enum or restructure the schema.`
+        );
+      }
+      out[key] = value;
+    }
+    return out;
+  };
+  const sanitized = walk(parsed, []);
+  return { schema: JSON.stringify(sanitized), droppedEnums };
+}
+function sanitizeAntigravitySchema(schema) {
+  return planAntigravitySchema(schema).schema;
+}
+function jsonEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => jsonEqual(item, b[i]));
+  }
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    return ka.length === kb.length && ka.every((key) => Object.prototype.hasOwnProperty.call(b, key) && jsonEqual(a[key], b[key]));
+  }
+  return false;
+}
+function isEnumMember(value, allowed) {
+  return allowed.some((candidate) => jsonEqual(candidate, value));
+}
+function assertDroppedEnums(value, dropped) {
+  for (const entry of dropped) {
+    const visit = (node, index, indices) => {
+      if (index === entry.path.length) {
+        if (!isEnumMember(node, entry.values)) {
+          throw new AntigravityBackendError(
+            `Antigravity structured output violates the schema at ${renderEnumPath(entry.path, indices)}: got ${JSON.stringify(node)}, expected one of ${JSON.stringify(entry.values)}.`
+          );
+        }
+        return;
+      }
+      const segment = entry.path[index];
+      if (segment.kind === "items") {
+        if (!Array.isArray(node)) return;
+        node.forEach((item, i) => visit(item, index + 1, [...indices, i]));
+        return;
+      }
+      if (!node || typeof node !== "object" || Array.isArray(node)) return;
+      const record = node;
+      if (!Object.prototype.hasOwnProperty.call(record, segment.name)) return;
+      visit(record[segment.name], index + 1, indices);
+    };
+    visit(value, 0, []);
+  }
 }
 function stderrTail(stderr) {
   const detail = stderr.trim();
@@ -75282,6 +75461,9 @@ var CodexBackend = class {
         const result = await spawnCli("codex", args, {
           timeoutMs: opts.timeoutSeconds * 1e3,
           env: env5,
+          // Fresh exec passes -C; resume has no -C, so the repo root must be
+          // the process cwd or the resumed thread works in PaF's own cwd.
+          cwd: opts.resumeSession && opts.sessionId ? opts.repoPath : void 0,
           label: "codex exec",
           onStdout: tap
         });
@@ -75387,7 +75569,7 @@ function buildCodexExecArgs(opts) {
   const isResume = opts.resumeSession && opts.sessionId;
   const args = isResume ? ["exec", "resume", opts.sessionId] : ["exec"];
   if (isResume) {
-    args.push("-o", opts.outputPath);
+    args.push("-o", opts.outputPath, "-c", `sandbox_mode="${opts.sandbox}"`);
   } else {
     args.push(
       "-C",
@@ -75976,7 +76158,7 @@ var GeminiBackend = class {
   }
   async runOnce(opts, model) {
     const useJsonOutput = Boolean(opts.schema);
-    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
     const args = buildGeminiArgs({
       prompt,
       repoPath: opts.repoPath,
@@ -76069,7 +76251,7 @@ function classifyAttemptError(err) {
   }
   return classifyGeminiError({ message: String(err) });
 }
-function injectSchemaPrompt2(prompt, schema) {
+function injectSchemaPrompt(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:
@@ -76315,7 +76497,7 @@ var OllamaBackend = class {
   async run(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
     const history = opts.sessionHistory ?? [];
     const body = {
       messages: [...history, { role: "user", content: prompt }],
@@ -76375,7 +76557,7 @@ var OllamaBackend = class {
   async *runStream(opts) {
     const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
+    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
     const history = opts.sessionHistory ?? [];
     const body = {
       messages: [...history, { role: "user", content: prompt }],
@@ -76452,7 +76634,7 @@ var OllamaBackend = class {
     throw new OllamaBackendError(`Ollama request failed: ${detail}`);
   }
 };
-function injectSchemaPrompt3(prompt, schema) {
+function injectSchemaPrompt2(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:
@@ -76856,7 +77038,7 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, pure } = this.getConfig();
-    const promptWithSchema = opts.schema ? injectSchemaPrompt4(opts.prompt, opts.schema) : opts.prompt;
+    const promptWithSchema = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
       repoPath: opts.repoPath,
@@ -77035,7 +77217,7 @@ var OpenCodeBackend = class {
     }
   }
 };
-function injectSchemaPrompt4(prompt, schema) {
+function injectSchemaPrompt3(prompt, schema) {
   return `${prompt}
 
 Respond with JSON only. The response must match this JSON Schema exactly:

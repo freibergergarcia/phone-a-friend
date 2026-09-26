@@ -186,7 +186,7 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
   --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
 ```
 
-Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Antigravity, Gemini, and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
+Antigravity, Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Gemini and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
 
 Codex also receives the schema on follow-ups through `--session` or
 `--backend-session`. PaF checks `codex exec resume --help` using the invocation's
@@ -454,6 +454,7 @@ Antigravity notes:
   to `read-only`; explicit write sandboxes such as `--sandbox workspace-write`
   are rejected.
 - `--session` and `--backend-session` resume the Antigravity conversation.
+- Headless `agy` auto-denies shell commands. PaF prefixes every Antigravity prompt with a notice saying so, which is what makes `--review` and `--verdict-json` work; the model reads files instead of running `git`.
 - If Gemini CLI says individual Google sign-in is no longer supported, use `--to antigravity` for the Google subscription path or use Gemini CLI with an API key/Vertex flow.
 
 OpenCode configuration via TOML:

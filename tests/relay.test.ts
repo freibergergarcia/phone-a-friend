@@ -1692,3 +1692,96 @@ describe('relay observer', () => {
     expect(opts.onEvent).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Backend prompt hook
+// ---------------------------------------------------------------------------
+
+describe('Backend.preparePrompt hook', () => {
+  let repo: string;
+  const originalEnv = { ...process.env };
+
+  function hookedBackend(name: string): Backend & { run: ReturnType<typeof vi.fn>; runStream: ReturnType<typeof vi.fn> } {
+    return {
+      name,
+      localFileAccess: true,
+      allowedSandboxes: new Set<SandboxMode>(['read-only', 'workspace-write', 'danger-full-access']),
+      capabilities: { resumeStrategy: 'native-session', requiresClientSessionId: false },
+      preparePrompt: (prompt, ctx) => `[${ctx.mode}] ${prompt}`,
+      run: vi.fn(async () => 'ok'),
+      runStream: vi.fn(async function* () { yield 'ok'; }),
+    };
+  }
+
+  function prompts(backend: { run: ReturnType<typeof vi.fn>; runStream?: ReturnType<typeof vi.fn> }): string[] {
+    return [...backend.run.mock.calls, ...(backend.runStream?.mock.calls ?? [])].map((c) => (c[0] as BackendRunOptions).prompt);
+  }
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    _resetRegistry();
+    repo = makeTempDir();
+    process.env.PHONE_A_FRIEND_DEPTH = '0';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('applies the hook on every relay path with mode=relay', async () => {
+    const backend = hookedBackend('hooked');
+    registerBackend(backend);
+    const store = new SessionStore(path.join(repo, 'sessions.db'));
+
+    await relay({ prompt: 'plain', repoPath: repo, backend: 'hooked' });
+    await relay({ prompt: 'raw', repoPath: repo, backend: 'hooked', backendSession: 'thread-1' });
+    await relay({ prompt: 'managed', repoPath: repo, backend: 'hooked', session: 'label', sessionStore: store });
+    for await (const _chunk of relayStream({ prompt: 'streamed', repoPath: repo, backend: 'hooked' })) { /* drain */ }
+
+    const seen = prompts(backend);
+    expect(seen).toHaveLength(4);
+    for (const p of seen) {
+      expect(p.startsWith('[relay] You are helping another coding agent')).toBe(true);
+    }
+    expect(seen.map((p) => p.split('Request:\n')[1])).toEqual(['plain', 'raw', 'managed', 'streamed']);
+  });
+
+  it('applies the hook on the generic review path with mode=review', async () => {
+    const backend = hookedBackend('hooked');
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff')) return 'diff --git a/x b/x\n+changed\n';
+      return '';
+    });
+
+    await reviewRelay({ repoPath: repo, backend: 'hooked', base: 'main' });
+    const [seen] = prompts(backend);
+    expect(seen.startsWith('[review] You are helping another coding agent')).toBe(true);
+    expect(seen).toContain('Git Diff:');
+  });
+
+  it('leaves the prompt byte-identical for backends without the hook', async () => {
+    const backend = makeMockBackend('plain');
+    registerBackend(backend);
+    await relay({ prompt: 'hello', repoPath: repo, backend: 'plain' });
+    const [seen] = (backend.run as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as BackendRunOptions).prompt);
+    expect(seen).toBe(
+      'You are helping another coding agent by reviewing or advising on work in a local repository.\n' +
+      `Repository path: ${path.resolve(repo)}\n` +
+      'Use the repository files for context when needed.\n' +
+      'Respond with concise, actionable feedback.\n' +
+      '\n' +
+      'Request:\n' +
+      'hello',
+    );
+  });
+
+  it('enforces the prompt size limit after the hook', async () => {
+    const backend = hookedBackend('hooked');
+    backend.preparePrompt = (prompt) => 'x'.repeat(MAX_PROMPT_BYTES) + prompt;
+    registerBackend(backend);
+    await expect(relay({ prompt: 'hi', repoPath: repo, backend: 'hooked' })).rejects.toThrow(/Relay prompt/);
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+});

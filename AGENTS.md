@@ -80,9 +80,10 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
 - Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
+- `Backend.preparePrompt?(prompt, { mode })` — optional last-step rewrite of the fully built prompt, applied by `finalizePrompt()` in `src/relay.ts` on every path (relay, raw and managed sessions, stream, generic review) before the prompt size limit. Only Antigravity implements it today; every other backend's prompt is byte-identical to before the hook existed.
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
 - Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
-- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume)
+- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume, native `--json-schema` with the value read from the envelope's `structured_output`). Headless `agy` auto-denies shell commands, so the backend implements `preparePrompt()` to prefix every relay and review prompt with a one-line notice; without it the model reaches for `git` and returns nothing.
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
@@ -508,7 +509,7 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 
 - Claude: native enforcement via `--output-format json --json-schema`
 - Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
-- Antigravity: schema injected into prompt (best-effort, not validated)
+- Antigravity: native enforcement via `--output-format json --json-schema <schema>`; PaF returns the envelope's `structured_output` as JSON text (falls back to `response` when absent) after the same status, response, print-timeout and session checks the session path runs
 - Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
 - Ollama: native enforcement via JSON Schema object in the HTTP `format` field, with the schema also injected into the prompt for grounding
 - OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
@@ -566,7 +567,7 @@ Implementation notes:
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
 - Antigravity: server-assigned ID captured from `conversation_id` in `--output-format json` output; resume with `--conversation <id>`.
 - Gemini: `--session-id <uuid>` on start, `--resume <uuid>` on resume. UUID generated client-side (mirrors Claude). Never `--resume latest`, so a label always maps to one conversation.
-- Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
+- Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`. Resume accepts neither `-C` nor `--sandbox`, so PaF passes `-c sandbox_mode="<sandbox>"` and spawns the resume with `cwd` set to the repo; without both, a thread started read-only resumes under Codex's config default and works in PaF's own cwd (verified on 0.157.1).
 - Ollama: stateless replay (full history prepended to each request)
 - `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Antigravity, Codex, Claude, Gemini, OpenCode)
 - `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call
