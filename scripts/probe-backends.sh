@@ -5,9 +5,15 @@
 #   scripts/probe-backends.sh <backend> [model]
 #
 # Runs, in order: one-shot relay, two-turn --session recall, --schema,
-# --review, --verdict-json, then `session list` and `task list`. Writes
-# per-step stdout/stderr and a summary under $PAF_PROBE_OUT (default: a temp
-# dir). Nothing touches ~/.config/phone-a-friend: XDG_CONFIG_HOME is scratch.
+# --review, --verdict-json (plus --fast for opencode), then `session list`
+# and `task list`. Writes per-step stdout/stderr and a summary under
+# $PAF_PROBE_OUT (default: a temp dir). Nothing touches
+# ~/.config/phone-a-friend: XDG_CONFIG_HOME is scratch.
+#
+# Exit status is the number of failed steps. Every step runs even after a
+# failure so the summary is complete; compare it against the baseline table
+# in the PR, since a failing step may be a known backend limit rather than a
+# regression.
 set -u
 B=${1:?backend}; MODEL=${2:-}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,11 +29,13 @@ printf 'function add(a, b) {\n  return a - b;\n}\nmodule.exports = { add };\n' >
 git commit -qam "change add"
 OUT="$OUTROOT/out-$B"; mkdir -p "$OUT"; : > "$OUT/summary.txt"
 M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
+FAILED=0
 run() {
   local name=$1; shift
   local t0=$(date +%s)
   $PAF --to "$B" --repo "$REPO" --timeout "${PAF_PROBE_TIMEOUT:-120}" --no-stream ${M[@]+"${M[@]}"} "$@" > "$OUT/$name.out" 2> "$OUT/$name.err"
   local rc=$?
+  [ "$rc" -ne 0 ] && FAILED=$((FAILED + 1))
   printf '%s rc=%s t=%ss stdout=%sB | %s\n' "$name" "$rc" "$(( $(date +%s) - t0 ))" "$(wc -c < "$OUT/$name.out" | tr -d ' ')" "$(head -c 160 "$OUT/$name.out" | tr '\n' ' ')" >> "$OUT/summary.txt"
 }
 run oneshot --prompt "Reply with exactly the single word PONG and nothing else."
@@ -36,7 +44,10 @@ run sess2 --session probe --prompt "What was the secret word I asked you to reme
 run schema --schema '{"type":"object","properties":{"ok":{"type":"boolean"},"word":{"type":"string"}},"required":["ok","word"],"additionalProperties":false}' --prompt "Return ok=true and word=PONG."
 run review --review --base main
 run verdict --review --base main --verdict-json
+# OpenCode: --fast maps to --pure on 1.x and must be a no-op on 2.x.
+[ "$B" = opencode ] && run fast --fast --prompt "Reply with exactly the single word PONG and nothing else."
 $PAF session list >> "$OUT/summary.txt" 2>&1
 $PAF task list --repo "$REPO" >> "$OUT/summary.txt" 2>&1
-echo "DONE $B" >> "$OUT/summary.txt"
+echo "DONE $B failed=$FAILED" >> "$OUT/summary.txt"
 cat "$OUT/summary.txt"
+exit "$FAILED"

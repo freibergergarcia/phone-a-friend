@@ -76757,6 +76757,7 @@ registerBackend(CLAUDE_BACKEND);
 // src/backends/opencode.ts
 init_backends();
 import { spawn as spawn2 } from "child_process";
+import { delimiter as pathDelimiter2, resolve as resolvePath2 } from "path";
 init_config();
 
 // src/diagnostics.ts
@@ -77034,9 +77035,12 @@ function parseOpenCodeMajor(versionOutput) {
 var OPENCODE_VERSION_PROBE_TIMEOUT_MS = 3e3;
 var majorCache = /* @__PURE__ */ new Map();
 function detectOpenCodeMajor(env5, opts = {}) {
-  const candidate = resolveExecutableCandidates("opencode", env5)[0];
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env5.PATH ?? "").split(pathDelimiter2).map((dir) => resolvePath2(spawnCwd, dir || ".")).join(pathDelimiter2);
+  const lookupEnv = { ...env5, PATH: absolutePath };
+  const candidate = resolveExecutableCandidates("opencode", lookupEnv)[0];
   if (!candidate) return Promise.resolve(null);
-  const key = `${candidate.resolvedPath}\0${env5.PATH ?? ""}`;
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
   const cached = majorCache.get(key);
   if (cached) return cached;
   const probe = probeVersion(candidate.path, {
@@ -77166,7 +77170,7 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, pure, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const promptWithSchema = opts.schema ? injectSchemaPrompt4(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
@@ -77224,7 +77228,7 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, pure, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const args = buildOpenCodeArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -77318,7 +77322,7 @@ var OpenCodeBackend = class {
       );
     }
     const { provider, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const prompt = opts.prompt ?? `Review the changes on this branch against ${opts.base}. Run git diff ${opts.base}...HEAD to see what changed.`;
     const args = buildOpenCodeArgs({
       prompt,

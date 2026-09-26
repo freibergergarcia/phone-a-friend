@@ -85,12 +85,31 @@ if (${JSON.stringify(mode)} === 'hanging') {
     expect(calls()).toHaveLength(1);
   });
 
-  it('keys the cache by the resolved executable, so a different PATH is probed again', async () => {
+  it('probes again when PATH selects a different executable', async () => {
     installCli('2x');
     expect(await detectOpenCodeMajor(env())).toBe(2);
     const otherBin = join(root, 'other');
     installCli('1x', otherBin);
     expect(await detectOpenCodeMajor({ PATH: `${otherBin}:/usr/bin:/bin` })).toBe(1);
     expect(calls()).toHaveLength(2);
+  });
+
+  it('probes again when PATH changes even though it resolves to the same executable', async () => {
+    // The cache key includes PATH, not only the resolved binary: a changed
+    // PATH is a changed spawn environment and is probed on its own.
+    installCli('2x');
+    expect(await detectOpenCodeMajor(env())).toBe(2);
+    expect(await detectOpenCodeMajor({ PATH: `${root}/empty:${bin}:/usr/bin:/bin` })).toBe(2);
+    expect(calls()).toHaveLength(2);
+  });
+
+  it('resolves relative PATH entries against the spawn cwd, not the PaF cwd', async () => {
+    // The relay spawns `opencode` with cwd = repoPath; execvp resolves a
+    // relative PATH entry against that cwd. `PATH=bin` with cwd = root must
+    // find root/bin/opencode even though PaF's own cwd has no such file.
+    installCli('2x');
+    expect(await detectOpenCodeMajor({ PATH: 'bin' }, { cwd: root })).toBe(2);
+    expect(await detectOpenCodeMajor({ PATH: 'bin' }, { cwd: join(root, 'nowhere') })).toBeNull();
+    expect(calls()).toHaveLength(1);
   });
 });

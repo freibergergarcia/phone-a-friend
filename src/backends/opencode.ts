@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { delimiter as pathDelimiter, resolve as resolvePath } from 'node:path';
 import { Readable } from 'node:stream';
 import {
   type BackendCapabilities,
@@ -92,11 +93,20 @@ export function _resetOpenCodeMajorCache(): void {
  */
 export function detectOpenCodeMajor(
   env: Record<string, string>,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; cwd?: string } = {},
 ): Promise<OpenCodeMajor> {
-  const candidate = resolveExecutableCandidates('opencode', env)[0];
+  // The relay spawns a bare `opencode` with cwd = repoPath, and execvp
+  // resolves relative PATH entries against that cwd. Resolve the same way
+  // here so the probed binary is the one the child will run.
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env.PATH ?? '')
+    .split(pathDelimiter)
+    .map((dir) => resolvePath(spawnCwd, dir || '.'))
+    .join(pathDelimiter);
+  const lookupEnv = { ...env, PATH: absolutePath };
+  const candidate = resolveExecutableCandidates('opencode', lookupEnv)[0];
   if (!candidate) return Promise.resolve(null);
-  const key = `${candidate.resolvedPath}\0${env.PATH ?? ''}`;
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
   const cached = majorCache.get(key);
   if (cached) return cached;
   const probe = probeVersion(candidate.path, {
@@ -332,7 +342,7 @@ export class OpenCodeBackend implements Backend {
     }
 
     const { provider, pure, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     // OpenCode has no native --schema enforcement — fall back to prompt
     // injection so callers asking for structured output (e.g.
     // --verdict-json) get a best-effort JSON-only response.
@@ -408,7 +418,7 @@ export class OpenCodeBackend implements Backend {
     }
 
     const { provider, pure, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const args = buildOpenCodeArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -524,7 +534,7 @@ export class OpenCodeBackend implements Backend {
     }
 
     const { provider, standalone } = this.getConfig();
-    const major = await detectOpenCodeMajor(opts.env);
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const prompt = opts.prompt
       ?? `Review the changes on this branch against ${opts.base}. Run git diff ${opts.base}...HEAD to see what changed.`;
 
