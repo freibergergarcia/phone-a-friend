@@ -64,8 +64,10 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 |---------|---------------|
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
-| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
+
+Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
 In direct mode, build `PROMPT_FILE` from the relay prompt using this
 template and the quoted-heredoc rule:
@@ -220,7 +222,7 @@ agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat 
 # Codex:
 codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
 # Gemini (always include -m):
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
+gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
 # Ollama (use OLLAMA_SELECTED_MODEL from Step 2):
 PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
@@ -276,7 +278,7 @@ agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat 
 # Codex:
 codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$REPROMPT_FILE")" < /dev/null
 # Gemini:
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$REPROMPT_FILE")"
+gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$REPROMPT_FILE")"
 # Ollama:
 REPROMPT_JSON="$(jq -Rs . < "$REPROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
@@ -393,7 +395,7 @@ cache file to clear it.
 
 **Direct mode** (no PaF wrapper — orchestrator handles retry):
 ```bash
-gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
+gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
 ```
 
 In direct mode, on capacity/transient errors (429, 500, 503), retry with a
