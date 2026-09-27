@@ -7,6 +7,7 @@
 
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { openDatabase, type SqliteHandle } from '../sqlite-open.js';
 import { homedir } from 'node:os';
 import type {
   AgenticSession,
@@ -17,16 +18,6 @@ import type {
 } from './types.js';
 
 // Lazy-load better-sqlite3 (native addon can't be bundled by tsup).
-// Only resolved when TranscriptBus is actually instantiated.
-// Uses the `require` shim injected by tsup's banner (createRequire).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _Database: any;
-function getDatabase() {
-  if (!_Database) {
-    _Database = require('better-sqlite3');
-  }
-  return _Database;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -90,25 +81,28 @@ export class TranscriptBus {
   private db: import('better-sqlite3').Database;
 
   constructor(dbPath?: string) {
-    const Database = getDatabase();
-    this.db = new Database(dbPath ?? defaultDbPath());
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA);
-    this.db.transaction(() => this.migrate()).immediate();
+    // WAL switch, schema and the immediate migration transaction all race
+    // other PaF processes on a fresh database; retried together on contention.
+    this.db = openDatabase(dbPath ?? defaultDbPath(), (db) => {
+      db.pragma('busy_timeout = 5000');
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      db.exec(SCHEMA);
+      db.transaction(() => this.migrateOn(db)).immediate();
+    });
   }
 
   /**
    * Idempotent schema migrations for existing databases.
    */
-  private migrate(): void {
-    const columns = this.db.pragma('table_info(sessions)') as Array<{ name: string }>;
+  private migrateOn(db: SqliteHandle): void {
+    const columns = db.pragma('table_info(sessions)') as Array<{ name: string }>;
     if (!columns.some((c) => c.name === 'end_reason')) {
-      this.db.exec('ALTER TABLE sessions ADD COLUMN end_reason TEXT');
+      db.exec('ALTER TABLE sessions ADD COLUMN end_reason TEXT');
     }
     const hasMaxTurns = columns.some((c) => c.name === 'max_turns');
     if (!hasMaxTurns) {
-      this.db.exec('ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0');
+      db.exec('ALTER TABLE sessions ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 0');
     }
   }
 

@@ -484,6 +484,22 @@ describe('CLI', () => {
     expect(opts.contextText).toBeNull();
   });
 
+  it('relay with repeated --context-file passes every file in order', async () => {
+    const a = path.join(tmpDir, 'plan.md');
+    const b = path.join(tmpDir, 'review.md');
+    fs.writeFileSync(a, 'plan');
+    fs.writeFileSync(b, 'review');
+
+    await run([
+      'relay', '--prompt', 'Review', '--repo', tmpDir,
+      '--context-file', a, '--context-file', b,
+    ]);
+
+    const opts = mockRelay.mock.calls[0][0];
+    expect(opts.contextFile).toEqual([a, b]);
+    expect(opts.contextText).toBeNull();
+  });
+
   it('relay with --context-text passes contextText', async () => {
     await run([
       'relay', '--prompt', 'Review', '--repo', tmpDir,

@@ -7,9 +7,10 @@
  * - Non-interactive mode: gemini --prompt "<prompt>"
  * - Repo context: --include-directories <dir> (cwd also set)
  * - Sandbox: --sandbox (boolean flag — on for read-only/workspace-write, off for full access)
+ * - Approval: --approval-mode plan (read-only, best effort) / auto_edit (workspace-write);
+ *   --yolo only for danger-full-access
  * - Output: captured from stdout (--output-format text)
  * - Model: -m <model>
- * - Auto-approve: --yolo enables tool use in headless mode
  */
 
 import {
@@ -230,6 +231,20 @@ export class GeminiBackend implements Backend {
         }
         throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
       }
+      if (err instanceof SpawnCliError && isIneligibleTierError(err.stderr)) {
+        throw new GeminiBackendError(
+          `${err.stderr.trim()}\n` +
+            'Gemini CLI no longer serves individual Google sign-in. Set GEMINI_API_KEY (or a Vertex ' +
+            'project) to keep using --to gemini, or use --to antigravity for the Google subscription path.',
+        );
+      }
+      if (err instanceof SpawnCliError && isUnknownApprovalModeError(err.stderr)) {
+        throw new GeminiBackendError(
+          'The installed Gemini CLI does not support `--approval-mode`, which PaF uses for ' +
+            `Gemini Plan Mode (best-effort read-only relays). Upgrade it (\`${INSTALL_HINTS.gemini}\`), ` +
+            'or use --to antigravity for enforced read-only.',
+        );
+      }
       // A resume/start was requested but the installed Gemini CLI rejects the
       // session flags. Surface an actionable upgrade hint instead of failing
       // closed AND silently — and never fall back to a fresh spawn, which
@@ -280,8 +295,21 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
     args.push('--sandbox');
   }
 
-  // Auto-approve tool actions in headless mode (--sandbox constrains scope)
-  args.push('--yolo');
+  // Tool approval per sandbox. `read-only` uses Gemini Plan Mode as a
+  // best-effort restriction: in headless execution Gemini auto-approves
+  // `exit_plan_mode` and then switches to YOLO (docs/cli/plan-mode.md,
+  // "Non-interactive execution"), so it is not an enforced write boundary.
+  // Use --to antigravity when enforced read-only behavior is required.
+  // `auto_edit` auto-approves edits; anything else needing approval is denied
+  // headless. `--yolo` (deprecated alias of `--approval-mode yolo`) is kept
+  // for danger-full-access only. PaF used to send `--yolo` for every sandbox.
+  if (opts.sandbox === 'read-only') {
+    args.push('--approval-mode', 'plan');
+  } else if (opts.sandbox === 'workspace-write') {
+    args.push('--approval-mode', 'auto_edit');
+  } else {
+    args.push('--yolo');
+  }
   args.push('--include-directories', opts.repoPath);
   args.push('--output-format', opts.useJsonOutput ? 'json' : 'text');
 
@@ -299,6 +327,20 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
 
   args.push('--prompt', opts.prompt);
   return args;
+}
+
+/**
+ * Exact markers of the retired individual-account path (captured from
+ * gemini 0.50.0, 2026-09-26). Anything else in stderr passes through.
+ */
+function isIneligibleTierError(stderr: string): boolean {
+  return stderr.includes('IneligibleTierError')
+    || stderr.includes('no longer supported for Gemini Code Assist');
+}
+
+function isUnknownApprovalModeError(stderr: string): boolean {
+  const text = stderr.toLowerCase();
+  return /unknown argument|unknown option|unrecognized/.test(text) && text.includes('approval-mode');
 }
 
 /**
