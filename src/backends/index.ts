@@ -99,6 +99,11 @@ export interface ReviewOptions {
   onEvent?: (event: BackendEvent) => void;
 }
 
+/** Where a relay prompt is headed, for backends that adjust it. */
+export interface PreparePromptContext {
+  mode: 'relay' | 'review';
+}
+
 export interface Backend {
   name: string;
   localFileAccess: boolean;
@@ -106,6 +111,12 @@ export interface Backend {
   capabilities: BackendCapabilities;
   /** Review scopes handled by the backend's native review() implementation. Defaults to branch only. */
   nativeReviewScopes?: ReadonlySet<ReviewScope>;
+  /**
+   * Optional last-step rewrite of the fully built relay prompt, applied by
+   * the relay core on every path (relay, session, stream, generic review)
+   * before the size limit. Backends without it receive the prompt untouched.
+   */
+  preparePrompt?(prompt: string, ctx: PreparePromptContext): string;
   run(opts: BackendRunOptions): Promise<string>;
   review?(opts: ReviewOptions): Promise<string>;
   runStream?(opts: BackendRunOptions): AsyncIterable<string>;

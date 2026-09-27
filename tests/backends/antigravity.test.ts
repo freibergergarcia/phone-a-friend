@@ -312,15 +312,17 @@ describe('AntigravityBackend', () => {
     expect(err.message).toContain('danger-full-access');
   });
 
-  it('injects schema instructions as best-effort prompt text', async () => {
+  it('enforces a schema natively instead of injecting it into the prompt', async () => {
+    // agy has had --json-schema since 1.1.8; the envelope carries the clean
+    // value under structured_output (see antigravity-schema.test.ts).
     mockExecFileSync.mockReturnValue('/usr/local/bin/agy');
     let capturedArgs: string[] = [];
     mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
       capturedArgs = args;
-      return fakeChild(0, '{"ok":true}');
+      return fakeChild(0, JSON.stringify({ status: 'SUCCESS', response: '{"ok":true}', structured_output: { ok: true } }));
     });
 
-    await ANTIGRAVITY_BACKEND.run({
+    const result = await ANTIGRAVITY_BACKEND.run({
       prompt: 'Return status.',
       repoPath: '/tmp/repo',
       timeoutSeconds: 60,
@@ -330,10 +332,12 @@ describe('AntigravityBackend', () => {
       schema: '{"type":"object"}',
     });
 
+    expect(result).toBe('{"ok":true}');
     const prompt = capturedArgs[capturedArgs.indexOf('--prompt') + 1];
-    expect(prompt).toContain('Return status.');
-    expect(prompt).toContain('Respond with JSON only.');
-    expect(prompt).toContain('{"type":"object"}');
+    expect(prompt).toBe('Return status.');
+    expect(capturedArgs).toContain('--json-schema');
+    expect(capturedArgs[capturedArgs.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
+    expect(capturedArgs).toContain('--output-format');
   });
 
   it('errors when agy is missing', async () => {

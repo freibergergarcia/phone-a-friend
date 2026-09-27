@@ -109,6 +109,9 @@ export class CodexBackend implements Backend {
         const result = await spawnCli('codex', args, {
           timeoutMs: opts.timeoutSeconds * 1000,
           env,
+          // Fresh exec passes -C; resume has no -C, so the repo root must be
+          // the process cwd or the resumed thread works in PaF's own cwd.
+          cwd: opts.resumeSession && opts.sessionId ? opts.repoPath : undefined,
           label: 'codex exec',
           onStdout: tap,
         });
@@ -270,9 +273,13 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
     ? ['exec', 'resume', opts.sessionId!]
     : ['exec'];
 
-  // Resume has its own option set; repository and sandbox flags remain exec-only.
+  // Resume has its own option set: `-C` and `--sandbox` are exec-only. The
+  // sandbox still has to travel, or a thread started read-only resumes under
+  // Codex's config default (verified on 0.157.1: it wrote a file). The config
+  // override takes the same identifiers as `--sandbox`. The working directory
+  // is set through the spawn cwd instead of `-C`.
   if (isResume) {
-    args.push('-o', opts.outputPath);
+    args.push('-o', opts.outputPath, '-c', `sandbox_mode="${opts.sandbox}"`);
   } else {
     args.push(
       '-C',
