@@ -80,14 +80,15 @@ dist/                Built bundle (committed, self-contained)
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
 - Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
+- `Backend.preparePrompt?(prompt, { mode })` — optional last-step rewrite of the fully built prompt, applied by `finalizePrompt()` in `src/relay.ts` on every path (relay, raw and managed sessions, stream, generic review) before the prompt size limit. Only Antigravity implements it today; every other backend's prompt is byte-identical to before the hook existed.
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
 - Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode (PaF passes `--repo`/`--dir`/equivalent and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
-- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume)
+- Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume, native `--json-schema` with the value read from the envelope's `structured_output`). Headless `agy` auto-denies shell commands, so the backend implements `preparePrompt()` to prefix every relay and review prompt with a one-line notice; without it the model reaches for `git` and returns nothing.
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`). Sandbox maps to Gemini's approval mode: `read-only` sends `--sandbox --approval-mode plan` (Gemini Plan Mode, a best-effort restriction: in headless execution Gemini may exit Plan Mode and switch to YOLO, so it is not an enforced write boundary; use `--to antigravity` when enforced read-only behavior is required), `workspace-write` sends `--sandbox --approval-mode auto_edit`, `danger-full-access` sends `--yolo`. Before this mapping every sandbox sent `--yolo`. A CLI that rejects `--approval-mode` gets an upgrade error; the retired individual-account error (`IneligibleTierError`) is rewritten to name `GEMINI_API_KEY` and `--to antigravity`.
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
-- OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access via `--dir`, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`)
+- OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`). Two OpenCode lines both install as `opencode`: 1.x (`opencode-ai`, what README/brew/docs install) and 2.x (`@opencode/cli`). PaF probes `opencode --version` once per process (`detectOpenCodeMajor()`, cached by resolved executable + PATH, concurrent callers share the probe) and builds arguments per line: 1.x gets `--dir <repo>` and `--pure` for `--fast`/`pure = true`; 2.x rejects both, relies on the spawn `cwd`, and takes `--standalone` when `backends.opencode.standalone = true`. When the version cannot be read PaF emits only line-neutral arguments and fails closed if `--fast`, `pure`, or `standalone` was requested. Both error-event shapes are parsed (1.x `error.data.message`, 2.x `error.type` + `error.message`). Doctor prints an advisory on 2.x.
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
@@ -211,7 +212,7 @@ phone-a-friend --to codex --review --verdict-json --prompt "focus on auth"  # Ve
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
 phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
 phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
-phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode)
+phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode 1.x; no effect on 2.x)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -509,7 +510,7 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 
 - Claude: native enforcement via `--output-format json --json-schema`
 - Codex: native enforcement via `--output-schema <tempfile> --json` (schema written to temp file)
-- Antigravity: schema injected into prompt (best-effort, not validated)
+- Antigravity: native enforcement via `--output-format json --json-schema <schema>`; PaF returns the envelope's `structured_output` as JSON text (falls back to `response` when absent) after the same status, response, print-timeout and session checks the session path runs
 - Gemini: `--output-format json` with schema injected into prompt (best-effort, not validated)
 - Ollama: native enforcement via JSON Schema object in the HTTP `format` field, with the schema also injected into the prompt for grounding
 - OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
@@ -567,7 +568,7 @@ Implementation notes:
 - Claude: `--session-id` on start, `-r` on resume. UUID generated client-side.
 - Antigravity: server-assigned ID captured from `conversation_id` in `--output-format json` output; resume with `--conversation <id>`.
 - Gemini: `--session-id <uuid>` on start, `--resume <uuid>` on resume. UUID generated client-side (mirrors Claude). Never `--resume latest`, so a label always maps to one conversation.
-- Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`
+- Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`. Resume accepts neither `-C` nor `--sandbox`, so PaF passes `-c sandbox_mode="<sandbox>"` and spawns the resume with `cwd` set to the repo; without both, a thread started read-only resumes under Codex's config default and works in PaF's own cwd (verified on 0.157.1).
 - Ollama: stateless replay (full history prepended to each request)
 - `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Antigravity, Codex, Claude, Gemini, OpenCode)
 - `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call
@@ -605,7 +606,7 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode 1.x backend, skipping external plugins. OpenCode 2.x removed `--pure`, so on that line `--fast` and `backends.opencode.pure` have no effect (doctor says so). It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode 1.x, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 

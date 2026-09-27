@@ -15,6 +15,7 @@ import {
   BackendError,
   type Backend,
   type ClaudePeerMessagingMode,
+  type PreparePromptContext,
   type ReviewScope,
   type SandboxMode,
 } from './backends/index.js';
@@ -547,6 +548,19 @@ function buildPrompt(opts: {
   return sections.join('\n').trim();
 }
 
+/**
+ * Give the backend its one chance to rewrite the built prompt, then apply the
+ * size limit to what will actually be sent. Every backend call site (relay,
+ * raw and managed sessions, stream, generic review) receives the result.
+ */
+function finalizePrompt(backend: Backend, prompt: string, mode: PreparePromptContext['mode']): string {
+  const prepared = typeof backend.preparePrompt === 'function'
+    ? backend.preparePrompt(prompt, { mode })
+    : prompt;
+  ensureSizeLimit('Relay prompt', prepared, MAX_PROMPT_BYTES);
+  return prepared;
+}
+
 function nextRelayEnv(): Record<string, string> {
   const depthRaw = process.env.PHONE_A_FRIEND_DEPTH ?? '0';
   // Match Python's strict int() — reject partial numeric strings like "1abc"
@@ -699,14 +713,13 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
 
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : '';
-  const fullPrompt = buildPrompt({
+  const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt,
     repoPath: resolvedRepo,
     contextText: resolvedContext,
     diffText,
     localFileAccess: selectedBackend.localFileAccess,
-  });
-  ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
+  }), 'relay');
 
   const env = nextRelayEnv();
 
@@ -1104,14 +1117,13 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   // Generic path: get diff and build prompt with it
   const diffText = collectedDiff;
   const reviewPrompt = prompt ?? defaultReviewRequest(scope);
-  const fullPrompt = buildPrompt({
+  const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
     contextText: '',
     diffText,
     localFileAccess: selectedBackend.localFileAccess,
-  });
-  ensureSizeLimit('Relay prompt', fullPrompt, MAX_PROMPT_BYTES);
+  }), 'review');
 
   try {
     const result = await selectedBackend.run({
