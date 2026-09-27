@@ -61,20 +61,20 @@
     "ovidiul"
   ],
   "dependencies": {
-    "@inquirer/prompts": "^8.7.0",
+    "@inquirer/prompts": "^8.7.2",
     "better-sqlite3": "^13.0.2",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
     "ink": "^7.0.5",
     "ora": "^9.3.0",
-    "react": "^19.2.7",
+    "react": "^19.3.0",
     "react-devtools-core": "^7.0.1",
     "smol-toml": "^1.8.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.4.0",
-    "@types/react": "^19.2.18",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
     "ink-testing-library": "^4.0.0",
     "js-yaml": "^5.4.1",
     "tsup": "^8.0.0",
