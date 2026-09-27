@@ -461,8 +461,15 @@ OpenCode configuration via TOML:
 [backends.opencode]
 provider = "ollama"     # model prefix (default: "ollama")
 model = "qwen3-coder"   # default model
-pure = false             # skip OpenCode plugins (maps to --fast)
+pure = false             # 1.x only: skip OpenCode plugins (maps to --fast)
+standalone = false       # 2.x only: run with a private server instead of the shared background service
 ```
+
+OpenCode 1.x (`opencode-ai`) and 2.x (`@opencode/cli`) both install as `opencode`
+and differ in `run` flags (2.x has no `--dir` or `--pure`). PaF detects the line
+from `opencode --version` and adapts; `phone-a-friend doctor` reports 2.x
+installs. `standalone` re-boots every configured MCP server per relay, so leave
+it off unless you need an isolated server.
 
 ## Streaming
 

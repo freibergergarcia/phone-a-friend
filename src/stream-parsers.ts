@@ -212,9 +212,11 @@ import type { Readable } from 'node:stream';
 
 /**
  * Pull a human-readable message out of an OpenCode `type:"error"` event.
- * Shape (verified against opencode 1.x `--format json`):
- *   {"type":"error","error":{"name":"UnknownError","data":{"message":"..."}}}
- * Prefers error.data.message, then error.name, then a JSON dump of error.
+ * Shapes (verified against `--format json`):
+ *   1.x: {"type":"error","error":{"name":"UnknownError","data":{"message":"..."}}}
+ *   2.x: {"type":"error","error":{"type":"provider.auth","message":"Request failed: 401"}}
+ * Prefers error.data.message, then error.message (with the 2.x error type
+ * appended), then error.name, then a JSON dump of error.
  */
 export function extractOpenCodeErrorMessage(event: Record<string, unknown>): string {
   const error = event.error as Record<string, unknown> | undefined;
@@ -222,6 +224,10 @@ export function extractOpenCodeErrorMessage(event: Record<string, unknown>): str
     const data = error.data as Record<string, unknown> | undefined;
     if (data && typeof data.message === 'string' && data.message.trim()) {
       return data.message;
+    }
+    if (typeof error.message === 'string' && error.message.trim()) {
+      const kind = typeof error.type === 'string' && error.type.trim() ? ` (${error.type})` : '';
+      return `${error.message}${kind}`;
     }
     if (typeof error.name === 'string' && error.name.trim()) {
       return error.name;

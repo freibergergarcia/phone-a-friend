@@ -14,6 +14,7 @@ import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
 import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from './installer.js';
 import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
+import { parseOpenCodeMajor } from './backends/opencode.js';
 import {
   inspectExecutables,
   attachModelAndCapabilities,
@@ -375,10 +376,34 @@ function semverLt(a: string, b: string): boolean {
   return false;
 }
 
+/**
+ * OpenCode ships two lines that both install as `opencode`. PaF adapts its
+ * arguments to the probed major, but on 2.x `--fast` and
+ * `backends.opencode.pure` have no equivalent, and the published docs still
+ * describe 1.x. Say so once, from the version doctor already probed.
+ */
+function opencodeLineAdvisory(opencode: BackendStatus): string | null {
+  const selected = opencode.executable?.selected;
+  if (!selected?.version) return null;
+  if (parseOpenCodeMajor(selected.version) !== 2) return null;
+  return (
+    `OpenCode 2.x (${selected.version}) detected at ${selected.path}. PaF adapts its arguments to this line; ` +
+    '--fast and backends.opencode.pure have no effect on 2.x (no --pure), and the published docs at ' +
+    'opencode.ai/docs describe 1.x. See opencode.ai/v2/docs for 2.x.'
+  );
+}
+
 async function collectAdvisories(report: DetectionReport): Promise<string[]> {
   const opencode = report.cli.find(b => b.name === 'opencode' && b.available);
   if (!opencode) return [];
-  const version = await probeOllamaVersion();
+  const out: string[] = [];
+  const lineAdvisory = opencodeLineAdvisory(opencode);
+  if (lineAdvisory) out.push(lineAdvisory);
+  out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  return out;
+}
+
+function collectOllamaAdvisories(version: string | null): string[] {
   if (!version) {
     return ['OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17.'];
   }

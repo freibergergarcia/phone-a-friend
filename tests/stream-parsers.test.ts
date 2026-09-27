@@ -453,6 +453,11 @@ describe('extractOpenCodeErrorMessage', () => {
   });
 
   it('returns a generic message when the error shape is unrecognized', () => {
+    // @opencode/cli 2.0.14 shape: error.type + error.message, no data/name.
+    expect(extractOpenCodeErrorMessage({
+      type: 'error',
+      error: { type: 'provider.auth', message: 'Request failed: 401' },
+    })).toBe('Request failed: 401 (provider.auth)');
     expect(extractOpenCodeErrorMessage({ type: 'error' })).toBe('opencode reported an error');
   });
 });

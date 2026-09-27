@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { delimiter as pathDelimiter, resolve as resolvePath } from 'node:path';
 import { Readable } from 'node:stream';
 import {
   type BackendCapabilities,
@@ -27,6 +28,7 @@ import {
 } from './index.js';
 import { parseOpenCodeStreamJSON } from '../stream-parsers.js';
 import { loadConfig } from '../config.js';
+import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
 
 // ---------------------------------------------------------------------------
 // Error
@@ -55,6 +57,68 @@ const OPENCODE_REVIEW_NO_OUTPUT_MESSAGE =
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Major version of an installed OpenCode CLI, from `opencode --version`.
+ *
+ * Two lines ship as `opencode`: 1.x (`opencode-ai`) and 2.x (`@opencode/cli`),
+ * with different `run` flags. Verified 2026-09-26: 2.0.14 prints
+ * `opencode v2.0.14`; 1.x prints a bare `1.18.32`. A 0.x beta build or
+ * unparseable output yields `null` so callers fail closed instead of guessing.
+ */
+export function parseOpenCodeMajor(versionOutput: string): 1 | 2 | null {
+  const match = versionOutput.match(/(?:^|[^\d.])v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  const major = Number(match[1]);
+  if (major === 1 || major === 2) return major;
+  return null;
+}
+
+const OPENCODE_VERSION_PROBE_TIMEOUT_MS = 3000;
+
+/** Cache of `opencode --version` probes, keyed by resolved executable plus PATH. */
+const majorCache = new Map<string, Promise<OpenCodeMajor>>();
+
+/** Clear the version cache — only for testing. */
+export function _resetOpenCodeMajorCache(): void {
+  majorCache.clear();
+}
+
+/**
+ * Detect which OpenCode line the `opencode` on PATH belongs to.
+ *
+ * Runs `opencode --version` at most once per resolved executable per
+ * process; concurrent callers share the in-flight probe. Never throws: a
+ * missing binary, a timeout, or an unparseable banner all yield `null`, and
+ * the caller decides whether the request can proceed with neutral arguments.
+ */
+export function detectOpenCodeMajor(
+  env: Record<string, string>,
+  opts: { timeoutMs?: number; cwd?: string } = {},
+): Promise<OpenCodeMajor> {
+  // The relay spawns a bare `opencode` with cwd = repoPath, and execvp
+  // resolves relative PATH entries against that cwd. Resolve the same way
+  // here so the probed binary is the one the child will run.
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env.PATH ?? '')
+    .split(pathDelimiter)
+    .map((dir) => resolvePath(spawnCwd, dir || '.'))
+    .join(pathDelimiter);
+  const lookupEnv = { ...env, PATH: absolutePath };
+  const candidate = resolveExecutableCandidates('opencode', lookupEnv)[0];
+  if (!candidate) return Promise.resolve(null);
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
+  const cached = majorCache.get(key);
+  if (cached) return cached;
+  const probe = probeVersion(candidate.path, {
+    env,
+    timeoutMs: opts.timeoutMs ?? OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  })
+    .then((result) => (result.version ? parseOpenCodeMajor(result.version) : null))
+    .catch(() => null);
+  majorCache.set(key, probe);
+  return probe;
+}
+
 export function normalizeOpenCodeModel(
   model: string | null,
   provider = 'ollama',
@@ -66,25 +130,32 @@ export function normalizeOpenCodeModel(
 /**
  * Render an opencode `{"type":"error"}` event as a single message.
  *
- * Shape (observed on 1.18.15):
- *   { type: 'error', error: { name, data: { message, ref } } }
+ * Shapes observed:
+ *   1.x (1.18.15): { type: 'error', error: { name, data: { message, ref } } }
+ *   2.x (2.0.14):  { type: 'error', error: { type, message } }
  *
- * The ref is worth keeping — it is the handle for correlating against
- * opencode's own server logs.
+ * The 1.x ref is worth keeping — it is the handle for correlating against
+ * opencode's own server logs. The 2.x type (e.g. `provider.auth`) plays the
+ * same role and is appended in parentheses.
  */
 function formatOpenCodeErrorEvent(raw: unknown): string | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const err = raw as { name?: unknown; data?: unknown };
+  const err = raw as { name?: unknown; data?: unknown; type?: unknown; message?: unknown };
   const data =
     err.data && typeof err.data === 'object'
       ? (err.data as { message?: unknown; ref?: unknown })
       : undefined;
-  const message = typeof data?.message === 'string' ? data.message : undefined;
+  const dataMessage = typeof data?.message === 'string' ? data.message : undefined;
+  if (dataMessage) {
+    const ref = typeof data?.ref === 'string' ? data.ref : undefined;
+    return ref ? `${dataMessage} (opencode ref: ${ref})` : dataMessage;
+  }
+  if (typeof err.message === 'string' && err.message.trim()) {
+    const kind = typeof err.type === 'string' && err.type.trim() ? ` (${err.type})` : '';
+    return `${err.message}${kind}`;
+  }
   const name = typeof err.name === 'string' ? err.name : undefined;
-  const base = message ?? (name ? `opencode reported ${name}` : undefined);
-  if (!base) return undefined;
-  const ref = typeof data?.ref === 'string' ? data.ref : undefined;
-  return ref ? `${base} (opencode ref: ${ref})` : base;
+  return name ? `opencode reported ${name}` : undefined;
 }
 
 /**
@@ -103,6 +174,8 @@ export function describeOpenCodeError(message: string, model: string | null): st
   );
 }
 
+export type OpenCodeMajor = 1 | 2 | null;
+
 interface OpenCodeRunArgsOptions {
   prompt: string;
   repoPath: string;
@@ -112,6 +185,23 @@ interface OpenCodeRunArgsOptions {
   sessionId: string | null;
   resumeSession: boolean;
   title?: string | null;
+  /**
+   * Installed CLI line. 1.x takes `--dir` and `--pure`; 2.x rejects both and
+   * takes `--standalone`. `null` (unknown) emits only the flags both lines
+   * accept and refuses version-specific requests instead of guessing.
+   */
+  major: OpenCodeMajor;
+  /** 2.x only: run with a private server instead of the shared background service. */
+  standalone?: boolean;
+}
+
+function requireKnownMajor(major: OpenCodeMajor, what: string): asserts major is 1 | 2 {
+  if (major === null) {
+    throw new OpenCodeBackendError(
+      `${what} needs the OpenCode version, but \`opencode --version\` could not be read. ` +
+        'Run `opencode --version` at the terminal, or drop the option to use only version-neutral arguments.',
+    );
+  }
 }
 
 export function isOpenCodeHostEnv(env: Record<string, string | undefined>): boolean {
@@ -135,11 +225,23 @@ function assertNotOpenCodeHost(env: Record<string, string>): void {
 }
 
 export function buildOpenCodeArgs(opts: OpenCodeRunArgsOptions): string[] {
-  const args = ['run', '--format', 'json', '--dir', opts.repoPath];
+  const args = ['run', '--format', 'json'];
+
+  // 1.x: the working directory is a flag. 2.x removed it; PaF spawns with
+  // cwd = repoPath on every path, which both lines honour.
+  if (opts.major === 1) args.push('--dir', opts.repoPath);
+  if (opts.standalone) {
+    requireKnownMajor(opts.major, '--standalone');
+    if (opts.major === 2) args.push('--standalone');
+  }
 
   const model = normalizeOpenCodeModel(opts.model, opts.provider);
   if (model) args.push('--model', model);
-  if (opts.fast) args.push('--pure');
+  if (opts.fast) {
+    requireKnownMajor(opts.major, 'Fast mode (--fast or backends.opencode.pure)');
+    // `--pure` (skip external plugins) exists only on 1.x. 2.x has no equivalent.
+    if (opts.major === 1) args.push('--pure');
+  }
 
   if (opts.resumeSession && opts.sessionId) {
     args.push('--session', opts.sessionId);
@@ -218,11 +320,15 @@ export class OpenCodeBackend implements Backend {
   };
   readonly nativeReviewScopes: ReadonlySet<ReviewScope> = new Set(['branch']);
 
-  private getConfig(): { provider: string; pure: boolean } {
+  private getConfig(): { provider: string; pure: boolean; standalone: boolean } {
     const cfg = loadConfig();
     return {
       provider: (cfg.backends?.opencode?.provider as string | undefined) ?? 'ollama',
       pure: (cfg.backends?.opencode?.pure as boolean | undefined) ?? false,
+      // 2.x only. Off by default: a private server re-boots every configured
+      // MCP server per relay, which stalled for minutes on a real config,
+      // while the shared background service answers in seconds.
+      standalone: (cfg.backends?.opencode?.standalone as boolean | undefined) ?? false,
     };
   }
 
@@ -235,7 +341,8 @@ export class OpenCodeBackend implements Backend {
       );
     }
 
-    const { provider, pure } = this.getConfig();
+    const { provider, pure, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     // OpenCode has no native --schema enforcement — fall back to prompt
     // injection so callers asking for structured output (e.g.
     // --verdict-json) get a best-effort JSON-only response.
@@ -250,6 +357,8 @@ export class OpenCodeBackend implements Backend {
       fast: opts.fast || pure,
       sessionId: opts.sessionId ?? null,
       resumeSession: opts.resumeSession ?? false,
+      major,
+      standalone,
     });
 
     try {
@@ -308,7 +417,8 @@ export class OpenCodeBackend implements Backend {
       );
     }
 
-    const { provider, pure } = this.getConfig();
+    const { provider, pure, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const args = buildOpenCodeArgs({
       prompt: opts.prompt,
       repoPath: opts.repoPath,
@@ -317,6 +427,8 @@ export class OpenCodeBackend implements Backend {
       fast: opts.fast || pure,
       sessionId: opts.sessionId ?? null,
       resumeSession: opts.resumeSession ?? false,
+      major,
+      standalone,
     });
 
     const child = spawn('opencode', args, {
@@ -421,7 +533,8 @@ export class OpenCodeBackend implements Backend {
       );
     }
 
-    const { provider } = this.getConfig();
+    const { provider, standalone } = this.getConfig();
+    const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
     const prompt = opts.prompt
       ?? `Review the changes on this branch against ${opts.base}. Run git diff ${opts.base}...HEAD to see what changed.`;
 
@@ -433,6 +546,8 @@ export class OpenCodeBackend implements Backend {
       fast: false,
       sessionId: null,
       resumeSession: false,
+      major,
+      standalone,
     });
 
     try {

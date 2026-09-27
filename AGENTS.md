@@ -87,7 +87,7 @@ dist/                Built bundle (committed, self-contained)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
 - Gemini backend in `src/backends/gemini.ts` (via `spawnCli()`)
 - Ollama HTTP backend in `src/backends/ollama.ts` (fetch to localhost:11434, already async)
-- OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access via `--dir`, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`)
+- OpenCode CLI backend in `src/backends/opencode.ts` (`run()` and `runStream()` via subprocess, `review()` with native repo access, model normalization `qwen3-coder` to `ollama/qwen3-coder`, NDJSON output parsing, session support via `--session`). Two OpenCode lines both install as `opencode`: 1.x (`opencode-ai`, what README/brew/docs install) and 2.x (`@opencode/cli`). PaF probes `opencode --version` once per process (`detectOpenCodeMajor()`, cached by resolved executable + PATH, concurrent callers share the probe) and builds arguments per line: 1.x gets `--dir <repo>` and `--pure` for `--fast`/`pure = true`; 2.x rejects both, relies on the spawn `cwd`, and takes `--standalone` when `backends.opencode.standalone = true`. When the version cannot be read PaF emits only line-neutral arguments and fails closed if `--fast`, `pure`, or `standalone` was requested. Both error-event shapes are parsed (1.x `error.data.message`, 2.x `error.type` + `error.message`). Doctor prints an advisory on 2.x.
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
@@ -210,7 +210,7 @@ phone-a-friend --to codex --review --verdict-json --prompt "focus on auth"  # Ve
 phone-a-friend --to codex --prompt "..." --session my-review           # Start or resume a PaF-managed session
 phone-a-friend --to codex --prompt "..." --backend-session 019dd45f-... # Attach to a raw backend thread (no PaF persistence)
 phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd45f-...  # Adopt a backend thread under a PaF label
-phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode)
+phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode 1.x; no effect on 2.x)
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -604,7 +604,7 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--pure` for the OpenCode backend, skipping external plugins. It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode, this is useful for self-contained tasks where external plugins are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode 1.x backend, skipping external plugins. OpenCode 2.x removed `--pure`, so on that line `--fast` and `backends.opencode.pure` have no effect (doctor says so). It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode 1.x, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 
