@@ -76068,7 +76068,7 @@ Gemini CLI no longer serves individual Google sign-in. Set GEMINI_API_KEY (or a 
       }
       if (err instanceof SpawnCliError && isUnknownApprovalModeError(err.stderr)) {
         throw new GeminiBackendError(
-          `The installed Gemini CLI does not support \`--approval-mode\`, which PaF uses to keep read-only relays read-only. Upgrade it (\`${INSTALL_HINTS.gemini}\`).`
+          `The installed Gemini CLI does not support \`--approval-mode\`, which PaF uses for Gemini Plan Mode (best-effort read-only relays). Upgrade it (\`${INSTALL_HINTS.gemini}\`), or use --to antigravity for enforced read-only.`
         );
       }
       if (err instanceof SpawnCliError && opts.sessionId && isUnknownSessionFlagError(err.stderr)) {

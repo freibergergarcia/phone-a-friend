@@ -41,7 +41,9 @@ function args(sandbox: SandboxMode): string[] {
  * Gemini CLI 0.50.0 `--help`: `--approval-mode` with choices default,
  * auto_edit, yolo, plan ("read-only mode"); `--yolo` is documented as
  * deprecated in favour of `--approval-mode=yolo`. PaF used to send
- * `--sandbox --yolo` for read-only, which auto-approved edits.
+ * `--sandbox --yolo` for read-only, which auto-approved edits. Plan Mode is
+ * best effort headless: Gemini auto-approves `exit_plan_mode` and switches to
+ * YOLO (docs/cli/plan-mode.md), so these tests pin the arguments, not a boundary.
  */
 describe('Gemini approval mode per sandbox', () => {
   it('read-only maps to --approval-mode plan, never --yolo', () => {
@@ -108,5 +110,7 @@ describe('Gemini auth and flag errors', () => {
     expect(err).toBeInstanceOf(GeminiBackendError);
     expect(err.message).toMatch(/--approval-mode/);
     expect(err.message).toMatch(/Upgrade/);
+    expect(err.message).toMatch(/best-effort/);
+    expect(err.message).toMatch(/--to antigravity/);
   });
 });

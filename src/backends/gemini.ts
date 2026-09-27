@@ -7,9 +7,10 @@
  * - Non-interactive mode: gemini --prompt "<prompt>"
  * - Repo context: --include-directories <dir> (cwd also set)
  * - Sandbox: --sandbox (boolean flag — on for read-only/workspace-write, off for full access)
+ * - Approval: --approval-mode plan (read-only, best effort) / auto_edit (workspace-write);
+ *   --yolo only for danger-full-access
  * - Output: captured from stdout (--output-format text)
  * - Model: -m <model>
- * - Auto-approve: --yolo enables tool use in headless mode
  */
 
 import {
@@ -239,8 +240,9 @@ export class GeminiBackend implements Backend {
       }
       if (err instanceof SpawnCliError && isUnknownApprovalModeError(err.stderr)) {
         throw new GeminiBackendError(
-          'The installed Gemini CLI does not support `--approval-mode`, which PaF uses to keep ' +
-            `read-only relays read-only. Upgrade it (\`${INSTALL_HINTS.gemini}\`).`,
+          'The installed Gemini CLI does not support `--approval-mode`, which PaF uses for ' +
+            `Gemini Plan Mode (best-effort read-only relays). Upgrade it (\`${INSTALL_HINTS.gemini}\`), ` +
+            'or use --to antigravity for enforced read-only.',
         );
       }
       // A resume/start was requested but the installed Gemini CLI rejects the
@@ -293,10 +295,14 @@ export function buildGeminiArgs(opts: GeminiArgsOptions): string[] {
     args.push('--sandbox');
   }
 
-  // Tool approval per sandbox. Gemini CLI documents `plan` as read-only mode
-  // and `auto_edit` as auto-approving edits; `--yolo` (deprecated alias of
-  // `--approval-mode yolo`) is kept for danger-full-access only. PaF used to
-  // send `--yolo` for every sandbox, so read-only was not read-only.
+  // Tool approval per sandbox. `read-only` uses Gemini Plan Mode as a
+  // best-effort restriction: in headless execution Gemini auto-approves
+  // `exit_plan_mode` and then switches to YOLO (docs/cli/plan-mode.md,
+  // "Non-interactive execution"), so it is not an enforced write boundary.
+  // Use --to antigravity when enforced read-only behavior is required.
+  // `auto_edit` auto-approves edits; anything else needing approval is denied
+  // headless. `--yolo` (deprecated alias of `--approval-mode yolo`) is kept
+  // for danger-full-access only. PaF used to send `--yolo` for every sandbox.
   if (opts.sandbox === 'read-only') {
     args.push('--approval-mode', 'plan');
   } else if (opts.sandbox === 'workspace-write') {

@@ -92,7 +92,7 @@ describe('GeminiBackend', () => {
 
     expect(result).toBe('Gemini feedback');
     expect(capturedArgs).toContain('--sandbox');
-    // read-only maps to Gemini's read-only approval mode; --yolo only on danger-full-access
+    // read-only maps to Gemini Plan Mode (best effort); --yolo only on danger-full-access
     expect(capturedArgs).toContain('--approval-mode');
     expect(capturedArgs).not.toContain('--yolo');
     expect(capturedArgs).toContain('--include-directories');

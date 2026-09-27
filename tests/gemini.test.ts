@@ -19,7 +19,7 @@ describe('buildGeminiArgs', () => {
     expect(args).not.toContain('--session-id');
     expect(args).not.toContain('--resume');
     expect(args).toContain('--sandbox');
-    // read-only is Gemini's read-only approval mode; --yolo is danger-full-access only
+    // read-only is Gemini Plan Mode (best effort); --yolo is danger-full-access only
     expect(args).toEqual(expect.arrayContaining(['--approval-mode', 'plan']));
     expect(args).not.toContain('--yolo');
     expect(args).toEqual(expect.arrayContaining(['--include-directories', '/repo']));
