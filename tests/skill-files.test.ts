@@ -559,8 +559,11 @@ describe('Shell materialization hardening', () => {
     });
 
     it('documents the corrected Gemini direct sandbox mapping', () => {
-      expect(file).toContain('Use `--sandbox` for both read-only and workspace-write');
-      expect(file).toMatch(/omit it only for\s+`danger-full-access`/);
+      // --sandbox for read-only and workspace-write, omitted only for danger-full-access;
+      // each sandbox now also names its approval mode instead of --yolo.
+      expect(file).toContain('`read-only` is `--sandbox --approval-mode plan`');
+      expect(file).toContain('`workspace-write` is\n  `--sandbox --approval-mode auto_edit`');
+      expect(file).toMatch(/`danger-full-access` is\s+`--approval-mode yolo` without `--sandbox`/);
       expect(file).not.toContain('For workspace-write, omit `--sandbox`');
     });
   });
@@ -781,4 +784,45 @@ describe('shipped skill and command frontmatter parses as strict YAML', () => {
       expect(parsed).not.toBeNull();
     });
   }
+});
+
+/**
+ * Direct mode calls Gemini CLI without PaF, so the skill text is the only thing
+ * that picks the approval mode. `--yolo` auto-approves every tool, which made a
+ * "read-only" direct relay writable. Gemini CLI 0.42.0 through 0.50.0 accept
+ * `--approval-mode plan` ("read-only mode" in `gemini --help`).
+ */
+describe('direct-mode Gemini commands use approval modes, never --yolo', () => {
+  const READ_ONLY_DIRECT = [
+    'skills/phone-a-friend/SKILL.md',
+    'skills/curiosity-engine/SKILL.md',
+    'commands/phone-a-friend.md',
+    'commands/curiosity-engine.md',
+    'plugins/phone-a-friend/skills/phone-a-friend/SKILL.md',
+    'plugins/phone-a-friend/skills/curiosity-engine/SKILL.md',
+  ];
+
+  for (const rel of READ_ONLY_DIRECT) {
+    it(`${rel}: every direct gemini call is --sandbox --approval-mode plan and the caveat is stated`, () => {
+      const text = readFile(rel);
+      // Direct calls start the line (or a table cell) with `gemini`; `--to gemini` is a PaF call.
+      const calls = text.split('\n').filter((l) => /(^\s*|`)gemini --/.test(l));
+      expect(calls.length).toBeGreaterThan(0);
+      for (const line of calls) {
+        expect(line).toContain('gemini --sandbox --approval-mode plan');
+        expect(line).not.toMatch(/--yolo\b/);
+      }
+      expect(text).toContain('headless Gemini may exit Plan Mode and switch to YOLO');
+    });
+  }
+
+  it('commands/phone-a-team.md maps each sandbox to an approval mode and never adds --yolo', () => {
+    const text = readFile('commands/phone-a-team.md');
+    expect(text).toContain('`read-only` is `--sandbox --approval-mode plan`');
+    expect(text).toContain('`workspace-write` is\n  `--sandbox --approval-mode auto_edit`');
+    expect(text).toContain('`danger-full-access` is\n  `--approval-mode yolo` without `--sandbox`');
+    const calls = text.split('\n').filter((l) => /(^\s*|`)gemini (--|<|\[)/.test(l));
+    expect(calls.length).toBeGreaterThan(0);
+    for (const line of calls) expect(line).not.toMatch(/--yolo\b/);
+  });
 });

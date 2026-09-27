@@ -141,7 +141,9 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 |---------|---------------|
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
-| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+
+Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -299,7 +301,7 @@ PAF_CONTEXT_EOF
    # Codex:
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
-   gemini --sandbox --yolo --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
+   gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
    ```
 
    In direct mode, build `PROMPT_FILE` from the template in the "Direct call
