@@ -821,6 +821,9 @@ describe('direct-mode Gemini commands use approval modes, never --yolo', () => {
     expect(text).toContain('`read-only` is `--sandbox --approval-mode plan`');
     expect(text).toContain('`workspace-write` is\n  `--sandbox --approval-mode auto_edit`');
     expect(text).toContain('`danger-full-access` is\n  `--approval-mode yolo` without `--sandbox`');
+    // The caveat is the security-relevant part: Plan Mode is not an enforced boundary headless.
+    expect(text).toMatch(/headless Gemini may exit Plan Mode and\s+switch to YOLO/);
+    expect(text).toContain('Use Antigravity when enforced read-only behavior is required.');
     const calls = text.split('\n').filter((l) => /(^\s*|`)gemini (--|<|\[)/.test(l));
     expect(calls.length).toBeGreaterThan(0);
     for (const line of calls) expect(line).not.toMatch(/--yolo\b/);
