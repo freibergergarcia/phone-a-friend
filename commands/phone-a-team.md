@@ -39,7 +39,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 |---------|---------------|
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
-| **Gemini** | `gemini --sandbox --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Gemini** | `gemini <gemini-approval-flags> --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
 | **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
 
@@ -48,9 +48,12 @@ Sandbox mapping for direct mode:
   has no write mode; see Step 6.
 - **Codex**: pass the mode string directly (`--sandbox read-only` or
   `--sandbox workspace-write`)
-- **Gemini**: `--sandbox` flag is boolean. Present = sandboxed (read-only).
-  Use `--sandbox` for both read-only and workspace-write; omit it only for
-  `danger-full-access`.
+- **Gemini**: map the sandbox to an approval mode (`<gemini-approval-flags>`):
+  `read-only` is `--sandbox --approval-mode plan`, `workspace-write` is
+  `--sandbox --approval-mode auto_edit`, and `danger-full-access` is
+  `--approval-mode yolo` without `--sandbox`. Never add `--yolo`. Plan Mode is
+  a best-effort read-only restriction: headless Gemini may exit Plan Mode and
+  switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 - **Ollama**: no sandbox support. All context must be in the prompt.
 - **OpenCode**: no sandbox flag is available. `--dir "$PWD"` scopes the
   workspace OpenCode reads but does not prevent writes. The user's OpenCode
@@ -782,8 +785,8 @@ PAF_TEAM_CONTEXT_EOF
   ```bash
   # Codex:
   codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null
-  # Gemini (`--sandbox` for read-only/workspace-write; omit only for danger-full-access):
-  gemini [--sandbox] --yolo --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
+  # Gemini (<gemini-approval-flags> per "Sandbox mapping for direct mode"):
+  gemini <gemini-approval-flags> --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
   # Ollama:
   PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
   curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \

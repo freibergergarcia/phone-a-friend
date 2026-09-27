@@ -371,6 +371,27 @@ describe('doctor', () => {
       expect(result.output).toContain('[versions differ]');
     });
 
+    it('advises when the installed OpenCode is the 2.x line', async () => {
+      // @opencode/cli 2.x rejects --dir and --pure; PaF adapts its arguments
+      // but --fast / backends.opencode.pure have no effect, and the published
+      // docs still describe 1.x. Doctor says so once, from the version probe.
+      const report = makeReport();
+      report.cli.push({ name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', executable: executableInfo('opencode', [candidate('/usr/local/bin/opencode', '2.0.14')]) });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      expect(result.output).toMatch(/OpenCode 2\.x \(2\.0\.14\)/);
+      expect(result.output).toMatch(/--fast.*no effect/);
+      const parsed = JSON.parse((await doctor.doctor({ json: true })).output);
+      expect(parsed.advisories).toEqual(expect.arrayContaining([expect.stringMatching(/OpenCode 2\.x/)]));
+    });
+
+    it('stays silent about the OpenCode line on 1.x', async () => {
+      const report = makeReport();
+      report.cli.push({ name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', executable: executableInfo('opencode', [candidate('/usr/local/bin/opencode', '1.18.32')]) });
+      mockDetectAll.mockResolvedValue(report);
+      expect((await doctor.doctor()).output).not.toMatch(/OpenCode 2\.x/);
+    });
+
     it('surfaces version-mismatch guidance as an advisory', async () => {
       mockDetectAll.mockResolvedValue(reportWithCodexMismatch());
       const result = await doctor.doctor();
