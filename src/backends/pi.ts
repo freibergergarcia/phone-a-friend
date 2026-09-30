@@ -9,7 +9,9 @@
  *   isolation, and pi still runs with the user's permissions.
  * - `-ne` and `--no-approve` are always passed. Extensions run inside pi and
  *   can re-enable any built-in tool, so without them the allowlist would not
- *   be authoritative.
+ *   be authoritative. From pi 0.99 `-ne` also turns off pi's built-in
+ *   extensions (MCP servers, codemode, tool search, the llama.cpp provider);
+ *   providers defined in `models.json` are unaffected.
  * - The working directory selects the project, so every spawn uses the repo
  *   as cwd.
  * - pi saves every run unless told otherwise. A plain relay passes

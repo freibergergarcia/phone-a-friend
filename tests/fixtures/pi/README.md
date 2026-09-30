@@ -17,6 +17,13 @@ stdin closed.
 | `retry-connection-error.jsonl` | Provider on a closed port. Three auto-retries, four assistant `message_end` records, all errors, then `auto_retry_end` with `success: false`. pi exits 0. |
 | `aborted.synthetic.jsonl` | **Hand-written**, not captured: pi exits on SIGTERM/SIGINT without writing an `aborted` message, so this follows the `AssistantMessage` shape in pi's `docs/message-types.md`. |
 
+## Newer pi releases
+
+pi moved to 0.99.1 on the capturing machine during the build. The same runs
+were repeated on 0.99.1 and compared record by record: the record types and
+every field PaF reads are unchanged. The only difference is additive, a
+`thinkingLevel` field on assistant messages. The fixtures stay as captured.
+
 ## Scrubbing
 
 The captured streams are unchanged except for the system message (it appears

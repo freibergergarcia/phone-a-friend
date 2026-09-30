@@ -390,8 +390,9 @@ describe('pi backend sessions', () => {
   });
 
   describe('Windows path forms', () => {
-    // Expected values are what pi 0.87.1's own normalizePath returns with the
-    // platform set to win32, followed by path.win32.resolve.
+    // Expected values are what pi's own normalizePath returns with the
+    // platform set to win32 (identical on 0.87.1 and 0.99.1), followed by
+    // path.win32.resolve.
     const base = 'C:\\work\\repo';
     const onWindows = (stored: string): string => resolvePiStoredPath(stored, base, 'win32');
 
