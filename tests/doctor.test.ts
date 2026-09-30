@@ -18,10 +18,11 @@ const { mockInspectExecutables, mockAttachModelAndCapabilities, mockInspectPafId
   mockInspectPafIdentity: vi.fn(),
 }));
 
-const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled } = vi.hoisted(() => ({
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled, mockIsPiInstalled } = vi.hoisted(() => ({
   mockIsPluginInstalled: vi.fn(),
   mockIsOpenCodeInstalled: vi.fn(),
   mockIsCodexInstalled: vi.fn(),
+  mockIsPiInstalled: vi.fn(),
 }));
 
 vi.mock('../src/detection.js', () => ({
@@ -49,6 +50,7 @@ vi.mock('../src/installer.js', () => ({
   isPluginInstalled: mockIsPluginInstalled,
   isOpenCodeInstalled: mockIsOpenCodeInstalled,
   isCodexInstalled: mockIsCodexInstalled,
+  isPiInstalled: mockIsPiInstalled,
 }));
 
 // Helper: build a detection report
@@ -118,6 +120,7 @@ describe('doctor', () => {
     mockIsPluginInstalled.mockReturnValue(true);
     mockIsOpenCodeInstalled.mockReturnValue(false);
     mockIsCodexInstalled.mockReturnValue(false);
+    mockIsPiInstalled.mockReturnValue(false);
     mockInspectExecutables.mockResolvedValue(undefined);
     mockAttachModelAndCapabilities.mockReturnValue(undefined);
     mockInspectPafIdentity.mockReturnValue(pafIdentity());
@@ -166,6 +169,16 @@ describe('doctor', () => {
       expect(result.output).toContain('Host Install Status');
       expect(result.output).toContain('Claude plugin');
       expect(result.output).toContain('OpenCode commands/skills');
+    });
+
+    it('reports the pi skills install status in text and JSON', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      expect((await doctor.doctor()).output).toMatch(/! pi skills .*not installed/);
+
+      mockIsPiInstalled.mockReturnValue(true);
+      expect((await doctor.doctor()).output).toMatch(/pi skills .*installed/);
+      expect((await doctor.doctor()).output).not.toMatch(/pi skills .*not installed/);
+      expect(JSON.parse((await doctor.doctor({ json: true })).output).hostInstallations.pi).toBe(true);
     });
 
     it('shows install hints for missing backends', async () => {
@@ -328,7 +341,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
-      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false });
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false, pi: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });

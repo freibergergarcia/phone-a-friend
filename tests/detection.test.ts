@@ -229,6 +229,20 @@ describe('detection', () => {
       expect(opencode!.available).toBe(false);
       expect(opencode!.installHint).toContain('opencode.ai');
     });
+
+    it('lists pi as a host, found through its binary', async () => {
+      const found = await detection.detectHostIntegrations(vi.fn((name: string) => name === 'pi'));
+      const pi = found.find(b => b.name === 'pi');
+
+      expect(pi).toMatchObject({ category: 'host', available: true });
+      expect(found.filter(b => b.available).map(b => b.name)).toEqual(['pi']);
+
+      const missing = await detection.detectHostIntegrations(vi.fn(() => false));
+      expect(missing.find(b => b.name === 'pi')).toMatchObject({
+        available: false,
+        installHint: 'npm install -g @earendil-works/pi-coding-agent',
+      });
+    });
   });
 
   describe('detectEnvironment', () => {

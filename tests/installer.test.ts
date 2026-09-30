@@ -27,6 +27,9 @@ import {
   codexConfigRoot,
   codexSkillTarget,
   codexMarketplaceSource,
+  isPiInstalled,
+  piAgentDir,
+  piSkillTarget,
   InstallerError,
   PLUGIN_NAME,
   MARKETPLACE_NAME,
@@ -869,9 +872,10 @@ describe('Codex host integration', () => {
     expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(false);
   });
 
-  it('target=all installs all three hosts', () => {
+  it('target=all installs every host', () => {
     const claudeHome = makeHome();
     const opencodeHome = makeHome();
+    const piHome = makeHome();
     try {
       const lines = installHosts({
         repoRoot: repo,
@@ -881,6 +885,7 @@ describe('Codex host integration', () => {
         claudeHome,
         opencodeHome,
         codexHome,
+        piHome,
         syncClaudeCli: false,
       syncCodexCli: false,
       });
@@ -888,10 +893,13 @@ describe('Codex host integration', () => {
       expect(fs.existsSync(path.join(claudeHome, 'plugins', 'phone-a-friend'))).toBe(true);
       expect(fs.existsSync(opencodeSkillTarget('phone-a-friend', opencodeHome))).toBe(true);
       expect(fs.existsSync(codexSkillTarget('phone-a-friend', codexHome))).toBe(true);
+      expect(fs.existsSync(piSkillTarget('phone-a-friend', piHome))).toBe(true);
       expect(lines.some(l => l.includes('codex_skill:phone-a-friend'))).toBe(true);
+      expect(lines.some(l => l.includes('pi_skill:phone-a-friend'))).toBe(true);
     } finally {
       try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(piHome, { recursive: true, force: true }); } catch {}
     }
   });
 
@@ -1205,6 +1213,7 @@ describe('Codex host integration', () => {
   it('--all target installs Claude + OpenCode + Codex (with codex agents)', () => {
     const claudeHome = makeHome();
     const opencodeHome = makeHome();
+    const piHome = makeHome();
     try {
       const lines = installHosts({
         repoRoot: repo,
@@ -1214,6 +1223,7 @@ describe('Codex host integration', () => {
         claudeHome,
         opencodeHome,
         codexHome,
+        piHome,
         syncClaudeCli: false,
         syncCodexCli: false,
       });
@@ -1230,7 +1240,239 @@ describe('Codex host integration', () => {
     } finally {
       try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(piHome, { recursive: true, force: true }); } catch {}
     }
+  });
+});
+
+describe('pi host integration', () => {
+  let repo: string;
+  let piHome: string;
+  const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+  const install = (extra: Record<string, unknown> = {}) => installHosts({
+    repoRoot: repo,
+    target: 'pi',
+    mode: 'symlink',
+    force: false,
+    piHome,
+    syncClaudeCli: false,
+    syncCodexCli: false,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    repo = makeRepo();
+    piHome = makeHome();
+    delete process.env.PI_CODING_AGENT_DIR;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+    try { fs.rmSync(repo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(piHome, { recursive: true, force: true }); } catch {}
+  });
+
+  describe('piAgentDir', () => {
+    it('defaults to ~/.pi/agent', () => {
+      expect(piAgentDir()).toBe(path.join(os.homedir(), '.pi', 'agent'));
+    });
+
+    it('honours PI_CODING_AGENT_DIR and expands a leading tilde the way pi does', () => {
+      process.env.PI_CODING_AGENT_DIR = '/opt/pi-agent';
+      expect(piAgentDir()).toBe('/opt/pi-agent');
+      process.env.PI_CODING_AGENT_DIR = '~/custom-agent';
+      expect(piAgentDir()).toBe(path.join(os.homedir(), 'custom-agent'));
+      process.env.PI_CODING_AGENT_DIR = '~';
+      expect(piAgentDir()).toBe(os.homedir());
+    });
+
+    it('prefers an explicit directory over the environment', () => {
+      process.env.PI_CODING_AGENT_DIR = '/opt/pi-agent';
+      expect(piAgentDir(piHome)).toBe(piHome);
+      expect(piSkillTarget('phone-a-friend', piHome)).toBe(path.join(piHome, 'skills', 'phone-a-friend'));
+    });
+  });
+
+  it('symlinks the two shared skills into the agent skills directory', () => {
+    const lines = install();
+
+    for (const name of ['phone-a-friend', 'curiosity-engine']) {
+      const target = piSkillTarget(name, piHome);
+      expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', name)));
+      expect(lines).toContain(`- pi_skill:${name}: installed -> ${target}`);
+    }
+  });
+
+  it('installs the host-neutral skill, never the Codex overlay, and no phone-a-team', () => {
+    install();
+
+    expect(fs.existsSync(piSkillTarget('phone-a-team', piHome))).toBe(false);
+    expect(fs.readdirSync(path.join(piHome, 'skills')).sort()).toEqual(['curiosity-engine', 'phone-a-friend']);
+  });
+
+  it('writes no command shim: pi exposes skills as /skill:<name>', () => {
+    install();
+
+    expect(fs.readdirSync(piHome)).toEqual(['skills']);
+  });
+
+  it('touches no other host and shells out to nothing', () => {
+    const lines = install();
+
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(lines.some(l => /claude|opencode|codex/.test(l))).toBe(false);
+  });
+
+  it('copies in copy mode', () => {
+    install({ mode: 'copy' });
+
+    const target = piSkillTarget('phone-a-friend', piHome);
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(false);
+    expect(fs.existsSync(path.join(target, 'SKILL.md'))).toBe(true);
+  });
+
+  it('is idempotent for an existing symlink to the same source', () => {
+    install();
+    const lines = install();
+
+    expect(lines.some(l => l.startsWith('- pi_skill:phone-a-friend: already-installed'))).toBe(true);
+  });
+
+  it('refuses to overwrite a skill it does not own unless forced', () => {
+    const target = piSkillTarget('phone-a-friend', piHome);
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'user authored');
+
+    expect(() => install()).toThrow(/Destination already exists/);
+    expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf-8')).toBe('user authored');
+
+    install({ force: true });
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+  });
+
+  it('replaces a stale PaF symlink without --force', () => {
+    const target = piSkillTarget('phone-a-friend', piHome);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.symlinkSync(path.join(repo, 'commands'), target);
+
+    const lines = install();
+
+    expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-friend')));
+    expect(lines.some(l => l.startsWith('- pi_skill:phone-a-friend: installed'))).toBe(true);
+  });
+
+  it('fails when a skill source is missing', () => {
+    fs.rmSync(path.join(repo, 'skills', 'curiosity-engine'), { recursive: true, force: true });
+
+    expect(() => install()).toThrow(/Missing pi skill source/);
+  });
+
+  it('installs into PI_CODING_AGENT_DIR when no directory is passed', () => {
+    process.env.PI_CODING_AGENT_DIR = piHome;
+
+    installHosts({ repoRoot: repo, target: 'pi', syncClaudeCli: false, syncCodexCli: false });
+
+    expect(fs.existsSync(path.join(piHome, 'skills', 'phone-a-friend', 'SKILL.md'))).toBe(true);
+  });
+
+  it('uninstall removes the skills and reports what was not there', () => {
+    install();
+
+    const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+    expect(lines).toContain('- pi_skill:phone-a-friend: removed');
+    expect(lines).toContain('- pi_skill:curiosity-engine: removed');
+    expect(fs.existsSync(piSkillTarget('phone-a-friend', piHome))).toBe(false);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+
+    const again = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+    expect(again).toContain('- pi_skill:phone-a-friend: not-installed');
+  });
+
+  it('uninstall of a symlinked skill leaves the source in the repository alone', () => {
+    install();
+
+    uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+    expect(fs.existsSync(path.join(repo, 'skills', 'phone-a-friend', 'SKILL.md'))).toBe(true);
+  });
+
+  it('target=all uninstalls pi too', () => {
+    const claudeHome = makeHome();
+    const opencodeHome = makeHome();
+    const codexHome = makeHome();
+    try {
+      install();
+      const lines = uninstallHosts({
+        target: 'all', claudeHome, opencodeHome, codexHome, piHome, repoRoot: repo,
+        claudeCliUnsync: 'never', codexCliUnsync: 'never',
+      });
+
+      expect(lines).toContain('- pi_skill:phone-a-friend: removed');
+    } finally {
+      for (const dir of [claudeHome, opencodeHome, codexHome]) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+      }
+    }
+  });
+
+  describe('isPiInstalled', () => {
+    const writeSettings = (value: unknown) => {
+      fs.mkdirSync(piHome, { recursive: true });
+      fs.writeFileSync(
+        path.join(piHome, 'settings.json'),
+        typeof value === 'string' ? value : JSON.stringify(value),
+      );
+    };
+
+    it('is false for an empty or missing agent directory', () => {
+      expect(isPiInstalled(piHome)).toBe(false);
+      expect(isPiInstalled(path.join(piHome, 'absent'))).toBe(false);
+    });
+
+    it('is true once both skills are installed, false when one is missing', () => {
+      install();
+      expect(isPiInstalled(piHome)).toBe(true);
+
+      fs.rmSync(piSkillTarget('curiosity-engine', piHome), { recursive: true, force: true });
+      expect(isPiInstalled(piHome)).toBe(false);
+    });
+
+    it('is false for a dangling symlink', () => {
+      install();
+      fs.rmSync(path.join(repo, 'skills'), { recursive: true, force: true });
+
+      expect(isPiInstalled(piHome)).toBe(false);
+    });
+
+    it.each([
+      ['an npm source', ['npm:@freibergergarcia/phone-a-friend']],
+      ['a pinned npm source', ['npm:@freibergergarcia/phone-a-friend@4.11.0']],
+      ['a git source', ['git:github.com/freibergergarcia/phone-a-friend@v4.11.0']],
+      ['a repository URL', ['https://github.com/freibergergarcia/phone-a-friend']],
+      ['the object form', [{ source: 'npm:@freibergergarcia/phone-a-friend', extensions: [] }]],
+    ])('is true for a PaF pi package declared as %s', (_label, packages) => {
+      writeSettings({ packages });
+
+      expect(isPiInstalled(piHome)).toBe(true);
+    });
+
+    it.each([
+      ['another package', { packages: ['npm:@example/pi-tools', 'npm:@freibergergarcia/phone-a-friend-extras'] }],
+      ['the object form with skills switched off', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', skills: [] }] }],
+      ['no packages', { quietStartup: true }],
+      ['packages of the wrong type', { packages: 'npm:@freibergergarcia/phone-a-friend' }],
+      ['malformed JSON', '{ not json'],
+    ])('is false for settings with %s', (_label, settings) => {
+      writeSettings(settings);
+
+      expect(isPiInstalled(piHome)).toBe(false);
+    });
   });
 });
 

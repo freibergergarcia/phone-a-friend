@@ -233,6 +233,26 @@ describe('setup', () => {
     );
   });
 
+  it('offers the pi skills when the pi host is available', async () => {
+    const report = makeReport({
+      host: [
+        { name: 'claude', category: 'host', available: false, detail: 'not found', installHint: 'install' },
+        { name: 'pi', category: 'host', available: true, detail: 'found', installHint: '' },
+      ],
+    });
+    mockDetectAll.mockResolvedValue(report);
+    mockConfirm
+      .mockResolvedValueOnce(true)  // yes install pi skills
+      .mockResolvedValueOnce(false); // no test run
+
+    await setup.setup();
+
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('pi') }));
+    expect(mockInstallHosts).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'pi', syncClaudeCli: false }),
+    );
+  });
+
   it('saves config to TOML path', async () => {
     mockDetectAll.mockResolvedValue(makeReport());
     mockSelect.mockResolvedValue('codex');

@@ -213,10 +213,11 @@ function resolveHostTarget(opts: {
   claude?: boolean;
   opencode?: boolean;
   codex?: boolean;
+  pi?: boolean;
   all?: boolean;
-}): 'claude' | 'opencode' | 'codex' | 'all' {
+}): 'claude' | 'opencode' | 'codex' | 'pi' | 'all' {
   if (opts.all) return 'all';
-  const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
+  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi].filter(Boolean).length;
   if (selected > 1) {
     throw new InstallerError(
       'Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag.',
@@ -224,6 +225,7 @@ function resolveHostTarget(opts: {
   }
   if (opts.opencode) return 'opencode';
   if (opts.codex) return 'codex';
+  if (opts.pi) return 'pi';
   return 'claude';
 }
 
@@ -231,6 +233,7 @@ function installAction(opts: {
   claude?: boolean;
   opencode?: boolean;
   codex?: boolean;
+  pi?: boolean;
   all?: boolean;
   mode?: string;
   force?: boolean;
@@ -250,11 +253,12 @@ function installAction(opts: {
       console.error('Error: --repo-root is not compatible with --github');
       return 1;
     }
-    if (opts.opencode || opts.codex || opts.all) {
+    if (opts.opencode || opts.codex || opts.pi || opts.all) {
       console.error(
-        'Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace. ' +
+        'Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, ' +
+          'and pi has its own package manager. ' +
           'Run `phone-a-friend plugin install --github` for Claude, then ' +
-          '`phone-a-friend plugin install --opencode` and/or `--codex` separately.',
+          '`phone-a-friend plugin install --opencode`, `--codex` and/or `--pi` separately.',
       );
       return 1;
     }
@@ -285,6 +289,7 @@ function updateAction(opts: {
   claude?: boolean;
   opencode?: boolean;
   codex?: boolean;
+  pi?: boolean;
   all?: boolean;
   mode?: string;
   repoRoot?: string;
@@ -310,6 +315,7 @@ function uninstallAction(opts: {
   claude?: boolean;
   opencode?: boolean;
   codex?: boolean;
+  pi?: boolean;
   all?: boolean;
   purgeMarketplace?: boolean;
   codexCliSync?: boolean;
@@ -333,6 +339,7 @@ function addInstallOptions(cmd: Command): Command {
     .option('--claude', 'Install for Claude', false)
     .option('--opencode', 'Install for OpenCode', false)
     .option('--codex', 'Install for Codex (skills under $CODEX_HOME plus marketplace registration)', false)
+    .option('--pi', 'Install for pi (skills under its agent directory, used as /skill:<name>)', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
@@ -348,6 +355,7 @@ function addUpdateOptions(cmd: Command): Command {
     .option('--claude', 'Install for Claude', false)
     .option('--opencode', 'Install for OpenCode', false)
     .option('--codex', 'Install for Codex', false)
+    .option('--pi', 'Install for pi', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
@@ -361,6 +369,7 @@ function addUninstallOptions(cmd: Command): Command {
     .option('--claude', 'Uninstall for Claude', false)
     .option('--opencode', 'Uninstall for OpenCode', false)
     .option('--codex', 'Uninstall for Codex', false)
+    .option('--pi', 'Uninstall for pi', false)
     .option('--all', 'Uninstall for all supported hosts', false)
     .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)')
     .option('--no-codex-cli-sync', 'Skip codex plugin remove / marketplace remove during uninstall');

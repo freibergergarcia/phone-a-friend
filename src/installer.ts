@@ -35,7 +35,7 @@ const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 /** GitHub repository for marketplace distribution. */
 export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
-const INSTALL_TARGETS = new Set(['claude', 'opencode', 'codex', 'all']);
+const INSTALL_TARGETS = new Set(['claude', 'opencode', 'codex', 'pi', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
 const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
 
@@ -52,6 +52,24 @@ const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
  * their results in the host model between rounds.
  */
 const CODEX_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
+
+/**
+ * Skills installed for pi. pi discovers a user skill at
+ * `<agent-dir>/skills/<name>/SKILL.md` and exposes it as `/skill:<name>`,
+ * so there is no command shim to install (pi docs: skills.md,
+ * configuration.md). The host-neutral `skills/<name>/` folder is used as is.
+ * `phone-a-team` is left out: pi has no team mechanics.
+ *
+ * The same two skills are pinned by the `pi` manifest in package.json, which
+ * is what `pi install npm:@freibergergarcia/phone-a-friend` loads.
+ */
+const PI_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+
+/** Sources under which pi's settings.json can declare PaF as a pi package. */
+const PI_PACKAGE_SOURCES = [
+  /^npm:@freibergergarcia\/phone-a-friend(?:@.+)?$/,
+  /github\.com[/:]freibergergarcia\/phone-a-friend(?:\.git)?(?:@.+)?\/?$/,
+];
 
 /**
  * Codex no longer ships subagent personas. The earlier paf-reviewer /
@@ -98,7 +116,7 @@ const OPENCODE_LEGACY_SKILLS = ['phone-a-team'] as const;
  */
 const CODEX_LEGACY_SKILLS = [] as const;
 
-type InstallTarget = 'claude' | 'opencode' | 'codex' | 'all';
+type InstallTarget = 'claude' | 'opencode' | 'codex' | 'pi' | 'all';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -390,6 +408,25 @@ export function codexSkillSource(repoRoot: string, name: string): string {
 }
 
 /**
+ * pi's agent directory: `PI_CODING_AGENT_DIR` with a leading `~` expanded,
+ * as pi's own `getAgentDir()` does, otherwise `~/.pi/agent`.
+ */
+export function piAgentDir(piHome?: string): string {
+  if (piHome) return piHome;
+  const fromEnv = process.env.PI_CODING_AGENT_DIR;
+  if (fromEnv) {
+    if (fromEnv === '~') return homedir();
+    if (fromEnv.startsWith('~/')) return join(homedir(), fromEnv.slice(2));
+    return fromEnv;
+  }
+  return join(homedir(), '.pi', 'agent');
+}
+
+export function piSkillTarget(name: string, piHome?: string): string {
+  return join(piAgentDir(piHome), 'skills', name);
+}
+
+/**
  * True when `target` is a symlink pointing somewhere inside this PaF repo.
  * Used to auto-replace stale PaF-owned symlinks when source paths change
  * (e.g. moving the OpenCode command shim from commands/ to skills/<name>/).
@@ -499,6 +536,42 @@ export function isCodexInstalled(codexHome?: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * True when pi's user settings declare PaF as a pi package with its skills
+ * enabled. `packages` entries are a source string or an object with a
+ * `source` and optional per-resource filters; `skills: []` loads none.
+ */
+function isPiPackageDeclared(piHome?: string): boolean {
+  let settings: unknown;
+  try {
+    settings = JSON.parse(readFileSync(join(piAgentDir(piHome), 'settings.json'), 'utf-8'));
+  } catch {
+    return false;
+  }
+  const packages = (settings as { packages?: unknown } | null)?.packages;
+  if (!Array.isArray(packages)) return false;
+  return packages.some((entry: unknown) => {
+    const isObject = typeof entry === 'object' && entry !== null;
+    const source = isObject ? (entry as { source?: unknown }).source : entry;
+    if (typeof source !== 'string') return false;
+    if (!PI_PACKAGE_SOURCES.some((pattern) => pattern.test(source))) return false;
+    const skills = isObject ? (entry as { skills?: unknown }).skills : undefined;
+    return !(Array.isArray(skills) && skills.length === 0);
+  });
+}
+
+/**
+ * True when the pi integration is usable, via either install path: the
+ * loose skills from `phone-a-friend plugin install --pi`, or PaF declared as
+ * a pi package (`pi install npm:@freibergergarcia/phone-a-friend`).
+ */
+export function isPiInstalled(piHome?: string): boolean {
+  const looseFileOk = PI_SKILLS.every((name) =>
+    existsSync(join(piSkillTarget(name, piHome), 'SKILL.md')),
+  );
+  return looseFileOk || isPiPackageDeclared(piHome);
 }
 
 function runCodexCommand(args: string[]): { code: number; output: string } {
@@ -747,6 +820,30 @@ function installCodex(
   return lines;
 }
 
+function installPi(
+  repoRoot: string,
+  mode: string,
+  force: boolean,
+  piHome?: string,
+): string[] {
+  const lines: string[] = [];
+  for (const name of PI_SKILLS) {
+    const skillSource = join(repoRoot, 'skills', name);
+    if (!existsSync(join(skillSource, 'SKILL.md'))) {
+      throw new InstallerError(`Missing pi skill source: ${join(skillSource, 'SKILL.md')}`);
+    }
+    const skillTarget = piSkillTarget(name, piHome);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    lines.push(`- pi_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+  return lines;
+}
+
+function uninstallPi(piHome?: string): string[] {
+  return PI_SKILLS.map((name) => `- pi_skill:${name}: ${uninstallPath(piSkillTarget(name, piHome))}`);
+}
+
 function uninstallCodex(codexHome?: string, repoRoot?: string): string[] {
   const lines: string[] = [];
   for (const name of CODEX_SKILLS) {
@@ -888,6 +985,8 @@ export interface InstallOptions {
   claudeHome?: string;
   opencodeHome?: string;
   codexHome?: string;
+  /** pi's agent directory. Defaults to `PI_CODING_AGENT_DIR`, then `~/.pi/agent`. */
+  piHome?: string;
   syncClaudeCli?: boolean;
   /**
    * Whether to register the plugin via `codex plugin marketplace add` +
@@ -909,6 +1008,7 @@ export function installHosts(opts: InstallOptions): string[] {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false,
@@ -935,6 +1035,7 @@ export function installHosts(opts: InstallOptions): string[] {
   const shouldInstallClaude = target === 'claude' || target === 'all';
   const shouldInstallOpenCode = target === 'opencode' || target === 'all';
   const shouldInstallCodex = target === 'codex' || target === 'all';
+  const shouldInstallPi = target === 'pi' || target === 'all';
 
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
@@ -947,6 +1048,10 @@ export function installHosts(opts: InstallOptions): string[] {
 
   if (shouldInstallCodex) {
     lines.push(...installCodex(resolvedRepo, mode, force, codexHome));
+  }
+
+  if (shouldInstallPi) {
+    lines.push(...installPi(resolvedRepo, mode, force, piHome));
   }
 
   if (shouldInstallClaude && syncClaudeCli) {
@@ -973,6 +1078,8 @@ export interface UninstallOptions {
   claudeHome?: string;
   opencodeHome?: string;
   codexHome?: string;
+  /** pi's agent directory. Defaults to `PI_CODING_AGENT_DIR`, then `~/.pi/agent`. */
+  piHome?: string;
   /**
    * Repo root for PaF-ownership checks during legacy-skill cleanup. Optional;
    * if absent, legacy artifacts at the user's path are preserved (safer
@@ -1002,6 +1109,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     repoRoot,
     claudeCliUnsync = 'auto',
     codexCliUnsync = 'auto',
@@ -1016,6 +1124,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
   const shouldUninstallClaude = target === 'claude' || target === 'all';
   const shouldUninstallOpenCode = target === 'opencode' || target === 'all';
   const shouldUninstallCodex = target === 'codex' || target === 'all';
+  const shouldUninstallPi = target === 'pi' || target === 'all';
 
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
@@ -1033,6 +1142,10 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
     } else {
       lines.push('- codex_cli_unsync: skipped');
     }
+  }
+
+  if (shouldUninstallPi) {
+    lines.push(...uninstallPi(piHome));
   }
 
   if (!shouldUninstallClaude) {

@@ -52,6 +52,15 @@
     "README.md",
     "LICENSE"
   ],
+  "pi": {
+    "skills": [
+      "./skills/phone-a-friend",
+      "./skills/curiosity-engine"
+    ],
+    "extensions": [],
+    "prompts": [],
+    "themes": []
+  },
   "engines": {
     "node": ">=22.13"
   },

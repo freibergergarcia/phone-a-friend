@@ -21,7 +21,7 @@ src/
   doctor.ts          Health check command
   diagnostics.ts     PATH/executable identity and bounded version probes for doctor
   setup.ts           Interactive setup wizard
-  installer.ts       Claude/OpenCode host integration installer (symlink/copy)
+  installer.ts       Claude/OpenCode/Codex/pi host integration installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
@@ -98,7 +98,7 @@ dist/                Built bundle (committed, self-contained)
   - **Prompt guard.** A prompt starting with `@` gets a leading newline: pi reads a positional argument that starts with `@` as a file include even after `--`.
   - **Version gate.** `pi --version` is read once per process (cached by resolved executable + PATH, like `detectOpenCodeMajor()`); below 0.79.0 (no `--no-approve`), unreadable, or missing fails before any spawn.
   - **Recursion guard.** `--to pi` is refused when `PI_CODING_AGENT=true` (pi sets it for its child processes) or `PHONE_A_FRIEND_HOST=pi`.
-  - **Progress.** Tool calls (`Running: read src/x.ts`) and pi's automatic retries are reported as `activity` events on both `run()` and `runStream()`. The detail is an allowlist of named fields per built-in tool (path, pattern, command), never file contents; a tool PaF does not know is reported by name only.
+  - **Progress.** Tool calls (`Running: read src/x.ts`), pi's automatic retries and context compaction (`Compacting context (threshold)`, from `compaction_start`; the `compaction_end` summary is never surfaced) are reported as `activity` events on both `run()` and `runStream()`. The detail is an allowlist of named fields per built-in tool (path, pattern, command), never file contents; a tool PaF does not know is reported by name only.
   - **Cleanup.** On timeout or SIGINT (and, when streaming, a broken stdout or an early `return()`) pi gets SIGTERM, then SIGKILL after 2 s (`PI_KILL_GRACE_MS`) if it has not exited. The batch path gets this through `spawnCli()`'s opt-in `killGraceMs`; backends that do not pass it keep the old SIGTERM-only wait. pi is not started in its own process group, so a killed pi can leave a `bash` tool child behind under `danger-full-access`.
   - Provider: `[backends.pi] provider` is read through `loadConfig(repoPath)`, so a repo `.phone-a-friend.toml` applies. Model IDs with a slash (`mlx-community/...`) are why provider and model are passed as separate flags.
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
@@ -246,14 +246,17 @@ phone-a-friend plugin install --claude      # Install as Claude plugin
 phone-a-friend plugin install --opencode    # Install OpenCode commands and skills
 phone-a-friend plugin install --codex       # Install Codex plugin (skills + marketplace registration)
 phone-a-friend plugin install --codex --no-codex-cli-sync  # Skip the codex plugin marketplace shell-out (loose-file install only)
+phone-a-friend plugin install --pi          # Install pi skills (loose files under pi's agent directory; used as /skill:<name>)
 phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin
 phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
 phone-a-friend plugin update --codex        # Update Codex plugin
+phone-a-friend plugin update --pi           # Update pi skills
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 phone-a-friend plugin uninstall --opencode  # Uninstall OpenCode commands and skills
 phone-a-friend plugin uninstall --codex     # Uninstall Codex plugin (removes plugin registration + skills, plus any stale paf-* subagent symlinks)
+phone-a-friend plugin uninstall --pi        # Uninstall pi skills
 
 # Job management
 phone-a-friend job status                  # List all tracked jobs
@@ -297,7 +300,7 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Agentic** — session browser with list view
 
 A persistent plugin status bar sits between the tab bar and panel content,
-showing Claude and OpenCode host integration state. It updates instantly after
+showing Claude, OpenCode, Codex and pi host integration state. It updates instantly after
 install/uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
@@ -382,7 +385,7 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 Environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
 - `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` — overrides `backends.claude.peer_messaging`. `native` exposes `ListAgents`/`SendMessage` while respecting Claude's inbound rules; `accept` enables unattended inbound delivery; `refuse` disables both directions.
-- `PHONE_A_FRIEND_HOST=opencode|codex|pi` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi` (pi has no shim, and its own `PI_CODING_AGENT=true` marker is honoured as well). Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
+- `PHONE_A_FRIEND_HOST=opencode|codex|pi` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi` (pi has no shim; as a host it needs no marker, because pi sets `PI_CODING_AGENT=true` for the commands its `bash` tool runs and PaF honours that). Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
 - `PHONE_A_FRIEND_TASK_HISTORY=results|metadata|off` — overrides `defaults.task_history` (see "Task tracking"). `--no-task-history` skips the record for one run and wins over both.
@@ -444,6 +447,15 @@ still need `npm install -g @freibergergarcia/phone-a-friend`.
 OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is supported in Claude Code and Codex, not OpenCode.
 
 The OpenCode command source uses **overlay inversion**: `installer.ts` `opencodeCommandSource()` prefers `skills/<name>/COMMAND.opencode.md` (the OpenCode-tuned thin shim, env-var-only diff suppression, `PHONE_A_FRIEND_HOST=opencode` prefix) when it exists, and falls back to the rich `commands/<name>.md` only when no overlay is shipped for that skill. This keeps the rich content host-neutral for Claude consumption while letting OpenCode ship a host-tuned shim per skill. Today both shared skills (`phone-a-friend`, `curiosity-engine`) ship overlays.
+
+pi is a host as well as a backend. `phone-a-friend plugin install --pi` copies or symlinks the host-neutral `phone-a-friend` and `curiosity-engine` skills into `<agent-dir>/skills/`, where `<agent-dir>` is `PI_CODING_AGENT_DIR` (leading `~` expanded, as pi does) or `~/.pi/agent`. Every choice follows pi's own docs (`docs/skills.md`, `configuration.md`, `packages.md` in the pi package):
+
+- **No command shim.** pi exposes each skill as `/skill:<name> <args>`, interactively and as the prompt of a one-shot run. `$ARGUMENTS` is not substituted; the arguments arrive as the user request after the skill text, and the skills say so.
+- **No pi shell-out.** The installer writes files only. `~/.agents/skills/` is not used, because Codex and other agents read it too.
+- **Also a pi package.** `package.json` carries a `pi` manifest that pins the same two skills (and no extensions, prompts or themes), so `pi install npm:@freibergergarcia/phone-a-friend` is the docs-native alternative. `isPiInstalled()` counts either path: the loose skills, or a PaF entry under `packages` in `<agent-dir>/settings.json` whose skills are not filtered out. `tests/pi-package-manifest.test.ts` keeps the manifest, the installer and the shipped files in agreement. The `pi-package` gallery keyword is deliberately absent.
+- **No `/phone-a-team`** (no team mechanics in pi) and no host marker: pi sets `PI_CODING_AGENT=true` for its shell commands, which the recursion guard reads.
+- **Local host models need the explicit command.** Verified with pi 0.99.1: `/skill:phone-a-friend ask claude ...` ran the right relay on a 35B and a 9B local model, and `/skill:curiosity-engine` ran a round on the 35B. Without the command, the 35B model did not load the skill and guessed CLI flags. The README tells users to use the `/skill:` form.
+- `--all` includes pi, and so does the `preuninstall` script (`plugin uninstall --all`).
 
 Codex is shipped as a real Codex plugin (the marketplace + manifest live in the repo) AND via loose-file install for content delivery.
 
@@ -510,7 +522,7 @@ Every CLI relay and review is recorded as a task so delegated work stays findabl
 - `beginTrackedRun()` in `src/task-tracking.ts` is called by the CLI before every relay path (review, batch, stream, `--quiet`). It returns a `RelayObserver` for the relay core plus `complete()`/`fail()`. Tracking is best-effort: a store failure prints one stderr warning and the relay proceeds untracked.
 - The CLI prints `Task <id> started · phone-a-friend task show <id>` on stderr before the spinner and `Task <id> completed|failed` afterwards. The id is unstyled so hosts can match `Task ([0-9a-f]{8}) started`. stdout contracts (`--schema`, `--verdict-json`, plain text) are unchanged.
 - **Scope and drift.** Review mode hashes the collected diff before the backend call (`scope_captured`) and re-collects it afterwards. A different hash records `drift_detected`, prints a stderr warning, and sets `driftDetected = true`; an unchanged hash records `scope_verified`; a failed re-collection records `drift_unknown`. Backends with local file access read the live tree, so the hash is evidence of what the review covered, not a guarantee.
-- **Progress events.** Backends emit `BackendEvent`s through `onEvent`. Codex adds `--json` to `exec` and `exec review` only when a listener exists and forwards thread/turn/command/message events as they stream (`session_linked`, `turn_started`, `activity`, `message`, `turn_completed`, `turn_failed`, `error`); reasoning items are never surfaced. With JSONL active, the stdout fallback extracts the final `agent_message` instead of raw protocol lines. pi reports `activity` for each tool call and each automatic retry, on the batch and the stream path. Other backends emit nothing yet, so their tasks show lifecycle events only. A quiet task is not a stuck task.
+- **Progress events.** Backends emit `BackendEvent`s through `onEvent`. Codex adds `--json` to `exec` and `exec review` only when a listener exists and forwards thread/turn/command/message events as they stream (`session_linked`, `turn_started`, `activity`, `message`, `turn_completed`, `turn_failed`, `error`); reasoning items are never surfaced. With JSONL active, the stdout fallback extracts the final `agent_message` instead of raw protocol lines. pi reports `activity` for each tool call, each automatic retry and each context compaction, on the batch and the stream path. Other backends emit nothing yet, so their tasks show lifecycle events only. A quiet task is not a stuck task.
 - **Status.** `queued`, `running`, `completed`, `failed`, `interrupted`. `task list|show|result` call `reconcileInterrupted()`, which marks running tasks whose owner pid is gone as `interrupted` (event `owner_lost`). Silence never changes a status; only a dead owner does. Cancellation, follow-up routing, and forks are not implemented.
 - **Retention.** `defaults.task_history` (`results` default, `metadata`, `off`), `PHONE_A_FRIEND_TASK_HISTORY`, or `--no-task-history` for one run. `results` stores the result text, a 200-character prompt preview, prompt and diff hashes, and events. `metadata` drops the preview and result text. `off` writes nothing. `task delete` and `task prune` remove PaF records only; backend-native sessions are not erased.
 - Resolution key for hosts: worktree root (`task list --repo .`), then branch, backend session id, and recency. Ids accept unique prefixes of four or more characters.
@@ -644,4 +656,4 @@ The `--fast` flag maps to `--pure` for the OpenCode 1.x backend, skipping extern
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode/Codex/pi host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

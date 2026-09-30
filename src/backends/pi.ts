@@ -373,10 +373,15 @@ function summarizePiToolArgs(toolName: string, args: unknown): string {
   }
 }
 
+/** The reasons pi documents for `compaction_start` (json.md). Anything else is not echoed. */
+const PI_COMPACTION_REASONS = new Set(['manual', 'threshold', 'overflow']);
+
 /**
- * The progress a pi record reports, if any: a tool call starting, or pi
+ * The progress a pi record reports, if any: a tool call starting, pi
  * retrying after a failed request (a stopped local server is otherwise
- * several seconds of silence). Text, thinking and turn records report nothing.
+ * several seconds of silence), or pi compacting the context of a long
+ * session. Text, thinking and turn records report nothing, and neither does
+ * `compaction_end`, which carries the conversation summary.
  */
 export function piEventsFromRecord(record: Record<string, unknown>): BackendEvent[] {
   if (record.type === 'tool_execution_start') {
@@ -399,6 +404,17 @@ export function piEventsFromRecord(record: Record<string, unknown>): BackendEven
       type: 'activity',
       message: `Retrying${count}${reason ? ` after: ${reason}` : ''}`,
       data: { attempt, maxAttempts },
+    }];
+  }
+
+  if (record.type === 'compaction_start') {
+    const reason = typeof record.reason === 'string' && PI_COMPACTION_REASONS.has(record.reason)
+      ? record.reason
+      : null;
+    return [{
+      type: 'activity',
+      message: reason ? `Compacting context (${reason})` : 'Compacting context',
+      data: { reason },
     }];
   }
 

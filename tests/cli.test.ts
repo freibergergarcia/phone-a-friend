@@ -830,6 +830,50 @@ describe('CLI', () => {
     expect(mockInstallHosts).not.toHaveBeenCalled();
   });
 
+  it('plugin install --pi targets the pi host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'install', '--pi']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'pi', force: false }));
+  });
+
+  it('plugin update --pi forces the pi host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'update', '--pi']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'pi', force: true }));
+  });
+
+  it('plugin uninstall --pi targets the pi host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'uninstall', '--pi']);
+      expect(code).toBe(0);
+    });
+    expect(mockUninstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'pi' }));
+  });
+
+  it('plugin install rejects --pi combined with another host flag', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--pi', '--codex']);
+    });
+    expect(result).toBe(1);
+    expect(stderr).toContain('Multiple host flags cannot be combined');
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --github rejects --pi (pi has its own package manager)', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--pi']);
+    });
+    expect(result).toBe(1);
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(stderr).toContain('--pi');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
   it('plugin install --github rejects --all (would silently skip OpenCode)', async () => {
     const { stderr, result } = await captureOutputAsync(async () => {
       return await run(['plugin', 'install', '--github', '--all']);

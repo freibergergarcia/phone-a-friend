@@ -3645,6 +3645,19 @@ function codexSkillSource(repoRoot, name) {
   if (existsSync7(join9(overlay, "SKILL.md"))) return overlay;
   return join9(repoRoot, "skills", name);
 }
+function piAgentDir(piHome) {
+  if (piHome) return piHome;
+  const fromEnv = process.env.PI_CODING_AGENT_DIR;
+  if (fromEnv) {
+    if (fromEnv === "~") return homedir7();
+    if (fromEnv.startsWith("~/")) return join9(homedir7(), fromEnv.slice(2));
+    return fromEnv;
+  }
+  return join9(homedir7(), ".pi", "agent");
+}
+function piSkillTarget(name, piHome) {
+  return join9(piAgentDir(piHome), "skills", name);
+}
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
   let realRepo;
@@ -3716,6 +3729,30 @@ function isCodexInstalled(codexHome) {
   } catch {
     return false;
   }
+}
+function isPiPackageDeclared(piHome) {
+  let settings;
+  try {
+    settings = JSON.parse(readFileSync9(join9(piAgentDir(piHome), "settings.json"), "utf-8"));
+  } catch {
+    return false;
+  }
+  const packages = settings?.packages;
+  if (!Array.isArray(packages)) return false;
+  return packages.some((entry) => {
+    const isObject = typeof entry === "object" && entry !== null;
+    const source = isObject ? entry.source : entry;
+    if (typeof source !== "string") return false;
+    if (!PI_PACKAGE_SOURCES.some((pattern) => pattern.test(source))) return false;
+    const skills = isObject ? entry.skills : void 0;
+    return !(Array.isArray(skills) && skills.length === 0);
+  });
+}
+function isPiInstalled(piHome) {
+  const looseFileOk = PI_SKILLS.every(
+    (name) => existsSync7(join9(piSkillTarget(name, piHome), "SKILL.md"))
+  );
+  return looseFileOk || isPiPackageDeclared(piHome);
 }
 function runCodexCommand(args) {
   try {
@@ -3870,6 +3907,23 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   return lines;
 }
+function installPi(repoRoot, mode, force, piHome) {
+  const lines = [];
+  for (const name of PI_SKILLS) {
+    const skillSource = join9(repoRoot, "skills", name);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing pi skill source: ${join9(skillSource, "SKILL.md")}`);
+    }
+    const skillTarget = piSkillTarget(name, piHome);
+    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    lines.push(`- pi_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+  return lines;
+}
+function uninstallPi(piHome) {
+  return PI_SKILLS.map((name) => `- pi_skill:${name}: ${uninstallPath(piSkillTarget(name, piHome))}`);
+}
 function uninstallCodex(codexHome, repoRoot) {
   const lines = [];
   for (const name of CODEX_SKILLS) {
@@ -3972,6 +4026,7 @@ function installHosts(opts) {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false
@@ -3994,6 +4049,7 @@ function installHosts(opts) {
   const shouldInstallClaude = target === "claude" || target === "all";
   const shouldInstallOpenCode = target === "opencode" || target === "all";
   const shouldInstallCodex = target === "codex" || target === "all";
+  const shouldInstallPi = target === "pi" || target === "all";
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
     lines.push(`- claude: ${status} -> ${targetPath}`);
@@ -4003,6 +4059,9 @@ function installHosts(opts) {
   }
   if (shouldInstallCodex) {
     lines.push(...installCodex(resolvedRepo, mode, force, codexHome));
+  }
+  if (shouldInstallPi) {
+    lines.push(...installPi(resolvedRepo, mode, force, piHome));
   }
   if (shouldInstallClaude && syncClaudeCli) {
     const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
@@ -4025,6 +4084,7 @@ function uninstallHosts(opts) {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     repoRoot,
     claudeCliUnsync = "auto",
     codexCliUnsync = "auto"
@@ -4036,6 +4096,7 @@ function uninstallHosts(opts) {
   const shouldUninstallClaude = target === "claude" || target === "all";
   const shouldUninstallOpenCode = target === "opencode" || target === "all";
   const shouldUninstallCodex = target === "codex" || target === "all";
+  const shouldUninstallPi = target === "pi" || target === "all";
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
     lines.push(`- claude: ${status}`);
@@ -4050,6 +4111,9 @@ function uninstallHosts(opts) {
     } else {
       lines.push("- codex_cli_unsync: skipped");
     }
+  }
+  if (shouldUninstallPi) {
+    lines.push(...uninstallPi(piHome));
   }
   if (!shouldUninstallClaude) {
     return lines;
@@ -4077,7 +4141,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PI_PACKAGE_SOURCES, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -4086,10 +4150,15 @@ var init_installer = __esm({
     MARKETPLACE_NAME = "phone-a-friend-marketplace";
     LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
-    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "all"]);
+    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "pi", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
     OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
     CODEX_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
+    PI_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    PI_PACKAGE_SOURCES = [
+      /^npm:@freibergergarcia\/phone-a-friend(?:@.+)?$/,
+      /github\.com[/:]freibergergarcia\/phone-a-friend(?:\.git)?(?:@.+)?\/?$/
+    ];
     CODEX_MARKETPLACE_NAME = "phone-a-friend-marketplace";
     OPENCODE_LEGACY_SKILLS = ["phone-a-team"];
     CODEX_LEGACY_SKILLS = [];
@@ -17241,7 +17310,8 @@ var init_detection = __esm({
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
       { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" },
-      { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" }
+      { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent CLI" }
     ];
   }
 });
@@ -72944,9 +73014,11 @@ function formatBackendSummary(report) {
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
   lines.push(`  ${claudeInstalled ? "\u2713" : "!"} claude     ${claudeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${opencodeInstalled ? "\u2713" : "!"} opencode   ${opencodeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${codexInstalled ? "\u2713" : "!"} codex      ${codexInstalled ? "installed" : "not installed"}`);
+  lines.push(`  ${piInstalled ? "\u2713" : "!"} pi         ${piInstalled ? "installed" : "not installed"}`);
   return lines.join("\n");
 }
 function spawnPaf(args, processRef, fallbackMessage) {
@@ -72977,6 +73049,7 @@ function buildActionGroups(report, onRefresh, processRef) {
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
   return [
     {
       title: "Diagnostics",
@@ -73089,6 +73162,27 @@ function buildActionGroups(report, onRefresh, processRef) {
           description: "Remove skills + marketplace registration (and any stale paf-* subagent symlinks)",
           confirm: "Uninstall Codex plugin? (y/n)",
           run: () => spawnPaf(["plugin", "uninstall", "--codex"], processRef, "Codex plugin uninstalled")
+        }
+      ]
+    },
+    {
+      title: "pi",
+      installed: piInstalled,
+      actions: [
+        {
+          label: piInstalled ? "Reinstall" : "Install",
+          description: piInstalled ? "Refresh skills (used in pi as /skill:phone-a-friend)" : "Install skills (used in pi as /skill:phone-a-friend)",
+          run: () => spawnPaf(
+            ["plugin", "install", "--pi", "--force", "--no-claude-cli-sync"],
+            processRef,
+            "pi skills installed"
+          )
+        },
+        {
+          label: "Uninstall",
+          description: "Remove the skills from the pi agent directory",
+          confirm: "Uninstall pi skills? (y/n)",
+          run: () => spawnPaf(["plugin", "uninstall", "--pi"], processRef, "pi skills uninstalled")
         }
       ]
     }
@@ -73545,7 +73639,9 @@ function PluginStatusBar({ installed = false, hosts }) {
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "OpenCode", installed: hosts.opencode }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Codex", installed: hosts.codex })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Codex", installed: hosts.codex }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "pi", installed: hosts.pi })
     ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
@@ -73567,7 +73663,8 @@ function readStatus() {
   return {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
-    codex: isCodexInstalled()
+    codex: isCodexInstalled(),
+    pi: isPiInstalled()
   };
 }
 function usePluginStatus() {
@@ -77884,6 +77981,7 @@ function summarizePiToolArgs(toolName, args) {
       return "";
   }
 }
+var PI_COMPACTION_REASONS = /* @__PURE__ */ new Set(["manual", "threshold", "overflow"]);
 function piEventsFromRecord(record) {
   if (record.type === "tool_execution_start") {
     const toolName = typeof record.toolName === "string" ? record.toolName.trim() : "";
@@ -77904,6 +78002,14 @@ function piEventsFromRecord(record) {
       type: "activity",
       message: `Retrying${count}${reason ? ` after: ${reason}` : ""}`,
       data: { attempt, maxAttempts }
+    }];
+  }
+  if (record.type === "compaction_start") {
+    const reason = typeof record.reason === "string" && PI_COMPACTION_REASONS.has(record.reason) ? record.reason : null;
+    return [{
+      type: "activity",
+      message: reason ? `Compacting context (${reason})` : "Compacting context",
+      data: { reason }
     }];
   }
   return [];
@@ -85496,6 +85602,29 @@ async function setup(opts) {
       }
     }
   }
+  const piAvailable = report.host.some((h) => h.name === "pi" && h.available);
+  if (piAvailable) {
+    console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("pi integration")}`);
+    const installPi2 = await dist_default6({
+      message: "Install pi skills (/skill:phone-a-friend, /skill:curiosity-engine)?",
+      default: true
+    });
+    if (installPi2) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: "pi",
+          mode: "symlink",
+          force: true,
+          syncClaudeCli: false
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  pi install failed: ${err.message}`));
+      }
+    }
+  }
   const existing = loadConfig(opts?.repoRoot);
   const cfg = {
     ...existing,
@@ -85958,6 +86087,7 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
   lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning("!")} Claude plugin ${hostInstallations.claude ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning("!")} OpenCode commands/skills ${hostInstallations.opencode ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.codex ? theme.checkmark : theme.warning("!")} Codex skills ${hostInstallations.codex ? theme.success("installed") : theme.warning("not installed")}`);
+  lines.push(`    ${hostInstallations.pi ? theme.checkmark : theme.warning("!")} pi skills ${hostInstallations.pi ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
@@ -86168,7 +86298,8 @@ async function doctor(opts) {
   const hostInstallations = {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
-    codex: isCodexInstalled()
+    codex: isCodexInstalled(),
+    pi: isPiInstalled()
   };
   const updateCheck = collectUpdateCheckState(config);
   if (opts?.json) {
@@ -86622,7 +86753,7 @@ function printBackendAvailability() {
 }
 function resolveHostTarget(opts) {
   if (opts.all) return "all";
-  const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
+  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi].filter(Boolean).length;
   if (selected > 1) {
     throw new InstallerError(
       "Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag."
@@ -86630,6 +86761,7 @@ function resolveHostTarget(opts) {
   }
   if (opts.opencode) return "opencode";
   if (opts.codex) return "codex";
+  if (opts.pi) return "pi";
   return "claude";
 }
 function installAction(opts) {
@@ -86642,9 +86774,9 @@ function installAction(opts) {
       console.error("Error: --repo-root is not compatible with --github");
       return 1;
     }
-    if (opts.opencode || opts.codex || opts.all) {
+    if (opts.opencode || opts.codex || opts.pi || opts.all) {
       console.error(
-        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` and/or `--codex` separately."
+        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, and pi has its own package manager. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode`, `--codex` and/or `--pi` separately."
       );
       return 1;
     }
@@ -86693,13 +86825,13 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUninstallOptions(cmd) {
-  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
+  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--pi", "Uninstall for pi", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
 }
 async function run(argv) {
   const normalized = normalizeArgv(argv);

@@ -39,4 +39,11 @@ describe('PluginStatusBar', () => {
     expect(frame).toContain('\u2713');
     expect(frame).toContain('!');
   });
+
+  it('shows pi beside the other hosts', () => {
+    const hosts = { claude: false, opencode: false, codex: false, pi: true };
+    const frame = render(<PluginStatusBar hosts={hosts} />).lastFrame()!;
+    expect(frame).toContain('pi \u2713');
+    expect(frame).toContain('Codex !');
+  });
 });

@@ -25,15 +25,15 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 ### Host parity
 
-| Feature | Claude Code | OpenCode | Codex |
-|---|:---:|:---:|:---:|
-| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ |
-| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ |
-| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ |
-| Plugin marketplace install | ✓ | — | ✓ |
-| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ |
-| Skill auto-discovery | ✓ | ✓ | ✓ |
-| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ |
+| Feature | Claude Code | OpenCode | Codex | pi |
+|---|:---:|:---:|:---:|:---:|
+| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ | `/skill:phone-a-friend` |
+| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ | `/skill:curiosity-engine` |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — |
+| Plugin marketplace install | ✓ | — | ✓ | `pi install` |
+| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ |
+| Skill auto-discovery | ✓ | ✓ | ✓ | ✓ |
+| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic |
 
 Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
@@ -129,6 +129,27 @@ Ask Claude and Gemini through phone-a-friend what they think of this code.
 
 Use phone-a-team across Claude and Gemini to converge on a fix for this auth bug. Three rounds max.
 ```
+
+**pi skills:**
+
+If you use [pi](https://pi.dev), install the `phone-a-friend` and `curiosity-engine` skills into pi's agent directory:
+
+```bash
+phone-a-friend plugin install --pi
+```
+
+This installs to `~/.pi/agent/skills/` (or `$PI_CODING_AGENT_DIR/skills/`). pi has no command shims: it exposes every skill as `/skill:<name>`, so from pi run:
+
+```
+/skill:phone-a-friend ask claude for a short sanity review of this repo; do not edit files
+/skill:curiosity-engine --topic "why the sky is blue" --rounds 2 --backend antigravity
+```
+
+The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude ..."`. pi needs its `bash` tool (on by default) to run the relay.
+
+- **Use the `/skill:` form with local models.** pi lists the skill to the model, but a local model may not load it on its own. In testing, a 35B model given a plain "ask Claude through phone-a-friend" request guessed the CLI flags instead and relayed to the wrong backend; with `/skill:phone-a-friend` the same model ran the correct relay first time.
+- **No recursion marker is needed.** pi sets `PI_CODING_AGENT=true` for the commands it runs, and PaF refuses `--to pi` from there.
+- **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. You still need the npm global install for the `phone-a-friend` command itself.
 
 **From source:**
 
@@ -375,11 +396,12 @@ phone-a-friend doctor          # Health check all backends + host install status
 phone-a-friend plugin install --claude    # Install Claude Code plugin
 phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
 phone-a-friend plugin install --codex     # Install Codex skills
+phone-a-friend plugin install --pi        # Install pi skills (/skill:phone-a-friend)
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
-`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. Antigravity, OpenCode CLI, and pi are treated as optional: if you don't have `agy`, OpenCode, or pi installed, doctor will show them but will not flag that as a degraded state.
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex / pi install state), and a summary count. Antigravity, OpenCode CLI, and pi are treated as optional: if you don't have `agy`, OpenCode, or pi installed, doctor will show them but will not flag that as a degraded state.
 
 `doctor --json` also reports each CLI's selected executable, version, and other
 PATH candidates. It distinguishes the running PaF build from the PATH install,
@@ -512,7 +534,7 @@ pi notes:
   model can fail it where `--fast` or a larger model passes.
 - PaF never starts a model server. If the server is down, pi retries for about
   15 seconds and the relay fails with `Connection error.`
-- pi is not a host integration and not an agentic backend.
+- pi is not an agentic backend. As a host it gets two skills, see [pi skills](#quick-start) above; `/phone-a-team` is not available in pi.
 
 ## Streaming
 
@@ -568,7 +590,7 @@ Full usage guide, examples, CLI reference, and configuration details:
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, pi skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
 
 > [!WARNING]
 > `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.

@@ -193,6 +193,30 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     }
   }
 
+  const piAvailable = report.host.some(h => h.name === 'pi' && h.available);
+  if (piAvailable) {
+    console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('pi integration')}`);
+    const installPi = await confirm({
+      message: 'Install pi skills (/skill:phone-a-friend, /skill:curiosity-engine)?',
+      default: true,
+    });
+    if (installPi) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: 'pi',
+          mode: 'symlink',
+          force: true,
+          syncClaudeCli: false,
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  pi install failed: ${(err as Error).message}`));
+      }
+    }
+  }
+
   // Save config — merge into existing to preserve user's backend settings
   const existing = loadConfig(opts?.repoRoot);
   const cfg: PafConfig = {

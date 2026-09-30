@@ -481,6 +481,24 @@ describe('pi backend streaming', () => {
       }]);
     });
 
+    it('reports context compaction with its documented reason, and nothing else from the record', () => {
+      for (const reason of ['manual', 'threshold', 'overflow']) {
+        expect(piEventsFromRecord({ type: 'compaction_start', reason })).toEqual([{
+          type: 'activity',
+          message: `Compacting context (${reason})`,
+          data: { reason },
+        }]);
+      }
+      expect(piEventsFromRecord({ type: 'compaction_start', reason: 'x'.repeat(500) })).toEqual([{
+        type: 'activity',
+        message: 'Compacting context',
+        data: { reason: null },
+      }]);
+      expect(piEventsFromRecord({ type: 'compaction_start' })[0].message).toBe('Compacting context');
+      // The end record carries the summary of the conversation: never surfaced.
+      expect(piEventsFromRecord({ type: 'compaction_end', reason: 'threshold', result: { summary: 'secret' } })).toEqual([]);
+    });
+
     it('surfaces nothing for message, thinking or turn records', () => {
       expect(piEventsFromRecord({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'secret' } })).toEqual([]);
       expect(piEventsFromRecord({ type: 'turn_start' })).toEqual([]);

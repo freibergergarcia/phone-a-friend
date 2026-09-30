@@ -4,12 +4,13 @@
  */
 
 import { useState, useCallback } from 'react';
-import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from '../../installer.js';
+import { isCodexInstalled, isOpenCodeInstalled, isPiInstalled, isPluginInstalled } from '../../installer.js';
 
 export interface PluginHostStatus {
   claude: boolean;
   opencode: boolean;
   codex: boolean;
+  pi: boolean;
 }
 
 export interface UsePluginStatusResult {
@@ -24,6 +25,7 @@ function readStatus(): PluginHostStatus {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
     codex: isCodexInstalled(),
+    pi: isPiInstalled(),
   };
 }
 

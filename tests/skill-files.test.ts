@@ -830,6 +830,38 @@ describe('direct-mode Gemini commands use approval modes, never --yolo', () => {
   });
 });
 
+describe('pi as a host', () => {
+  // pi loads a skill from its agent directory and runs it as /skill:<name>
+  // (pi docs: skills.md). The skill text has to say what differs there.
+  const friend = readFile('skills/phone-a-friend/SKILL.md');
+  const curiosity = readFile('skills/curiosity-engine/SKILL.md');
+
+  it('phone-a-friend tells a pi host not to pick pi and why no host marker is needed', () => {
+    expect(friend).toMatch(/From pi, do not select `pi` as the friend backend/);
+    expect(friend).toMatch(/`PI_CODING_AGENT=true`/);
+    expect(friend).not.toContain('PHONE_A_FRIEND_HOST=pi ');
+  });
+
+  it('phone-a-friend names the pi invocation and where the focus text arrives', () => {
+    expect(friend).toContain('/skill:phone-a-friend');
+    expect(friend).toMatch(/In pi[^\n]*\$ARGUMENTS[^\n]*not substituted/);
+  });
+
+  it('phone-a-friend suppresses the diff with the env var from pi, like OpenCode', () => {
+    expect(friend).toMatch(/When running inside pi, prefix relay invocations with\s+`PHONE_A_FRIEND_INCLUDE_DIFF=false`/);
+  });
+
+  it('phone-a-friend says /phone-a-team is not installed in pi', () => {
+    expect(friend).toMatch(/In OpenCode and pi, run\s+separate invocations yourself/);
+  });
+
+  it('curiosity-engine covers the pi host', () => {
+    expect(curiosity).toContain('/skill:curiosity-engine');
+    expect(curiosity).toMatch(/Inside pi, no host prefix is needed/);
+    expect(curiosity).toMatch(/the pi model name in pi/);
+  });
+});
+
 describe('pi is binary-mode only in every skill and command', () => {
   // A direct `pi` call would skip the tool allowlist, the fail-closed
   // session check, schema and verdict validation, task tracking and the

@@ -38,6 +38,7 @@ vi.mock('../../src/installer.js', () => ({
   isPluginInstalled: vi.fn().mockReturnValue(false),
   isOpenCodeInstalled: vi.fn().mockReturnValue(false),
   isCodexInstalled: vi.fn().mockReturnValue(false),
+  isPiInstalled: vi.fn().mockReturnValue(false),
 }));
 
 // Mock child_process.spawn so we can control subprocess actions
@@ -99,6 +100,15 @@ describe('ActionsPanel', () => {
     expect(frame).toContain('Claude Code');
     expect(frame).toContain('OpenCode');
     expect(frame).toContain('Codex');
+  });
+
+  it('shows a pi group whose actions install and uninstall the pi skills', () => {
+    const { lastFrame } = render(
+      <ActionsPanel report={MOCK_REPORT} onRefresh={() => {}} onPluginRecheck={() => {}} onExit={() => {}} />
+    );
+    const frame = lastFrame()!;
+    expect(frame).toMatch(/\bpi\b/);
+    expect(frame).toContain('/skill:phone-a-friend');
   });
 
   it('shows install-status badge per host group (not installed in this mock)', () => {

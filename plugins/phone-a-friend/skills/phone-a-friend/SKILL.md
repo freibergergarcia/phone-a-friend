@@ -28,13 +28,17 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
 - From Codex, do not select `codex` as the friend backend. Choose `claude`,
   `antigravity`, `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
   `PHONE_A_FRIEND_HOST` recursion guard used for OpenCode.
+- From pi, do not select `pi` as the friend backend. Choose `claude`, `codex`,
+  `antigravity`, `gemini`, `opencode`, or `ollama`. PaF refuses `--to pi` from
+  inside pi on its own: pi marks every shell command it runs with
+  `PI_CODING_AGENT=true`, so no host prefix is needed.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
   only include the diff when the user explicitly asked for a
   diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. In Claude Code and Codex, `/phone-a-team`
-  orchestrates those calls using the host-specific skill. In OpenCode, run
+  orchestrates those calls using the host-specific skill. In OpenCode and pi, run
   separate invocations yourself; `/phone-a-team` is not installed there.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
@@ -54,6 +58,10 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   `PHONE_A_FRIEND_HOST=codex` (recursion guard). Codex ships modern
   PaF binaries, so the `--no-include-diff` flag works directly; the
   env-var fallback is also fine if you prefer symmetry with OpenCode.
+- When running inside pi, prefix relay invocations with
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` (diff suppression, for the same
+  reason as OpenCode: a local host model tends to skip the probe). Run the
+  relay through pi's `bash` tool.
 - When materializing relay commands, write dynamic prompt/context text into
   temp files using single-quoted heredocs. Do not splice user text, prior
   model output, or conversation context into double-quoted shell arguments.
@@ -70,9 +78,19 @@ PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
   --timeout 300 --no-stream --fast
 ```
 
+From pi:
+
+```bash
+PHONE_A_FRIEND_INCLUDE_DIFF=false \
+  phone-a-friend --to claude --repo "$PWD" \
+  --prompt "Give a short sanity review of this repo. Do not edit files." \
+  --timeout 300 --no-stream
+```
+
 ## Inputs
 
 - Review focus (optional): `$ARGUMENTS`
+- In pi this skill runs as `/skill:phone-a-friend <focus>`. `$ARGUMENTS` is not substituted there: the focus is the user request that follows these instructions.
 
 ## Host awareness
 
@@ -91,6 +109,11 @@ Choose `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
 
 When running from Codex, do not select `codex` as the friend backend. Choose
 `claude`, `antigravity`, `gemini`, `opencode`, or `ollama`.
+
+When running from pi, no marker is needed: pi sets `PI_CODING_AGENT=true` for
+the commands its `bash` tool runs, and PaF treats that as the pi host. Do not
+select `pi` as the friend backend. Choose `claude`, `codex`, `antigravity`,
+`gemini`, `opencode`, or `ollama`.
 
 ## Relay mode
 

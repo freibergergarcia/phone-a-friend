@@ -8,7 +8,9 @@ argument-hint: '--topic "<topic>" [--rounds N] [--backend antigravity|codex|gemi
 
 A structured ping-pong Q&A game between the host orchestrating model (the
 agent running this skill — Claude in Claude Code, the OpenCode model in
-OpenCode) and a backend model.
+OpenCode, the pi model in pi) and a backend model.
+In pi this skill runs as `/skill:curiosity-engine --topic "<topic>"`; the
+arguments arrive as the user request that follows these instructions.
 Both sides MUST produce an ANSWER: and a QUESTION: every round.
 The game is seeded with a topic and runs for N rounds (default 3, max 6).
 
@@ -31,6 +33,8 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   for the same reason. Do not select `codex` as the friend backend from
   Codex; choose `antigravity`, `gemini`, or `ollama` instead. PaF will
   refuse recursive Codex calls.
+- Inside pi, no host prefix is needed: pi marks the commands its `bash`
+  tool runs with `PI_CODING_AGENT=true`, and PaF refuses `--to pi` there.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
@@ -191,8 +195,8 @@ Display to user:
 ```
 
 `<orchestrator>` is the host model's display label (e.g., "Claude" in
-Claude Code, the OpenCode model name in OpenCode). Pick one that the user
-will recognize.
+Claude Code, the OpenCode model name in OpenCode, the pi model name in pi).
+Pick one that the user will recognize.
 
 Then relay to backend. First build `PROMPT_FILE` so untrusted text such as
 TOPIC and QUESTION is passed as data, not spliced into an inline shell
