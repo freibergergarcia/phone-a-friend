@@ -14,7 +14,23 @@
  *   as cwd.
  */
 
-import { BackendError, type SandboxMode } from './index.js';
+import { realpathSync } from 'node:fs';
+import { delimiter as pathDelimiter, resolve as resolvePath } from 'node:path';
+import {
+  type Backend,
+  type BackendCapabilities,
+  type BackendRunOptions,
+  BackendError,
+  INSTALL_HINTS,
+  registerBackend,
+  spawnCli,
+  SpawnCliError,
+  SpawnCliTimeoutError,
+  type SandboxMode,
+} from './index.js';
+import { loadConfig } from '../config.js';
+import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
+import { injectSchemaPrompt } from './schema-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Error
@@ -239,3 +255,239 @@ export function parsePiJsonl(stdout: string, ctx: { stderr?: string } = {}): PiP
 
   return { text, header };
 }
+
+// ---------------------------------------------------------------------------
+// Version gate
+// ---------------------------------------------------------------------------
+
+/** `--no-approve` arrived in 0.79.0; `--session-id` (0.76.0) and the `--tools` allowlist (0.68.0) are older. */
+export const PI_MIN_VERSION = '0.79.0';
+
+const PI_VERSION_PROBE_TIMEOUT_MS = 5000;
+
+export type PiVersionProbe =
+  | { status: 'missing' }
+  | { status: 'unreadable'; path: string; reason: string }
+  | { status: 'ok'; path: string; version: string };
+
+/** Cache of `pi --version` probes, keyed by resolved executable plus PATH. */
+const versionCache = new Map<string, Promise<PiVersionProbe>>();
+
+/** Clear the version cache — only for testing. */
+export function _resetPiVersionCache(): void {
+  versionCache.clear();
+}
+
+export function isSupportedPiVersion(version: string): boolean {
+  const parse = (text: string): number[] | null => {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  };
+  const actual = parse(version);
+  const minimum = parse(PI_MIN_VERSION) as number[];
+  if (!actual) return false;
+  for (let i = 0; i < 3; i++) {
+    if (actual[i] > minimum[i]) return true;
+    if (actual[i] < minimum[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Read the version of the `pi` on PATH.
+ *
+ * Runs `pi --version` at most once per resolved executable per process;
+ * concurrent callers share the in-flight probe. Never throws: a missing
+ * binary, a timeout, or an unparseable banner each have their own status and
+ * the caller refuses to run on anything but `ok`.
+ */
+export function detectPiVersion(
+  env: Record<string, string>,
+  opts: { timeoutMs?: number; cwd?: string } = {},
+): Promise<PiVersionProbe> {
+  // pi is spawned by bare name with cwd = the repo, and execvp resolves
+  // relative PATH entries against that cwd. Resolve the same way here so the
+  // probed binary is the one the child will run.
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env.PATH ?? '')
+    .split(pathDelimiter)
+    .map((dir) => resolvePath(spawnCwd, dir || '.'))
+    .join(pathDelimiter);
+  const candidate = resolveExecutableCandidates('pi', { ...env, PATH: absolutePath })[0];
+  if (!candidate) return Promise.resolve({ status: 'missing' });
+
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
+  const cached = versionCache.get(key);
+  if (cached) return cached;
+
+  const probe = probeVersion(candidate.path, {
+    env,
+    timeoutMs: opts.timeoutMs ?? PI_VERSION_PROBE_TIMEOUT_MS,
+  })
+    .then((result): PiVersionProbe => (result.version
+      ? { status: 'ok', path: candidate.path, version: result.version }
+      : { status: 'unreadable', path: candidate.path, reason: result.versionError ?? result.versionStatus }))
+    .catch((): PiVersionProbe => ({ status: 'unreadable', path: candidate.path, reason: 'probe failed' }));
+  versionCache.set(key, probe);
+  return probe;
+}
+
+/** Refuse to run unless the installed pi is known to be new enough. No model spawn happens before this. */
+async function assertSupportedPi(env: Record<string, string>, cwd: string): Promise<void> {
+  const probe = await detectPiVersion(env, { cwd });
+  if (probe.status === 'missing') {
+    throw new PiBackendError(`pi CLI not found in PATH. Install it: ${INSTALL_HINTS.pi}`);
+  }
+  if (probe.status === 'unreadable') {
+    throw new PiBackendError(
+      `Could not read the pi version from \`${probe.path} --version\` (${probe.reason}). ` +
+        `phone-a-friend needs pi ${PI_MIN_VERSION} or newer and will not run an unknown version. ` +
+        `Run \`pi --version\` at the terminal, or reinstall: ${INSTALL_HINTS.pi}`,
+    );
+  }
+  if (!isSupportedPiVersion(probe.version)) {
+    throw new PiBackendError(
+      `pi ${probe.version} is too old: phone-a-friend needs pi ${PI_MIN_VERSION} or newer ` +
+        `(it relies on --no-approve). Upgrade with \`pi update\` or: ${INSTALL_HINTS.pi}`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recursion guard
+// ---------------------------------------------------------------------------
+
+/**
+ * pi sets `PI_CODING_AGENT=true` in every child process it launches, so a
+ * PaF call made from inside pi is detected without an install shim.
+ * `PHONE_A_FRIEND_HOST=pi` is the explicit marker for programmatic callers.
+ */
+export function isPiHostEnv(env: Record<string, string | undefined>): boolean {
+  return env.PI_CODING_AGENT === 'true' || env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'pi';
+}
+
+function assertNotPiHost(env: Record<string, string>): void {
+  if (!isPiHostEnv(env)) return;
+  throw new PiBackendError(
+    'pi is already the host for this Phone-a-Friend invocation. ' +
+      'Choose another friend backend such as antigravity, codex, gemini, claude, or ollama.',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Config and paths
+// ---------------------------------------------------------------------------
+
+/**
+ * `[backends.pi] provider`, read with the repo's `.phone-a-friend.toml`
+ * merged over the user config. `ResolvedConfig` carries no backend-specific
+ * keys, so the backend reads it; the generic `model` arrives through the
+ * relay options.
+ */
+function readPiProvider(repoPath: string): string | null {
+  let raw: unknown;
+  try {
+    raw = loadConfig(repoPath).backends?.pi?.provider;
+  } catch (err) {
+    throw new PiBackendError(
+      `Could not read phone-a-friend config for ${repoPath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (raw === undefined) return null;
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new PiBackendError(
+      'Invalid [backends.pi] provider in phone-a-friend config: expected a non-empty string such as "mlx".',
+    );
+  }
+  return raw.trim();
+}
+
+/**
+ * The one repo path used for the spawn cwd. pi records the working directory
+ * the OS reports, which has symlinks resolved (`/private/tmp/...` for
+ * `/tmp/...` on macOS), while the relay resolves `--repo` lexically.
+ */
+function canonicalRepoPath(repoPath: string): string {
+  try {
+    return realpathSync(resolvePath(repoPath));
+  } catch (err) {
+    throw new PiBackendError(
+      `Repository path cannot be resolved: ${repoPath} (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Backend
+// ---------------------------------------------------------------------------
+
+function timeoutMessage(timeoutSeconds: number): string {
+  return (
+    `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up ` +
+    "(your provider's baseUrl) and try a smaller model."
+  );
+}
+
+/** Translate a failed spawn into a PiBackendError, preferring what pi itself reported. */
+function toPiError(err: unknown, timeoutSeconds: number): PiBackendError {
+  if (err instanceof PiBackendError) return err;
+  if (err instanceof SpawnCliTimeoutError) return new PiBackendError(timeoutMessage(timeoutSeconds));
+  if (err instanceof SpawnCliError) {
+    // An invocation error exits nonzero, sometimes after the stream already
+    // carried a failed response; that message is the more useful one.
+    const failure = piFailureDetail(readPiJsonl(err.stdout).finalAssistant);
+    if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+    const tail = stderrTail(err.stderr);
+    return new PiBackendError(`pi exited with code ${err.exitCode ?? 'unknown'}${tail ? `: ${tail}` : '.'}`);
+  }
+  if (err instanceof BackendError) return new PiBackendError(err.message);
+  return new PiBackendError(err instanceof Error ? err.message : String(err));
+}
+
+export class PiBackend implements Backend {
+  readonly name = 'pi';
+  readonly localFileAccess = true;
+  readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
+    'read-only',
+    'workspace-write',
+    'danger-full-access',
+  ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'unsupported',
+    requiresClientSessionId: false,
+  };
+
+  async run(opts: BackendRunOptions): Promise<string> {
+    assertNotPiHost(opts.env);
+    const repoCwd = canonicalRepoPath(opts.repoPath);
+    const provider = readPiProvider(opts.repoPath);
+    await assertSupportedPi(opts.env, repoCwd);
+
+    // pi has no structured-output flag: ask for JSON in the prompt and let
+    // the caller parse it (best-effort, as for Gemini and OpenCode).
+    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+    const args = buildPiArgs({
+      prompt,
+      sandbox: opts.sandbox,
+      model: opts.model,
+      provider,
+      fast: Boolean(opts.fast),
+      session: null,
+    });
+
+    try {
+      const result = await spawnCli('pi', args, {
+        timeoutMs: opts.timeoutSeconds * 1000,
+        env: opts.env,
+        cwd: repoCwd,
+        label: 'pi',
+      });
+      return parsePiJsonl(result.stdout, { stderr: result.stderr }).text;
+    } catch (err: unknown) {
+      throw toPiError(err, opts.timeoutSeconds);
+    }
+  }
+}
+
+export const PI_BACKEND = new PiBackend();
+registerBackend(PI_BACKEND);

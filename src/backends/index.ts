@@ -173,6 +173,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   ollama: 'https://ollama.com/download',
   claude: 'npm install -g @anthropic-ai/claude-code',
   opencode: 'curl -fsSL https://opencode.ai/install | bash',
+  pi: 'npm install -g @earendil-works/pi-coding-agent',
 };
 
 export const BACKEND_COMMANDS: Record<string, string> = {
@@ -182,6 +183,7 @@ export const BACKEND_COMMANDS: Record<string, string> = {
   gemini: 'gemini',
   ollama: 'ollama',
   opencode: 'opencode',
+  pi: 'pi',
 };
 
 // ---------------------------------------------------------------------------

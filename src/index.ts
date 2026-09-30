@@ -7,6 +7,7 @@ import './backends/gemini.js';
 import './backends/ollama.js';
 import './backends/claude.js';
 import './backends/opencode.js';
+import './backends/pi.js';
 
 import { run } from './cli.js';
 
