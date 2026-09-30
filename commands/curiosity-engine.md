@@ -69,6 +69,8 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
+pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
+
 In direct mode, build `PROMPT_FILE` from the relay prompt using this
 template and the quoted-heredoc rule:
 

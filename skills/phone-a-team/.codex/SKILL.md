@@ -19,6 +19,8 @@ You orchestrate the rounds yourself via Bash. Do not spawn Codex subagents for t
 - **`--max-rounds N`**: rounds before giving up. Clamp to [1, 5]. Default: 3.
 - **`--model <name>`**: only meaningful for `ollama` and `opencode`.
 
+pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
+
 If the user named only one backend, the team degenerates to a self-review loop against that backend across rounds. That is valid; do not error out, just proceed.
 
 ## Step 0 — Preflight

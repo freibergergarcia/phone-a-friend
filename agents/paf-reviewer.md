@@ -1,6 +1,6 @@
 ---
 name: paf-reviewer
-description: Runs one phone-a-friend relay or review command in the background and reports back a receipt plus the findings. Use when a Claude host wants a Codex, Gemini, OpenCode, Ollama, or Antigravity review to run out of the main conversation while staying visible in the agent panel.
+description: Runs one phone-a-friend relay or review command in the background and reports back a receipt plus the findings. Use when a Claude host wants a Codex, Gemini, OpenCode, Ollama, pi, or Antigravity review to run out of the main conversation while staying visible in the agent panel.
 tools: Bash, Read
 model: sonnet
 background: true
