@@ -31,6 +31,7 @@ import {
   GeminiModelCache,
   isDeadCacheDisabled,
 } from '../gemini-models.js';
+import { injectSchemaPrompt } from './schema-prompt.js';
 
 export class GeminiBackendError extends BackendError {
   constructor(message: string) {
@@ -392,10 +393,6 @@ function classifyAttemptError(err: unknown): ReturnType<typeof classifyGeminiErr
     return classifyGeminiError({ message: err.message });
   }
   return classifyGeminiError({ message: String(err) });
-}
-
-function injectSchemaPrompt(prompt: string, schema: string): string {
-  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
 }
 
 function maybeEmitGeminiSessionId(

@@ -29,6 +29,7 @@ import {
 import { parseOpenCodeStreamJSON } from '../stream-parsers.js';
 import { loadConfig } from '../config.js';
 import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
+import { injectSchemaPrompt } from './schema-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Error
@@ -573,10 +574,6 @@ export class OpenCodeBackend implements Backend {
       throw new OpenCodeBackendError(msg);
     }
   }
-}
-
-function injectSchemaPrompt(prompt: string, schema: string): string {
-  return `${prompt}\n\nRespond with JSON only. The response must match this JSON Schema exactly:\n${schema}`;
 }
 
 export const OPENCODE_BACKEND = new OpenCodeBackend();
