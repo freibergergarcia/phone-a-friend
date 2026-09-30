@@ -18,14 +18,17 @@
  *   because `--session-id` silently creates a session that is missing.
  */
 
+import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readdirSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter as pathDelimiter, join, posix, resolve as resolvePath, win32 } from 'node:path';
+import type { Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import {
   type Backend,
   type BackendCapabilities,
+  type BackendEvent,
   type BackendRunOptions,
   BackendError,
   INSTALL_HINTS,
@@ -165,6 +168,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** One physical line of a `pi --mode json` stream, or null when it is not a JSON object. */
+function parsePiRecord(rawLine: string): Record<string, unknown> | null {
+  const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+  if (!line.trim()) return null;
+  try {
+    return asRecord(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+
+/** Fold one record into the transcript: the first session header and the last assistant `message_end`. */
+function notePiRecord(transcript: PiTranscript, record: Record<string, unknown>): void {
+  if (record.type === 'session' && !transcript.header && typeof record.id === 'string') {
+    transcript.header = {
+      id: record.id,
+      cwd: typeof record.cwd === 'string' ? record.cwd : null,
+      timestamp: typeof record.timestamp === 'string' ? record.timestamp : null,
+    };
+    return;
+  }
+
+  if (record.type === 'message_end') {
+    const message = asRecord(record.message);
+    // `agent_end` with willRetry is not terminal, and earlier assistant
+    // messages may be tool calls or retried errors: only the last counts.
+    if (message?.role === 'assistant') transcript.finalAssistant = message;
+  }
+}
+
 /**
  * Read a `pi --mode json` stream without judging it. Records are split on LF
  * only (pi's framing rule: U+2028/U+2029 are legal inside strings), one
@@ -172,38 +205,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * Never throws.
  */
 export function readPiJsonl(stdout: string): PiTranscript {
-  let header: PiSessionHeader | null = null;
-  let finalAssistant: Record<string, unknown> | null = null;
-
+  const transcript: PiTranscript = { header: null, finalAssistant: null };
   for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    if (!line.trim()) continue;
-    let record: Record<string, unknown> | null;
-    try {
-      record = asRecord(JSON.parse(line));
-    } catch {
-      continue;
-    }
-    if (!record) continue;
-
-    if (record.type === 'session' && !header && typeof record.id === 'string') {
-      header = {
-        id: record.id,
-        cwd: typeof record.cwd === 'string' ? record.cwd : null,
-        timestamp: typeof record.timestamp === 'string' ? record.timestamp : null,
-      };
-      continue;
-    }
-
-    if (record.type === 'message_end') {
-      const message = asRecord(record.message);
-      // `agent_end` with willRetry is not terminal, and earlier assistant
-      // messages may be tool calls or retried errors: only the last counts.
-      if (message?.role === 'assistant') finalAssistant = message;
-    }
+    const record = parsePiRecord(rawLine);
+    if (record) notePiRecord(transcript, record);
   }
-
-  return { header, finalAssistant };
+  return transcript;
 }
 
 /** The error a finished stream reports, if its final assistant message is a failure. */
@@ -215,10 +222,20 @@ function piFailureDetail(finalAssistant: Record<string, unknown> | null): string
   return errorMessage || `request ${stopReason}`;
 }
 
+/** The text blocks of an assistant message, joined in `content` order and not trimmed. */
+function piMessageText(message: Record<string, unknown>): string {
+  if (!Array.isArray(message.content)) return '';
+  return message.content
+    .map((block) => asRecord(block))
+    .filter((block): block is Record<string, unknown> => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text as string)
+    .join('\n');
+}
+
 /**
- * Turn a finished `pi --mode json` stream into the final answer, failing
- * closed. JSON mode exits 0 even when the response failed, so the verdict
- * comes from the last assistant `message_end`:
+ * The final answer of a finished run, failing closed. JSON mode exits 0 even
+ * when the response failed, so the verdict comes from the last assistant
+ * `message_end`:
  *
  * - `stopReason` `error` or `aborted` throws with `errorMessage`;
  * - only `stop` and `length` are an answer; any other stop reason throws;
@@ -226,8 +243,8 @@ function piFailureDetail(finalAssistant: Record<string, unknown> | null): string
  *
  * It never falls back to an earlier assistant message.
  */
-export function parsePiJsonl(stdout: string, ctx: { stderr?: string } = {}): PiParsedRun {
-  const { header, finalAssistant } = readPiJsonl(stdout);
+function piAnswer(transcript: PiTranscript, ctx: { stderr?: string } = {}): string {
+  const { finalAssistant } = transcript;
 
   if (!finalAssistant) {
     const tail = stderrTail(ctx.stderr);
@@ -249,18 +266,221 @@ export function parsePiJsonl(stdout: string, ctx: { stderr?: string } = {}): PiP
     throw new PiBackendError("pi's final message has an unexpected shape (content is not a list).");
   }
 
-  const text = finalAssistant.content
-    .map((block) => asRecord(block))
-    .filter((block): block is Record<string, unknown> => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text as string)
-    .join('\n')
-    .trim();
-
+  const text = piMessageText(finalAssistant).trim();
   if (!text) {
     throw new PiBackendError('pi produced no text output.');
   }
+  return text;
+}
 
-  return { text, header };
+/** Turn a finished `pi --mode json` stream into the final answer and session header. See `piAnswer`. */
+export function parsePiJsonl(stdout: string, ctx: { stderr?: string } = {}): PiParsedRun {
+  const transcript = readPiJsonl(stdout);
+  return { text: piAnswer(transcript, ctx), header: transcript.header };
+}
+
+// ---------------------------------------------------------------------------
+// Streaming and progress
+// ---------------------------------------------------------------------------
+
+/**
+ * Cut text that arrives in arbitrary pieces into lines, on LF only. Node's
+ * `readline` also splits on U+2028/U+2029, which are legal inside pi's JSON
+ * strings, so it is not used.
+ */
+function createLineSplitter(onLine: (line: string) => void): { push(text: string): void; end(): void } {
+  let pending = '';
+  return {
+    push(text) {
+      let start = 0;
+      let newline = text.indexOf('\n');
+      while (newline !== -1) {
+        onLine(pending + text.slice(start, newline));
+        pending = '';
+        start = newline + 1;
+        newline = text.indexOf('\n', start);
+      }
+      pending += text.slice(start);
+    },
+    end() {
+      if (pending) onLine(pending);
+      pending = '';
+    },
+  };
+}
+
+/** The records of a live `pi --mode json` stdout, decoded as UTF-8 across chunk boundaries. */
+async function* piRecords(stdout: Readable): AsyncGenerator<Record<string, unknown>> {
+  const decoder = new StringDecoder('utf8');
+  let ready: Array<Record<string, unknown>> = [];
+  const splitter = createLineSplitter((line) => {
+    const record = parsePiRecord(line);
+    if (record) ready.push(record);
+  });
+  for await (const chunk of stdout) {
+    splitter.push(typeof chunk === 'string' ? chunk : decoder.write(chunk as Buffer));
+    if (ready.length > 0) {
+      const batch = ready;
+      ready = [];
+      yield* batch;
+    }
+  }
+  splitter.push(decoder.end());
+  splitter.end();
+  yield* ready;
+}
+
+const PI_PROGRESS_DETAIL_LIMIT = 160;
+
+function shortDetail(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > PI_PROGRESS_DETAIL_LIMIT ? `${flat.slice(0, PI_PROGRESS_DETAIL_LIMIT - 1)}…` : flat;
+}
+
+/** The one or two arguments that say what a tool call is doing; never file contents. */
+function summarizePiToolArgs(toolName: string, args: unknown): string {
+  const record = asRecord(args);
+  if (!record) return '';
+  const text = (key: string): string => (typeof record[key] === 'string' ? (record[key] as string) : '');
+  switch (toolName) {
+    case 'bash':
+      return shortDetail(text('command'));
+    case 'read':
+    case 'ls':
+    case 'edit':
+    case 'write':
+      return shortDetail(text('path'));
+    case 'grep':
+    case 'find':
+      return shortDetail([text('pattern'), text('path')].filter(Boolean).join(' '));
+    default:
+      return Object.keys(record).length > 0 ? shortDetail(JSON.stringify(record)) : '';
+  }
+}
+
+/**
+ * The progress a pi record reports, if any: a tool call starting, or pi
+ * retrying after a failed request (a stopped local server is otherwise
+ * several seconds of silence). Text, thinking and turn records report nothing.
+ */
+export function piEventsFromRecord(record: Record<string, unknown>): BackendEvent[] {
+  if (record.type === 'tool_execution_start') {
+    const toolName = typeof record.toolName === 'string' ? record.toolName.trim() : '';
+    if (!toolName) return [];
+    const detail = summarizePiToolArgs(toolName, record.args);
+    return [{
+      type: 'activity',
+      message: detail ? `Running: ${toolName} ${detail}` : `Running: ${toolName}`,
+      data: typeof record.toolCallId === 'string' ? { toolCallId: record.toolCallId, toolName } : { toolName },
+    }];
+  }
+
+  if (record.type === 'auto_retry_start') {
+    const attempt = typeof record.attempt === 'number' ? record.attempt : null;
+    const maxAttempts = typeof record.maxAttempts === 'number' ? record.maxAttempts : null;
+    const count = attempt !== null && maxAttempts !== null ? ` (${attempt}/${maxAttempts})` : '';
+    const reason = typeof record.errorMessage === 'string' ? shortDetail(record.errorMessage) : '';
+    return [{
+      type: 'activity',
+      message: `Retrying${count}${reason ? ` after: ${reason}` : ''}`,
+      data: { attempt, maxAttempts },
+    }];
+  }
+
+  return [];
+}
+
+type PiEventListener = NonNullable<BackendRunOptions['onEvent']>;
+
+function reportPiEvents(record: Record<string, unknown>, onEvent: PiEventListener): void {
+  for (const event of piEventsFromRecord(record)) {
+    try {
+      onEvent(event);
+    } catch {
+      // Observers must never break a run.
+    }
+  }
+}
+
+/**
+ * Progress for the batch path: fed raw stdout chunks by `spawnCli`. Only
+ * lines that can carry an event are parsed; every `message_update` repeats
+ * the whole message so far, and parsing those twice would cost for nothing.
+ */
+function createPiProgressTap(onEvent: PiEventListener): (chunk: string) => void {
+  const splitter = createLineSplitter((line) => {
+    if (!line.includes('"tool_execution_start"') && !line.includes('"auto_retry_start"')) return;
+    const record = parsePiRecord(line);
+    if (record) reportPiEvents(record, onEvent);
+  });
+  return (chunk) => splitter.push(chunk);
+}
+
+/**
+ * Turns the records of a live run into the text to show. Every assistant
+ * message is streamed, since a delta cannot wait for pi to say which message
+ * is the last: whitespace at the start and end of each message is dropped
+ * (trailing whitespace is held until more text follows), text blocks are
+ * joined with a newline as in the batch answer, and a blank line separates
+ * two messages that both produced text. Thinking and tool-call deltas are
+ * never shown.
+ */
+function createPiTextAssembler(): { push(record: Record<string, unknown>): string } {
+  let shownEarlier = false;
+  let started = false;
+  let held = '';
+  let sawDelta = false;
+  let lastIndex: unknown;
+
+  const reset = (): void => {
+    shownEarlier = shownEarlier || started;
+    started = false;
+    held = '';
+    sawDelta = false;
+    lastIndex = undefined;
+  };
+
+  const feed = (piece: string): string => {
+    let body = held + piece;
+    held = '';
+    let lead = '';
+    if (!started) {
+      body = body.trimStart();
+      if (!body) return '';
+      started = true;
+      if (shownEarlier) lead = '\n\n';
+    }
+    const visible = body.trimEnd();
+    held = body.slice(visible.length);
+    return lead + visible;
+  };
+
+  return {
+    push(record) {
+      if (record.type === 'message_update') {
+        const event = asRecord(record.assistantMessageEvent);
+        if (event?.type !== 'text_delta' || typeof event.delta !== 'string') return '';
+        const nextBlock = sawDelta && event.contentIndex !== lastIndex;
+        sawDelta = true;
+        lastIndex = event.contentIndex;
+        return feed(nextBlock ? `\n${event.delta}` : event.delta);
+      }
+
+      const message = asRecord(record.message);
+      if (message?.role !== 'assistant') return '';
+      if (record.type === 'message_start') {
+        reset();
+        return '';
+      }
+      if (record.type === 'message_end') {
+        // Some providers send no deltas: the finished message is the text.
+        const text = sawDelta ? '' : feed(piMessageText(message));
+        reset();
+        return text;
+      }
+      return '';
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -709,20 +929,37 @@ function timeoutMessage(timeoutSeconds: number): string {
   );
 }
 
-/** Translate a failed spawn into a PiBackendError, preferring what pi itself reported. */
+/**
+ * A nonzero exit. An invocation error sometimes follows a stream that already
+ * carried a failed response; that message is the more useful one.
+ */
+function piExitError(
+  exitCode: number | null,
+  finalAssistant: Record<string, unknown> | null,
+  stderr: string,
+): PiBackendError {
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  const tail = stderrTail(stderr);
+  return new PiBackendError(`pi exited with code ${exitCode ?? 'unknown'}${tail ? `: ${tail}` : '.'}`);
+}
+
+/** Translate a failed run into a PiBackendError, preferring what pi itself reported. */
 function toPiError(err: unknown, timeoutSeconds: number): PiBackendError {
   if (err instanceof PiBackendError) return err;
   if (err instanceof SpawnCliTimeoutError) return new PiBackendError(timeoutMessage(timeoutSeconds));
   if (err instanceof SpawnCliError) {
-    // An invocation error exits nonzero, sometimes after the stream already
-    // carried a failed response; that message is the more useful one.
-    const failure = piFailureDetail(readPiJsonl(err.stdout).finalAssistant);
-    if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
-    const tail = stderrTail(err.stderr);
-    return new PiBackendError(`pi exited with code ${err.exitCode ?? 'unknown'}${tail ? `: ${tail}` : '.'}`);
+    return piExitError(err.exitCode, readPiJsonl(err.stdout).finalAssistant, err.stderr);
   }
   if (err instanceof BackendError) return new PiBackendError(err.message);
   return new PiBackendError(err instanceof Error ? err.message : String(err));
+}
+
+interface PiPreparedRun {
+  args: string[];
+  /** Canonical repo path: the spawn cwd and the session cwd pi records. */
+  repoCwd: string;
+  session: PiSessionPlan | null;
 }
 
 export class PiBackend implements Backend {
@@ -739,7 +976,11 @@ export class PiBackend implements Backend {
     requiresClientSessionId: true,
   };
 
-  async run(opts: BackendRunOptions): Promise<string> {
+  /**
+   * Everything that happens before a spawn, shared by `run()` and
+   * `runStream()` so neither can skip a check.
+   */
+  private async prepare(opts: BackendRunOptions): Promise<PiPreparedRun> {
     assertNotPiHost(opts.env);
     const repoCwd = canonicalRepoPath(opts.repoPath);
     const provider = readPiProvider(opts.repoPath);
@@ -758,6 +999,11 @@ export class PiBackend implements Backend {
       fast: Boolean(opts.fast),
       session: session ? { dir: session.dir, id: session.id } : null,
     });
+    return { args, repoCwd, session };
+  }
+
+  async run(opts: BackendRunOptions): Promise<string> {
+    const { args, repoCwd, session } = await this.prepare(opts);
 
     try {
       const result = await spawnCli('pi', args, {
@@ -765,6 +1011,9 @@ export class PiBackend implements Backend {
         env: opts.env,
         cwd: repoCwd,
         label: 'pi',
+        // Review, --schema and session calls all take this path, and those
+        // are the long tool-using runs where progress matters.
+        onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : undefined,
       });
       const parsed = parsePiJsonl(result.stdout, { stderr: result.stderr });
       if (session) {
@@ -774,6 +1023,93 @@ export class PiBackend implements Backend {
       return parsed.text;
     } catch (err: unknown) {
       throw toPiError(err, opts.timeoutSeconds);
+    }
+  }
+
+  async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
+    const { args, repoCwd, session } = await this.prepare(opts);
+
+    const child = spawn('pi', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: repoCwd,
+      env: opts.env,
+    });
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, opts.timeoutSeconds * 1000);
+
+    const onSigint = () => { child.kill('SIGTERM'); };
+    process.on('SIGINT', onSigint);
+
+    const stderrChunks: Buffer[] = [];
+    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    // The verdict is derived after stdout is fully read, so the exit status
+    // is only recorded here. A failed spawn reports `error` and may never
+    // report `close`.
+    let ended = false;
+    let spawnFailure: Error | null = null;
+    const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+      child.once('error', (err) => {
+        ended = true;
+        spawnFailure = err;
+        resolve({ code: null, signal: null });
+      });
+      child.once('close', (code, signal) => {
+        ended = true;
+        resolve({ code, signal: signal as string | null });
+      });
+    });
+
+    const transcript: PiTranscript = { header: null, finalAssistant: null };
+    const assembler = createPiTextAssembler();
+
+    try {
+      let readFailure: unknown = null;
+      try {
+        for await (const record of piRecords(child.stdout as Readable)) {
+          notePiRecord(transcript, record);
+          if (opts.onEvent) reportPiEvents(record, opts.onEvent);
+          const text = assembler.push(record);
+          if (text) yield text;
+        }
+      } catch (err: unknown) {
+        readFailure = err;
+        if (!ended) child.kill('SIGTERM');
+      }
+
+      const { code, signal } = await exit;
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+
+      if (spawnFailure) {
+        throw new PiBackendError(`pi failed to start: ${(spawnFailure as Error).message}`);
+      }
+      if (timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+      // Before the signal check: a read failure is why the child was killed.
+      if (readFailure) {
+        throw new PiBackendError(
+          `pi stream error: ${readFailure instanceof Error ? readFailure.message : String(readFailure)}`,
+        );
+      }
+      if (signal) throw new PiBackendError(`pi killed by signal ${signal}`);
+      if (code !== 0 && code !== null) throw piExitError(code, transcript.finalAssistant, stderr);
+
+      // Same end-state rules as the batch path; the text itself was streamed.
+      piAnswer(transcript, { stderr });
+      if (session) {
+        confirmPiSession(session, transcript.header, stderr, repoCwd);
+        opts.onSessionCreated?.(session.id);
+      }
+    } catch (err: unknown) {
+      throw toPiError(err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+      process.removeListener('SIGINT', onSigint);
+      // Reached early when the consumer stops reading: do not leave pi running.
+      if (!ended) child.kill('SIGTERM');
     }
   }
 }
