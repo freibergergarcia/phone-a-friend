@@ -504,7 +504,8 @@ pi notes:
 - Sessions live in `~/.config/phone-a-friend/pi-sessions`, not in pi's own store.
   PaF refuses to resume a session whose file is missing instead of letting pi
   start a new one. `--backend-session` cannot attach a session created directly
-  in pi.
+  in pi. `session delete` and `session prune` remove the PaF label, not the pi
+  session file.
 - `--schema` is best-effort: the schema goes into the prompt and the answer is
   not validated. `--verdict-json` is validated by PaF and fails closed; a small
   model can fail it where `--fast` or a larger model passes.
