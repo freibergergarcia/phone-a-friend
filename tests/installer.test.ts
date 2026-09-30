@@ -1451,23 +1451,59 @@ describe('pi host integration', () => {
     }
   });
 
-  it('uninstall removes a symlink left by another PaF install location, even a dangling one', () => {
-    const oldInstall = makeTempDir('paf-old-install-');
-    const oldSkill = path.join(oldInstall, 'node_modules', '@freibergergarcia', 'phone-a-friend', 'skills', 'phone-a-friend');
-    const target = piSkillTarget('phone-a-friend', piHome);
-    try {
-      fs.mkdirSync(oldSkill, { recursive: true });
+  describe('uninstall of a symlink into another install location', () => {
+    let other: string;
+    let otherSkill: string;
+    let target: string;
+
+    beforeEach(() => {
+      // Deliberately the conventional shape: <dir>/phone-a-friend/skills/phone-a-friend.
+      other = path.join(makeTempDir('paf-other-install-'), 'phone-a-friend');
+      otherSkill = path.join(other, 'skills', 'phone-a-friend');
+      fs.mkdirSync(otherSkill, { recursive: true });
+      target = piSkillTarget('phone-a-friend', piHome);
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.symlinkSync(oldSkill, target);
-      fs.rmSync(oldInstall, { recursive: true, force: true });
+      fs.symlinkSync(otherSkill, target);
+    });
+
+    afterEach(() => {
+      fs.rmSync(path.dirname(other), { recursive: true, force: true });
+    });
+
+    it('removes it when that location is a PaF package', () => {
+      fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ name: '@freibergergarcia/phone-a-friend' }));
 
       const lines = uninstallHosts({ target: 'pi', piHome });
 
       expect(lines).toContain('- pi_skill:phone-a-friend: removed');
       expect(fs.existsSync(target)).toBe(false);
-    } finally {
-      fs.rmSync(oldInstall, { recursive: true, force: true });
-    }
+      expect(fs.existsSync(otherSkill)).toBe(true);
+    });
+
+    it.each([
+      ['has no package.json', null],
+      ['is another package', { name: 'my-own-skills' }],
+      ['has a malformed package.json', '{ nope'],
+    ])('keeps it when that location %s, whatever the path looks like', (_label, manifest) => {
+      if (manifest !== null) {
+        fs.writeFileSync(path.join(other, 'package.json'), typeof manifest === 'string' ? manifest : JSON.stringify(manifest));
+      }
+
+      const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+      expect(lines).toContain('- pi_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
+      expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    });
+
+    it('keeps a dangling symlink: nothing is left to verify it against', () => {
+      fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ name: '@freibergergarcia/phone-a-friend' }));
+      fs.rmSync(other, { recursive: true, force: true });
+
+      const lines = uninstallHosts({ target: 'pi', piHome });
+
+      expect(lines).toContain('- pi_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
+      expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    });
   });
 
   it('uninstall of a symlinked skill leaves the source in the repository alone', () => {
@@ -1545,6 +1581,7 @@ describe('pi host integration', () => {
       ['a git source over ssh', ['git:git@github.com:freibergergarcia/phone-a-friend.git']],
       ['a repository URL', ['https://github.com/freibergergarcia/phone-a-friend']],
       ['the object form', [{ source: 'npm:@freibergergarcia/phone-a-friend', extensions: [] }]],
+      ['an npm spec with padding after the prefix, which pi trims', ['npm:  @freibergergarcia/phone-a-friend ']],
     ])('is true for a PaF pi package declared as %s', (_label, packages) => {
       writeSettings({ packages });
 
@@ -1560,6 +1597,10 @@ describe('pi host integration', () => {
       ['a look-alike repository', { packages: ['https://github.com/someone/freibergergarcia/phone-a-friend'] }],
       ['a fork under another owner', { packages: ['git:github.com/other/phone-a-friend'] }],
       ['a local path that does not exist', { packages: ['../nowhere/phone-a-friend'] }],
+      // pi dispatches on the untrimmed, case-sensitive prefix: these are local paths to pi.
+      ['a padded npm prefix', { packages: [' npm:@freibergergarcia/phone-a-friend'] }],
+      ['an upper-case protocol', { packages: ['HTTPS://github.com/freibergergarcia/phone-a-friend'] }],
+      ['an npm spec with a dangling @', { packages: ['npm:@freibergergarcia/phone-a-friend@'] }],
       ['no packages', { quietStartup: true }],
       ['packages of the wrong type', { packages: 'npm:@freibergergarcia/phone-a-friend' }],
       ['malformed JSON', '{ not json'],

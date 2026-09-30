@@ -546,25 +546,40 @@ export function isCodexInstalled(codexHome?: string): boolean {
   }
 }
 
+/** True when the directory's package.json names PaF's npm package. */
+function isPafPackageDir(dir: string): boolean {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8'));
+    return (manifest as { name?: unknown } | null)?.name === PAF_NPM_NAME;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * True when `source` names PaF, classified the way pi's `parseSource` does:
- * `npm:` spec, git URL (with a `git:` prefix or a protocol), otherwise a
- * local path resolved from the directory of the settings file.
+ * True when `source` names PaF, dispatched exactly as pi's `parseSource`
+ * does, because a source pi reads differently loads something else:
+ * an untrimmed `npm:` prefix first (name split by pi's spec pattern); then
+ * pi's `isLocalPath`, whose prefix list is case-sensitive; then a git URL
+ * (`git:` prefix or a protocol); otherwise a local path. Local paths are
+ * trimmed and resolved from the directory of the settings file.
  */
 function isPafPiPackageSource(source: string, agentDir: string): boolean {
-  const trimmed = source.trim();
-  if (trimmed.startsWith('npm:')) {
-    const spec = trimmed.slice('npm:'.length).trim();
-    const versionAt = spec.lastIndexOf('@');
-    return (versionAt > 0 ? spec.slice(0, versionAt) : spec) === PAF_NPM_NAME;
+  if (source.startsWith('npm:')) {
+    const spec = source.slice('npm:'.length).trim();
+    const match = /^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/.exec(spec);
+    return (match?.[1] ?? spec) === PAF_NPM_NAME;
   }
-  if (trimmed.startsWith('git:')) return PI_GIT_SOURCE.test(trimmed.slice('git:'.length).trim());
-  if (/^(?:https?|ssh|git):\/\//i.test(trimmed)) return PI_GIT_SOURCE.test(trimmed);
-  if (/^(?:github|builtin|https?|ssh):/.test(trimmed)) return false;
+  const trimmed = source.trim();
+  const isLocalPath = !['npm:', 'git:', 'github:', 'http:', 'https:', 'ssh:', 'builtin:']
+    .some((prefix) => trimmed.startsWith(prefix));
+  if (!isLocalPath) {
+    const hasGitPrefix = trimmed.startsWith('git:');
+    const url = hasGitPrefix ? trimmed.slice('git:'.length).trim() : trimmed;
+    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return PI_GIT_SOURCE.test(url);
+  }
   try {
-    const packageDir = resolvePiStoredPath(trimmed, agentDir);
-    const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf-8'));
-    return (manifest as { name?: unknown } | null)?.name === PAF_NPM_NAME;
+    return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
   } catch {
     return false;
   }
@@ -880,9 +895,10 @@ function installPi(
 
 /**
  * True when the pi skill at `target` was put there by PaF: a copy carrying
- * the install marker, a symlink into this install, or a symlink whose
- * target is `phone-a-friend/skills/<name>` in another install location (an
- * older global npm directory, another checkout), dangling or not.
+ * the install marker, a symlink into this install, or a symlink to
+ * `<dir>/skills/<name>` where `<dir>` is a PaF package (its package.json
+ * says so). The path's shape alone proves nothing, and a dangling symlink
+ * has nothing left to check, so both are left alone.
  */
 function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boolean {
   if (!isSymlink(target)) return existsSync(join(target, PI_INSTALL_MARKER));
@@ -890,7 +906,9 @@ function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boo
   try {
     const link = readlinkSync(target);
     const absolute = isAbsolute(link) ? link : resolve(dirname(target), link);
-    return absolute.split(sep).slice(-3).join('/') === `${PLUGIN_NAME}/skills/${name}`;
+    const skillsDir = dirname(absolute);
+    if (absolute !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
+    return isPafPackageDir(dirname(skillsDir));
   } catch {
     return false;
   }

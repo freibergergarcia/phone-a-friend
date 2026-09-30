@@ -4729,20 +4729,29 @@ function isCodexInstalled(codexHome) {
     return false;
   }
 }
-function isPafPiPackageSource(source, agentDir) {
-  const trimmed = source.trim();
-  if (trimmed.startsWith("npm:")) {
-    const spec = trimmed.slice("npm:".length).trim();
-    const versionAt = spec.lastIndexOf("@");
-    return (versionAt > 0 ? spec.slice(0, versionAt) : spec) === PAF_NPM_NAME;
-  }
-  if (trimmed.startsWith("git:")) return PI_GIT_SOURCE.test(trimmed.slice("git:".length).trim());
-  if (/^(?:https?|ssh|git):\/\//i.test(trimmed)) return PI_GIT_SOURCE.test(trimmed);
-  if (/^(?:github|builtin|https?|ssh):/.test(trimmed)) return false;
+function isPafPackageDir(dir) {
   try {
-    const packageDir = resolvePiStoredPath(trimmed, agentDir);
-    const manifest = JSON.parse(readFileSync9(join9(packageDir, "package.json"), "utf-8"));
+    const manifest = JSON.parse(readFileSync9(join9(dir, "package.json"), "utf-8"));
     return manifest?.name === PAF_NPM_NAME;
+  } catch {
+    return false;
+  }
+}
+function isPafPiPackageSource(source, agentDir) {
+  if (source.startsWith("npm:")) {
+    const spec = source.slice("npm:".length).trim();
+    const match = /^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/.exec(spec);
+    return (match?.[1] ?? spec) === PAF_NPM_NAME;
+  }
+  const trimmed = source.trim();
+  const isLocalPath = !["npm:", "git:", "github:", "http:", "https:", "ssh:", "builtin:"].some((prefix) => trimmed.startsWith(prefix));
+  if (!isLocalPath) {
+    const hasGitPrefix = trimmed.startsWith("git:");
+    const url = hasGitPrefix ? trimmed.slice("git:".length).trim() : trimmed;
+    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return PI_GIT_SOURCE.test(url);
+  }
+  try {
+    return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
   } catch {
     return false;
   }
@@ -4948,7 +4957,9 @@ function isPafOwnedPiSkill(target, name, repoRoot) {
   try {
     const link2 = readlinkSync(target);
     const absolute = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
-    return absolute.split(sep).slice(-3).join("/") === `${PLUGIN_NAME}/skills/${name}`;
+    const skillsDir = dirname8(absolute);
+    if (absolute !== join9(skillsDir, name) || skillsDir !== join9(dirname8(skillsDir), "skills")) return false;
+    return isPafPackageDir(dirname8(skillsDir));
   } catch {
     return false;
   }
