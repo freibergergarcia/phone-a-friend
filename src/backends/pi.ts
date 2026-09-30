@@ -440,7 +440,11 @@ function reportPiEvents(record: Record<string, unknown>, onEvent: PiEventListene
  */
 function createPiProgressTap(onEvent: PiEventListener): (chunk: string) => void {
   const splitter = createLineSplitter((line) => {
-    if (!line.includes('"tool_execution_start"') && !line.includes('"auto_retry_start"')) return;
+    if (
+      !line.includes('"tool_execution_start"')
+      && !line.includes('"auto_retry_start"')
+      && !line.includes('"compaction_start"')
+    ) return;
     const record = parsePiRecord(line);
     if (record) reportPiEvents(record, onEvent);
   });

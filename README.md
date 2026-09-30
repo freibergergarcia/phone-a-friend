@@ -535,6 +535,8 @@ pi notes:
   model can fail it where `--fast` or a larger model passes.
 - PaF never starts a model server. If the server is down, pi retries for about
   15 seconds and the relay fails with `Connection error.`
+- Both batch and streaming runs report tool activity, retries, and context
+  compaction as progress. Compaction summaries are never included in progress.
 - pi is not an agentic backend. As a host it gets two skills, see [pi skills](#quick-start) above; `/phone-a-team` is not available in pi.
 
 ## Streaming

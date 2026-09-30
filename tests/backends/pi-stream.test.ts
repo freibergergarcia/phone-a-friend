@@ -526,6 +526,28 @@ describe('pi backend streaming', () => {
       ]);
     });
 
+    it.each(['batch', 'stream'])('reports compaction activity in %s mode without exposing the summary', async (mode) => {
+      const events: BackendEvent[] = [];
+      const output = [
+        JSON.stringify({ type: 'compaction_start', reason: 'threshold' }),
+        JSON.stringify({ type: 'compaction_end', result: { summary: 'PRIVATE-SUMMARY' } }),
+        fixture('session-start.jsonl'),
+      ].join('\n');
+      mockSpawn.mockReturnValue(chunkedChild(sliceBytes(output, 17)));
+      const opts = { onEvent: (event: BackendEvent) => events.push(event) };
+
+      const answer = mode === 'batch'
+        ? await PI_BACKEND.run(makeOpts(opts))
+        : (await collect(opts)).join('');
+
+      expect(answer).toBe('OK');
+      expect(events).toEqual([{
+        type: 'activity',
+        message: 'Compacting context (threshold)',
+        data: { reason: 'threshold' },
+      }]);
+    });
+
     it('reports retries from run() before the run fails', async () => {
       const events: BackendEvent[] = [];
       mockSpawn.mockReturnValue(chunkedChild([fixture('retry-connection-error.jsonl')]));
