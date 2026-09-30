@@ -98,17 +98,25 @@ function cloneDefaultConfig(): PafConfig {
 // Paths
 // ---------------------------------------------------------------------------
 
+/**
+ * PaF's own config directory: `$XDG_CONFIG_HOME/phone-a-friend`, else
+ * `~/.config/phone-a-friend`. Injected arguments win over the environment so
+ * tests and deterministic callers can pin the location.
+ */
+export function pafConfigDir(xdgConfigHome?: string, homeDir?: string): string {
+  const configBase = xdgConfigHome
+    ?? process.env.XDG_CONFIG_HOME
+    ?? join(homeDir ?? homedir(), '.config');
+  return join(configBase, 'phone-a-friend');
+}
+
 export function configPaths(
   repoRoot?: string,
   xdgConfigHome?: string,
   homeDir?: string,
 ): { user: string; repo: string | null } {
-  const configBase = xdgConfigHome
-    ?? process.env.XDG_CONFIG_HOME
-    ?? join(homeDir ?? homedir(), '.config');
-
   return {
-    user: join(configBase, 'phone-a-friend', 'config.toml'),
+    user: join(pafConfigDir(xdgConfigHome, homeDir), 'config.toml'),
     repo: repoRoot ? join(repoRoot, '.phone-a-friend.toml') : null,
   };
 }
