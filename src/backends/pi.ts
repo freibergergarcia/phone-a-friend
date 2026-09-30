@@ -937,7 +937,7 @@ function confirmPiSession(
 // Backend
 // ---------------------------------------------------------------------------
 
-/** How long a streamed pi gets to exit after SIGTERM before it is killed. */
+/** How long pi gets to exit after SIGTERM before it is killed, on the batch and the stream path. */
 export const PI_KILL_GRACE_MS = 2000;
 
 function timeoutMessage(timeoutSeconds: number): string {
@@ -1029,6 +1029,8 @@ export class PiBackend implements Backend {
         env: opts.env,
         cwd: repoCwd,
         label: 'pi',
+        // Same bound as the stream path: a pi that ignores SIGTERM is killed.
+        killGraceMs: PI_KILL_GRACE_MS,
         // Review, --schema and session calls all take this path, and those
         // are the long tool-using runs where progress matters.
         onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : undefined,

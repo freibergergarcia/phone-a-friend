@@ -351,6 +351,19 @@ describe('pi backend streaming', () => {
         expect(await settled).toMatch(/pi timed out after 5s/);
       });
 
+      it('is killed on the batch path too, which review, --schema and session calls use', async () => {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        const settled = PI_BACKEND.run(makeOpts({ timeoutSeconds: 5 })).then(() => 'resolved', (err: Error) => err.message);
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
+        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS);
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+        expect(await settled).toMatch(/pi timed out after 5s/);
+      });
+
       it('is killed when the consumer stops reading, and return() waits for it to exit', async () => {
         const child = stubbornChild();
         mockSpawn.mockReturnValue(child);

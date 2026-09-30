@@ -97,6 +97,74 @@ describe('spawnCli()', () => {
     expect(err.timeoutMs).toBe(10);
   });
 
+  describe('a child that ignores SIGTERM', () => {
+    function stubbornChild() {
+      const child = new EventEmitter() as ChildProcess;
+      (child as any).stdout = new PassThrough();
+      (child as any).stderr = new PassThrough();
+      (child as any).kill = vi.fn((signal?: string) => {
+        if (signal === 'SIGKILL') process.nextTick(() => child.emit('close', null, 'SIGKILL'));
+        return true;
+      });
+      return child;
+    }
+
+    it('is killed after killGraceMs when the caller opts in, and the timeout error is kept', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        const settled = spawnCli('stuck', [], { timeoutMs: 1000, killGraceMs: 500, label: 'stuck-cmd' }).catch((e) => e);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect((child as any).kill).toHaveBeenCalledWith('SIGTERM');
+        expect((child as any).kill).not.toHaveBeenCalledWith('SIGKILL');
+        await vi.advanceTimersByTimeAsync(500);
+        expect((child as any).kill).toHaveBeenCalledWith('SIGKILL');
+
+        const err = await settled;
+        expect(err).toBeInstanceOf(SpawnCliTimeoutError);
+        expect(err.message).toMatch(/stuck-cmd timed out/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('is never sent SIGKILL without killGraceMs (unchanged default)', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        let settled = false;
+        void spawnCli('stuck', [], { timeoutMs: 1000 }).catch(() => undefined).then(() => { settled = true; });
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((child as any).kill).toHaveBeenCalledWith('SIGTERM');
+        expect((child as any).kill).not.toHaveBeenCalledWith('SIGKILL');
+        expect(settled).toBe(false);
+        child.emit('close', null, 'SIGTERM');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not send SIGKILL to a child that exits within the grace period', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        const settled = spawnCli('slow', [], { timeoutMs: 1000, killGraceMs: 500 }).catch((e) => e);
+        await vi.advanceTimersByTimeAsync(1000);
+        child.emit('close', 143, null);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect((child as any).kill).not.toHaveBeenCalledWith('SIGKILL');
+        expect(await settled).toBeInstanceOf(SpawnCliTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('rejects on signal kill', async () => {
     const child = new EventEmitter() as ChildProcess;
     (child as any).stdout = new PassThrough();

@@ -80,13 +80,22 @@ function spawnCli(command, args, opts) {
       env: opts.env ?? process.env,
       cwd: opts.cwd
     });
+    let killTimer = null;
+    const terminate = () => {
+      child.kill("SIGTERM");
+      if (opts.killGraceMs !== void 0 && !killTimer) {
+        killTimer = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, opts.killGraceMs);
+      }
+    };
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate();
     }, opts.timeoutMs);
     const onSigint = () => {
-      child.kill("SIGTERM");
+      terminate();
     };
     process.on("SIGINT", onSigint);
     const stdoutChunks = [];
@@ -103,11 +112,13 @@ function spawnCli(command, args, opts) {
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     child.on("error", (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener("SIGINT", onSigint);
       reject(new BackendError(`${label} failed to start: ${err.message}`));
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener("SIGINT", onSigint);
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
       const stderr = Buffer.concat(stderrChunks).toString().trim();
@@ -78279,6 +78290,8 @@ var PiBackend = class {
         env: opts.env,
         cwd: repoCwd,
         label: "pi",
+        // Same bound as the stream path: a pi that ignores SIGTERM is killed.
+        killGraceMs: PI_KILL_GRACE_MS,
         // Review, --schema and session calls all take this path, and those
         // are the long tool-using runs where progress matters.
         onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : void 0
