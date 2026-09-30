@@ -30,6 +30,7 @@ jobs:
             echo "::error::Version mismatch: package.json=$pkg_ver plugin.json=$plugin_ver"
             exit 1
           fi
+      - run: npm run plugins:check
       - run: npm run build
       - name: Check dist is up to date
         run: |

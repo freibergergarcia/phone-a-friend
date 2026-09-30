@@ -130,7 +130,7 @@ describe('Claude /phone-a-friend rich command (commands/phone-a-friend.md)', () 
 
   it('declares phone-a-friend in frontmatter with argument-hint', () => {
     expect(file).toMatch(/^---\nname: phone-a-friend\n/);
-    expect(file).toMatch(/argument-hint:\s*\[optional review focus\]/);
+    expect(parseFrontmatter(file)).toMatchObject({ 'argument-hint': '[optional review focus]' });
     expect(file).toMatch(/description:[^\n]*OpenCode/);
   });
 
@@ -898,7 +898,8 @@ describe('pi is binary-mode only in every skill and command', () => {
 
       it('documents --fast, sessions and the provider setting for pi', () => {
         expect(file).toMatch(/`-nc -ns` for pi/);
-        expect(file).toMatch(/\*\*pi\*\*: native session resume via `--session`/);
+        const sessions = rel.startsWith('skills/') ? readFile('skills/phone-a-friend/references/sessions.md') : file;
+        expect(sessions).toMatch(/\*\*pi\*\*: native session resume via `--session`/);
         expect(file).toContain('[backends.pi]');
       });
     });

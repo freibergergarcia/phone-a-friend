@@ -26,6 +26,13 @@ jobs:
             echo "::error::Version mismatch: package.json=$pkg_ver plugin.json=$plugin_ver"
             exit 1
           fi
+      - run: npm run plugins:check
+      - name: Validate Claude manifests
+        run: |
+          npx --yes --package @anthropic-ai/claude-code@2.1.286 claude plugin validate .claude-plugin/plugin.json --strict
+          npx --yes --package @anthropic-ai/claude-code@2.1.286 claude plugin validate .claude-plugin/marketplace.json --strict
+          npx --yes --package @anthropic-ai/claude-code@2.1.286 claude plugin validate plugins/claude/.claude-plugin/plugin.json --strict
+      - run: npm run plugins:pack
       - name: Check dist is up to date
         run: |
           npm run build

@@ -47,6 +47,7 @@ const pkgPath = resolve(root, "package.json");
 // it here will pass the bump step but break CI on the next minor/patch.
 const VERSIONED_MANIFESTS = [
   ".claude-plugin/plugin.json",
+  "plugins/claude/.claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
   "plugins/phone-a-friend/.codex-plugin/plugin.json",
 ];

@@ -24,21 +24,26 @@
     "llm",
     "openai",
     "ollama",
-    "typescript"
+    "typescript",
+    "opencode",
+    "pi",
+    "pi-package"
   ],
   "type": "module",
   "bin": {
     "phone-a-friend": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup && node scripts/sync-codex-plugin.mjs",
+    "build": "tsup && npm run plugins:sync",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "tsup src/index.ts --format esm --watch",
     "bump:patch": "node scripts/bump-version.mjs patch",
     "bump:minor": "node scripts/bump-version.mjs minor",
     "bump:major": "node scripts/bump-version.mjs major",
-    "preuninstall": "node dist/index.js plugin uninstall --all 2>/dev/null || true; rm -rf \"${XDG_CONFIG_HOME:-$HOME/.config}/phone-a-friend\" 2>/dev/null || true"
+    "plugins:sync": "node scripts/sync-codex-plugin.mjs && node scripts/sync-claude-plugin.mjs",
+    "plugins:check": "node scripts/sync-codex-plugin.mjs --check && node scripts/sync-claude-plugin.mjs --check && node scripts/check-plugin-packages.mjs",
+    "plugins:pack": "npm run plugins:check && node scripts/pack-plugins.mjs"
   },
   "files": [
     "dist/",
@@ -50,7 +55,11 @@
     "commands/",
     "agents/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/plugin-icon.svg",
+    "PRIVACY.md",
+    "SUPPORT.md",
+    "NOTICE"
   ],
   "pi": {
     "skills": [
