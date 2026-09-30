@@ -347,7 +347,12 @@ function shortDetail(text: string): string {
   return flat.length > PI_PROGRESS_DETAIL_LIMIT ? `${flat.slice(0, PI_PROGRESS_DETAIL_LIMIT - 1)}…` : flat;
 }
 
-/** The one or two arguments that say what a tool call is doing; never file contents. */
+/**
+ * The one or two arguments that say what a tool call is doing. Fail closed:
+ * only named fields of pi's built-in tools are shown, never file contents
+ * (`write.content`, `edit.oldText`/`newText`), and a tool PaF does not know
+ * gets no detail at all.
+ */
 function summarizePiToolArgs(toolName: string, args: unknown): string {
   const record = asRecord(args);
   if (!record) return '';
@@ -364,7 +369,7 @@ function summarizePiToolArgs(toolName: string, args: unknown): string {
     case 'find':
       return shortDetail([text('pattern'), text('path')].filter(Boolean).join(' '));
     default:
-      return Object.keys(record).length > 0 ? shortDetail(JSON.stringify(record)) : '';
+      return '';
   }
 }
 
@@ -932,6 +937,9 @@ function confirmPiSession(
 // Backend
 // ---------------------------------------------------------------------------
 
+/** How long a streamed pi gets to exit after SIGTERM before it is killed. */
+export const PI_KILL_GRACE_MS = 2000;
+
 function timeoutMessage(timeoutSeconds: number): string {
   return (
     `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up ` +
@@ -1045,34 +1053,46 @@ export class PiBackend implements Backend {
       env: opts.env,
     });
 
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, opts.timeoutSeconds * 1000);
-
-    const onSigint = () => { child.kill('SIGTERM'); };
-    process.on('SIGINT', onSigint);
-
-    const stderrChunks: Buffer[] = [];
-    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-
     // The verdict is derived after stdout is fully read, so the exit status
     // is only recorded here. A failed spawn reports `error` and may never
     // report `close`.
     let ended = false;
     let spawnFailure: Error | null = null;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
     const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+      const finish = (code: number | null, signal: string | null): void => {
+        ended = true;
+        if (killTimer) clearTimeout(killTimer);
+        resolve({ code, signal });
+      };
       child.once('error', (err) => {
-        ended = true;
         spawnFailure = err;
-        resolve({ code: null, signal: null });
+        finish(null, null);
       });
-      child.once('close', (code, signal) => {
-        ended = true;
-        resolve({ code, signal: signal as string | null });
-      });
+      child.once('close', (code, signal) => finish(code, signal as string | null));
     });
+
+    // Every wait on `exit` below is bounded by this: a child that ignores
+    // SIGTERM is killed after the grace period.
+    const terminate = (): void => {
+      if (ended) return;
+      child.kill('SIGTERM');
+      killTimer ??= setTimeout(() => {
+        if (!ended) child.kill('SIGKILL');
+      }, PI_KILL_GRACE_MS);
+    };
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, opts.timeoutSeconds * 1000);
+
+    const onSigint = () => { terminate(); };
+    process.on('SIGINT', onSigint);
+
+    const stderrChunks: Buffer[] = [];
+    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
     const transcript: PiTranscript = { header: null, finalAssistant: null };
     const assembler = createPiTextAssembler();
@@ -1088,7 +1108,7 @@ export class PiBackend implements Backend {
         }
       } catch (err: unknown) {
         readFailure = err;
-        if (!ended) child.kill('SIGTERM');
+        terminate();
       }
 
       const { code, signal } = await exit;
@@ -1118,8 +1138,12 @@ export class PiBackend implements Backend {
     } finally {
       clearTimeout(timer);
       process.removeListener('SIGINT', onSigint);
-      // Reached early when the consumer stops reading: do not leave pi running.
-      if (!ended) child.kill('SIGTERM');
+      // Reached early when the consumer stops reading: do not leave pi
+      // running, and do not return before it is gone.
+      if (!ended) {
+        terminate();
+        await exit;
+      }
     }
   }
 }

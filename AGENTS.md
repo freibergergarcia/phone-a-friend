@@ -98,7 +98,8 @@ dist/                Built bundle (committed, self-contained)
   - **Prompt guard.** A prompt starting with `@` gets a leading newline: pi reads a positional argument that starts with `@` as a file include even after `--`.
   - **Version gate.** `pi --version` is read once per process (cached by resolved executable + PATH, like `detectOpenCodeMajor()`); below 0.79.0 (no `--no-approve`), unreadable, or missing fails before any spawn.
   - **Recursion guard.** `--to pi` is refused when `PI_CODING_AGENT=true` (pi sets it for its child processes) or `PHONE_A_FRIEND_HOST=pi`.
-  - **Progress.** Tool calls (`Running: read src/x.ts`) and pi's automatic retries are reported as `activity` events on both `run()` and `runStream()`.
+  - **Progress.** Tool calls (`Running: read src/x.ts`) and pi's automatic retries are reported as `activity` events on both `run()` and `runStream()`. The detail is an allowlist of named fields per built-in tool (path, pattern, command), never file contents; a tool PaF does not know is reported by name only.
+  - **Stream cleanup.** `runStream()` sends SIGTERM on timeout, SIGINT, a broken stdout or an early `return()`, then SIGKILL after 2 s (`PI_KILL_GRACE_MS`) if pi has not exited, and waits for the exit. The batch path uses `spawnCli()` unchanged (SIGTERM only).
   - Provider: `[backends.pi] provider` is read through `loadConfig(repoPath)`, so a repo `.phone-a-friend.toml` applies. Model IDs with a slash (`mlx-community/...`) are why provider and model are passed as separate flags.
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + Host) in `src/detection.ts`

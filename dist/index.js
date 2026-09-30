@@ -77870,7 +77870,7 @@ function summarizePiToolArgs(toolName, args) {
     case "find":
       return shortDetail([text("pattern"), text("path")].filter(Boolean).join(" "));
     default:
-      return Object.keys(record).length > 0 ? shortDetail(JSON.stringify(record)) : "";
+      return "";
   }
 }
 function piEventsFromRecord(record) {
@@ -78218,6 +78218,7 @@ function confirmPiSession(plan, header, stderr, repoCwd) {
     );
   }
 }
+var PI_KILL_GRACE_MS = 2e3;
 function timeoutMessage(timeoutSeconds) {
   return `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up (your provider's baseUrl) and try a smaller model.`;
 }
@@ -78299,30 +78300,39 @@ var PiBackend = class {
       cwd: repoCwd,
       env: opts.env
     });
+    let ended = false;
+    let spawnFailure = null;
+    let killTimer = null;
+    const exit = new Promise((resolve5) => {
+      const finish = (code, signal) => {
+        ended = true;
+        if (killTimer) clearTimeout(killTimer);
+        resolve5({ code, signal });
+      };
+      child.once("error", (err) => {
+        spawnFailure = err;
+        finish(null, null);
+      });
+      child.once("close", (code, signal) => finish(code, signal));
+    });
+    const terminate = () => {
+      if (ended) return;
+      child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => {
+        if (!ended) child.kill("SIGKILL");
+      }, PI_KILL_GRACE_MS);
+    };
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate();
     }, opts.timeoutSeconds * 1e3);
     const onSigint = () => {
-      child.kill("SIGTERM");
+      terminate();
     };
     process.on("SIGINT", onSigint);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    let ended = false;
-    let spawnFailure = null;
-    const exit = new Promise((resolve5) => {
-      child.once("error", (err) => {
-        ended = true;
-        spawnFailure = err;
-        resolve5({ code: null, signal: null });
-      });
-      child.once("close", (code, signal) => {
-        ended = true;
-        resolve5({ code, signal });
-      });
-    });
     const transcript = { header: null, finalAssistant: null };
     const assembler = createPiTextAssembler();
     try {
@@ -78336,7 +78346,7 @@ var PiBackend = class {
         }
       } catch (err) {
         readFailure = err;
-        if (!ended) child.kill("SIGTERM");
+        terminate();
       }
       const { code, signal } = await exit;
       const stderr = Buffer.concat(stderrChunks).toString().trim();
@@ -78361,7 +78371,10 @@ var PiBackend = class {
     } finally {
       clearTimeout(timer);
       process.removeListener("SIGINT", onSigint);
-      if (!ended) child.kill("SIGTERM");
+      if (!ended) {
+        terminate();
+        await exit;
+      }
     }
   }
 };

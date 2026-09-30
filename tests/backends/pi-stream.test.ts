@@ -19,6 +19,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 import {
   PI_BACKEND,
+  PI_KILL_GRACE_MS,
   PiBackendError,
   _resetPiVersionCache,
   buildPiArgs,
@@ -62,6 +63,23 @@ function hangingChild(): FakeChild {
     child.killed = true;
     stdout.push(null);
     process.nextTick(() => child.emit('close', null, 'SIGTERM'));
+  });
+  return child;
+}
+
+/** A child that ignores SIGTERM and only closes on SIGKILL. */
+function stubbornChild(): FakeChild {
+  const child = new EventEmitter() as FakeChild;
+  const stdout = new Readable({ read() {} });
+  child.stdout = stdout;
+  child.stderr = new Readable({ read() {} });
+  child.killed = false;
+  child.kill = vi.fn((signal?: string) => {
+    if (signal !== 'SIGKILL') return true;
+    child.killed = true;
+    stdout.push(null);
+    process.nextTick(() => child.emit('close', null, 'SIGKILL'));
+    return true;
   });
   return child;
 }
@@ -315,6 +333,45 @@ describe('pi backend streaming', () => {
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     });
 
+    describe('a child that ignores SIGTERM', () => {
+      beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); });
+      afterEach(() => { vi.useRealTimers(); });
+
+      it('is killed after the grace period, so the timeout still ends the run', async () => {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        const attempt = collect({ timeoutSeconds: 5 });
+        const settled = attempt.then(() => 'resolved', (err: Error) => err.message);
+
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
+        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS);
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+        expect(await settled).toMatch(/pi timed out after 5s/);
+      });
+
+      it('is killed when the consumer stops reading, and return() waits for it to exit', async () => {
+        const child = stubbornChild();
+        mockSpawn.mockReturnValue(child);
+        const stream = PI_BACKEND.runStream(makeOpts());
+        const first = stream.next();
+        await vi.advanceTimersByTimeAsync(0);
+        child.stdout.push(Buffer.from([HEADER, assistantStart(), textDelta('partial')].join('\n') + '\n'));
+        expect((await first).value).toBe('partial');
+
+        let returned = false;
+        const closing = stream.return(undefined).then(() => { returned = true; });
+        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS - 1);
+        expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(returned).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await closing;
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+        expect(returned).toBe(true);
+      });
+    });
+
     it('wraps a spawn failure', async () => {
       const child = new EventEmitter() as FakeChild;
       child.stdout = new Readable({ read() {} });
@@ -376,10 +433,25 @@ describe('pi backend streaming', () => {
       expect(message('grep', { pattern: 'TODO', path: 'src' })).toBe('Running: grep TODO src');
       expect(message('find', { pattern: '*.ts' })).toBe('Running: find *.ts');
       expect(message('ls', {})).toBe('Running: ls');
-      expect(message('custom_tool', { a: 1 })).toBe('Running: custom_tool {"a":1}');
+      expect(message('edit', { path: 'src/a.ts', oldText: 'OLD-SECRET', newText: 'NEW-SECRET' })).toBe('Running: edit src/a.ts');
+      expect(message('write', { path: 'notes.md', content: 'FILE-CONTENTS' })).toBe('Running: write notes.md');
       const long = message('bash', { command: 'x'.repeat(500) });
       expect(long.length).toBeLessThan(240);
       expect(long.endsWith('…')).toBe(true);
+    });
+
+    it('names an unknown tool and nothing else, whatever its arguments hold', () => {
+      // Only pi's built-in tools can run under PaF's allowlist, but the
+      // summary must not depend on that: no allowlisted field, no detail.
+      for (const args of [{ a: 1 }, { content: 'FILE-CONTENTS' }, { path: 'x', command: 'y', pattern: 'z' }, 'a string', null]) {
+        expect(piEventsFromRecord({ type: 'tool_execution_start', toolCallId: 'c', toolName: 'custom_tool', args })).toEqual([{
+          type: 'activity',
+          message: 'Running: custom_tool',
+          data: { toolCallId: 'c', toolName: 'custom_tool' },
+        }]);
+      }
+      const known = piEventsFromRecord({ type: 'tool_execution_start', toolCallId: 'c', toolName: 'read', args: { path: 7, content: 'x' } });
+      expect(known[0].message).toBe('Running: read');
     });
 
     it('reports an automatic retry', () => {

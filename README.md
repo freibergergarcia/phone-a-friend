@@ -501,7 +501,8 @@ pi notes:
 - `--fast` skips AGENTS.md/CLAUDE.md and pi skills (`-nc -ns`). Small local
   models have small context windows; use it unless the task depends on project
   conventions.
-- Sessions live in `~/.config/phone-a-friend/pi-sessions`, not in pi's own store.
+- Sessions live in `$XDG_CONFIG_HOME/phone-a-friend/pi-sessions` (default
+  `~/.config/phone-a-friend/pi-sessions`), not in pi's own store.
   PaF refuses to resume a session whose file is missing instead of letting pi
   start a new one. `--backend-session` cannot attach a session created directly
   in pi. `session delete` and `session prune` remove the PaF label, not the pi
