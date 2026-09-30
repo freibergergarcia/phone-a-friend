@@ -150,6 +150,7 @@ The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude
 - **Use the `/skill:` form with local models.** pi lists the skill to the model, but a local model may not load it on its own. In testing, a 35B model given a plain "ask Claude through phone-a-friend" request guessed the CLI flags instead and relayed to the wrong backend; with `/skill:phone-a-friend` the same model ran the correct relay first time.
 - **No recursion marker is needed.** pi sets `PI_CODING_AGENT=true` for the commands it runs, and PaF refuses `--to pi` from there.
 - **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. You still need the npm global install for the `phone-a-friend` command itself.
+- **Uninstall** (`phone-a-friend plugin uninstall --pi`) removes only what PaF installed. A skill of your own under the same name is kept.
 
 **From source:**
 
@@ -590,7 +591,7 @@ Full usage guide, examples, CLI reference, and configuration details:
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, pi skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, the pi skills PaF installed, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
 
 > [!WARNING]
 > `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.

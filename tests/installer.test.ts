@@ -1290,6 +1290,20 @@ describe('pi host integration', () => {
       expect(piAgentDir()).toBe(os.homedir());
     });
 
+    it('mirrors pi on Windows: ~\\ expansion and shell drive paths', () => {
+      process.env.PI_CODING_AGENT_DIR = '~\\pi-agent';
+      expect(piAgentDir(undefined, 'win32')).toBe(path.win32.join(os.homedir(), 'pi-agent'));
+      process.env.PI_CODING_AGENT_DIR = '/c/Users/dev/pi-agent';
+      expect(piAgentDir(undefined, 'win32')).toBe('C:\\Users\\dev\\pi-agent');
+      // The same spellings are ordinary paths elsewhere.
+      expect(piAgentDir(undefined, 'linux')).toBe('/c/Users/dev/pi-agent');
+    });
+
+    it('accepts a file:// URL, as pi does', () => {
+      process.env.PI_CODING_AGENT_DIR = 'file:///opt/pi%20agent';
+      expect(piAgentDir(undefined, 'linux')).toBe('/opt/pi agent');
+    });
+
     it('prefers an explicit directory over the environment', () => {
       process.env.PI_CODING_AGENT_DIR = '/opt/pi-agent';
       expect(piAgentDir(piHome)).toBe(piHome);
@@ -1394,6 +1408,68 @@ describe('pi host integration', () => {
     expect(again).toContain('- pi_skill:phone-a-friend: not-installed');
   });
 
+  it('uninstall keeps a skill directory PaF did not install', () => {
+    const target = piSkillTarget('phone-a-friend', piHome);
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'user authored');
+
+    const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+    expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf-8')).toBe('user authored');
+    expect(lines).toContain('- pi_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
+    expect(lines).toContain('- pi_skill:curiosity-engine: not-installed');
+  });
+
+  it('uninstall keeps a symlink that points outside any PaF install', () => {
+    const elsewhere = makeTempDir('paf-elsewhere-');
+    const target = piSkillTarget('phone-a-friend', piHome);
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.symlinkSync(elsewhere, target);
+
+      const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+      expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(lines).toContain('- pi_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
+    } finally {
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('a copy install carries an ownership marker and is removed by uninstall, with or without a repo root', () => {
+    for (const repoRoot of [repo, undefined]) {
+      install({ mode: 'copy', force: true });
+      const target = piSkillTarget('phone-a-friend', piHome);
+      expect(fs.existsSync(path.join(target, '.phone-a-friend-install'))).toBe(true);
+      // The marker never lands in the source the copy was made from.
+      expect(fs.existsSync(path.join(repo, 'skills', 'phone-a-friend', '.phone-a-friend-install'))).toBe(false);
+
+      const lines = uninstallHosts({ target: 'pi', piHome, repoRoot });
+
+      expect(lines).toContain('- pi_skill:phone-a-friend: removed');
+      expect(fs.existsSync(target)).toBe(false);
+    }
+  });
+
+  it('uninstall removes a symlink left by another PaF install location, even a dangling one', () => {
+    const oldInstall = makeTempDir('paf-old-install-');
+    const oldSkill = path.join(oldInstall, 'node_modules', '@freibergergarcia', 'phone-a-friend', 'skills', 'phone-a-friend');
+    const target = piSkillTarget('phone-a-friend', piHome);
+    try {
+      fs.mkdirSync(oldSkill, { recursive: true });
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.symlinkSync(oldSkill, target);
+      fs.rmSync(oldInstall, { recursive: true, force: true });
+
+      const lines = uninstallHosts({ target: 'pi', piHome });
+
+      expect(lines).toContain('- pi_skill:phone-a-friend: removed');
+      expect(fs.existsSync(target)).toBe(false);
+    } finally {
+      fs.rmSync(oldInstall, { recursive: true, force: true });
+    }
+  });
+
   it('uninstall of a symlinked skill leaves the source in the repository alone', () => {
     install();
 
@@ -1450,10 +1526,23 @@ describe('pi host integration', () => {
       expect(isPiInstalled(piHome)).toBe(false);
     });
 
+    it('is true for a local package path that holds PaF, relative to the settings file', () => {
+      fs.writeFileSync(path.join(repo, 'package.json'), JSON.stringify({ name: '@freibergergarcia/phone-a-friend' }));
+      writeSettings({ packages: [path.relative(piHome, repo)] });
+      expect(isPiInstalled(piHome)).toBe(true);
+
+      writeSettings({ packages: [repo] });
+      expect(isPiInstalled(piHome)).toBe(true);
+
+      fs.writeFileSync(path.join(repo, 'package.json'), JSON.stringify({ name: 'something-else' }));
+      expect(isPiInstalled(piHome)).toBe(false);
+    });
+
     it.each([
       ['an npm source', ['npm:@freibergergarcia/phone-a-friend']],
       ['a pinned npm source', ['npm:@freibergergarcia/phone-a-friend@4.11.0']],
       ['a git source', ['git:github.com/freibergergarcia/phone-a-friend@v4.11.0']],
+      ['a git source over ssh', ['git:git@github.com:freibergergarcia/phone-a-friend.git']],
       ['a repository URL', ['https://github.com/freibergergarcia/phone-a-friend']],
       ['the object form', [{ source: 'npm:@freibergergarcia/phone-a-friend', extensions: [] }]],
     ])('is true for a PaF pi package declared as %s', (_label, packages) => {
@@ -1465,6 +1554,12 @@ describe('pi host integration', () => {
     it.each([
       ['another package', { packages: ['npm:@example/pi-tools', 'npm:@freibergergarcia/phone-a-friend-extras'] }],
       ['the object form with skills switched off', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', skills: [] }] }],
+      ['a skills filter PaF does not evaluate', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', skills: ['!**'] }] }],
+      ['autoload switched off', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', autoload: false }] }],
+      ['a look-alike host', { packages: ['https://notgithub.com/freibergergarcia/phone-a-friend'] }],
+      ['a look-alike repository', { packages: ['https://github.com/someone/freibergergarcia/phone-a-friend'] }],
+      ['a fork under another owner', { packages: ['git:github.com/other/phone-a-friend'] }],
+      ['a local path that does not exist', { packages: ['../nowhere/phone-a-friend'] }],
       ['no packages', { quietStartup: true }],
       ['packages of the wrong type', { packages: 'npm:@freibergergarcia/phone-a-friend' }],
       ['malformed JSON', '{ not json'],
