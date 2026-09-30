@@ -270,7 +270,15 @@ function piAnswer(transcript: PiTranscript, ctx: { stderr?: string } = {}): stri
 
   const text = piMessageText(finalAssistant).trim();
   if (!text) {
-    throw new PiBackendError('pi produced no text output.');
+    // Small local models sometimes end on a reasoning block, for example a
+    // tool call written as text inside it. The reasoning is never returned.
+    const onlyReasoning = finalAssistant.content.some((block) => asRecord(block)?.type === 'thinking');
+    throw new PiBackendError(
+      onlyReasoning
+        ? "pi produced no text output: the model's last message held only reasoning. " +
+          'With a small local model, try --fast or a larger model.'
+        : 'pi produced no text output.',
+    );
   }
   return text;
 }

@@ -114,6 +114,19 @@ describe('parsePiJsonl() end-state rules', () => {
     expect(() => parsePiJsonl(thinkingOnly)).toThrow(/no text output/);
   });
 
+  it('says so when the model stopped with reasoning only, and never returns that reasoning', () => {
+    // Seen live with a 9B local model: the last message is a tool call
+    // written inside the thinking block, with stopReason "stop" and no text.
+    const thinkingOnly = stream(
+      HEADER,
+      assistantEnd({ content: [{ type: 'thinking', thinking: '<tool_call>\n<function=read>' }], stopReason: 'stop' }),
+    );
+    expect(() => parsePiJsonl(thinkingOnly)).toThrow(/only reasoning.*try --fast or a larger model/);
+    expect(() => parsePiJsonl(thinkingOnly)).not.toThrow(/tool_call/);
+    const empty = stream(HEADER, assistantEnd({ content: [], stopReason: 'stop' }));
+    expect(() => parsePiJsonl(empty)).not.toThrow(/reasoning/);
+  });
+
   it('throws when content is not an array', () => {
     const out = stream(HEADER, assistantEnd({ content: 'a string', stopReason: 'stop' }));
     expect(() => parsePiJsonl(out)).toThrow(PiBackendError);
