@@ -516,7 +516,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .option('--prompt <text>', 'Prompt to relay (required unless review mode is selected)')
-    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode')
+    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context (repeat to attach several, in order)',
       (value: string, previous: string[] | undefined) => [...(previous ?? []), value])
@@ -530,7 +530,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--schema <json>', 'Request structured JSON output matching this schema')
     .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
     .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
-    .option('--fast', 'Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)')
+    .option('--fast', 'Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op elsewhere)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (default scope: branch)')

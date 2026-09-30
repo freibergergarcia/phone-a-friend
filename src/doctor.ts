@@ -15,6 +15,8 @@ import { theme, banner } from './theme.js';
 import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from './installer.js';
 import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
 import { parseOpenCodeMajor } from './backends/opencode.js';
+import { PI_MIN_VERSION, isSupportedPiVersion } from './backends/pi.js';
+import { INSTALL_HINTS } from './backends/index.js';
 import {
   inspectExecutables,
   attachModelAndCapabilities,
@@ -202,6 +204,15 @@ function formatDiagnosticLines(b: BackendStatus): string[] {
       const flag = exe.versionMismatch ? ` ${theme.warning('[versions differ]')}` : '';
       lines.push(`${DIAG_INDENT}${theme.hint('also on PATH:')} ${others}${flag}`);
     }
+  }
+  if (b.model?.provider && exe?.selected) {
+    const { requested, requestedSource } = b.model.provider;
+    const shown = requestedSource === 'invalid'
+      ? theme.warning(`invalid [backends.${b.name}] provider in PaF config (expected a non-empty string)`)
+      : requested
+        ? `${requested} (from PaF config)`
+        : `${b.name}'s default`;
+    lines.push(`${DIAG_INDENT}${theme.hint('provider:')} ${shown}`);
   }
   if (b.model && (exe?.selected || b.name === 'ollama')) {
     const requested = b.model.requested
@@ -393,13 +404,33 @@ function opencodeLineAdvisory(opencode: BackendStatus): string | null {
   );
 }
 
+/**
+ * The pi backend refuses to run a pi older than its minimum (no
+ * `--no-approve`). Doctor only says so; the gate itself is in the backend.
+ * An unreadable version is left to the generic probe advisory.
+ */
+function piVersionAdvisory(pi: BackendStatus): string | null {
+  const selected = pi.executable?.selected;
+  // Only a version that reads as x.y.z can be called old.
+  if (!selected?.version || !/^\d+\.\d+\.\d+/.test(selected.version)) return null;
+  if (isSupportedPiVersion(selected.version)) return null;
+  return (
+    `pi ${selected.version} at ${selected.path} is older than ${PI_MIN_VERSION}, the oldest release ` +
+    `phone-a-friend supports. Relays with --to pi will be refused. Upgrade: ${INSTALL_HINTS.pi}`
+  );
+}
+
 async function collectAdvisories(report: DetectionReport): Promise<string[]> {
-  const opencode = report.cli.find(b => b.name === 'opencode' && b.available);
-  if (!opencode) return [];
   const out: string[] = [];
-  const lineAdvisory = opencodeLineAdvisory(opencode);
-  if (lineAdvisory) out.push(lineAdvisory);
-  out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  const opencode = report.cli.find(b => b.name === 'opencode' && b.available);
+  if (opencode) {
+    const lineAdvisory = opencodeLineAdvisory(opencode);
+    if (lineAdvisory) out.push(lineAdvisory);
+    out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  }
+  const pi = report.cli.find(b => b.name === 'pi' && b.available);
+  const piAdvisory = pi ? piVersionAdvisory(pi) : null;
+  if (piAdvisory) out.push(piAdvisory);
   return out;
 }
 

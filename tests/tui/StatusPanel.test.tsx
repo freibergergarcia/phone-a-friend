@@ -72,6 +72,14 @@ describe('StatusPanel', () => {
           installHint: 'curl -fsSL https://opencode.ai/install | bash',
           optional: true,
         },
+        {
+          name: 'pi',
+          category: 'cli',
+          available: false,
+          detail: 'pi not found in PATH',
+          installHint: 'npm install -g @earendil-works/pi-coding-agent',
+          optional: true,
+        },
       ],
     };
 
@@ -82,6 +90,7 @@ describe('StatusPanel', () => {
     expect(frame).toContain('Relay Backends (1 of 3 ready)');
     expect(frame).toContain('antigravity');
     expect(frame).toContain('opencode');
+    expect(frame).toContain('pi not found in PATH');
   });
 
   it('shows available backends', () => {

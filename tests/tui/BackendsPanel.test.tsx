@@ -164,6 +164,24 @@ describe('BackendsPanel', () => {
     expect(frame).not.toContain('Models:');
   });
 
+  it('shows the pi row and its detail', async () => {
+    const report: DetectionReport = {
+      ...MOCK_REPORT,
+      cli: [
+        ...MOCK_REPORT.cli,
+        { name: 'pi', category: 'cli', available: true, detail: 'Pi coding agent (pi found in PATH)', installHint: '', optional: true },
+      ],
+    };
+    const { lastFrame, stdin } = render(<BackendsPanel report={report} />);
+    stdin.write('\u001B[B'); // gemini
+    await tick();
+    stdin.write('\u001B[B'); // pi
+    await tick();
+    const frame = lastFrame()!;
+    expect(frame).toContain('Pi coding agent (pi found in PATH)');
+    expect(frame).toContain('(cli)');
+  });
+
   it('handles empty backend list without crashing', () => {
     const emptyReport: DetectionReport = { cli: [], local: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
     const { lastFrame } = render(<BackendsPanel report={emptyReport} />);

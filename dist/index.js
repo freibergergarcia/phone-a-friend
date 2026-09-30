@@ -170,7 +170,8 @@ var init_backends = __esm({
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
       claude: "npm install -g @anthropic-ai/claude-code",
-      opencode: "curl -fsSL https://opencode.ai/install | bash"
+      opencode: "curl -fsSL https://opencode.ai/install | bash",
+      pi: "npm install -g @earendil-works/pi-coding-agent"
     };
     BACKEND_COMMANDS = {
       antigravity: "agy",
@@ -178,7 +179,8 @@ var init_backends = __esm({
       codex: "codex",
       gemini: "gemini",
       ollama: "ollama",
-      opencode: "opencode"
+      opencode: "opencode",
+      pi: "pi"
     };
     registry = /* @__PURE__ */ new Map();
   }
@@ -1424,10 +1426,13 @@ function cloneDefaultConfig() {
     )
   };
 }
-function configPaths(repoRoot, xdgConfigHome, homeDir) {
+function pafConfigDir(xdgConfigHome, homeDir) {
   const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join4(homeDir ?? homedir3(), ".config");
+  return join4(configBase, "phone-a-friend");
+}
+function configPaths(repoRoot, xdgConfigHome, homeDir) {
   return {
-    user: join4(configBase, "phone-a-friend", "config.toml"),
+    user: join4(pafConfigDir(xdgConfigHome, homeDir), "config.toml"),
     repo: repoRoot ? join4(repoRoot, ".phone-a-friend.toml") : null
   };
 }
@@ -2119,9 +2124,9 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4 } from "fs";
-import { dirname as dirname6, join as join6 } from "path";
-import { homedir as homedir4 } from "os";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync5 } from "fs";
+import { dirname as dirname6, join as join7 } from "path";
+import { homedir as homedir5 } from "os";
 import { randomUUID as randomUUID2 } from "crypto";
 var MAX_JOBS, JobManager;
 var init_jobs = __esm({
@@ -2131,8 +2136,8 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join6(
-          process.env.XDG_CONFIG_HOME ?? join6(homedir4(), ".config"),
+        this.filePath = filePath ?? join7(
+          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
@@ -2146,7 +2151,7 @@ var init_jobs = __esm({
         }
       }
       save(jobs) {
-        mkdirSync4(dirname6(this.filePath), { recursive: true });
+        mkdirSync5(dirname6(this.filePath), { recursive: true });
         writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
@@ -2200,9 +2205,9 @@ var sessions_exports = {};
 __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
-import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync5, renameSync as renameSync2 } from "fs";
-import { dirname as dirname7, join as join7 } from "path";
-import { homedir as homedir5 } from "os";
+import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync6, renameSync as renameSync2 } from "fs";
+import { dirname as dirname7, join as join8 } from "path";
+import { homedir as homedir6 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
   "src/sessions.ts"() {
@@ -2213,15 +2218,15 @@ var init_sessions = __esm({
       dbPath;
       db;
       constructor(filePath) {
-        this.filePath = filePath ?? join7(
-          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
+        this.filePath = filePath ?? join8(
+          process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
         this.dbPath = this.filePath.endsWith(".json") ? this.filePath.slice(0, -5) + ".db" : this.filePath + ".db";
       }
       transaction(operation) {
-        mkdirSync5(dirname7(this.dbPath), { recursive: true });
+        mkdirSync6(dirname7(this.dbPath), { recursive: true });
         const Sqlite = __require("better-sqlite3");
         const db = new Sqlite(this.dbPath, { timeout: 5e3 });
         try {
@@ -3422,20 +3427,20 @@ import { execFileSync as execFileSync4 } from "child_process";
 import {
   existsSync as existsSync7,
   lstatSync,
-  mkdirSync as mkdirSync6,
-  readdirSync,
+  mkdirSync as mkdirSync7,
+  readdirSync as readdirSync2,
   readFileSync as readFileSync9,
   readlinkSync,
-  realpathSync as realpathSync2,
+  realpathSync as realpathSync3,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
   unlinkSync as unlinkSync2
 } from "fs";
-import { resolve as resolve3, join as join8, dirname as dirname8, isAbsolute, sep } from "path";
-import { homedir as homedir6 } from "os";
+import { resolve as resolve3, join as join9, dirname as dirname8, isAbsolute, sep } from "path";
+import { homedir as homedir7 } from "os";
 function ensureParent(filePath) {
-  mkdirSync6(dirname8(filePath), { recursive: true });
+  mkdirSync7(dirname8(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -3456,7 +3461,7 @@ function installPath(src, dst, mode, force) {
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
-        if (realpathSync2(dst) === realpathSync2(src)) {
+        if (realpathSync3(dst) === realpathSync3(src)) {
           return "already-installed";
         }
       } catch {
@@ -3597,48 +3602,48 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join8(homedir6(), ".claude");
-  return join8(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join9(homedir7(), ".claude");
+  return join9(base, "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config");
-  return join8(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join9(homedir7(), ".config");
+  return join9(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join8(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join9(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join8(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join9(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join8(repoRoot, "skills", name, "COMMAND.opencode.md");
+  const overlay = join9(repoRoot, "skills", name, "COMMAND.opencode.md");
   if (existsSync7(overlay)) return overlay;
-  return join8(repoRoot, "commands", `${name}.md`);
+  return join9(repoRoot, "commands", `${name}.md`);
 }
 function codexConfigRoot(codexHome) {
   if (codexHome) return codexHome;
   if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
-  return join8(homedir6(), ".codex");
+  return join9(homedir7(), ".codex");
 }
 function codexSkillTarget(name, codexHome) {
-  return join8(codexConfigRoot(codexHome), "skills", name);
+  return join9(codexConfigRoot(codexHome), "skills", name);
 }
 function codexSkillSource(repoRoot, name) {
-  const overlay = join8(repoRoot, "skills", name, ".codex");
-  if (existsSync7(join8(overlay, "SKILL.md"))) return overlay;
-  return join8(repoRoot, "skills", name);
+  const overlay = join9(repoRoot, "skills", name, ".codex");
+  if (existsSync7(join9(overlay, "SKILL.md"))) return overlay;
+  return join9(repoRoot, "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
   let realRepo;
   try {
-    realRepo = realpathSync2(repoRoot);
+    realRepo = realpathSync3(repoRoot);
   } catch {
     return false;
   }
   try {
-    const realTarget = realpathSync2(target);
+    const realTarget = realpathSync3(target);
     return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
   } catch {
     try {
@@ -3647,7 +3652,7 @@ function isStalePafSymlink(target, repoRoot) {
       let probe = absLink;
       while (probe !== dirname8(probe)) {
         if (existsSync7(probe)) {
-          const realProbe = realpathSync2(probe);
+          const realProbe = realpathSync3(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
         probe = dirname8(probe);
@@ -3661,13 +3666,13 @@ function isStalePafSymlink(target, repoRoot) {
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
-    const resolved = realpathSync2(target);
+    const resolved = realpathSync3(target);
     if (existsSync7(resolved)) return true;
   } catch {
   }
   if (existsSync7(target)) return true;
-  const home = claudeHome ?? join8(homedir6(), ".claude");
-  const cacheBase = join8(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  const home = claudeHome ?? join9(homedir7(), ".claude");
+  const cacheBase = join9(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
   } catch {
@@ -3675,14 +3680,14 @@ function isPluginInstalled(claudeHome) {
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync7(join8(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join9(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
   const looseFileOk = CODEX_SKILLS.every(
-    (name) => existsSync7(join8(codexSkillTarget(name, codexHome), "SKILL.md"))
+    (name) => existsSync7(join9(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
   if (looseFileOk) return true;
-  const cacheRoot = join8(
+  const cacheRoot = join9(
     codexConfigRoot(codexHome),
     "plugins",
     "cache",
@@ -3691,10 +3696,10 @@ function isCodexInstalled(codexHome) {
   );
   if (!existsSync7(cacheRoot)) return false;
   try {
-    const versions = readdirSync(cacheRoot);
+    const versions = readdirSync2(cacheRoot);
     return versions.some(
       (ver) => CODEX_SKILLS.every(
-        (name) => existsSync7(join8(cacheRoot, ver, "skills", name, "SKILL.md"))
+        (name) => existsSync7(join9(cacheRoot, ver, "skills", name, "SKILL.md"))
       )
     );
   } catch {
@@ -3804,10 +3809,10 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join8(repoRoot, "skills", name);
+    const skillSource = join9(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join8(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join9(skillSource, "SKILL.md")}`);
     }
     if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
@@ -3836,17 +3841,17 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   for (const name of CODEX_SKILLS) {
     const skillSource = codexSkillSource(repoRoot, name);
-    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing Codex skill source: ${join8(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Codex skill source: ${join9(skillSource, "SKILL.md")}`);
     }
     const skillTarget = codexSkillTarget(name, codexHome);
     const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
-  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
     if (isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
@@ -3871,9 +3876,9 @@ function uninstallCodex(codexHome, repoRoot) {
       lines.push(`- codex_skill:${name}: not-installed`);
     }
   }
-  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
     if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
@@ -3925,11 +3930,11 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync7(join8(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join9(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join8(homedir6(), ".claude");
-  const registryPath = join8(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join9(homedir7(), ".claude");
+  const registryPath = join9(home, "plugins", "known_marketplaces.json");
   try {
     const data = JSON.parse(readFileSync9(registryPath, "utf-8"));
     const entry = data[marketplaceName];
@@ -12149,9 +12154,9 @@ var require_internal = __commonJS({
     }
     InternalCodec.prototype.encoder = InternalEncoder;
     InternalCodec.prototype.decoder = InternalDecoder;
-    var StringDecoder = __require("string_decoder").StringDecoder;
+    var StringDecoder2 = __require("string_decoder").StringDecoder;
     function InternalDecoder(options, codec) {
-      this.decoder = new StringDecoder(codec.enc);
+      this.decoder = new StringDecoder2(codec.enc);
     }
     InternalDecoder.prototype.write = function(buf) {
       if (!Buffer2.isBuffer(buf)) {
@@ -15843,7 +15848,7 @@ var init_parse_editor_command = __esm({
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
-import { spawn as spawn3, spawnSync } from "child_process";
+import { spawn as spawn4, spawnSync } from "child_process";
 import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
 import path3 from "path";
 import os3 from "os";
@@ -15903,7 +15908,7 @@ var init_dist8 = __esm({
         this.createTempFile();
         const promise = new Promise((resolve5, reject) => {
           try {
-            const editorProcess = spawn3(this.editor.bin, this.editorArgs(), {
+            const editorProcess = spawn4(this.editor.bin, this.editorArgs(), {
               shell: false,
               stdio: "inherit"
             });
@@ -17216,7 +17221,9 @@ var init_detection = __esm({
       // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
       // exit with code 1 just because OpenCode is absent. Mark it optional so
       // doctor counts/exit-code only include OpenCode when it is present.
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true }
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true },
+      // Optional for the same reason: most users do not have pi installed.
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent", optional: true }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
@@ -72900,8 +72907,8 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn5 } from "child_process";
-import { mkdirSync as mkdirSync8, existsSync as existsSync12 } from "fs";
+import { spawn as spawn6 } from "child_process";
+import { mkdirSync as mkdirSync9, existsSync as existsSync12 } from "fs";
 import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
   const lines = [];
@@ -72933,7 +72940,7 @@ function formatBackendSummary(report) {
 }
 function spawnPaf(args, processRef, fallbackMessage) {
   return new Promise((resolve5, reject) => {
-    const proc = spawn5(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
+    const proc = spawn6(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     processRef.current = proc;
@@ -72979,7 +72986,7 @@ function buildActionGroups(report, onRefresh, processRef) {
           run: async () => {
             const paths = configPaths();
             if (!existsSync12(paths.user)) {
-              mkdirSync8(dirname10(paths.user), { recursive: true });
+              mkdirSync9(dirname10(paths.user), { recursive: true });
               configInit(paths.user, true);
             }
             const editorEnv = process.env.EDITOR ?? "vi";
@@ -72987,7 +72994,7 @@ function buildActionGroups(report, onRefresh, processRef) {
             const editor = parts[0];
             const editorArgs = [...parts.slice(1), paths.user];
             return new Promise((resolve5, reject) => {
-              const proc = spawn5(editor, editorArgs, { stdio: "inherit" });
+              const proc = spawn6(editor, editorArgs, { stdio: "inherit" });
               processRef.current = proc;
               proc.on("close", () => {
                 processRef.current = null;
@@ -73569,14 +73576,14 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join10 } from "path";
-import { mkdirSync as mkdirSync9 } from "fs";
-import { homedir as homedir8 } from "os";
+import { join as join11 } from "path";
+import { mkdirSync as mkdirSync10 } from "fs";
+import { homedir as homedir9 } from "os";
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join10(homedir8(), ".config");
-  const dir = join10(configBase, "phone-a-friend");
-  mkdirSync9(dir, { recursive: true });
-  return join10(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join11(homedir9(), ".config");
+  const dir = join11(configBase, "phone-a-friend");
+  mkdirSync10(dir, { recursive: true });
+  return join11(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -74050,7 +74057,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn6 } from "child_process";
+import { spawn as spawn7 } from "child_process";
 import { randomUUID as randomUUID5 } from "crypto";
 function assertAgenticBackendSupported(backendName) {
   if (backendName === AGENTIC_NATIVE_BACKEND) return;
@@ -74211,7 +74218,7 @@ ${prompt}`,
         if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
         return new Promise((resolve5, reject) => {
           const grouped = process.platform !== "win32";
-          const child = spawn6("claude", args, {
+          const child = spawn7("claude", args, {
             env: this.cleanEnv(),
             cwd: repoPath,
             detached: grouped,
@@ -76157,6 +76164,14 @@ function isDeadCacheDisabled(env5 = process.env) {
   return /^(0|false|no|off)$/i.test(value.trim());
 }
 
+// src/backends/schema-prompt.ts
+function injectSchemaPrompt(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
+
 // src/backends/gemini.ts
 var GeminiBackendError = class extends BackendError {
   constructor(message) {
@@ -76373,12 +76388,6 @@ function classifyAttemptError(err) {
     return classifyGeminiError({ message: err.message });
   }
   return classifyGeminiError({ message: String(err) });
-}
-function injectSchemaPrompt(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
 }
 function maybeEmitGeminiSessionId(jsonOutput, onSessionCreated) {
   const sessionId = extractGeminiSessionId(jsonOutput);
@@ -77254,6 +77263,12 @@ async function inspectExecutables(report, deps = {}) {
     if (info2) b.executable = info2;
   }
 }
+function configuredPiProvider(config) {
+  const raw = config.backends?.pi?.provider;
+  if (raw === void 0) return { requested: null, requestedSource: "backend-default" };
+  if (typeof raw !== "string" || !raw.trim()) return { requested: null, requestedSource: "invalid" };
+  return { requested: raw.trim(), requestedSource: "paf-config" };
+}
 function attachModelAndCapabilities(report, config) {
   const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
   for (const b of entries) {
@@ -77264,6 +77279,7 @@ function attachModelAndCapabilities(report, config) {
       reported: null,
       reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
     };
+    if (b.name === "pi") b.model.provider = configuredPiProvider(config);
     try {
       const backend = getBackend(b.name);
       b.capabilities = {
@@ -77474,7 +77490,7 @@ var OpenCodeBackend = class {
     }
     const { provider, pure, standalone } = this.getConfig();
     const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
-    const promptWithSchema = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
+    const promptWithSchema = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
       repoPath: opts.repoPath,
@@ -77661,14 +77677,693 @@ var OpenCodeBackend = class {
     }
   }
 };
-function injectSchemaPrompt3(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
-}
 var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
+
+// src/backends/pi.ts
+init_backends();
+init_config();
+import { spawn as spawn3 } from "child_process";
+import { closeSync as closeSync2, mkdirSync as mkdirSync4, openSync as openSync2, readdirSync, readSync, realpathSync as realpathSync2 } from "fs";
+import { homedir as homedir4 } from "os";
+import { delimiter as pathDelimiter3, join as join6, posix, resolve as resolvePath3, win32 } from "path";
+import { StringDecoder } from "string_decoder";
+import { fileURLToPath as fileURLToPath2 } from "url";
+var PiBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "PiBackendError";
+  }
+};
+var PI_TOOLS = {
+  "read-only": "read,grep,find,ls",
+  "workspace-write": "read,grep,find,ls,edit,write",
+  "danger-full-access": "read,grep,find,ls,edit,write,bash"
+};
+var PI_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+function isValidPiSessionId(id) {
+  return PI_SESSION_ID_PATTERN.test(id);
+}
+function buildPiArgs(opts) {
+  const args = ["--mode", "json", "--no-approve"];
+  if (opts.session) {
+    if (!isValidPiSessionId(opts.session.id)) {
+      throw new PiBackendError(
+        `Invalid pi session ID "${opts.session.id}". pi session IDs use letters, digits, ".", "_" and "-", and start and end with a letter or digit.`
+      );
+    }
+    args.push("--session-dir", opts.session.dir, "--session-id", opts.session.id);
+  } else {
+    args.push("--no-session");
+  }
+  args.push("-ne", "-np", "--no-themes", "--tools", PI_TOOLS[opts.sandbox]);
+  if (opts.provider) args.push("--provider", opts.provider);
+  if (opts.model) args.push("--model", opts.model);
+  if (opts.fast) args.push("-nc", "-ns");
+  args.push("--", opts.prompt.startsWith("@") ? `
+${opts.prompt}` : opts.prompt);
+  return args;
+}
+var LOCAL_SERVER_HINT = "If the model runs locally, check the server is up (your provider's baseUrl).";
+function describePiFailure(detail) {
+  const looksLikeConnection = /connection error|ECONNREFUSED|ECONNRESET|ENOTFOUND|fetch failed|socket hang up/i;
+  return looksLikeConnection.test(detail) ? `${detail} ${LOCAL_SERVER_HINT}` : detail;
+}
+function stderrTail2(stderr) {
+  if (!stderr) return "";
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.slice(-5).join(" | ").slice(-500);
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parsePiRecord(rawLine) {
+  const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+  if (!line.trim()) return null;
+  try {
+    return asRecord(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+function notePiRecord(transcript, record) {
+  if (record.type === "session" && !transcript.header && typeof record.id === "string") {
+    transcript.header = {
+      id: record.id,
+      cwd: typeof record.cwd === "string" ? record.cwd : null,
+      timestamp: typeof record.timestamp === "string" ? record.timestamp : null
+    };
+    return;
+  }
+  if (record.type === "message_end") {
+    const message = asRecord(record.message);
+    if (message?.role === "assistant") transcript.finalAssistant = message;
+  }
+}
+function readPiJsonl(stdout) {
+  const transcript = { header: null, finalAssistant: null };
+  for (const rawLine of stdout.split("\n")) {
+    const record = parsePiRecord(rawLine);
+    if (record) notePiRecord(transcript, record);
+  }
+  return transcript;
+}
+function piFailureDetail(finalAssistant) {
+  if (!finalAssistant) return null;
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== "error" && stopReason !== "aborted") return null;
+  const errorMessage3 = typeof finalAssistant.errorMessage === "string" ? finalAssistant.errorMessage.trim() : "";
+  return errorMessage3 || `request ${stopReason}`;
+}
+function piMessageText(message) {
+  if (!Array.isArray(message.content)) return "";
+  return message.content.map((block) => asRecord(block)).filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n");
+}
+function piAnswer(transcript, ctx = {}) {
+  const { finalAssistant } = transcript;
+  if (!finalAssistant) {
+    const tail = stderrTail2(ctx.stderr);
+    throw new PiBackendError(`pi produced no assistant message.${tail ? ` stderr: ${tail}` : ""}`);
+  }
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) {
+    throw new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  }
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== "stop" && stopReason !== "length") {
+    const shown = typeof stopReason === "string" ? `"${stopReason}"` : "no stop reason";
+    throw new PiBackendError(`pi ended with ${shown} instead of a final answer.`);
+  }
+  if (!Array.isArray(finalAssistant.content)) {
+    throw new PiBackendError("pi's final message has an unexpected shape (content is not a list).");
+  }
+  const text = piMessageText(finalAssistant).trim();
+  if (!text) {
+    throw new PiBackendError("pi produced no text output.");
+  }
+  return text;
+}
+function parsePiJsonl(stdout, ctx = {}) {
+  const transcript = readPiJsonl(stdout);
+  return { text: piAnswer(transcript, ctx), header: transcript.header };
+}
+function createLineSplitter(onLine) {
+  let pending = "";
+  return {
+    push(text) {
+      let start = 0;
+      let newline = text.indexOf("\n");
+      while (newline !== -1) {
+        onLine(pending + text.slice(start, newline));
+        pending = "";
+        start = newline + 1;
+        newline = text.indexOf("\n", start);
+      }
+      pending += text.slice(start);
+    },
+    end() {
+      if (pending) onLine(pending);
+      pending = "";
+    }
+  };
+}
+async function* piRecords(stdout) {
+  const decoder = new StringDecoder("utf8");
+  let ready = [];
+  const splitter = createLineSplitter((line) => {
+    const record = parsePiRecord(line);
+    if (record) ready.push(record);
+  });
+  for await (const chunk of stdout) {
+    splitter.push(typeof chunk === "string" ? chunk : decoder.write(chunk));
+    if (ready.length > 0) {
+      const batch = ready;
+      ready = [];
+      yield* batch;
+    }
+  }
+  splitter.push(decoder.end());
+  splitter.end();
+  yield* ready;
+}
+var PI_PROGRESS_DETAIL_LIMIT = 160;
+function shortDetail(text) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > PI_PROGRESS_DETAIL_LIMIT ? `${flat.slice(0, PI_PROGRESS_DETAIL_LIMIT - 1)}\u2026` : flat;
+}
+function summarizePiToolArgs(toolName, args) {
+  const record = asRecord(args);
+  if (!record) return "";
+  const text = (key) => typeof record[key] === "string" ? record[key] : "";
+  switch (toolName) {
+    case "bash":
+      return shortDetail(text("command"));
+    case "read":
+    case "ls":
+    case "edit":
+    case "write":
+      return shortDetail(text("path"));
+    case "grep":
+    case "find":
+      return shortDetail([text("pattern"), text("path")].filter(Boolean).join(" "));
+    default:
+      return Object.keys(record).length > 0 ? shortDetail(JSON.stringify(record)) : "";
+  }
+}
+function piEventsFromRecord(record) {
+  if (record.type === "tool_execution_start") {
+    const toolName = typeof record.toolName === "string" ? record.toolName.trim() : "";
+    if (!toolName) return [];
+    const detail = summarizePiToolArgs(toolName, record.args);
+    return [{
+      type: "activity",
+      message: detail ? `Running: ${toolName} ${detail}` : `Running: ${toolName}`,
+      data: typeof record.toolCallId === "string" ? { toolCallId: record.toolCallId, toolName } : { toolName }
+    }];
+  }
+  if (record.type === "auto_retry_start") {
+    const attempt = typeof record.attempt === "number" ? record.attempt : null;
+    const maxAttempts = typeof record.maxAttempts === "number" ? record.maxAttempts : null;
+    const count = attempt !== null && maxAttempts !== null ? ` (${attempt}/${maxAttempts})` : "";
+    const reason = typeof record.errorMessage === "string" ? shortDetail(record.errorMessage) : "";
+    return [{
+      type: "activity",
+      message: `Retrying${count}${reason ? ` after: ${reason}` : ""}`,
+      data: { attempt, maxAttempts }
+    }];
+  }
+  return [];
+}
+function reportPiEvents(record, onEvent) {
+  for (const event of piEventsFromRecord(record)) {
+    try {
+      onEvent(event);
+    } catch {
+    }
+  }
+}
+function createPiProgressTap(onEvent) {
+  const splitter = createLineSplitter((line) => {
+    if (!line.includes('"tool_execution_start"') && !line.includes('"auto_retry_start"')) return;
+    const record = parsePiRecord(line);
+    if (record) reportPiEvents(record, onEvent);
+  });
+  return (chunk) => splitter.push(chunk);
+}
+function createPiTextAssembler() {
+  let shownEarlier = false;
+  let started = false;
+  let held = "";
+  let sawDelta = false;
+  let lastIndex;
+  const reset2 = () => {
+    shownEarlier = shownEarlier || started;
+    started = false;
+    held = "";
+    sawDelta = false;
+    lastIndex = void 0;
+  };
+  const feed = (piece) => {
+    let body = held + piece;
+    held = "";
+    let lead = "";
+    if (!started) {
+      body = body.trimStart();
+      if (!body) return "";
+      started = true;
+      if (shownEarlier) lead = "\n\n";
+    }
+    const visible = body.trimEnd();
+    held = body.slice(visible.length);
+    return lead + visible;
+  };
+  return {
+    push(record) {
+      if (record.type === "message_update") {
+        const event = asRecord(record.assistantMessageEvent);
+        if (event?.type !== "text_delta" || typeof event.delta !== "string") return "";
+        const nextBlock = sawDelta && event.contentIndex !== lastIndex;
+        sawDelta = true;
+        lastIndex = event.contentIndex;
+        return feed(nextBlock ? `
+${event.delta}` : event.delta);
+      }
+      const message = asRecord(record.message);
+      if (message?.role !== "assistant") return "";
+      if (record.type === "message_start") {
+        reset2();
+        return "";
+      }
+      if (record.type === "message_end") {
+        const text = sawDelta ? "" : feed(piMessageText(message));
+        reset2();
+        return text;
+      }
+      return "";
+    }
+  };
+}
+var PI_MIN_VERSION = "0.79.0";
+var PI_VERSION_PROBE_TIMEOUT_MS = 5e3;
+var versionCache = /* @__PURE__ */ new Map();
+function isSupportedPiVersion(version) {
+  const parse2 = (text) => {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  };
+  const actual = parse2(version);
+  const minimum = parse2(PI_MIN_VERSION);
+  if (!actual) return false;
+  for (let i = 0; i < 3; i++) {
+    if (actual[i] > minimum[i]) return true;
+    if (actual[i] < minimum[i]) return false;
+  }
+  return true;
+}
+function detectPiVersion(env5, opts = {}) {
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env5.PATH ?? "").split(pathDelimiter3).map((dir) => resolvePath3(spawnCwd, dir || ".")).join(pathDelimiter3);
+  const candidate = resolveExecutableCandidates("pi", { ...env5, PATH: absolutePath })[0];
+  if (!candidate) return Promise.resolve({ status: "missing" });
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
+  const cached = versionCache.get(key);
+  if (cached) return cached;
+  const probe = probeVersion(candidate.path, {
+    env: env5,
+    timeoutMs: opts.timeoutMs ?? PI_VERSION_PROBE_TIMEOUT_MS
+  }).then((result) => result.version ? { status: "ok", path: candidate.path, version: result.version } : { status: "unreadable", path: candidate.path, reason: result.versionError ?? result.versionStatus }).catch(() => ({ status: "unreadable", path: candidate.path, reason: "probe failed" }));
+  versionCache.set(key, probe);
+  return probe;
+}
+async function assertSupportedPi(env5, cwd2) {
+  const probe = await detectPiVersion(env5, { cwd: cwd2 });
+  if (probe.status === "missing") {
+    throw new PiBackendError(`pi CLI not found in PATH. Install it: ${INSTALL_HINTS.pi}`);
+  }
+  if (probe.status === "unreadable") {
+    throw new PiBackendError(
+      `Could not read the pi version from \`${probe.path} --version\` (${probe.reason}). phone-a-friend needs pi ${PI_MIN_VERSION} or newer and will not run an unknown version. Run \`pi --version\` at the terminal, or reinstall: ${INSTALL_HINTS.pi}`
+    );
+  }
+  if (!isSupportedPiVersion(probe.version)) {
+    throw new PiBackendError(
+      `pi ${probe.version} is too old: phone-a-friend needs pi ${PI_MIN_VERSION} or newer (it relies on --no-approve). Upgrade with \`pi update\` or: ${INSTALL_HINTS.pi}`
+    );
+  }
+}
+function isPiHostEnv(env5) {
+  return env5.PI_CODING_AGENT === "true" || env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "pi";
+}
+function assertNotPiHost(env5) {
+  if (!isPiHostEnv(env5)) return;
+  throw new PiBackendError(
+    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
+  );
+}
+function readPiProvider(repoPath) {
+  let raw;
+  try {
+    raw = loadConfig(repoPath).backends?.pi?.provider;
+  } catch (err) {
+    throw new PiBackendError(
+      `Could not read phone-a-friend config for ${repoPath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  if (raw === void 0) return null;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new PiBackendError(
+      'Invalid [backends.pi] provider in phone-a-friend config: expected a non-empty string such as "mlx".'
+    );
+  }
+  return raw.trim();
+}
+function canonicalRepoPath(repoPath) {
+  try {
+    return realpathSync2(resolvePath3(repoPath));
+  } catch (err) {
+    throw new PiBackendError(
+      `Repository path cannot be resolved: ${repoPath} (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+}
+function piSessionDir() {
+  return join6(pafConfigDir(), "pi-sessions");
+}
+var PI_HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
+var PI_HEADER_READ_BUFFER_BYTES = 4096;
+function piHeaderCandidate(line) {
+  if (!line.trim()) return void 0;
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return void 0;
+  }
+  if (!entry) return void 0;
+  const record = entry;
+  if (record.type !== "session" || typeof record.id !== "string") return null;
+  return record;
+}
+function readPiSessionFileHeader(filePath) {
+  const fd = openSync2(filePath, "r");
+  try {
+    const decoder = new StringDecoder("utf8");
+    const buffer = Buffer.allocUnsafe(PI_HEADER_READ_BUFFER_BYTES);
+    let pending = "";
+    let scannedBytes = 0;
+    while (scannedBytes < PI_HEADER_SCAN_LIMIT_BYTES) {
+      const readLength = Math.min(buffer.length, PI_HEADER_SCAN_LIMIT_BYTES - scannedBytes);
+      const bytesRead = readSync(fd, buffer, 0, readLength, null);
+      if (bytesRead === 0) {
+        return piHeaderCandidate(pending + decoder.end()) ?? null;
+      }
+      scannedBytes += bytesRead;
+      const chunk = decoder.write(buffer.subarray(0, bytesRead));
+      let lineStart = 0;
+      let newlineIndex = chunk.indexOf("\n", lineStart);
+      while (newlineIndex !== -1) {
+        const decision = piHeaderCandidate(pending + chunk.slice(lineStart, newlineIndex));
+        if (decision !== void 0) return decision;
+        pending = "";
+        lineStart = newlineIndex + 1;
+        newlineIndex = chunk.indexOf("\n", lineStart);
+      }
+      pending += chunk.slice(lineStart);
+    }
+    const probe = Buffer.allocUnsafe(1);
+    if (readSync(fd, probe, 0, probe.length, null) === 0) {
+      return piHeaderCandidate(pending + decoder.end()) ?? null;
+    }
+    throw new Error("session header exceeds the scan bound");
+  } finally {
+    closeSync2(fd);
+  }
+}
+function normalizeWindowsShellPath(filePath) {
+  if (!filePath.startsWith("/") || filePath.startsWith("//") || filePath.includes("\\")) return filePath;
+  const match = filePath.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+  if (!match) return filePath;
+  const suffix = match[2]?.replaceAll("/", "\\");
+  return `${match[1].toUpperCase()}:\\${suffix ?? ""}`;
+}
+function resolvePiStoredPath(stored, baseDir, platform2 = process.platform) {
+  const windows = platform2 === "win32";
+  const path4 = windows ? win32 : posix;
+  let normalized = windows ? normalizeWindowsShellPath(stored) : stored;
+  if (normalized === "~") {
+    normalized = homedir4();
+  } else if (normalized.startsWith("~/") || windows && normalized.startsWith("~\\")) {
+    normalized = path4.join(homedir4(), normalized.slice(2));
+  } else if (/^file:\/\//.test(normalized)) {
+    normalized = fileURLToPath2(normalized, { windows });
+  }
+  return path4.isAbsolute(normalized) ? path4.resolve(normalized) : path4.resolve(baseDir, normalized);
+}
+function toHeader(record) {
+  return {
+    id: record.id,
+    cwd: typeof record.cwd === "string" ? record.cwd : null,
+    timestamp: typeof record.timestamp === "string" ? record.timestamp : null
+  };
+}
+function findPiSessionFiles(dir, id, repoCwd, platform2 = process.platform) {
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const matches = [];
+  for (const file of entries) {
+    if (!file.endsWith(".jsonl")) continue;
+    const filePath = join6(dir, file);
+    let record;
+    try {
+      record = readPiSessionFileHeader(filePath);
+    } catch {
+      continue;
+    }
+    if (!record || record.id !== id) continue;
+    const cwd2 = record.cwd;
+    if (typeof cwd2 !== "string" || cwd2 === "") continue;
+    let resolved;
+    try {
+      resolved = resolvePiStoredPath(cwd2, repoCwd, platform2);
+    } catch {
+      throw new PiBackendError(
+        `pi session ${id} cannot be verified: the working directory recorded in ${filePath} cannot be resolved.`
+      );
+    }
+    if (resolved === repoCwd) matches.push(toHeader(record));
+  }
+  return matches;
+}
+function planPiSession(opts, repoCwd) {
+  const id = opts.sessionId;
+  if (!id) return null;
+  if (!isValidPiSessionId(id)) {
+    throw new PiBackendError(
+      `Invalid pi session ID "${id}". pi session IDs use letters, digits, ".", "_" and "-", and start and end with a letter or digit.`
+    );
+  }
+  const dir = piSessionDir();
+  const matches = findPiSessionFiles(dir, id, repoCwd);
+  if (opts.resumeSession) {
+    if (matches.length === 0) {
+      throw new PiBackendError(
+        `pi session ${id} not found for ${repoCwd}: it is not in phone-a-friend's pi session directory (${dir}). Sessions started directly in pi cannot be attached in this version.`
+      );
+    }
+    if (matches.length > 1) {
+      throw new PiBackendError(
+        `pi session ${id} is ambiguous: ${matches.length} session files in ${dir} carry that ID for ${repoCwd}. Refusing to resume, because pi would pick one of them by directory order.`
+      );
+    }
+    return { dir, id, expected: matches[0] };
+  }
+  if (matches.length > 0) {
+    throw new PiBackendError(
+      `pi session ${id} already exists for ${repoCwd} in ${dir}; refusing to start a new session under that ID.`
+    );
+  }
+  mkdirSync4(dir, { recursive: true });
+  return { dir, id, expected: null };
+}
+function confirmPiSession(plan, header, stderr, repoCwd) {
+  if (!header) {
+    throw new PiBackendError(`pi reported no session header, so session ${plan.id} cannot be confirmed.`);
+  }
+  if (plan.expected) {
+    const createdInstead = /No project session found with id|creating a new session/i.test(stderr);
+    const sameHeader = header.id === plan.expected.id && header.cwd === plan.expected.cwd && header.timestamp === plan.expected.timestamp;
+    if (createdInstead || !sameHeader) {
+      throw new PiBackendError(
+        `pi did not resume session ${plan.id}: it reported session ${header.id} (started ${header.timestamp ?? "unknown"}, cwd ${header.cwd ?? "unknown"}) instead of the one phone-a-friend checked. The reply was discarded.`
+      );
+    }
+    return;
+  }
+  let reportedCwd = null;
+  try {
+    reportedCwd = header.cwd ? resolvePiStoredPath(header.cwd, repoCwd) : null;
+  } catch {
+    reportedCwd = null;
+  }
+  if (header.id !== plan.id || reportedCwd !== repoCwd) {
+    throw new PiBackendError(
+      `pi reported session ${header.id} in ${header.cwd ?? "an unknown directory"}, not the requested ${plan.id} in ${repoCwd}. The session was not recorded.`
+    );
+  }
+}
+function timeoutMessage(timeoutSeconds) {
+  return `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up (your provider's baseUrl) and try a smaller model.`;
+}
+function piExitError(exitCode, finalAssistant, stderr) {
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  const tail = stderrTail2(stderr);
+  return new PiBackendError(`pi exited with code ${exitCode ?? "unknown"}${tail ? `: ${tail}` : "."}`);
+}
+function toPiError(err, timeoutSeconds) {
+  if (err instanceof PiBackendError) return err;
+  if (err instanceof SpawnCliTimeoutError) return new PiBackendError(timeoutMessage(timeoutSeconds));
+  if (err instanceof SpawnCliError) {
+    return piExitError(err.exitCode, readPiJsonl(err.stdout).finalAssistant, err.stderr);
+  }
+  if (err instanceof BackendError) return new PiBackendError(err.message);
+  return new PiBackendError(err instanceof Error ? err.message : String(err));
+}
+var PiBackend = class {
+  name = "pi";
+  localFileAccess = true;
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  capabilities = {
+    resumeStrategy: "native-session",
+    // PaF picks the ID and passes it as `--session-id`, as for Claude and Gemini.
+    requiresClientSessionId: true
+  };
+  /**
+   * Everything that happens before a spawn, shared by `run()` and
+   * `runStream()` so neither can skip a check.
+   */
+  async prepare(opts) {
+    assertNotPiHost(opts.env);
+    const repoCwd = canonicalRepoPath(opts.repoPath);
+    const provider = readPiProvider(opts.repoPath);
+    await assertSupportedPi(opts.env, repoCwd);
+    const session = planPiSession(opts, repoCwd);
+    const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+    const args = buildPiArgs({
+      prompt,
+      sandbox: opts.sandbox,
+      model: opts.model,
+      provider,
+      fast: Boolean(opts.fast),
+      session: session ? { dir: session.dir, id: session.id } : null
+    });
+    return { args, repoCwd, session };
+  }
+  async run(opts) {
+    const { args, repoCwd, session } = await this.prepare(opts);
+    try {
+      const result = await spawnCli("pi", args, {
+        timeoutMs: opts.timeoutSeconds * 1e3,
+        env: opts.env,
+        cwd: repoCwd,
+        label: "pi",
+        // Review, --schema and session calls all take this path, and those
+        // are the long tool-using runs where progress matters.
+        onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : void 0
+      });
+      const parsed = parsePiJsonl(result.stdout, { stderr: result.stderr });
+      if (session) {
+        confirmPiSession(session, parsed.header, result.stderr, repoCwd);
+        opts.onSessionCreated?.(session.id);
+      }
+      return parsed.text;
+    } catch (err) {
+      throw toPiError(err, opts.timeoutSeconds);
+    }
+  }
+  async *runStream(opts) {
+    const { args, repoCwd, session } = await this.prepare(opts);
+    const child = spawn3("pi", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: repoCwd,
+      env: opts.env
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutSeconds * 1e3);
+    const onSigint = () => {
+      child.kill("SIGTERM");
+    };
+    process.on("SIGINT", onSigint);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    let ended = false;
+    let spawnFailure = null;
+    const exit = new Promise((resolve5) => {
+      child.once("error", (err) => {
+        ended = true;
+        spawnFailure = err;
+        resolve5({ code: null, signal: null });
+      });
+      child.once("close", (code, signal) => {
+        ended = true;
+        resolve5({ code, signal });
+      });
+    });
+    const transcript = { header: null, finalAssistant: null };
+    const assembler = createPiTextAssembler();
+    try {
+      let readFailure = null;
+      try {
+        for await (const record of piRecords(child.stdout)) {
+          notePiRecord(transcript, record);
+          if (opts.onEvent) reportPiEvents(record, opts.onEvent);
+          const text = assembler.push(record);
+          if (text) yield text;
+        }
+      } catch (err) {
+        readFailure = err;
+        if (!ended) child.kill("SIGTERM");
+      }
+      const { code, signal } = await exit;
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      if (spawnFailure) {
+        throw new PiBackendError(`pi failed to start: ${spawnFailure.message}`);
+      }
+      if (timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+      if (readFailure) {
+        throw new PiBackendError(
+          `pi stream error: ${readFailure instanceof Error ? readFailure.message : String(readFailure)}`
+        );
+      }
+      if (signal) throw new PiBackendError(`pi killed by signal ${signal}`);
+      if (code !== 0 && code !== null) throw piExitError(code, transcript.finalAssistant, stderr);
+      piAnswer(transcript, { stderr });
+      if (session) {
+        confirmPiSession(session, transcript.header, stderr, repoCwd);
+        opts.onSessionCreated?.(session.id);
+      }
+    } catch (err) {
+      throw toPiError(err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      if (!ended) child.kill("SIGTERM");
+    }
+  }
+};
+var PI_BACKEND = new PiBackend();
+registerBackend(PI_BACKEND);
 
 // src/cli.ts
 import { existsSync as existsSync13, readFileSync as readFileSync13 } from "fs";
@@ -84846,28 +85541,28 @@ init_version();
 init_installer();
 
 // src/updates.ts
-import { spawn as spawn4 } from "child_process";
+import { spawn as spawn5 } from "child_process";
 import {
-  closeSync as closeSync2,
+  closeSync as closeSync3,
   existsSync as existsSync8,
   fsyncSync as fsyncSync2,
-  mkdirSync as mkdirSync7,
-  openSync as openSync2,
+  mkdirSync as mkdirSync8,
+  openSync as openSync3,
   readFileSync as readFileSync11,
   renameSync as renameSync3,
   unlinkSync as unlinkSync3,
   writeFileSync as writeFileSync6
 } from "fs";
-import { homedir as homedir7 } from "os";
-import { dirname as dirname9, join as join9 } from "path";
+import { homedir as homedir8 } from "os";
+import { dirname as dirname9, join as join10 } from "path";
 var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
 var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 5e3;
 var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
 var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
-function defaultCachePath2(env5 = process.env, home = homedir7()) {
-  const base = env5.XDG_CONFIG_HOME ?? join9(home, ".config");
-  return join9(base, "phone-a-friend", "update-check.json");
+function defaultCachePath2(env5 = process.env, home = homedir8()) {
+  const base = env5.XDG_CONFIG_HOME ?? join10(home, ".config");
+  return join10(base, "phone-a-friend", "update-check.json");
 }
 function emptySnapshot(currentVersion) {
   return {
@@ -84917,16 +85612,16 @@ function rotateCorruptCache(filePath, _reason) {
 }
 function writeSnapshot(filePath, snapshot) {
   const dir = dirname9(filePath);
-  mkdirSync7(dir, { recursive: true });
+  mkdirSync8(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   const payload = JSON.stringify(snapshot, null, 2);
-  const tmpFd = openSync2(tmpPath, "w");
+  const tmpFd = openSync3(tmpPath, "w");
   try {
     try {
       writeFileSync6(tmpFd, payload, "utf-8");
       fsyncSync2(tmpFd);
     } finally {
-      closeSync2(tmpFd);
+      closeSync3(tmpFd);
     }
     renameSync3(tmpPath, filePath);
   } catch (err) {
@@ -84937,11 +85632,11 @@ function writeSnapshot(filePath, snapshot) {
     throw err;
   }
   try {
-    const dirFd = openSync2(dir, "r");
+    const dirFd = openSync3(dir, "r");
     try {
       fsyncSync2(dirFd);
     } finally {
-      closeSync2(dirFd);
+      closeSync3(dirFd);
     }
   } catch {
   }
@@ -85079,7 +85774,7 @@ function kickoffBackgroundRefresh(args) {
   if (!isPafEntryScript(entryScript)) return;
   if (isTestRuntimeEnv(process.env)) return;
   try {
-    const child = spawn4(
+    const child = spawn5(
       process.execPath,
       [entryScript, "__update-check", "refresh"],
       {
@@ -85163,6 +85858,7 @@ function detectMachineFlag(argv) {
 }
 
 // src/doctor.ts
+init_backends();
 function countableBackends(report) {
   return [...report.cli, ...report.local].filter((b) => {
     if (b.planned) return false;
@@ -85267,6 +85963,11 @@ function formatDiagnosticLines(b) {
       const flag = exe.versionMismatch ? ` ${theme.warning("[versions differ]")}` : "";
       lines.push(`${DIAG_INDENT}${theme.hint("also on PATH:")} ${others}${flag}`);
     }
+  }
+  if (b.model?.provider && exe?.selected) {
+    const { requested, requestedSource } = b.model.provider;
+    const shown = requestedSource === "invalid" ? theme.warning(`invalid [backends.${b.name}] provider in PaF config (expected a non-empty string)`) : requested ? `${requested} (from PaF config)` : `${b.name}'s default`;
+    lines.push(`${DIAG_INDENT}${theme.hint("provider:")} ${shown}`);
   }
   if (b.model && (exe?.selected || b.name === "ollama")) {
     const requested = b.model.requested ? `${b.model.requested} (from PaF config)` : "backend default";
@@ -85394,13 +86095,23 @@ function opencodeLineAdvisory(opencode) {
   if (parseOpenCodeMajor(selected.version) !== 2) return null;
   return `OpenCode 2.x (${selected.version}) detected at ${selected.path}. PaF adapts its arguments to this line; --fast and backends.opencode.pure have no effect on 2.x (no --pure), and the published docs at opencode.ai/docs describe 1.x. See opencode.ai/v2/docs for 2.x.`;
 }
+function piVersionAdvisory(pi) {
+  const selected = pi.executable?.selected;
+  if (!selected?.version || !/^\d+\.\d+\.\d+/.test(selected.version)) return null;
+  if (isSupportedPiVersion(selected.version)) return null;
+  return `pi ${selected.version} at ${selected.path} is older than ${PI_MIN_VERSION}, the oldest release phone-a-friend supports. Relays with --to pi will be refused. Upgrade: ${INSTALL_HINTS.pi}`;
+}
 async function collectAdvisories(report) {
-  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
-  if (!opencode) return [];
   const out = [];
-  const lineAdvisory = opencodeLineAdvisory(opencode);
-  if (lineAdvisory) out.push(lineAdvisory);
-  out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
+  if (opencode) {
+    const lineAdvisory = opencodeLineAdvisory(opencode);
+    if (lineAdvisory) out.push(lineAdvisory);
+    out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  }
+  const pi = report.cli.find((b) => b.name === "pi" && b.available);
+  const piAdvisory = pi ? piVersionAdvisory(pi) : null;
+  if (piAdvisory) out.push(piAdvisory);
   return out;
 }
 function collectOllamaAdvisories(version) {
@@ -85630,7 +86341,7 @@ function beginTrackedRun(input) {
 init_tasks();
 
 // src/status-line.ts
-import { realpathSync as realpathSync3 } from "fs";
+import { realpathSync as realpathSync4 } from "fs";
 import { sep as sep2 } from "path";
 var STATUS_LINE_PREFIX = "\u25C7";
 var DEFAULT_RECENT_MINUTES = 2;
@@ -85671,7 +86382,7 @@ function truncateDetail(text, max = MAX_DETAIL_CHARS) {
 function taskMatchesCwd(task, cwd2) {
   const candidates = /* @__PURE__ */ new Set([cwd2]);
   try {
-    candidates.add(realpathSync3(cwd2));
+    candidates.add(realpathSync4(cwd2));
   } catch {
   }
   const root = task.repoPath.endsWith(sep2) ? task.repoPath : task.repoPath + sep2;
@@ -86075,11 +86786,11 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option(
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi").option("--repo <path>", "Repository path", process.cwd()).option(
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {

@@ -536,6 +536,33 @@ describe('CLI', () => {
     expect(opts.backend).toBe('gemini');
   });
 
+  it('relay dispatches to pi when --to pi, with a session label', async () => {
+    await run(['relay', '--to', 'pi', '--prompt', 'Review', '--repo', tmpDir, '--session', 'local-review', '--fast']);
+    const opts = mockRelay.mock.calls[0][0];
+    expect(opts.backend).toBe('pi');
+    expect(opts.session).toBe('local-review');
+    expect(opts.fast).toBe(true);
+  });
+
+  it('rejects --peer-messaging for pi', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['relay', '--to', 'pi', '--repo', tmpDir, '--prompt', 'Review', '--peer-messaging', 'accept']);
+    });
+    expect(result).toBe(1);
+    expect(stderr).toContain('--peer-messaging is only supported by the Claude backend');
+    expect(mockRelay).not.toHaveBeenCalled();
+  });
+
+  it('lists pi in the relay help and says what --fast does for it', async () => {
+    const help = await captureOutputAsync(async () => {
+      const code = await run(['relay', '--help']);
+      expect(code).toBe(0);
+    });
+    const text = help.stdout.replace(/\s+/g, ' ');
+    expect(text).toContain('Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi');
+    expect(text).toMatch(/--fast .*-nc -ns for pi/);
+  });
+
   it('relay dispatches to antigravity when --to antigravity', async () => {
     await run(['relay', '--to', 'antigravity', '--prompt', 'Review', '--repo', tmpDir]);
     const opts = mockRelay.mock.calls[0][0];

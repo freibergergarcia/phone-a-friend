@@ -38,6 +38,7 @@ function registerMockBackends(): void {
   reg('codex', 'native-session', false);
   reg('gemini', 'native-session', true);
   reg('opencode', 'native-session', false);
+  reg('pi', 'native-session', true);
   reg('ollama', 'transcript-replay', false, false);
   reg('antigravity', 'unsupported', false);
 }
@@ -265,7 +266,7 @@ describe('SessionManager', () => {
       // Regression: these declare native-session like Claude. Before the guard,
       // spawn() picked the Claude path from the strategy alone and launched
       // `claude` for a Codex/Gemini/OpenCode request.
-      describe.each(['codex', 'gemini', 'opencode'])('%s (native-session)', (backend) => {
+      describe.each(['codex', 'gemini', 'opencode', 'pi'])('%s (native-session)', (backend) => {
         it('rejects explicitly, naming the backend, and never spawns a claude subprocess', async () => {
           spawnMock.mockReturnValue(makeChild('should never run'));
           const promise = sm.spawn(makeAgent({ name: 'x', backend }), 'system', 'hello', '/repo');
@@ -395,7 +396,7 @@ describe('SessionManager', () => {
         spawnMock.mockReset();
       });
 
-      it.each(['codex', 'gemini', 'opencode'])(
+      it.each(['codex', 'gemini', 'opencode', 'pi'])(
         'refuses to resume a %s session through the Claude path and leaves history untouched',
         async (backend) => {
           const info = sm.getSession('reviewer')!;
@@ -425,7 +426,7 @@ describe('SessionManager', () => {
       expect(() => assertAgenticBackendSupported('claude')).not.toThrow();
     });
 
-    it.each(['codex', 'gemini', 'opencode'])('rejects %s (native-session, no adapter)', (backend) => {
+    it.each(['codex', 'gemini', 'opencode', 'pi'])('rejects %s (native-session, no adapter)', (backend) => {
       expect(() => assertAgenticBackendSupported(backend)).toThrow(AgenticBackendError);
     });
 

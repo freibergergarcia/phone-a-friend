@@ -16,7 +16,7 @@ describe('detection', () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectCliBackends(whichFn);
 
-      expect(results).toHaveLength(4);
+      expect(results.map(b => b.name)).toEqual(['antigravity', 'codex', 'gemini', 'opencode', 'pi']);
       const antigravity = results.find(b => b.name === 'antigravity');
       const codex = results.find(b => b.name === 'codex');
       const gemini = results.find(b => b.name === 'gemini');
@@ -39,6 +39,22 @@ describe('detection', () => {
       expect(opencode!.available).toBe(true);
       expect(opencode!.category).toBe('cli');
       expect(gemini!.category).toBe('cli');
+
+      const pi = results.find(b => b.name === 'pi');
+      expect(pi).toBeDefined();
+      expect(pi!.available).toBe(true);
+      expect(pi!.category).toBe('cli');
+      expect(pi!.detail).toBe('Pi coding agent (pi found in PATH)');
+      expect(whichFn).toHaveBeenCalledWith('pi');
+    });
+
+    it('treats pi as optional, so a machine without it has no failing doctor check', async () => {
+      const results = await detection.detectCliBackends(vi.fn(() => false));
+      const pi = results.find(b => b.name === 'pi');
+      expect(pi!.available).toBe(false);
+      expect(pi!.optional).toBe(true);
+      expect(pi!.detail).toBe('pi not found in PATH');
+      expect(pi!.installHint).toBe('npm install -g @earendil-works/pi-coding-agent');
     });
 
     it('marks missing binaries as unavailable with install hints', async () => {

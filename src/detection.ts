@@ -2,7 +2,7 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (antigravity/codex/gemini/opencode), Local (ollama), plus
+ * backends: CLI (antigravity/codex/gemini/opencode/pi), Local (ollama), plus
  * host integrations (claude/opencode/codex).
  */
 
@@ -69,6 +69,8 @@ const CLI_BACKENDS: { name: string; command?: string; installHint: string; label
   // exit with code 1 just because OpenCode is absent. Mark it optional so
   // doctor counts/exit-code only include OpenCode when it is present.
   { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI', optional: true },
+  // Optional for the same reason: most users do not have pi installed.
+  { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent', optional: true },
 ];
 
 const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';

@@ -82,6 +82,15 @@ export interface ModelDiagnostics {
    */
   reported: null;
   reportedNote: string;
+  /**
+   * Provider PaF will pass with the model. Present only for backends that
+   * take one as a separate flag (pi). `invalid` means the configured value
+   * is not a non-empty string, which the backend refuses at relay time.
+   */
+  provider?: {
+    requested: string | null;
+    requestedSource: 'paf-config' | 'backend-default' | 'invalid';
+  };
 }
 
 export interface CapabilityDiagnostics {
@@ -388,6 +397,14 @@ export async function inspectExecutables(
   }
 }
 
+/** `[backends.pi] provider` as the pi backend will read it; only PaF's own config is consulted. */
+function configuredPiProvider(config: PafConfig): NonNullable<ModelDiagnostics['provider']> {
+  const raw = config.backends?.pi?.provider;
+  if (raw === undefined) return { requested: null, requestedSource: 'backend-default' };
+  if (typeof raw !== 'string' || !raw.trim()) return { requested: null, requestedSource: 'invalid' };
+  return { requested: raw.trim(), requestedSource: 'paf-config' };
+}
+
 /**
  * Attach requested-model and declared-capability facts from PaF's own config
  * and backend registry. No backend is run, so the reported model stays null.
@@ -405,6 +422,7 @@ export function attachModelAndCapabilities(report: DetectionReport, config: PafC
       reported: null,
       reportedNote: 'Unknown: doctor does not run backends. Only a real relay reveals the model actually used.',
     };
+    if (b.name === 'pi') b.model.provider = configuredPiProvider(config);
 
     try {
       const backend = getBackend(b.name);
