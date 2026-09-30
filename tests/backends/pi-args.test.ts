@@ -95,6 +95,81 @@ describe('buildPiArgs()', () => {
     ]);
   });
 
+  describe('exact vectors', () => {
+    const MODEL = 'mlx-community/Qwen3.5-9B-MLX-4bit';
+    const session = { dir: SESSION_DIR, id: SESSION_ID };
+    const RO = 'read,grep,find,ls';
+    const WW = 'read,grep,find,ls,edit,write';
+    const FULL = 'read,grep,find,ls,edit,write,bash';
+    const HEAD = ['--mode', 'json', '--no-approve'];
+    const NO_SESSION = ['--no-session'];
+    const SESSION = ['--session-dir', SESSION_DIR, '--session-id', SESSION_ID];
+    const LOCKS = ['-ne', '-np', '--no-themes'];
+    const TAIL = ['--', 'Review this code'];
+
+    const cases: Array<[string, Partial<PiArgsOptions>, string[]]> = [
+      ['read-only', {}, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', RO, ...TAIL]],
+      ['workspace-write', { sandbox: 'workspace-write' }, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', WW, ...TAIL]],
+      ['danger-full-access', { sandbox: 'danger-full-access' }, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', FULL, ...TAIL]],
+      ['read-only + model', { model: MODEL }, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', RO, '--model', MODEL, ...TAIL]],
+      ['read-only + provider', { provider: 'mlx' }, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', RO, '--provider', 'mlx', ...TAIL]],
+      [
+        'read-only + provider + model',
+        { provider: 'mlx', model: MODEL },
+        [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', RO, '--provider', 'mlx', '--model', MODEL, ...TAIL],
+      ],
+      ['read-only + fast', { fast: true }, [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', RO, '-nc', '-ns', ...TAIL]],
+      [
+        'workspace-write + provider + model + fast',
+        { sandbox: 'workspace-write', provider: 'mlx', model: MODEL, fast: true },
+        [...HEAD, ...NO_SESSION, ...LOCKS, '--tools', WW, '--provider', 'mlx', '--model', MODEL, '-nc', '-ns', ...TAIL],
+      ],
+      [
+        'danger-full-access + session + model + fast',
+        { sandbox: 'danger-full-access', session, model: MODEL, fast: true },
+        [...HEAD, ...SESSION, ...LOCKS, '--tools', FULL, '--model', MODEL, '-nc', '-ns', ...TAIL],
+      ],
+      [
+        'workspace-write + session + provider + model',
+        { sandbox: 'workspace-write', session, provider: 'mlx', model: MODEL },
+        [...HEAD, ...SESSION, ...LOCKS, '--tools', WW, '--provider', 'mlx', '--model', MODEL, ...TAIL],
+      ],
+      [
+        'read-only + session + provider + fast',
+        { session, provider: 'mlx', fast: true },
+        [...HEAD, ...SESSION, ...LOCKS, '--tools', RO, '--provider', 'mlx', '-nc', '-ns', ...TAIL],
+      ],
+    ];
+
+    it.each(cases)('%s', (_name, overrides, expected) => {
+      expect(buildPiArgs(opts(overrides))).toEqual(expected);
+    });
+
+    it('holds the same shape for every combination of options', () => {
+      const tools: Record<SandboxMode, string> = { 'read-only': RO, 'workspace-write': WW, 'danger-full-access': FULL };
+      for (const sandbox of Object.keys(tools) as SandboxMode[]) {
+        for (const withSession of [false, true]) {
+          for (const provider of [null, 'mlx']) {
+            for (const model of [null, MODEL]) {
+              for (const fast of [false, true]) {
+                expect(buildPiArgs(opts({ sandbox, session: withSession ? session : null, provider, model, fast }))).toEqual([
+                  ...HEAD,
+                  ...(withSession ? SESSION : NO_SESSION),
+                  ...LOCKS,
+                  '--tools', tools[sandbox],
+                  ...(provider ? ['--provider', provider] : []),
+                  ...(model ? ['--model', model] : []),
+                  ...(fast ? ['-nc', '-ns'] : []),
+                  ...TAIL,
+                ]);
+              }
+            }
+          }
+        }
+      }
+    });
+  });
+
   it('rejects a session id that pi would refuse', () => {
     for (const id of ['', '-leading', 'trailing-', 'has space', 'a/b', '../up']) {
       expect(() => buildPiArgs(opts({ session: { dir: SESSION_DIR, id } }))).toThrow(PiBackendError);

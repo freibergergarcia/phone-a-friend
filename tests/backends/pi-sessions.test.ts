@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import type { SandboxMode } from '../../src/backends/index.js';
 
 const { mockExecFile, mockSpawn } = vi.hoisted(() => ({
@@ -24,7 +24,14 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, execFile: mockExecFile, spawn: mockSpawn };
 });
 
-import { PI_BACKEND, PiBackendError, _resetPiVersionCache, piSessionDir } from '../../src/backends/pi.js';
+import {
+  PI_BACKEND,
+  PiBackendError,
+  _resetPiVersionCache,
+  findPiSessionFiles,
+  piSessionDir,
+  resolvePiStoredPath,
+} from '../../src/backends/pi.js';
 import { pafConfigDir } from '../../src/config.js';
 import { relay } from '../../src/relay.js';
 import { SessionStore } from '../../src/sessions.js';
@@ -379,6 +386,57 @@ describe('pi backend sessions', () => {
         mockSpawn.mockReturnValue(mockChild(noHeader));
         await expect(PI_BACKEND.run(resume())).rejects.toThrow(/session header/);
       });
+    });
+  });
+
+  describe('Windows path forms', () => {
+    // Expected values are what pi 0.87.1's own normalizePath returns with the
+    // platform set to win32, followed by path.win32.resolve.
+    const base = 'C:\\work\\repo';
+    const onWindows = (stored: string): string => resolvePiStoredPath(stored, base, 'win32');
+
+    it('reads Git Bash, MSYS, Cygwin and WSL drive paths as pi does', () => {
+      expect(onWindows('/c/work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('/C/work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('/mnt/c/work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('/cygdrive/c/work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('/c/work/../work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('/d')).toBe('D:\\');
+      expect(onWindows('/mnt/d')).toBe('D:\\');
+    });
+
+    it('resolves native, relative and tilde forms', () => {
+      expect(onWindows('C:\\work\\repo')).toBe('C:\\work\\repo');
+      expect(onWindows('C:/work/repo')).toBe('C:\\work\\repo');
+      expect(onWindows('.')).toBe('C:\\work\\repo');
+      expect(onWindows('~\\repo')).toBe(win32.resolve(win32.join(homedir(), 'repo')));
+      expect(onWindows('~/repo')).toBe(win32.resolve(win32.join(homedir(), 'repo')));
+    });
+
+    it('leaves paths that are not drive paths alone', () => {
+      expect(onWindows('//server/share/x')).toBe('\\\\server\\share\\x');
+      expect(onWindows('/c\\mixed')).not.toBe('C:\\mixed');
+      expect(onWindows('/cc/repo')).not.toMatch(/^C:\\repo/);
+      expect(onWindows('/mnt/cc/x')).not.toMatch(/^C:\\/);
+    });
+
+    it('rewrites nothing on POSIX', () => {
+      expect(resolvePiStoredPath('/c/work/repo', '/c/work/repo', 'linux')).toBe('/c/work/repo');
+      expect(resolvePiStoredPath('/mnt/c/work/repo', '/c/work/repo', 'darwin')).toBe('/mnt/c/work/repo');
+      expect(resolvePiStoredPath('~\\repo', '/c/work/repo', 'linux')).toBe('/c/work/repo/~\\repo');
+    });
+
+    it('counts every spelling of one Windows directory, so a duplicate is caught before spawning', () => {
+      // On Windows pi matches both files and opens whichever comes first in
+      // directory order. Counting only the native spelling would see one.
+      writeSession(`a_${ID}.jsonl`, [headerLine({ id: ID, timestamp: TS, cwd: 'C:\\work\\repo' })]);
+      writeSession(`b_${ID}.jsonl`, [headerLine({ id: ID, timestamp: '2026-09-30T08:00:00.000Z', cwd: '/c/work/repo' })]);
+      writeSession(`c_${ID}.jsonl`, [headerLine({ id: ID, timestamp: '2026-09-30T09:00:00.000Z', cwd: '/mnt/c/work/repo' })]);
+      writeSession(`d_${ID}.jsonl`, [headerLine({ id: ID, timestamp: '2026-09-30T10:00:00.000Z', cwd: '/c/work/other' })]);
+      const matches = findPiSessionFiles(sessions, ID, 'C:\\work\\repo', 'win32');
+      expect(matches.map((header) => header.cwd).sort()).toEqual(['/c/work/repo', '/mnt/c/work/repo', 'C:\\work\\repo']);
+      // The same files from a POSIX repo at /c/work/repo are one session.
+      expect(findPiSessionFiles(sessions, ID, '/c/work/repo', 'linux')).toHaveLength(1);
     });
   });
 

@@ -20,7 +20,7 @@
 
 import { closeSync, mkdirSync, openSync, readdirSync, readSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter as pathDelimiter, isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { delimiter as pathDelimiter, join, posix, resolve as resolvePath, win32 } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 import {
@@ -505,21 +505,43 @@ function readPiSessionFileHeader(filePath: string): Record<string, unknown> | nu
 }
 
 /**
- * pi's `resolvePath` for a stored cwd on POSIX: `~` expansion, `file://` URLs,
- * then lexical resolution against pi's working directory, which is the repo.
- * (pi also rewrites Windows shell paths; PaF does not mirror that.) Throws
- * where pi would, e.g. a `file://` URL with a host.
+ * pi's `normalizeWindowsShellPath`: on Windows a Git Bash, MSYS, Cygwin or
+ * WSL drive path (`/c/x`, `/mnt/c/x`, `/cygdrive/c/x`) names the same
+ * directory as `C:\x`.
  */
-function resolvePiStoredPath(stored: string, baseDir: string): string {
-  let normalized = stored;
+function normalizeWindowsShellPath(filePath: string): string {
+  if (!filePath.startsWith('/') || filePath.startsWith('//') || filePath.includes('\\')) return filePath;
+  const match = filePath.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+  if (!match) return filePath;
+  const suffix = match[2]?.replaceAll('/', '\\');
+  return `${match[1].toUpperCase()}:\\${suffix ?? ''}`;
+}
+
+/**
+ * pi's `resolvePath` for a stored cwd: Windows shell paths rewritten (on
+ * Windows only), `~` expansion, `file://` URLs, then lexical resolution
+ * against pi's working directory, which is the repo. Throws where pi would,
+ * e.g. a `file://` URL with a host. Every spelling pi accepts for one
+ * directory has to resolve to the same string here, or the duplicate count
+ * in `findPiSessionFiles` would come out lower than pi's. `platform` is a
+ * parameter so the Windows rules are testable on any host.
+ */
+export function resolvePiStoredPath(
+  stored: string,
+  baseDir: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const windows = platform === 'win32';
+  const path = windows ? win32 : posix;
+  let normalized = windows ? normalizeWindowsShellPath(stored) : stored;
   if (normalized === '~') {
     normalized = homedir();
-  } else if (normalized.startsWith('~/')) {
-    normalized = join(homedir(), normalized.slice(2));
+  } else if (normalized.startsWith('~/') || (windows && normalized.startsWith('~\\'))) {
+    normalized = path.join(homedir(), normalized.slice(2));
   } else if (/^file:\/\//.test(normalized)) {
-    normalized = fileURLToPath(normalized);
+    normalized = fileURLToPath(normalized, { windows });
   }
-  return isAbsolute(normalized) ? resolvePath(normalized) : resolvePath(baseDir, normalized);
+  return path.isAbsolute(normalized) ? path.resolve(normalized) : path.resolve(baseDir, normalized);
 }
 
 function toHeader(record: Record<string, unknown>): PiSessionHeader {
@@ -537,7 +559,12 @@ function toHeader(record: Record<string, unknown>): PiSessionHeader {
  * directory). pi takes the first match in directory order; the caller
  * requires exactly one. A missing or unreadable directory yields none.
  */
-function findPiSessionFiles(dir: string, id: string, repoCwd: string): PiSessionHeader[] {
+export function findPiSessionFiles(
+  dir: string,
+  id: string,
+  repoCwd: string,
+  platform: NodeJS.Platform = process.platform,
+): PiSessionHeader[] {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -561,7 +588,7 @@ function findPiSessionFiles(dir: string, id: string, repoCwd: string): PiSession
     if (typeof cwd !== 'string' || cwd === '') continue;
     let resolved: string;
     try {
-      resolved = resolvePiStoredPath(cwd, repoCwd);
+      resolved = resolvePiStoredPath(cwd, repoCwd, platform);
     } catch {
       // pi's scan aborts on this error and then creates a new session.
       throw new PiBackendError(
