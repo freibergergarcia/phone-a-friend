@@ -1608,6 +1608,12 @@ describe('pi host integration', () => {
       ['a git source', ['git:github.com/freibergergarcia/phone-a-friend@v4.11.0']],
       ['a git source over ssh', ['git:git@github.com:freibergergarcia/phone-a-friend.git']],
       ['a repository URL', ['https://github.com/freibergergarcia/phone-a-friend']],
+      // Spellings pi's parseGitUrl resolves to the same host and path (checked against pi 0.99.1).
+      ['a URL with a port', ['https://github.com:443/freibergergarcia/phone-a-friend']],
+      ['a www URL', ['https://www.github.com/freibergergarcia/phone-a-friend']],
+      ['a tree URL', ['https://github.com/freibergergarcia/phone-a-friend/tree/main']],
+      ['a URL with credentials', ['https://user:token@github.com/freibergergarcia/phone-a-friend.git']],
+      ['an ssh URL', ['ssh://git@github.com/freibergergarcia/phone-a-friend']],
       ['the object form', [{ source: 'npm:@freibergergarcia/phone-a-friend', extensions: [] }]],
       ['an npm spec with padding after the prefix, which pi trims', ['npm:  @freibergergarcia/phone-a-friend ']],
     ])('is true for a PaF pi package declared as %s', (_label, packages) => {
@@ -1624,6 +1630,9 @@ describe('pi host integration', () => {
       ['a look-alike host', { packages: ['https://notgithub.com/freibergergarcia/phone-a-friend'] }],
       ['a look-alike repository', { packages: ['https://github.com/someone/freibergergarcia/phone-a-friend'] }],
       ['a fork under another owner', { packages: ['git:github.com/other/phone-a-friend'] }],
+      ['a longer repository name', { packages: ['https://github.com/freibergergarcia/phone-a-friend-extras'] }],
+      ['PaF as a path segment of another repository', { packages: ['https://github.com/other/repo/tree/freibergergarcia/phone-a-friend'] }],
+      ['a git source that is not a URL', { packages: ['git:'] }],
       ['a local path that does not exist', { packages: ['../nowhere/phone-a-friend'] }],
       // pi dispatches on the untrimmed, case-sensitive prefix: these are local paths to pi.
       ['a padded npm prefix', { packages: [' npm:@freibergergarcia/phone-a-friend'] }],

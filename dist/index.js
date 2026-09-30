@@ -4453,6 +4453,21 @@ import {
 } from "fs";
 import { resolve as resolve3, join as join9, dirname as dirname8, isAbsolute, sep } from "path";
 import { homedir as homedir7 } from "os";
+function isPafGitSource(url) {
+  const scp = /^[^@/\s:]+@([^:/\s]+):(.+)$/.exec(url);
+  const candidate = scp ? `ssh://${scp[1]}/${scp[2]}` : /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return false;
+  }
+  if (parsed.hostname.toLowerCase().replace(/^www\./, "") !== "github.com") return false;
+  const [owner, repo] = parsed.pathname.split("/").filter(Boolean);
+  if (!owner || !repo) return false;
+  const name = repo.replace(/@.*$/, "").replace(/\.git$/i, "");
+  return `${owner}/${name}`.toLowerCase() === GITHUB_REPO;
+}
 function ensureParent(filePath) {
   mkdirSync7(dirname8(filePath), { recursive: true });
 }
@@ -4748,7 +4763,7 @@ function isPafPiPackageSource(source, agentDir) {
   if (!isLocalPath) {
     const hasGitPrefix = trimmed.startsWith("git:");
     const url = hasGitPrefix ? trimmed.slice("git:".length).trim() : trimmed;
-    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return PI_GIT_SOURCE.test(url);
+    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return isPafGitSource(url);
   }
   try {
     return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
@@ -5206,7 +5221,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_GIT_SOURCE, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -5222,7 +5237,6 @@ var init_installer = __esm({
     CODEX_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
     PI_SKILLS = ["phone-a-friend", "curiosity-engine"];
     PAF_NPM_NAME = "@freibergergarcia/phone-a-friend";
-    PI_GIT_SOURCE = /^(?:(?:https?|ssh|git):\/\/)?(?:[^@/\s]+@)?github\.com[/:]freibergergarcia\/phone-a-friend(?:\.git)?\/?(?:[@#].+)?$/i;
     PI_INSTALL_MARKER = ".phone-a-friend-install";
     CODEX_MARKETPLACE_NAME = "phone-a-friend-marketplace";
     OPENCODE_LEGACY_SKILLS = ["phone-a-team"];

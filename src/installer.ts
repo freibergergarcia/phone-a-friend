@@ -69,9 +69,28 @@ const PI_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
 
 const PAF_NPM_NAME = '@freibergergarcia/phone-a-friend';
 
-/** PaF's repository as a pi git source, after any `git:` prefix: host and path anchored, optional ref. */
-const PI_GIT_SOURCE =
-  /^(?:(?:https?|ssh|git):\/\/)?(?:[^@/\s]+@)?github\.com[/:]freibergergarcia\/phone-a-friend(?:\.git)?\/?(?:[@#].+)?$/i;
+/**
+ * True when a pi git source (after any `git:` prefix) is PaF's repository.
+ * pi parses these with hosted-git-info, so the comparison is on the parsed
+ * host and `owner/repo`, not on the spelling: a port, `www.`, credentials,
+ * a trailing `.git`, an `@ref` or a `/tree/<ref>` tail all name the same
+ * repository.
+ */
+function isPafGitSource(url: string): boolean {
+  const scp = /^[^@/\s:]+@([^:/\s]+):(.+)$/.exec(url);
+  const candidate = scp ? `ssh://${scp[1]}/${scp[2]}` : /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return false;
+  }
+  if (parsed.hostname.toLowerCase().replace(/^www\./, '') !== 'github.com') return false;
+  const [owner, repo] = parsed.pathname.split('/').filter(Boolean);
+  if (!owner || !repo) return false;
+  const name = repo.replace(/@.*$/, '').replace(/\.git$/i, '');
+  return `${owner}/${name}`.toLowerCase() === GITHUB_REPO;
+}
 
 /**
  * Written into a copied pi skill so uninstall can tell PaF's copy from a
@@ -576,7 +595,7 @@ function isPafPiPackageSource(source: string, agentDir: string): boolean {
   if (!isLocalPath) {
     const hasGitPrefix = trimmed.startsWith('git:');
     const url = hasGitPrefix ? trimmed.slice('git:'.length).trim() : trimmed;
-    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return PI_GIT_SOURCE.test(url);
+    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return isPafGitSource(url);
   }
   try {
     return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
