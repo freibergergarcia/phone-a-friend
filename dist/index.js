@@ -4453,21 +4453,6 @@ import {
 } from "fs";
 import { resolve as resolve3, join as join9, dirname as dirname8, isAbsolute, sep } from "path";
 import { homedir as homedir7 } from "os";
-function isPafGitSource(url) {
-  const scp = /^[^@/\s:]+@([^:/\s]+):(.+)$/.exec(url);
-  const candidate = scp ? `ssh://${scp[1]}/${scp[2]}` : /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
-  let parsed;
-  try {
-    parsed = new URL(candidate);
-  } catch {
-    return false;
-  }
-  if (parsed.hostname.toLowerCase().replace(/^www\./, "") !== "github.com") return false;
-  const [owner, repo] = parsed.pathname.split("/").filter(Boolean);
-  if (!owner || !repo) return false;
-  const name = repo.replace(/@.*$/, "").replace(/\.git$/i, "");
-  return `${owner}/${name}`.toLowerCase() === GITHUB_REPO;
-}
 function ensureParent(filePath) {
   mkdirSync7(dirname8(filePath), { recursive: true });
 }
@@ -4759,12 +4744,7 @@ function isPafPiPackageSource(source, agentDir) {
     return (match?.[1] ?? spec) === PAF_NPM_NAME;
   }
   const trimmed = source.trim();
-  const isLocalPath = !["npm:", "git:", "github:", "http:", "https:", "ssh:", "builtin:"].some((prefix) => trimmed.startsWith(prefix));
-  if (!isLocalPath) {
-    const hasGitPrefix = trimmed.startsWith("git:");
-    const url = hasGitPrefix ? trimmed.slice("git:".length).trim() : trimmed;
-    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return isPafGitSource(url);
-  }
+  if (trimmed.startsWith("git:") || /^(?:https?|ssh|git):\/\//i.test(trimmed)) return false;
   try {
     return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
   } catch {

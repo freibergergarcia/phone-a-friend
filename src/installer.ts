@@ -70,29 +70,6 @@ const PI_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
 const PAF_NPM_NAME = '@freibergergarcia/phone-a-friend';
 
 /**
- * True when a pi git source (after any `git:` prefix) is PaF's repository.
- * pi parses these with hosted-git-info, so the comparison is on the parsed
- * host and `owner/repo`, not on the spelling: a port, `www.`, credentials,
- * a trailing `.git`, an `@ref` or a `/tree/<ref>` tail all name the same
- * repository.
- */
-function isPafGitSource(url: string): boolean {
-  const scp = /^[^@/\s:]+@([^:/\s]+):(.+)$/.exec(url);
-  const candidate = scp ? `ssh://${scp[1]}/${scp[2]}` : /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
-  let parsed: URL;
-  try {
-    parsed = new URL(candidate);
-  } catch {
-    return false;
-  }
-  if (parsed.hostname.toLowerCase().replace(/^www\./, '') !== 'github.com') return false;
-  const [owner, repo] = parsed.pathname.split('/').filter(Boolean);
-  if (!owner || !repo) return false;
-  const name = repo.replace(/@.*$/, '').replace(/\.git$/i, '');
-  return `${owner}/${name}`.toLowerCase() === GITHUB_REPO;
-}
-
-/**
  * Written into a copied pi skill so uninstall can tell PaF's copy from a
  * skill the user wrote under the same name. Symlinks need no marker: their
  * target says who owns them.
@@ -576,12 +553,15 @@ function isPafPackageDir(dir: string): boolean {
 }
 
 /**
- * True when `source` names PaF, dispatched exactly as pi's `parseSource`
- * does, because a source pi reads differently loads something else:
- * an untrimmed `npm:` prefix first (name split by pi's spec pattern); then
- * pi's `isLocalPath`, whose prefix list is case-sensitive; then a git URL
- * (`git:` prefix or a protocol); otherwise a local path. Local paths are
- * trimmed and resolved from the directory of the settings file.
+ * True when `source` is PaF as an npm or a local pi package, dispatched in
+ * the order pi's `parseSource` uses: an untrimmed `npm:` prefix first (name
+ * split by pi's spec pattern), then git, otherwise a local path, trimmed
+ * and resolved from the directory of the settings file.
+ *
+ * Git sources never count. pi resolves them with hosted-git-info, and an
+ * imitation of that parser here was wrong in a new way on every review
+ * pass. The status therefore does not see a PaF package installed from git;
+ * that is documented, and errs towards "not installed".
  */
 function isPafPiPackageSource(source: string, agentDir: string): boolean {
   if (source.startsWith('npm:')) {
@@ -590,13 +570,7 @@ function isPafPiPackageSource(source: string, agentDir: string): boolean {
     return (match?.[1] ?? spec) === PAF_NPM_NAME;
   }
   const trimmed = source.trim();
-  const isLocalPath = !['npm:', 'git:', 'github:', 'http:', 'https:', 'ssh:', 'builtin:']
-    .some((prefix) => trimmed.startsWith(prefix));
-  if (!isLocalPath) {
-    const hasGitPrefix = trimmed.startsWith('git:');
-    const url = hasGitPrefix ? trimmed.slice('git:'.length).trim() : trimmed;
-    if (hasGitPrefix || /^(?:https?|ssh|git):\/\//i.test(url)) return isPafGitSource(url);
-  }
+  if (trimmed.startsWith('git:') || /^(?:https?|ssh|git):\/\//i.test(trimmed)) return false;
   try {
     return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
   } catch {

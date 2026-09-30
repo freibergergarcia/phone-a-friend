@@ -1605,15 +1605,6 @@ describe('pi host integration', () => {
     it.each([
       ['an npm source', ['npm:@freibergergarcia/phone-a-friend']],
       ['a pinned npm source', ['npm:@freibergergarcia/phone-a-friend@4.11.0']],
-      ['a git source', ['git:github.com/freibergergarcia/phone-a-friend@v4.11.0']],
-      ['a git source over ssh', ['git:git@github.com:freibergergarcia/phone-a-friend.git']],
-      ['a repository URL', ['https://github.com/freibergergarcia/phone-a-friend']],
-      // Spellings pi's parseGitUrl resolves to the same host and path (checked against pi 0.99.1).
-      ['a URL with a port', ['https://github.com:443/freibergergarcia/phone-a-friend']],
-      ['a www URL', ['https://www.github.com/freibergergarcia/phone-a-friend']],
-      ['a tree URL', ['https://github.com/freibergergarcia/phone-a-friend/tree/main']],
-      ['a URL with credentials', ['https://user:token@github.com/freibergergarcia/phone-a-friend.git']],
-      ['an ssh URL', ['ssh://git@github.com/freibergergarcia/phone-a-friend']],
       ['the object form', [{ source: 'npm:@freibergergarcia/phone-a-friend', extensions: [] }]],
       ['an npm spec with padding after the prefix, which pi trims', ['npm:  @freibergergarcia/phone-a-friend ']],
     ])('is true for a PaF pi package declared as %s', (_label, packages) => {
@@ -1622,17 +1613,30 @@ describe('pi host integration', () => {
       expect(isPiInstalled(piHome)).toBe(true);
     });
 
+    // pi resolves git sources with hosted-git-info. PaF does not imitate that
+    // parser: a git-source package is a documented blind spot of the status,
+    // never a guess.
+    it.each([
+      'git:github.com/freibergergarcia/phone-a-friend@v4.11.0',
+      'git:git@github.com:freibergergarcia/phone-a-friend.git',
+      'git:github.com:freibergergarcia/phone-a-friend',
+      'https://github.com/freibergergarcia/phone-a-friend',
+      'https://github.com:443/freibergergarcia/phone-a-friend',
+      'https://github.com/freibergergarcia/phone-a-friend/tree/main',
+      'ssh://git@github.com/freibergergarcia/phone-a-friend',
+      'git:github.com/freibergergarcia/phone-a-friend/extra',
+      'git:github.com/freibergergarcia/phone-a-friend@',
+    ])('does not count the git source %s', (source) => {
+      writeSettings({ packages: [source] });
+
+      expect(isPiInstalled(piHome)).toBe(false);
+    });
+
     it.each([
       ['another package', { packages: ['npm:@example/pi-tools', 'npm:@freibergergarcia/phone-a-friend-extras'] }],
       ['the object form with skills switched off', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', skills: [] }] }],
       ['a skills filter PaF does not evaluate', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', skills: ['!**'] }] }],
       ['autoload switched off', { packages: [{ source: 'npm:@freibergergarcia/phone-a-friend', autoload: false }] }],
-      ['a look-alike host', { packages: ['https://notgithub.com/freibergergarcia/phone-a-friend'] }],
-      ['a look-alike repository', { packages: ['https://github.com/someone/freibergergarcia/phone-a-friend'] }],
-      ['a fork under another owner', { packages: ['git:github.com/other/phone-a-friend'] }],
-      ['a longer repository name', { packages: ['https://github.com/freibergergarcia/phone-a-friend-extras'] }],
-      ['PaF as a path segment of another repository', { packages: ['https://github.com/other/repo/tree/freibergergarcia/phone-a-friend'] }],
-      ['a git source that is not a URL', { packages: ['git:'] }],
       ['a local path that does not exist', { packages: ['../nowhere/phone-a-friend'] }],
       // pi dispatches on the untrimmed, case-sensitive prefix: these are local paths to pi.
       ['a padded npm prefix', { packages: [' npm:@freibergergarcia/phone-a-friend'] }],
