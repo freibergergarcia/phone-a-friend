@@ -98,3 +98,144 @@ export function buildPiArgs(opts: PiArgsOptions): string[] {
   args.push('--', opts.prompt.startsWith('@') ? `\n${opts.prompt}` : opts.prompt);
   return args;
 }
+
+// ---------------------------------------------------------------------------
+// Output parsing
+// ---------------------------------------------------------------------------
+
+/** The `session` record pi writes first in JSON mode and as line one of a session file. */
+export interface PiSessionHeader {
+  id: string;
+  cwd: string | null;
+  timestamp: string | null;
+}
+
+export interface PiTranscript {
+  header: PiSessionHeader | null;
+  /** The `message` of the last assistant `message_end`, or null when there is none. */
+  finalAssistant: Record<string, unknown> | null;
+}
+
+export interface PiParsedRun {
+  text: string;
+  header: PiSessionHeader | null;
+}
+
+const LOCAL_SERVER_HINT =
+  "If the model runs locally, check the server is up (your provider's baseUrl).";
+
+/** A stopped local server ends as "Connection error." after pi's retries, not as a timeout. */
+function describePiFailure(detail: string): string {
+  const looksLikeConnection = /connection error|ECONNREFUSED|ECONNRESET|ENOTFOUND|fetch failed|socket hang up/i;
+  return looksLikeConnection.test(detail) ? `${detail} ${LOCAL_SERVER_HINT}` : detail;
+}
+
+function stderrTail(stderr: string | undefined): string {
+  if (!stderr) return '';
+  const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.slice(-5).join(' | ').slice(-500);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Read a `pi --mode json` stream without judging it. Records are split on LF
+ * only (pi's framing rule: U+2028/U+2029 are legal inside strings), one
+ * trailing CR is dropped, and anything that is not a JSON object is skipped.
+ * Never throws.
+ */
+export function readPiJsonl(stdout: string): PiTranscript {
+  let header: PiSessionHeader | null = null;
+  let finalAssistant: Record<string, unknown> | null = null;
+
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+    if (!line.trim()) continue;
+    let record: Record<string, unknown> | null;
+    try {
+      record = asRecord(JSON.parse(line));
+    } catch {
+      continue;
+    }
+    if (!record) continue;
+
+    if (record.type === 'session' && !header && typeof record.id === 'string') {
+      header = {
+        id: record.id,
+        cwd: typeof record.cwd === 'string' ? record.cwd : null,
+        timestamp: typeof record.timestamp === 'string' ? record.timestamp : null,
+      };
+      continue;
+    }
+
+    if (record.type === 'message_end') {
+      const message = asRecord(record.message);
+      // `agent_end` with willRetry is not terminal, and earlier assistant
+      // messages may be tool calls or retried errors: only the last counts.
+      if (message?.role === 'assistant') finalAssistant = message;
+    }
+  }
+
+  return { header, finalAssistant };
+}
+
+/** The error a finished stream reports, if its final assistant message is a failure. */
+function piFailureDetail(finalAssistant: Record<string, unknown> | null): string | null {
+  if (!finalAssistant) return null;
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== 'error' && stopReason !== 'aborted') return null;
+  const errorMessage = typeof finalAssistant.errorMessage === 'string' ? finalAssistant.errorMessage.trim() : '';
+  return errorMessage || `request ${stopReason}`;
+}
+
+/**
+ * Turn a finished `pi --mode json` stream into the final answer, failing
+ * closed. JSON mode exits 0 even when the response failed, so the verdict
+ * comes from the last assistant `message_end`:
+ *
+ * - `stopReason` `error` or `aborted` throws with `errorMessage`;
+ * - only `stop` and `length` are an answer; any other stop reason throws;
+ * - the text blocks are joined and trimmed, and empty text throws.
+ *
+ * It never falls back to an earlier assistant message.
+ */
+export function parsePiJsonl(stdout: string, ctx: { stderr?: string } = {}): PiParsedRun {
+  const { header, finalAssistant } = readPiJsonl(stdout);
+
+  if (!finalAssistant) {
+    const tail = stderrTail(ctx.stderr);
+    throw new PiBackendError(`pi produced no assistant message.${tail ? ` stderr: ${tail}` : ''}`);
+  }
+
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) {
+    throw new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  }
+
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== 'stop' && stopReason !== 'length') {
+    const shown = typeof stopReason === 'string' ? `"${stopReason}"` : 'no stop reason';
+    throw new PiBackendError(`pi ended with ${shown} instead of a final answer.`);
+  }
+
+  if (!Array.isArray(finalAssistant.content)) {
+    throw new PiBackendError("pi's final message has an unexpected shape (content is not a list).");
+  }
+
+  const text = finalAssistant.content
+    .map((block) => asRecord(block))
+    .filter((block): block is Record<string, unknown> => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text as string)
+    .join('\n')
+    .trim();
+
+  if (!text) {
+    throw new PiBackendError('pi produced no text output.');
+  }
+
+  return { text, header };
+}
