@@ -46,12 +46,17 @@ describe('INSTALL_HINTS', () => {
     expect(typeof INSTALL_HINTS.antigravity).toBe('string');
     expect(typeof INSTALL_HINTS.codex).toBe('string');
     expect(typeof INSTALL_HINTS.gemini).toBe('string');
+    expect(INSTALL_HINTS.pi).toBe('npm install -g @earendil-works/pi-coding-agent');
   });
 });
 
 describe('BACKEND_COMMANDS', () => {
   it('maps Antigravity backend name to the agy executable', () => {
     expect(BACKEND_COMMANDS.antigravity).toBe('agy');
+  });
+
+  it('maps the pi backend to the pi executable', () => {
+    expect(BACKEND_COMMANDS.pi).toBe('pi');
   });
 });
 

@@ -43,6 +43,8 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
 | **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
 
+pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
+
 Sandbox mapping for direct mode:
 - **Antigravity**: always `--sandbox --mode plan` (read-only). Antigravity
   has no write mode; see Step 6.

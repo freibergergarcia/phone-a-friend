@@ -19,21 +19,21 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
-| **Relay** | One-shot delegation to Antigravity, Codex, Gemini, Ollama, Claude, or OpenCode | Quick second opinions, code reviews, analysis |
+| **Relay** | One-shot delegation to Antigravity, Codex, Gemini, Ollama, Claude, OpenCode, or pi | Quick second opinions, code reviews, analysis |
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
 ### Host parity
 
-| Feature | Claude Code | OpenCode | Codex |
-|---|:---:|:---:|:---:|
-| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ |
-| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ |
-| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ |
-| Plugin marketplace install | ✓ | — | ✓ |
-| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ |
-| Skill auto-discovery | ✓ | ✓ | ✓ |
-| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ |
+| Feature | Claude Code | OpenCode | Codex | pi |
+|---|:---:|:---:|:---:|:---:|
+| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ | `/skill:phone-a-friend` |
+| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ | `/skill:curiosity-engine` |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — |
+| Plugin marketplace install | ✓ | — | ✓ | `pi install` |
+| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ |
+| Skill auto-discovery | ✓ | ✓ | ✓ | ✓ |
+| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic |
 
 Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
@@ -63,6 +63,7 @@ Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns nam
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli) for API key, Vertex AI, or enterprise Gemini Code Assist flows
 - [Ollama](https://ollama.com/download)
 - [OpenCode](https://opencode.ai/docs)
+- [pi](https://github.com/earendil-works/pi) 0.79.0 or newer (`npm install -g @earendil-works/pi-coding-agent`), for tool-using relays to local models
 
 **Install:**
 
@@ -129,6 +130,28 @@ Ask Claude and Gemini through phone-a-friend what they think of this code.
 Use phone-a-team across Claude and Gemini to converge on a fix for this auth bug. Three rounds max.
 ```
 
+**pi skills:**
+
+If you use [pi](https://pi.dev), install the `phone-a-friend` and `curiosity-engine` skills into pi's agent directory:
+
+```bash
+phone-a-friend plugin install --pi
+```
+
+This installs to `~/.pi/agent/skills/` (or `$PI_CODING_AGENT_DIR/skills/`). pi has no command shims: it exposes every skill as `/skill:<name>`, so from pi run:
+
+```
+/skill:phone-a-friend ask claude for a short sanity review of this repo; do not edit files
+/skill:curiosity-engine --topic "why the sky is blue" --rounds 2 --backend antigravity
+```
+
+The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude ..."`. pi needs its `bash` tool (on by default) to run the relay.
+
+- **Use the `/skill:` form with local models.** pi lists the skill to the model, but a local model may not load it on its own. In testing, a 35B model given a plain "ask Claude through phone-a-friend" request guessed the CLI flags instead and relayed to the wrong backend; with `/skill:phone-a-friend` the same model ran the correct relay first time.
+- **No recursion marker is needed.** pi sets `PI_CODING_AGENT=true` for the commands it runs, and PaF refuses `--to pi` from there.
+- **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. `doctor` and the TUI recognize the npm form; a package installed from a git URL works in pi but shows as not installed there. You still need the npm global install for the `phone-a-friend` command itself.
+- **Uninstall** (`phone-a-friend plugin uninstall --pi`) removes only what PaF installed. A skill of your own under the same name is kept.
+
 **From source:**
 
 ```bash
@@ -173,6 +196,7 @@ phone-a-friend --to claude --prompt "Review this code" --stream   # Stream token
 phone-a-friend --to codex --prompt "Audit the auth module" --quiet # Run silently, save result
 phone-a-friend --to codex --review --no-task-history            # Skip the local task record
 phone-a-friend --to opencode --prompt "Explain this" --fast        # Skip OpenCode plugins (faster)
+phone-a-friend --to pi --prompt "Review this module" --fast        # Local model through pi (see Backends)
 phone-a-friend --to codex --prompt "Review my fix" --include-diff   # Append `git diff HEAD` to the prompt
 phone-a-friend --to codex --prompt "Quick question" --no-include-diff  # Override defaults.include_diff = true
 phone-a-friend --to claude --prompt "Coordinate with the migration session" --peer-messaging accept
@@ -187,7 +211,7 @@ phone-a-friend --to codex --prompt "List files that need refactoring" \
   --schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}'
 ```
 
-Antigravity, Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Gemini and OpenCode CLI use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
+Antigravity, Claude, Codex, and Ollama enforce the schema through their native structured-output surfaces. Gemini, OpenCode CLI, and pi use prompt injection (best-effort), with PaF validating built-in verdict envelopes before returning them.
 
 Codex also receives the schema on follow-ups through `--session` or
 `--backend-session`. PaF checks `codex exec resume --help` using the invocation's
@@ -204,7 +228,7 @@ phone-a-friend --to codex --prompt "Review the auth module" --session auth-revie
 phone-a-friend --to codex --prompt "Now fix those issues" --session auth-review
 ```
 
-Sessions work with Antigravity, Claude, Codex, Gemini, and OpenCode. Ollama replays history (may hit token limits on long conversations).
+Sessions work with Antigravity, Claude, Codex, Gemini, OpenCode, and pi. Ollama replays history (may hit token limits on long conversations).
 
 ### Claude peer messaging
 
@@ -373,11 +397,12 @@ phone-a-friend doctor          # Health check all backends + host install status
 phone-a-friend plugin install --claude    # Install Claude Code plugin
 phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
 phone-a-friend plugin install --codex     # Install Codex skills
+phone-a-friend plugin install --pi        # Install pi skills (/skill:phone-a-friend)
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
-`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex plugin install state), and a summary count. Antigravity and OpenCode CLI are treated as optional: if you don't have `agy` or OpenCode installed, doctor will show them but will not flag that as a degraded state.
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex / pi install state), and a summary count. Antigravity, OpenCode CLI, and pi are treated as optional: if you don't have `agy`, OpenCode, or pi installed, doctor will show them but will not flag that as a degraded state.
 
 `doctor --json` also reports each CLI's selected executable, version, and other
 PATH candidates. It distinguishes the running PaF build from the PATH install,
@@ -430,6 +455,7 @@ state.
 | **Ollama** | HTTP API | Yes (NDJSON) |
 | **Claude** | CLI subprocess | Yes (JSON) |
 | **OpenCode** | CLI subprocess | Yes (NDJSON) |
+| **pi** | CLI subprocess (`pi --mode json`) | Yes (JSONL) |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
@@ -445,7 +471,7 @@ peer_messaging = "native" # native (default), accept, or refuse
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
 - `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` -- override Claude peer messaging for the current process.
-- `PHONE_A_FRIEND_HOST=opencode|codex` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`. Set automatically by the install shims.
+- `PHONE_A_FRIEND_HOST=opencode|codex|pi` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi`. Set automatically by the install shims (pi has none; PaF also honours pi's own `PI_CODING_AGENT=true`).
 - `CODEX_HOME` -- override the Codex config root (default: `~/.codex`). Honored by the Codex skill installer.
 - `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
 
@@ -472,6 +498,46 @@ and differ in `run` flags (2.x has no `--dir` or `--pure`). PaF detects the line
 from `opencode --version` and adapts; `phone-a-friend doctor` reports 2.x
 installs. `standalone` re-boots every configured MCP server per relay, so leave
 it off unless you need an isolated server.
+
+pi configuration via TOML (local models served by a provider defined in pi's
+`models.json`; tested with an MLX server):
+```toml
+[backends.pi]
+provider = "mlx"                             # a provider from pi's models.json
+model = "mlx-community/Qwen3.5-9B-MLX-4bit"   # default model; --model overrides it
+```
+
+```bash
+phone-a-friend --to pi --prompt "Review src/auth.ts" --fast
+phone-a-friend --to pi --review --fast                      # diff-scoped review by a local model
+phone-a-friend --to pi --prompt "..." --session local-review # resumable
+```
+
+pi notes:
+- The sandbox is a tool list, not OS isolation: `read-only` offers the model
+  `read,grep,find,ls`, `workspace-write` adds `edit,write`, and
+  `danger-full-access` adds `bash`. pi itself runs with your permissions.
+- PaF always passes `-ne` and `--no-approve`, so pi extensions and project-local
+  pi files are off for the relay. On pi 0.99+ that includes pi's built-in
+  extensions (MCP servers, codemode, the llama.cpp provider), so define the
+  provider in `models.json`.
+- `--fast` skips AGENTS.md/CLAUDE.md and pi skills (`-nc -ns`). Small local
+  models have small context windows; use it unless the task depends on project
+  conventions.
+- Sessions live in `$XDG_CONFIG_HOME/phone-a-friend/pi-sessions` (default
+  `~/.config/phone-a-friend/pi-sessions`), not in pi's own store.
+  PaF refuses to resume a session whose file is missing instead of letting pi
+  start a new one. `--backend-session` cannot attach a session created directly
+  in pi. `session delete` and `session prune` remove the PaF label, not the pi
+  session file.
+- `--schema` is best-effort: the schema goes into the prompt and the answer is
+  not validated. `--verdict-json` is validated by PaF and fails closed; a small
+  model can fail it where `--fast` or a larger model passes.
+- PaF never starts a model server. If the server is down, pi retries for about
+  15 seconds and the relay fails with `Connection error.`
+- Both batch and streaming runs report tool activity, retries, and context
+  compaction as progress. Compaction summaries are never included in progress.
+- pi is not an agentic backend. As a host it gets two skills, see [pi skills](#quick-start) above; `/phone-a-team` is not available in pi.
 
 ## Streaming
 
@@ -527,7 +593,7 @@ Full usage guide, examples, CLI reference, and configuration details:
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, the pi skills PaF installed, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
 
 > [!WARNING]
 > `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.
@@ -592,7 +658,7 @@ enough for skill changes: it re-registers the marketplace, whose plugin source i
 
 Phone a Friend does not collect, transmit, or store any data on servers operated by this project. There is no telemetry and no analytics.
 
-Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, Antigravity, and OpenCode CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
+Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, Antigravity, OpenCode, and pi CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
 
 Local state (config, sessions, jobs, and agentic transcripts) is written only to `~/.config/phone-a-friend/` on your machine.
 

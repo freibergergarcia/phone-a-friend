@@ -8,7 +8,9 @@ argument-hint: '--topic "<topic>" [--rounds N] [--backend antigravity|codex|gemi
 
 A structured ping-pong Q&A game between the host orchestrating model (the
 agent running this skill — Claude in Claude Code, the OpenCode model in
-OpenCode) and a backend model.
+OpenCode, the pi model in pi) and a backend model.
+In pi this skill runs as `/skill:curiosity-engine --topic "<topic>"`; the
+arguments arrive as the user request that follows these instructions.
 Both sides MUST produce an ANSWER: and a QUESTION: every round.
 The game is seeded with a topic and runs for N rounds (default 3, max 6).
 
@@ -31,6 +33,8 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   for the same reason. Do not select `codex` as the friend backend from
   Codex; choose `antigravity`, `gemini`, or `ollama` instead. PaF will
   refuse recursive Codex calls.
+- Inside pi, no host prefix is needed: pi marks the commands its `bash`
+  tool runs with `PI_CODING_AGENT=true`, and PaF refuses `--to pi` there.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
@@ -74,6 +78,8 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
+
+pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
 
 In direct mode, build `PROMPT_FILE` from the relay prompt using this
 template and the quoted-heredoc rule:
@@ -189,8 +195,8 @@ Display to user:
 ```
 
 `<orchestrator>` is the host model's display label (e.g., "Claude" in
-Claude Code, the OpenCode model name in OpenCode). Pick one that the user
-will recognize.
+Claude Code, the OpenCode model name in OpenCode, the pi model name in pi).
+Pick one that the user will recognize.
 
 Then relay to backend. First build `PROMPT_FILE` so untrusted text such as
 TOPIC and QUESTION is passed as data, not spliced into an inline shell

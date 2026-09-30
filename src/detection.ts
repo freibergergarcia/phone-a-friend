@@ -2,8 +2,8 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (antigravity/codex/gemini/opencode), Local (ollama), plus
- * host integrations (claude/opencode/codex).
+ * backends: CLI (antigravity/codex/gemini/opencode/pi), Local (ollama), plus
+ * host integrations (claude/opencode/codex/pi).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -69,6 +69,8 @@ const CLI_BACKENDS: { name: string; command?: string; installHint: string; label
   // exit with code 1 just because OpenCode is absent. Mark it optional so
   // doctor counts/exit-code only include OpenCode when it is present.
   { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI', optional: true },
+  // Optional for the same reason: most users do not have pi installed.
+  { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent', optional: true },
 ];
 
 const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
@@ -78,6 +80,7 @@ const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] 
   { name: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code', label: 'Claude Code CLI' },
   { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI' },
   { name: 'codex', installHint: 'npm install -g @openai/codex', label: 'OpenAI Codex CLI' },
+  { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent CLI' },
 ];
 
 // ---------------------------------------------------------------------------

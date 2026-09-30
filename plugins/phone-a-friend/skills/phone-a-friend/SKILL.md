@@ -1,6 +1,6 @@
 ---
 name: phone-a-friend
-description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
+description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
 argument-hint: [optional review focus]
 ---
 
@@ -10,7 +10,7 @@ Use this skill after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to a backend (Antigravity, Codex, Gemini, Claude, OpenCode, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Execution rules
 
@@ -28,13 +28,17 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
 - From Codex, do not select `codex` as the friend backend. Choose `claude`,
   `antigravity`, `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
   `PHONE_A_FRIEND_HOST` recursion guard used for OpenCode.
+- From pi, do not select `pi` as the friend backend. Choose `claude`, `codex`,
+  `antigravity`, `gemini`, `opencode`, or `ollama`. PaF refuses `--to pi` from
+  inside pi on its own: pi marks every shell command it runs with
+  `PI_CODING_AGENT=true`, so no host prefix is needed.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
   only include the diff when the user explicitly asked for a
   diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. In Claude Code and Codex, `/phone-a-team`
-  orchestrates those calls using the host-specific skill. In OpenCode, run
+  orchestrates those calls using the host-specific skill. In OpenCode and pi, run
   separate invocations yourself; `/phone-a-team` is not installed there.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
@@ -54,6 +58,10 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   `PHONE_A_FRIEND_HOST=codex` (recursion guard). Codex ships modern
   PaF binaries, so the `--no-include-diff` flag works directly; the
   env-var fallback is also fine if you prefer symmetry with OpenCode.
+- When running inside pi, prefix relay invocations with
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` (diff suppression, for the same
+  reason as OpenCode: a local host model tends to skip the probe). Run the
+  relay through pi's `bash` tool.
 - When materializing relay commands, write dynamic prompt/context text into
   temp files using single-quoted heredocs. Do not splice user text, prior
   model output, or conversation context into double-quoted shell arguments.
@@ -70,9 +78,19 @@ PHONE_A_FRIEND_HOST=opencode PHONE_A_FRIEND_INCLUDE_DIFF=false \
   --timeout 300 --no-stream --fast
 ```
 
+From pi:
+
+```bash
+PHONE_A_FRIEND_INCLUDE_DIFF=false \
+  phone-a-friend --to claude --repo "$PWD" \
+  --prompt "Give a short sanity review of this repo. Do not edit files." \
+  --timeout 300 --no-stream
+```
+
 ## Inputs
 
 - Review focus (optional): `$ARGUMENTS`
+- In pi this skill runs as `/skill:phone-a-friend <focus>`. `$ARGUMENTS` is not substituted there: the focus is the user request that follows these instructions.
 
 ## Host awareness
 
@@ -91,6 +109,11 @@ Choose `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
 
 When running from Codex, do not select `codex` as the friend backend. Choose
 `claude`, `antigravity`, `gemini`, `opencode`, or `ollama`.
+
+When running from pi, no marker is needed: pi sets `PI_CODING_AGENT=true` for
+the commands its `bash` tool runs, and PaF treats that as the pi host. Do not
+select `pi` as the friend backend. Choose `claude`, `codex`, `antigravity`,
+`gemini`, `opencode`, or `ollama`.
 
 ## Relay mode
 
@@ -145,6 +168,8 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
+pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
+
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
 
@@ -177,7 +202,7 @@ binary; the underlying backend CLIs do not accept them.
 Do not generate `--context-file` or `--context-text` from repository files,
 `git show`, `git diff`, `git status`, or other local file/git output. Do
 not create temp files just to pass repo content. For repo-aware backends
-(antigravity, codex, gemini, claude, opencode), pass `--repo "$PWD"` and let the
+(antigravity, codex, gemini, claude, opencode, pi), pass `--repo "$PWD"` and let the
 backend inspect files with its own tools.
 
 `--context-file` and `--context-text` are reserved for **narrative
@@ -281,6 +306,9 @@ PAF_CONTEXT_EOF
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Gemini supports --session via native resume (see "Session continuity" below):
    "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
+   # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
+   "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -328,14 +356,17 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
 - The task does NOT need MCP tools (GitHub API, Slack, database queries)
 
 `--fast` maps to `--pure` for OpenCode 1.x, skipping external plugins; OpenCode
-2.x has no `--pure`, so `--fast` has no effect there. It is a
+2.x has no `--pure`, so `--fast` has no effect there. It maps to
+`-nc -ns` for pi (no AGENTS.md/CLAUDE.md context files, no pi skills), which
+makes the prompt far smaller; that matters for small local models. It is a
 no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not
 use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.
 
 Most `/phone-a-friend` relay calls are self-contained reviews where the
 context is already in the prompt. Default to including `--fast` when the
-backend may be OpenCode; it is harmless elsewhere.
+backend may be OpenCode or pi; it is a no-op elsewhere. With pi, leave it off
+when the task depends on the project's AGENTS.md/CLAUDE.md.
 
 ## Claude cross-session messaging
 
@@ -533,6 +564,10 @@ Use `doctor --json` to diagnose PATH/version mismatches before retrying.
 
 **Backend-specific behavior:**
 - **Antigravity**: native session resume via `--session` or `--backend-session`.
+- **pi**: native session resume via `--session`. PaF keeps pi sessions in its own
+  directory and refuses to resume one whose file is missing, because pi would
+  silently start a new session. `--backend-session` works only for a session PaF
+  started; sessions created directly in pi cannot be attached.
 - **Codex, Claude, OpenCode**: native session resume. Follow-up prompts
   can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt

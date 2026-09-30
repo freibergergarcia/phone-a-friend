@@ -80,13 +80,22 @@ function spawnCli(command, args, opts) {
       env: opts.env ?? process.env,
       cwd: opts.cwd
     });
+    let killTimer = null;
+    const terminate = () => {
+      child.kill("SIGTERM");
+      if (opts.killGraceMs !== void 0 && !killTimer) {
+        killTimer = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, opts.killGraceMs);
+      }
+    };
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      terminate();
     }, opts.timeoutMs);
     const onSigint = () => {
-      child.kill("SIGTERM");
+      terminate();
     };
     process.on("SIGINT", onSigint);
     const stdoutChunks = [];
@@ -103,11 +112,13 @@ function spawnCli(command, args, opts) {
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     child.on("error", (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener("SIGINT", onSigint);
       reject(new BackendError(`${label} failed to start: ${err.message}`));
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener("SIGINT", onSigint);
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
       const stderr = Buffer.concat(stderrChunks).toString().trim();
@@ -170,7 +181,8 @@ var init_backends = __esm({
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
       claude: "npm install -g @anthropic-ai/claude-code",
-      opencode: "curl -fsSL https://opencode.ai/install | bash"
+      opencode: "curl -fsSL https://opencode.ai/install | bash",
+      pi: "npm install -g @earendil-works/pi-coding-agent"
     };
     BACKEND_COMMANDS = {
       antigravity: "agy",
@@ -178,9 +190,23 @@ var init_backends = __esm({
       codex: "codex",
       gemini: "gemini",
       ollama: "ollama",
-      opencode: "opencode"
+      opencode: "opencode",
+      pi: "pi"
     };
     registry = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/backends/schema-prompt.ts
+function injectSchemaPrompt(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
+var init_schema_prompt = __esm({
+  "src/backends/schema-prompt.ts"() {
+    "use strict";
   }
 });
 
@@ -1424,10 +1450,13 @@ function cloneDefaultConfig() {
     )
   };
 }
-function configPaths(repoRoot, xdgConfigHome, homeDir) {
+function pafConfigDir(xdgConfigHome, homeDir) {
   const configBase = xdgConfigHome ?? process.env.XDG_CONFIG_HOME ?? join4(homeDir ?? homedir3(), ".config");
+  return join4(configBase, "phone-a-friend");
+}
+function configPaths(repoRoot, xdgConfigHome, homeDir) {
   return {
-    user: join4(configBase, "phone-a-friend", "config.toml"),
+    user: join4(pafConfigDir(xdgConfigHome, homeDir), "config.toml"),
     repo: repoRoot ? join4(repoRoot, ".phone-a-friend.toml") : null
   };
 }
@@ -1614,6 +1643,995 @@ function getVersion() {
 var init_version = __esm({
   "src/version.ts"() {
     "use strict";
+  }
+});
+
+// src/diagnostics.ts
+import { execFile as execFile2 } from "child_process";
+import { accessSync, constants as fsConstants, realpathSync, statSync, readFileSync as readFileSync5 } from "fs";
+import { delimiter as pathDelimiter, dirname as dirname5, join as join5, resolve as resolvePath } from "path";
+function defaultDeps(overrides) {
+  return {
+    env: process.env,
+    execFileFn: execFile2,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxProbes: DEFAULT_MAX_PROBES,
+    argv1: process.argv[1],
+    ...overrides
+  };
+}
+function isExecutableFile(path4) {
+  try {
+    if (!statSync(path4).isFile()) return false;
+    accessSync(path4, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function safeRealpath(path4) {
+  try {
+    return realpathSync(path4);
+  } catch {
+    return path4;
+  }
+}
+function resolveExecutableCandidates(command, env5 = process.env) {
+  const pathValue = env5.PATH ?? "/usr/bin:/bin";
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const dir of pathValue.split(pathDelimiter)) {
+    const candidate = resolvePath(dir || ".", command);
+    if (!isExecutableFile(candidate)) continue;
+    const resolved = safeRealpath(candidate);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push({ path: candidate, resolvedPath: resolved });
+  }
+  return out;
+}
+function parseVersionOutput(stdout, stderr) {
+  for (const text of [stdout, stderr]) {
+    const match = VERSION_RE.exec(text);
+    if (match) return match[1];
+  }
+  return null;
+}
+function probeVersion(path4, deps = {}) {
+  const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
+  return new Promise((resolve5) => {
+    execFileFn(
+      path4,
+      ["--version"],
+      {
+        timeout: timeoutMs,
+        killSignal: "SIGKILL",
+        maxBuffer: 64 * 1024,
+        windowsHide: true,
+        env: env5,
+        encoding: "utf8"
+      },
+      (err, stdout, stderr) => {
+        const out = typeof stdout === "string" ? stdout : String(stdout ?? "");
+        const errOut = typeof stderr === "string" ? stderr : String(stderr ?? "");
+        if (err) {
+          const e = err;
+          if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+            resolve5({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
+            return;
+          }
+          if (e.killed || e.signal === "SIGKILL") {
+            resolve5({
+              version: null,
+              versionStatus: "timeout",
+              versionError: `--version did not finish within ${timeoutMs / 1e3}s`
+            });
+            return;
+          }
+          if (e.code === "EACCES" || e.code === "EPERM") {
+            resolve5({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
+            return;
+          }
+          if (typeof e.code === "string") {
+            resolve5({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
+            return;
+          }
+          const parsed2 = parseVersionOutput(out, errOut);
+          if (parsed2) {
+            resolve5({ version: parsed2, versionStatus: "ok" });
+            return;
+          }
+          const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
+          resolve5({ version: null, versionStatus: "failed", versionError: detail });
+          return;
+        }
+        const parsed = parseVersionOutput(out, errOut);
+        if (parsed) {
+          resolve5({ version: parsed, versionStatus: "ok" });
+          return;
+        }
+        resolve5({
+          version: null,
+          versionStatus: "unparsed",
+          versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
+        });
+      }
+    );
+  });
+}
+function buildExecutableGuidance(info2) {
+  const guidance = [];
+  const { command, selected, candidates } = info2;
+  if (!selected) {
+    return guidance;
+  }
+  const describe = (c) => {
+    const version = c.version ?? `version ${c.versionStatus}`;
+    return `${c.path} (${version})`;
+  };
+  if (candidates.length > 1) {
+    const others = candidates.filter((c) => c !== selected).map(describe).join(", ");
+    guidance.push(
+      `The first PATH match for "${command}" is ${describe(selected)}. Also on PATH: ${others}.`
+    );
+    if (info2.versionMismatch) {
+      guidance.push(
+        `These installs report different versions. If a relay fails on a model or flag that a newer ${command} supports, put that install's directory earlier in PATH for the PaF process, or remove the duplicates. A newer version does not by itself guarantee support for a given model.`
+      );
+    } else if (candidates.every((c) => c.versionStatus === "ok")) {
+      guidance.push("All probed candidates report the same version; no action needed unless one is stale.");
+    }
+    guidance.push(SHELL_NOTE);
+  }
+  for (const c of candidates) {
+    if (c.versionStatus === "ok" || c.versionStatus === "not-probed") continue;
+    guidance.push(
+      `Could not determine the version of ${c.path}: ${c.versionError ?? c.versionStatus}. Run "${c.path} --version" manually to inspect it.`
+    );
+  }
+  const skipped = candidates.filter((c) => c.versionStatus === "not-probed").length;
+  if (skipped > 0) {
+    guidance.push(`${skipped} additional PATH candidate(s) were not probed (probe cap reached).`);
+  }
+  return guidance;
+}
+async function inspectExecutable(command, deps = {}) {
+  const d = defaultDeps(deps);
+  const found = resolveExecutableCandidates(command, d.env);
+  const candidates = await Promise.all(
+    found.map(async (c, index) => {
+      if (index >= d.maxProbes) {
+        return { ...c, version: null, versionStatus: "not-probed" };
+      }
+      const probe = await probeVersion(c.path, d);
+      return { ...c, ...probe };
+    })
+  );
+  const selected = candidates[0] ?? null;
+  const versions = new Set(candidates.filter((c) => c.version).map((c) => c.version));
+  const partial = {
+    command,
+    selected,
+    candidates,
+    shadowed: candidates.length > 1,
+    versionMismatch: versions.size > 1
+  };
+  return { ...partial, guidance: buildExecutableGuidance(partial) };
+}
+function commandFor(backend) {
+  return BACKEND_COMMANDS[backend.name] ?? backend.name;
+}
+async function inspectExecutables(report, deps = {}) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  const commands = [...new Set(entries.map(commandFor))];
+  const results = await Promise.all(commands.map((cmd) => inspectExecutable(cmd, deps)));
+  const byCommand = new Map(commands.map((cmd, i) => [cmd, results[i]]));
+  for (const b of entries) {
+    const info2 = byCommand.get(commandFor(b));
+    if (info2) b.executable = info2;
+  }
+}
+function configuredPiProvider(config) {
+  const raw = config.backends?.pi?.provider;
+  if (raw === void 0) return { requested: null, requestedSource: "backend-default" };
+  if (typeof raw !== "string" || !raw.trim()) return { requested: null, requestedSource: "invalid" };
+  return { requested: raw.trim(), requestedSource: "paf-config" };
+}
+function attachModelAndCapabilities(report, config) {
+  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  for (const b of entries) {
+    const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
+    b.model = {
+      requested: configured,
+      requestedSource: configured ? "paf-config" : "backend-default",
+      reported: null,
+      reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
+    };
+    if (b.name === "pi") b.model.provider = configuredPiProvider(config);
+    try {
+      const backend = getBackend(b.name);
+      b.capabilities = {
+        declared: {
+          resumeStrategy: backend.capabilities.resumeStrategy,
+          requiresClientSessionId: backend.capabilities.requiresClientSessionId,
+          localFileAccess: backend.localFileAccess
+        },
+        verification: "declared-only",
+        verificationNote: "Declared by the PaF adapter in source; not verified against the installed CLI."
+      };
+    } catch {
+    }
+  }
+}
+function inspectPafPackage(entry) {
+  for (const root of [dirname5(entry), dirname5(dirname5(entry))]) {
+    try {
+      const pkg = JSON.parse(readFileSync5(join5(root, "package.json"), "utf8"));
+      if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
+      const isBundle = entry === join5(root, "dist", "index.js");
+      const isCheckoutWrapper = entry === join5(root, "phone-a-friend") && readFileSync5(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
+      if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
+    } catch {
+    }
+  }
+  return null;
+}
+function inspectPafIdentity(deps = {}) {
+  const d = defaultDeps(deps);
+  const packageRoot = getPackageRoot();
+  const version = getVersion();
+  const entry = d.argv1 ? safeRealpath(d.argv1) : null;
+  const pathCandidates = resolveExecutableCandidates("phone-a-friend", d.env).map((c) => {
+    const pkg = inspectPafPackage(c.resolvedPath);
+    return pkg ? { ...c, version: pkg.version, versionStatus: "ok" } : { ...c, version: null, versionStatus: "unparsed", versionError: "unrecognized PaF installation layout" };
+  });
+  const selected = pathCandidates[0];
+  const runningRoot = safeRealpath(packageRoot);
+  const selectedPackage = selected ? inspectPafPackage(selected.resolvedPath) : null;
+  const selectedRoot = selectedPackage ? safeRealpath(selectedPackage.root) : null;
+  const runningDiffersFromPath = selectedRoot !== null && selectedRoot !== runningRoot;
+  const guidance = [];
+  if (runningDiffersFromPath && selected) {
+    guidance.push(
+      `This doctor run is PaF ${version} at ${packageRoot}, but "phone-a-friend" on PATH resolves to ${selected.path} (${selected.version ?? "unknown version"}). Host skills and slash commands that call "phone-a-friend" use the PATH install, so their behavior may differ from this checkout.`
+    );
+  }
+  if (pathCandidates.length > 1) {
+    const list = pathCandidates.map((c) => `${c.path} (${c.version ?? "unknown version"})`).join(", ");
+    guidance.push(`Multiple phone-a-friend installs are on PATH: ${list}. The first one wins for subprocess calls.`);
+  }
+  return { version, packageRoot, entry, pathCandidates, runningDiffersFromPath, guidance };
+}
+var DEFAULT_TIMEOUT_MS, DEFAULT_MAX_PROBES, VERSION_RE, SHELL_NOTE;
+var init_diagnostics = __esm({
+  "src/diagnostics.ts"() {
+    "use strict";
+    init_backends();
+    init_version();
+    DEFAULT_TIMEOUT_MS = 5e3;
+    DEFAULT_MAX_PROBES = 6;
+    VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
+    SHELL_NOTE = "Interactive shell aliases and functions do not affect PaF subprocesses; only PATH order does.";
+  }
+});
+
+// src/backends/pi.ts
+import { spawn as spawn3 } from "child_process";
+import { closeSync as closeSync2, mkdirSync as mkdirSync4, openSync as openSync2, readdirSync, readSync, realpathSync as realpathSync2 } from "fs";
+import { homedir as homedir4 } from "os";
+import { delimiter as pathDelimiter3, join as join6, posix, resolve as resolvePath3, win32 } from "path";
+import { StringDecoder } from "string_decoder";
+import { fileURLToPath as fileURLToPath2 } from "url";
+function isValidPiSessionId(id) {
+  return PI_SESSION_ID_PATTERN.test(id);
+}
+function buildPiArgs(opts) {
+  const args = ["--mode", "json", "--no-approve"];
+  if (opts.session) {
+    if (!isValidPiSessionId(opts.session.id)) {
+      throw new PiBackendError(
+        `Invalid pi session ID "${opts.session.id}". pi session IDs use letters, digits, ".", "_" and "-", and start and end with a letter or digit.`
+      );
+    }
+    args.push("--session-dir", opts.session.dir, "--session-id", opts.session.id);
+  } else {
+    args.push("--no-session");
+  }
+  args.push("-ne", "-np", "--no-themes", "--tools", PI_TOOLS[opts.sandbox]);
+  if (opts.provider) args.push("--provider", opts.provider);
+  if (opts.model) args.push("--model", opts.model);
+  if (opts.fast) args.push("-nc", "-ns");
+  args.push("--", opts.prompt.startsWith("@") ? `
+${opts.prompt}` : opts.prompt);
+  return args;
+}
+function describePiFailure(detail) {
+  const looksLikeConnection = /connection error|ECONNREFUSED|ECONNRESET|ENOTFOUND|fetch failed|socket hang up/i;
+  return looksLikeConnection.test(detail) ? `${detail} ${LOCAL_SERVER_HINT}` : detail;
+}
+function stderrTail2(stderr) {
+  if (!stderr) return "";
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.slice(-5).join(" | ").slice(-500);
+}
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parsePiRecord(rawLine) {
+  const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+  if (!line.trim()) return null;
+  try {
+    return asRecord(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+function notePiRecord(transcript, record) {
+  if (record.type === "session" && !transcript.header && typeof record.id === "string") {
+    transcript.header = {
+      id: record.id,
+      cwd: typeof record.cwd === "string" ? record.cwd : null,
+      timestamp: typeof record.timestamp === "string" ? record.timestamp : null
+    };
+    return;
+  }
+  if (record.type === "message_end") {
+    const message = asRecord(record.message);
+    if (message?.role === "assistant") transcript.finalAssistant = message;
+  }
+}
+function readPiJsonl(stdout) {
+  const transcript = { header: null, finalAssistant: null };
+  for (const rawLine of stdout.split("\n")) {
+    const record = parsePiRecord(rawLine);
+    if (record) notePiRecord(transcript, record);
+  }
+  return transcript;
+}
+function piFailureDetail(finalAssistant) {
+  if (!finalAssistant) return null;
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== "error" && stopReason !== "aborted") return null;
+  const errorMessage3 = typeof finalAssistant.errorMessage === "string" ? finalAssistant.errorMessage.trim() : "";
+  return errorMessage3 || `request ${stopReason}`;
+}
+function piMessageText(message) {
+  if (!Array.isArray(message.content)) return "";
+  return message.content.map((block) => asRecord(block)).filter((block) => block?.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n");
+}
+function piAnswer(transcript, ctx = {}) {
+  const { finalAssistant } = transcript;
+  if (!finalAssistant) {
+    const tail = stderrTail2(ctx.stderr);
+    throw new PiBackendError(`pi produced no assistant message.${tail ? ` stderr: ${tail}` : ""}`);
+  }
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) {
+    throw new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  }
+  const stopReason = finalAssistant.stopReason;
+  if (stopReason !== "stop" && stopReason !== "length") {
+    const shown = typeof stopReason === "string" ? `"${stopReason}"` : "no stop reason";
+    throw new PiBackendError(`pi ended with ${shown} instead of a final answer.`);
+  }
+  if (!Array.isArray(finalAssistant.content)) {
+    throw new PiBackendError("pi's final message has an unexpected shape (content is not a list).");
+  }
+  const text = piMessageText(finalAssistant).trim();
+  if (!text) {
+    const onlyReasoning = finalAssistant.content.some((block) => asRecord(block)?.type === "thinking");
+    throw new PiBackendError(
+      onlyReasoning ? "pi produced no text output: the model's last message held only reasoning. With a small local model, try --fast or a larger model." : "pi produced no text output."
+    );
+  }
+  return text;
+}
+function parsePiJsonl(stdout, ctx = {}) {
+  const transcript = readPiJsonl(stdout);
+  return { text: piAnswer(transcript, ctx), header: transcript.header };
+}
+function createLineSplitter(onLine) {
+  let pending = "";
+  return {
+    push(text) {
+      let start = 0;
+      let newline = text.indexOf("\n");
+      while (newline !== -1) {
+        onLine(pending + text.slice(start, newline));
+        pending = "";
+        start = newline + 1;
+        newline = text.indexOf("\n", start);
+      }
+      pending += text.slice(start);
+    },
+    end() {
+      if (pending) onLine(pending);
+      pending = "";
+    }
+  };
+}
+async function* piRecords(stdout) {
+  const decoder = new StringDecoder("utf8");
+  let ready = [];
+  const splitter = createLineSplitter((line) => {
+    const record = parsePiRecord(line);
+    if (record) ready.push(record);
+  });
+  for await (const chunk of stdout) {
+    splitter.push(typeof chunk === "string" ? chunk : decoder.write(chunk));
+    if (ready.length > 0) {
+      const batch = ready;
+      ready = [];
+      yield* batch;
+    }
+  }
+  splitter.push(decoder.end());
+  splitter.end();
+  yield* ready;
+}
+function shortDetail(text) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > PI_PROGRESS_DETAIL_LIMIT ? `${flat.slice(0, PI_PROGRESS_DETAIL_LIMIT - 1)}\u2026` : flat;
+}
+function summarizePiToolArgs(toolName, args) {
+  const record = asRecord(args);
+  if (!record) return "";
+  const text = (key) => typeof record[key] === "string" ? record[key] : "";
+  switch (toolName) {
+    case "bash":
+      return shortDetail(text("command"));
+    case "read":
+    case "ls":
+    case "edit":
+    case "write":
+      return shortDetail(text("path"));
+    case "grep":
+    case "find":
+      return shortDetail([text("pattern"), text("path")].filter(Boolean).join(" "));
+    default:
+      return "";
+  }
+}
+function piEventsFromRecord(record) {
+  if (record.type === "tool_execution_start") {
+    const toolName = typeof record.toolName === "string" ? record.toolName.trim() : "";
+    if (!toolName) return [];
+    const detail = summarizePiToolArgs(toolName, record.args);
+    return [{
+      type: "activity",
+      message: detail ? `Running: ${toolName} ${detail}` : `Running: ${toolName}`,
+      data: typeof record.toolCallId === "string" ? { toolCallId: record.toolCallId, toolName } : { toolName }
+    }];
+  }
+  if (record.type === "auto_retry_start") {
+    const attempt = typeof record.attempt === "number" ? record.attempt : null;
+    const maxAttempts = typeof record.maxAttempts === "number" ? record.maxAttempts : null;
+    const count = attempt !== null && maxAttempts !== null ? ` (${attempt}/${maxAttempts})` : "";
+    const reason = typeof record.errorMessage === "string" ? shortDetail(record.errorMessage) : "";
+    return [{
+      type: "activity",
+      message: `Retrying${count}${reason ? ` after: ${reason}` : ""}`,
+      data: { attempt, maxAttempts }
+    }];
+  }
+  if (record.type === "compaction_start") {
+    const reason = typeof record.reason === "string" && PI_COMPACTION_REASONS.has(record.reason) ? record.reason : null;
+    return [{
+      type: "activity",
+      message: reason ? `Compacting context (${reason})` : "Compacting context",
+      data: { reason }
+    }];
+  }
+  return [];
+}
+function reportPiEvents(record, onEvent) {
+  for (const event of piEventsFromRecord(record)) {
+    try {
+      onEvent(event);
+    } catch {
+    }
+  }
+}
+function createPiProgressTap(onEvent) {
+  const splitter = createLineSplitter((line) => {
+    if (!line.includes('"tool_execution_start"') && !line.includes('"auto_retry_start"') && !line.includes('"compaction_start"')) return;
+    const record = parsePiRecord(line);
+    if (record) reportPiEvents(record, onEvent);
+  });
+  return (chunk) => splitter.push(chunk);
+}
+function createPiTextAssembler() {
+  let shownEarlier = false;
+  let started = false;
+  let held = "";
+  let sawDelta = false;
+  let lastIndex;
+  const reset2 = () => {
+    shownEarlier = shownEarlier || started;
+    started = false;
+    held = "";
+    sawDelta = false;
+    lastIndex = void 0;
+  };
+  const feed = (piece) => {
+    let body = held + piece;
+    held = "";
+    let lead = "";
+    if (!started) {
+      body = body.trimStart();
+      if (!body) return "";
+      started = true;
+      if (shownEarlier) lead = "\n\n";
+    }
+    const visible = body.trimEnd();
+    held = body.slice(visible.length);
+    return lead + visible;
+  };
+  return {
+    push(record) {
+      if (record.type === "message_update") {
+        const event = asRecord(record.assistantMessageEvent);
+        if (event?.type !== "text_delta" || typeof event.delta !== "string") return "";
+        const nextBlock = sawDelta && event.contentIndex !== lastIndex;
+        sawDelta = true;
+        lastIndex = event.contentIndex;
+        return feed(nextBlock ? `
+${event.delta}` : event.delta);
+      }
+      const message = asRecord(record.message);
+      if (message?.role !== "assistant") return "";
+      if (record.type === "message_start") {
+        reset2();
+        return "";
+      }
+      if (record.type === "message_end") {
+        const text = sawDelta ? "" : feed(piMessageText(message));
+        reset2();
+        return text;
+      }
+      return "";
+    }
+  };
+}
+function isSupportedPiVersion(version) {
+  const parse2 = (text) => {
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  };
+  const actual = parse2(version);
+  const minimum = parse2(PI_MIN_VERSION);
+  if (!actual) return false;
+  for (let i = 0; i < 3; i++) {
+    if (actual[i] > minimum[i]) return true;
+    if (actual[i] < minimum[i]) return false;
+  }
+  return true;
+}
+function detectPiVersion(env5, opts = {}) {
+  const spawnCwd = opts.cwd ?? process.cwd();
+  const absolutePath = (env5.PATH ?? "").split(pathDelimiter3).map((dir) => resolvePath3(spawnCwd, dir || ".")).join(pathDelimiter3);
+  const candidate = resolveExecutableCandidates("pi", { ...env5, PATH: absolutePath })[0];
+  if (!candidate) return Promise.resolve({ status: "missing" });
+  const key = `${candidate.resolvedPath}\0${absolutePath}`;
+  const cached = versionCache.get(key);
+  if (cached) return cached;
+  const probe = probeVersion(candidate.path, {
+    env: env5,
+    timeoutMs: opts.timeoutMs ?? PI_VERSION_PROBE_TIMEOUT_MS
+  }).then((result) => result.version ? { status: "ok", path: candidate.path, version: result.version } : { status: "unreadable", path: candidate.path, reason: result.versionError ?? result.versionStatus }).catch(() => ({ status: "unreadable", path: candidate.path, reason: "probe failed" }));
+  versionCache.set(key, probe);
+  return probe;
+}
+async function assertSupportedPi(env5, cwd2) {
+  const probe = await detectPiVersion(env5, { cwd: cwd2 });
+  if (probe.status === "missing") {
+    throw new PiBackendError(`pi CLI not found in PATH. Install it: ${INSTALL_HINTS.pi}`);
+  }
+  if (probe.status === "unreadable") {
+    throw new PiBackendError(
+      `Could not read the pi version from \`${probe.path} --version\` (${probe.reason}). phone-a-friend needs pi ${PI_MIN_VERSION} or newer and will not run an unknown version. Run \`pi --version\` at the terminal, or reinstall: ${INSTALL_HINTS.pi}`
+    );
+  }
+  if (!isSupportedPiVersion(probe.version)) {
+    throw new PiBackendError(
+      `pi ${probe.version} is too old: phone-a-friend needs pi ${PI_MIN_VERSION} or newer (it relies on --no-approve). Upgrade with \`pi update\` or: ${INSTALL_HINTS.pi}`
+    );
+  }
+}
+function isPiHostEnv(env5) {
+  return env5.PI_CODING_AGENT === "true" || env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "pi";
+}
+function assertNotPiHost(env5) {
+  if (!isPiHostEnv(env5)) return;
+  throw new PiBackendError(
+    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
+  );
+}
+function readPiProvider(repoPath) {
+  let raw;
+  try {
+    raw = loadConfig(repoPath).backends?.pi?.provider;
+  } catch (err) {
+    throw new PiBackendError(
+      `Could not read phone-a-friend config for ${repoPath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  if (raw === void 0) return null;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new PiBackendError(
+      'Invalid [backends.pi] provider in phone-a-friend config: expected a non-empty string such as "mlx".'
+    );
+  }
+  return raw.trim();
+}
+function canonicalRepoPath(repoPath) {
+  try {
+    return realpathSync2(resolvePath3(repoPath));
+  } catch (err) {
+    throw new PiBackendError(
+      `Repository path cannot be resolved: ${repoPath} (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+}
+function piSessionDir() {
+  return join6(pafConfigDir(), "pi-sessions");
+}
+function piHeaderCandidate(line) {
+  if (!line.trim()) return void 0;
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return void 0;
+  }
+  if (!entry) return void 0;
+  const record = entry;
+  if (record.type !== "session" || typeof record.id !== "string") return null;
+  return record;
+}
+function readPiSessionFileHeader(filePath) {
+  const fd = openSync2(filePath, "r");
+  try {
+    const decoder = new StringDecoder("utf8");
+    const buffer = Buffer.allocUnsafe(PI_HEADER_READ_BUFFER_BYTES);
+    let pending = "";
+    let scannedBytes = 0;
+    while (scannedBytes < PI_HEADER_SCAN_LIMIT_BYTES) {
+      const readLength = Math.min(buffer.length, PI_HEADER_SCAN_LIMIT_BYTES - scannedBytes);
+      const bytesRead = readSync(fd, buffer, 0, readLength, null);
+      if (bytesRead === 0) {
+        return piHeaderCandidate(pending + decoder.end()) ?? null;
+      }
+      scannedBytes += bytesRead;
+      const chunk = decoder.write(buffer.subarray(0, bytesRead));
+      let lineStart = 0;
+      let newlineIndex = chunk.indexOf("\n", lineStart);
+      while (newlineIndex !== -1) {
+        const decision = piHeaderCandidate(pending + chunk.slice(lineStart, newlineIndex));
+        if (decision !== void 0) return decision;
+        pending = "";
+        lineStart = newlineIndex + 1;
+        newlineIndex = chunk.indexOf("\n", lineStart);
+      }
+      pending += chunk.slice(lineStart);
+    }
+    const probe = Buffer.allocUnsafe(1);
+    if (readSync(fd, probe, 0, probe.length, null) === 0) {
+      return piHeaderCandidate(pending + decoder.end()) ?? null;
+    }
+    throw new Error("session header exceeds the scan bound");
+  } finally {
+    closeSync2(fd);
+  }
+}
+function normalizeWindowsShellPath(filePath) {
+  if (!filePath.startsWith("/") || filePath.startsWith("//") || filePath.includes("\\")) return filePath;
+  const match = filePath.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+  if (!match) return filePath;
+  const suffix = match[2]?.replaceAll("/", "\\");
+  return `${match[1].toUpperCase()}:\\${suffix ?? ""}`;
+}
+function resolvePiStoredPath(stored, baseDir, platform2 = process.platform) {
+  const windows = platform2 === "win32";
+  const path4 = windows ? win32 : posix;
+  let normalized = windows ? normalizeWindowsShellPath(stored) : stored;
+  if (normalized === "~") {
+    normalized = homedir4();
+  } else if (normalized.startsWith("~/") || windows && normalized.startsWith("~\\")) {
+    normalized = path4.join(homedir4(), normalized.slice(2));
+  } else if (/^file:\/\//.test(normalized)) {
+    normalized = fileURLToPath2(normalized, { windows });
+  }
+  return path4.isAbsolute(normalized) ? path4.resolve(normalized) : path4.resolve(baseDir, normalized);
+}
+function toHeader(record) {
+  return {
+    id: record.id,
+    cwd: typeof record.cwd === "string" ? record.cwd : null,
+    timestamp: typeof record.timestamp === "string" ? record.timestamp : null
+  };
+}
+function findPiSessionFiles(dir, id, repoCwd, platform2 = process.platform) {
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const matches = [];
+  for (const file of entries) {
+    if (!file.endsWith(".jsonl")) continue;
+    const filePath = join6(dir, file);
+    let record;
+    try {
+      record = readPiSessionFileHeader(filePath);
+    } catch {
+      continue;
+    }
+    if (!record || record.id !== id) continue;
+    const cwd2 = record.cwd;
+    if (typeof cwd2 !== "string" || cwd2 === "") continue;
+    let resolved;
+    try {
+      resolved = resolvePiStoredPath(cwd2, repoCwd, platform2);
+    } catch {
+      throw new PiBackendError(
+        `pi session ${id} cannot be verified: the working directory recorded in ${filePath} cannot be resolved.`
+      );
+    }
+    if (resolved === repoCwd) matches.push(toHeader(record));
+  }
+  return matches;
+}
+function planPiSession(opts, repoCwd) {
+  const id = opts.sessionId;
+  if (!id) return null;
+  if (!isValidPiSessionId(id)) {
+    throw new PiBackendError(
+      `Invalid pi session ID "${id}". pi session IDs use letters, digits, ".", "_" and "-", and start and end with a letter or digit.`
+    );
+  }
+  const dir = piSessionDir();
+  const matches = findPiSessionFiles(dir, id, repoCwd);
+  if (opts.resumeSession) {
+    if (matches.length === 0) {
+      throw new PiBackendError(
+        `pi session ${id} not found for ${repoCwd}: it is not in phone-a-friend's pi session directory (${dir}). Sessions started directly in pi cannot be attached in this version.`
+      );
+    }
+    if (matches.length > 1) {
+      throw new PiBackendError(
+        `pi session ${id} is ambiguous: ${matches.length} session files in ${dir} carry that ID for ${repoCwd}. Refusing to resume, because pi would pick one of them by directory order.`
+      );
+    }
+    return { dir, id, expected: matches[0] };
+  }
+  if (matches.length > 0) {
+    throw new PiBackendError(
+      `pi session ${id} already exists for ${repoCwd} in ${dir}; refusing to start a new session under that ID.`
+    );
+  }
+  mkdirSync4(dir, { recursive: true });
+  return { dir, id, expected: null };
+}
+function confirmPiSession(plan, header, stderr, repoCwd) {
+  if (!header) {
+    throw new PiBackendError(`pi reported no session header, so session ${plan.id} cannot be confirmed.`);
+  }
+  if (plan.expected) {
+    const createdInstead = /No project session found with id|creating a new session/i.test(stderr);
+    const sameHeader = header.id === plan.expected.id && header.cwd === plan.expected.cwd && header.timestamp === plan.expected.timestamp;
+    if (createdInstead || !sameHeader) {
+      throw new PiBackendError(
+        `pi did not resume session ${plan.id}: it reported session ${header.id} (started ${header.timestamp ?? "unknown"}, cwd ${header.cwd ?? "unknown"}) instead of the one phone-a-friend checked. The reply was discarded.`
+      );
+    }
+    return;
+  }
+  let reportedCwd = null;
+  try {
+    reportedCwd = header.cwd ? resolvePiStoredPath(header.cwd, repoCwd) : null;
+  } catch {
+    reportedCwd = null;
+  }
+  if (header.id !== plan.id || reportedCwd !== repoCwd) {
+    throw new PiBackendError(
+      `pi reported session ${header.id} in ${header.cwd ?? "an unknown directory"}, not the requested ${plan.id} in ${repoCwd}. The session was not recorded.`
+    );
+  }
+}
+function timeoutMessage(timeoutSeconds) {
+  return `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up (your provider's baseUrl) and try a smaller model.`;
+}
+function piExitError(exitCode, finalAssistant, stderr) {
+  const failure = piFailureDetail(finalAssistant);
+  if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  const tail = stderrTail2(stderr);
+  return new PiBackendError(`pi exited with code ${exitCode ?? "unknown"}${tail ? `: ${tail}` : "."}`);
+}
+function toPiError(err, timeoutSeconds) {
+  if (err instanceof PiBackendError) return err;
+  if (err instanceof SpawnCliTimeoutError) return new PiBackendError(timeoutMessage(timeoutSeconds));
+  if (err instanceof SpawnCliError) {
+    return piExitError(err.exitCode, readPiJsonl(err.stdout).finalAssistant, err.stderr);
+  }
+  if (err instanceof BackendError) return new PiBackendError(err.message);
+  return new PiBackendError(err instanceof Error ? err.message : String(err));
+}
+var PiBackendError, PI_TOOLS, PI_SESSION_ID_PATTERN, LOCAL_SERVER_HINT, PI_PROGRESS_DETAIL_LIMIT, PI_COMPACTION_REASONS, PI_MIN_VERSION, PI_VERSION_PROBE_TIMEOUT_MS, versionCache, PI_HEADER_SCAN_LIMIT_BYTES, PI_HEADER_READ_BUFFER_BYTES, PI_KILL_GRACE_MS, PiBackend, PI_BACKEND;
+var init_pi = __esm({
+  "src/backends/pi.ts"() {
+    "use strict";
+    init_backends();
+    init_config();
+    init_diagnostics();
+    init_schema_prompt();
+    PiBackendError = class extends BackendError {
+      constructor(message) {
+        super(message);
+        this.name = "PiBackendError";
+      }
+    };
+    PI_TOOLS = {
+      "read-only": "read,grep,find,ls",
+      "workspace-write": "read,grep,find,ls,edit,write",
+      "danger-full-access": "read,grep,find,ls,edit,write,bash"
+    };
+    PI_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
+    LOCAL_SERVER_HINT = "If the model runs locally, check the server is up (your provider's baseUrl).";
+    PI_PROGRESS_DETAIL_LIMIT = 160;
+    PI_COMPACTION_REASONS = /* @__PURE__ */ new Set(["manual", "threshold", "overflow"]);
+    PI_MIN_VERSION = "0.79.0";
+    PI_VERSION_PROBE_TIMEOUT_MS = 5e3;
+    versionCache = /* @__PURE__ */ new Map();
+    PI_HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
+    PI_HEADER_READ_BUFFER_BYTES = 4096;
+    PI_KILL_GRACE_MS = 2e3;
+    PiBackend = class {
+      name = "pi";
+      localFileAccess = true;
+      allowedSandboxes = /* @__PURE__ */ new Set([
+        "read-only",
+        "workspace-write",
+        "danger-full-access"
+      ]);
+      capabilities = {
+        resumeStrategy: "native-session",
+        // PaF picks the ID and passes it as `--session-id`, as for Claude and Gemini.
+        requiresClientSessionId: true
+      };
+      /**
+       * Everything that happens before a spawn, shared by `run()` and
+       * `runStream()` so neither can skip a check.
+       */
+      async prepare(opts) {
+        assertNotPiHost(opts.env);
+        const repoCwd = canonicalRepoPath(opts.repoPath);
+        const provider = readPiProvider(opts.repoPath);
+        await assertSupportedPi(opts.env, repoCwd);
+        const session = planPiSession(opts, repoCwd);
+        const prompt = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
+        const args = buildPiArgs({
+          prompt,
+          sandbox: opts.sandbox,
+          model: opts.model,
+          provider,
+          fast: Boolean(opts.fast),
+          session: session ? { dir: session.dir, id: session.id } : null
+        });
+        return { args, repoCwd, session };
+      }
+      async run(opts) {
+        const { args, repoCwd, session } = await this.prepare(opts);
+        try {
+          const result = await spawnCli("pi", args, {
+            timeoutMs: opts.timeoutSeconds * 1e3,
+            env: opts.env,
+            cwd: repoCwd,
+            label: "pi",
+            // Same bound as the stream path: a pi that ignores SIGTERM is killed.
+            killGraceMs: PI_KILL_GRACE_MS,
+            // Review, --schema and session calls all take this path, and those
+            // are the long tool-using runs where progress matters.
+            onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : void 0
+          });
+          const parsed = parsePiJsonl(result.stdout, { stderr: result.stderr });
+          if (session) {
+            confirmPiSession(session, parsed.header, result.stderr, repoCwd);
+            opts.onSessionCreated?.(session.id);
+          }
+          return parsed.text;
+        } catch (err) {
+          throw toPiError(err, opts.timeoutSeconds);
+        }
+      }
+      async *runStream(opts) {
+        const { args, repoCwd, session } = await this.prepare(opts);
+        const child = spawn3("pi", args, {
+          stdio: ["ignore", "pipe", "pipe"],
+          cwd: repoCwd,
+          env: opts.env
+        });
+        let ended = false;
+        let spawnFailure = null;
+        let killTimer = null;
+        const exit = new Promise((resolve5) => {
+          const finish = (code, signal) => {
+            ended = true;
+            if (killTimer) clearTimeout(killTimer);
+            resolve5({ code, signal });
+          };
+          child.once("error", (err) => {
+            spawnFailure = err;
+            finish(null, null);
+          });
+          child.once("close", (code, signal) => finish(code, signal));
+        });
+        const terminate = () => {
+          if (ended) return;
+          child.kill("SIGTERM");
+          killTimer ??= setTimeout(() => {
+            if (!ended) child.kill("SIGKILL");
+          }, PI_KILL_GRACE_MS);
+        };
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          terminate();
+        }, opts.timeoutSeconds * 1e3);
+        const onSigint = () => {
+          terminate();
+        };
+        process.on("SIGINT", onSigint);
+        const stderrChunks = [];
+        child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+        const transcript = { header: null, finalAssistant: null };
+        const assembler = createPiTextAssembler();
+        try {
+          let readFailure = null;
+          try {
+            for await (const record of piRecords(child.stdout)) {
+              notePiRecord(transcript, record);
+              if (opts.onEvent) reportPiEvents(record, opts.onEvent);
+              const text = assembler.push(record);
+              if (text) yield text;
+            }
+          } catch (err) {
+            readFailure = err;
+            terminate();
+          }
+          const { code, signal } = await exit;
+          const stderr = Buffer.concat(stderrChunks).toString().trim();
+          if (spawnFailure) {
+            throw new PiBackendError(`pi failed to start: ${spawnFailure.message}`);
+          }
+          if (timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+          if (readFailure) {
+            throw new PiBackendError(
+              `pi stream error: ${readFailure instanceof Error ? readFailure.message : String(readFailure)}`
+            );
+          }
+          if (signal) throw new PiBackendError(`pi killed by signal ${signal}`);
+          if (code !== 0 && code !== null) throw piExitError(code, transcript.finalAssistant, stderr);
+          piAnswer(transcript, { stderr });
+          if (session) {
+            confirmPiSession(session, transcript.header, stderr, repoCwd);
+            opts.onSessionCreated?.(session.id);
+          }
+        } catch (err) {
+          throw toPiError(err, opts.timeoutSeconds);
+        } finally {
+          clearTimeout(timer);
+          process.removeListener("SIGINT", onSigint);
+          if (!ended) {
+            terminate();
+            await exit;
+          }
+        }
+      }
+    };
+    PI_BACKEND = new PiBackend();
+    registerBackend(PI_BACKEND);
   }
 });
 
@@ -2119,9 +3137,9 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync4 } from "fs";
-import { dirname as dirname6, join as join6 } from "path";
-import { homedir as homedir4 } from "os";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync5 } from "fs";
+import { dirname as dirname6, join as join7 } from "path";
+import { homedir as homedir5 } from "os";
 import { randomUUID as randomUUID2 } from "crypto";
 var MAX_JOBS, JobManager;
 var init_jobs = __esm({
@@ -2131,8 +3149,8 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join6(
-          process.env.XDG_CONFIG_HOME ?? join6(homedir4(), ".config"),
+        this.filePath = filePath ?? join7(
+          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
@@ -2146,7 +3164,7 @@ var init_jobs = __esm({
         }
       }
       save(jobs) {
-        mkdirSync4(dirname6(this.filePath), { recursive: true });
+        mkdirSync5(dirname6(this.filePath), { recursive: true });
         writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
@@ -2200,9 +3218,9 @@ var sessions_exports = {};
 __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
-import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync5, renameSync as renameSync2 } from "fs";
-import { dirname as dirname7, join as join7 } from "path";
-import { homedir as homedir5 } from "os";
+import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync6, renameSync as renameSync2 } from "fs";
+import { dirname as dirname7, join as join8 } from "path";
+import { homedir as homedir6 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
   "src/sessions.ts"() {
@@ -2213,15 +3231,15 @@ var init_sessions = __esm({
       dbPath;
       db;
       constructor(filePath) {
-        this.filePath = filePath ?? join7(
-          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
+        this.filePath = filePath ?? join8(
+          process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
         this.dbPath = this.filePath.endsWith(".json") ? this.filePath.slice(0, -5) + ".db" : this.filePath + ".db";
       }
       transaction(operation) {
-        mkdirSync5(dirname7(this.dbPath), { recursive: true });
+        mkdirSync6(dirname7(this.dbPath), { recursive: true });
         const Sqlite = __require("better-sqlite3");
         const db = new Sqlite(this.dbPath, { timeout: 5e3 });
         try {
@@ -3422,20 +4440,21 @@ import { execFileSync as execFileSync4 } from "child_process";
 import {
   existsSync as existsSync7,
   lstatSync,
-  mkdirSync as mkdirSync6,
-  readdirSync,
+  mkdirSync as mkdirSync7,
+  readdirSync as readdirSync2,
   readFileSync as readFileSync9,
   readlinkSync,
-  realpathSync as realpathSync2,
+  realpathSync as realpathSync3,
   rmSync as rmSync2,
   symlinkSync,
   cpSync,
-  unlinkSync as unlinkSync2
+  unlinkSync as unlinkSync2,
+  writeFileSync as writeFileSync5
 } from "fs";
-import { resolve as resolve3, join as join8, dirname as dirname8, isAbsolute, sep } from "path";
-import { homedir as homedir6 } from "os";
+import { resolve as resolve3, join as join9, dirname as dirname8, isAbsolute, sep } from "path";
+import { homedir as homedir7 } from "os";
 function ensureParent(filePath) {
-  mkdirSync6(dirname8(filePath), { recursive: true });
+  mkdirSync7(dirname8(filePath), { recursive: true });
 }
 function removePath(filePath) {
   let stat;
@@ -3456,7 +4475,7 @@ function installPath(src, dst, mode, force) {
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
-        if (realpathSync2(dst) === realpathSync2(src)) {
+        if (realpathSync3(dst) === realpathSync3(src)) {
           return "already-installed";
         }
       } catch {
@@ -3597,48 +4616,57 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join8(homedir6(), ".claude");
-  return join8(base, "plugins", PLUGIN_NAME);
+  const base = claudeHome ?? join9(homedir7(), ".claude");
+  return join9(base, "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config");
-  return join8(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join9(homedir7(), ".config");
+  return join9(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join8(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join9(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join8(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join9(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join8(repoRoot, "skills", name, "COMMAND.opencode.md");
+  const overlay = join9(repoRoot, "skills", name, "COMMAND.opencode.md");
   if (existsSync7(overlay)) return overlay;
-  return join8(repoRoot, "commands", `${name}.md`);
+  return join9(repoRoot, "commands", `${name}.md`);
 }
 function codexConfigRoot(codexHome) {
   if (codexHome) return codexHome;
   if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
-  return join8(homedir6(), ".codex");
+  return join9(homedir7(), ".codex");
 }
 function codexSkillTarget(name, codexHome) {
-  return join8(codexConfigRoot(codexHome), "skills", name);
+  return join9(codexConfigRoot(codexHome), "skills", name);
 }
 function codexSkillSource(repoRoot, name) {
-  const overlay = join8(repoRoot, "skills", name, ".codex");
-  if (existsSync7(join8(overlay, "SKILL.md"))) return overlay;
-  return join8(repoRoot, "skills", name);
+  const overlay = join9(repoRoot, "skills", name, ".codex");
+  if (existsSync7(join9(overlay, "SKILL.md"))) return overlay;
+  return join9(repoRoot, "skills", name);
+}
+function piAgentDir(piHome, platform2 = process.platform) {
+  if (piHome) return piHome;
+  const fromEnv = process.env.PI_CODING_AGENT_DIR;
+  if (fromEnv) return resolvePiStoredPath(fromEnv, process.cwd(), platform2);
+  return join9(homedir7(), ".pi", "agent");
+}
+function piSkillTarget(name, piHome) {
+  return join9(piAgentDir(piHome), "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
   let realRepo;
   try {
-    realRepo = realpathSync2(repoRoot);
+    realRepo = realpathSync3(repoRoot);
   } catch {
     return false;
   }
   try {
-    const realTarget = realpathSync2(target);
+    const realTarget = realpathSync3(target);
     return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
   } catch {
     try {
@@ -3647,7 +4675,7 @@ function isStalePafSymlink(target, repoRoot) {
       let probe = absLink;
       while (probe !== dirname8(probe)) {
         if (existsSync7(probe)) {
-          const realProbe = realpathSync2(probe);
+          const realProbe = realpathSync3(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
         probe = dirname8(probe);
@@ -3661,13 +4689,13 @@ function isStalePafSymlink(target, repoRoot) {
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
-    const resolved = realpathSync2(target);
+    const resolved = realpathSync3(target);
     if (existsSync7(resolved)) return true;
   } catch {
   }
   if (existsSync7(target)) return true;
-  const home = claudeHome ?? join8(homedir6(), ".claude");
-  const cacheBase = join8(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  const home = claudeHome ?? join9(homedir7(), ".claude");
+  const cacheBase = join9(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
   } catch {
@@ -3675,14 +4703,14 @@ function isPluginInstalled(claudeHome) {
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync7(join8(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join9(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
   const looseFileOk = CODEX_SKILLS.every(
-    (name) => existsSync7(join8(codexSkillTarget(name, codexHome), "SKILL.md"))
+    (name) => existsSync7(join9(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
   if (looseFileOk) return true;
-  const cacheRoot = join8(
+  const cacheRoot = join9(
     codexConfigRoot(codexHome),
     "plugins",
     "cache",
@@ -3691,15 +4719,61 @@ function isCodexInstalled(codexHome) {
   );
   if (!existsSync7(cacheRoot)) return false;
   try {
-    const versions = readdirSync(cacheRoot);
+    const versions = readdirSync2(cacheRoot);
     return versions.some(
       (ver) => CODEX_SKILLS.every(
-        (name) => existsSync7(join8(cacheRoot, ver, "skills", name, "SKILL.md"))
+        (name) => existsSync7(join9(cacheRoot, ver, "skills", name, "SKILL.md"))
       )
     );
   } catch {
     return false;
   }
+}
+function isPafPackageDir(dir) {
+  try {
+    const manifest = JSON.parse(readFileSync9(join9(dir, "package.json"), "utf-8"));
+    return manifest?.name === PAF_NPM_NAME;
+  } catch {
+    return false;
+  }
+}
+function isPafPiPackageSource(source, agentDir) {
+  if (source.startsWith("npm:")) {
+    const spec = source.slice("npm:".length).trim();
+    const match = /^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/.exec(spec);
+    return (match?.[1] ?? spec) === PAF_NPM_NAME;
+  }
+  const trimmed = source.trim();
+  if (trimmed.startsWith("git:") || /^(?:https?|ssh|git):\/\//i.test(trimmed)) return false;
+  try {
+    return isPafPackageDir(resolvePiStoredPath(trimmed, agentDir));
+  } catch {
+    return false;
+  }
+}
+function isPiPackageDeclared(piHome) {
+  const agentDir = piAgentDir(piHome);
+  let settings;
+  try {
+    settings = JSON.parse(readFileSync9(join9(agentDir, "settings.json"), "utf-8"));
+  } catch {
+    return false;
+  }
+  const packages = settings?.packages;
+  if (!Array.isArray(packages)) return false;
+  return packages.some((entry) => {
+    if (typeof entry === "string") return isPafPiPackageSource(entry, agentDir);
+    if (typeof entry !== "object" || entry === null) return false;
+    const { source, skills, autoload } = entry;
+    if (typeof source !== "string" || skills !== void 0 || autoload === false) return false;
+    return isPafPiPackageSource(source, agentDir);
+  });
+}
+function isPiInstalled(piHome) {
+  const looseFileOk = PI_SKILLS.every(
+    (name) => existsSync7(join9(piSkillTarget(name, piHome), "SKILL.md"))
+  );
+  return looseFileOk || isPiPackageDeclared(piHome);
 }
 function runCodexCommand(args) {
   try {
@@ -3804,10 +4878,10 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join8(repoRoot, "skills", name);
+    const skillSource = join9(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join8(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join9(skillSource, "SKILL.md")}`);
     }
     if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
@@ -3836,23 +4910,79 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   for (const name of CODEX_SKILLS) {
     const skillSource = codexSkillSource(repoRoot, name);
-    if (!existsSync7(join8(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing Codex skill source: ${join8(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Codex skill source: ${join9(skillSource, "SKILL.md")}`);
     }
     const skillTarget = codexSkillTarget(name, codexHome);
     const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
-  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
     if (isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
     }
   }
   return lines;
+}
+function installPi(repoRoot, mode, force, piHome) {
+  const lines = [];
+  for (const name of PI_SKILLS) {
+    const skillSource = join9(repoRoot, "skills", name);
+    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing pi skill source: ${join9(skillSource, "SKILL.md")}`);
+    }
+    const skillTarget = piSkillTarget(name, piHome);
+    const skillForce = force || isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    if (skillStatus === "installed" && mode === "copy") {
+      writeFileSync5(join9(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}
+`);
+    }
+    lines.push(`- pi_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+  return lines;
+}
+function canonicalPath(filePath) {
+  let existing = resolve3(filePath);
+  const missing = [];
+  for (; ; ) {
+    try {
+      return join9(realpathSync3(existing), ...missing);
+    } catch {
+      const parent = dirname8(existing);
+      if (parent === existing) return resolve3(filePath);
+      missing.unshift(existing.slice(parent.length).replace(/^[\\/]+/, ""));
+      existing = parent;
+    }
+  }
+}
+function isPafOwnedPiSkill(target, name, repoRoot) {
+  if (!isSymlink(target)) return existsSync7(join9(target, PI_INSTALL_MARKER));
+  try {
+    const link2 = readlinkSync(target);
+    const absolute = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
+    if (repoRoot && canonicalPath(absolute) === canonicalPath(join9(repoRoot, "skills", name))) return true;
+    const skillsDir = dirname8(absolute);
+    if (absolute !== join9(skillsDir, name) || skillsDir !== join9(dirname8(skillsDir), "skills")) return false;
+    return isPafPackageDir(dirname8(skillsDir));
+  } catch {
+    return false;
+  }
+}
+function uninstallPi(piHome, repoRoot) {
+  return PI_SKILLS.map((name) => {
+    const target = piSkillTarget(name, piHome);
+    if (!existsSync7(target) && !isSymlink(target)) return `- pi_skill:${name}: not-installed`;
+    if (!isPafOwnedPiSkill(target, name, repoRoot)) {
+      return `- pi_skill:${name}: kept (not PaF-owned; remove manually if desired)`;
+    }
+    removePath(target);
+    return `- pi_skill:${name}: removed`;
+  });
 }
 function uninstallCodex(codexHome, repoRoot) {
   const lines = [];
@@ -3871,9 +5001,9 @@ function uninstallCodex(codexHome, repoRoot) {
       lines.push(`- codex_skill:${name}: not-installed`);
     }
   }
-  const legacyAgentsDir = join8(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join8(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
     if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
@@ -3925,11 +5055,11 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync7(join8(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join9(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join8(homedir6(), ".claude");
-  const registryPath = join8(home, "plugins", "known_marketplaces.json");
+  const home = claudeHome ?? join9(homedir7(), ".claude");
+  const registryPath = join9(home, "plugins", "known_marketplaces.json");
   try {
     const data = JSON.parse(readFileSync9(registryPath, "utf-8"));
     const entry = data[marketplaceName];
@@ -3956,6 +5086,7 @@ function installHosts(opts) {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false
@@ -3978,6 +5109,7 @@ function installHosts(opts) {
   const shouldInstallClaude = target === "claude" || target === "all";
   const shouldInstallOpenCode = target === "opencode" || target === "all";
   const shouldInstallCodex = target === "codex" || target === "all";
+  const shouldInstallPi = target === "pi" || target === "all";
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
     lines.push(`- claude: ${status} -> ${targetPath}`);
@@ -3987,6 +5119,9 @@ function installHosts(opts) {
   }
   if (shouldInstallCodex) {
     lines.push(...installCodex(resolvedRepo, mode, force, codexHome));
+  }
+  if (shouldInstallPi) {
+    lines.push(...installPi(resolvedRepo, mode, force, piHome));
   }
   if (shouldInstallClaude && syncClaudeCli) {
     const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
@@ -4009,6 +5144,7 @@ function uninstallHosts(opts) {
     claudeHome,
     opencodeHome,
     codexHome,
+    piHome,
     repoRoot,
     claudeCliUnsync = "auto",
     codexCliUnsync = "auto"
@@ -4020,6 +5156,7 @@ function uninstallHosts(opts) {
   const shouldUninstallClaude = target === "claude" || target === "all";
   const shouldUninstallOpenCode = target === "opencode" || target === "all";
   const shouldUninstallCodex = target === "codex" || target === "all";
+  const shouldUninstallPi = target === "pi" || target === "all";
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
     lines.push(`- claude: ${status}`);
@@ -4034,6 +5171,9 @@ function uninstallHosts(opts) {
     } else {
       lines.push("- codex_cli_unsync: skipped");
     }
+  }
+  if (shouldUninstallPi) {
+    lines.push(...uninstallPi(piHome, repoRoot));
   }
   if (!shouldUninstallClaude) {
     return lines;
@@ -4061,19 +5201,23 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
     init_backends();
+    init_pi();
     PLUGIN_NAME = "phone-a-friend";
     MARKETPLACE_NAME = "phone-a-friend-marketplace";
     LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
-    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "all"]);
+    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "pi", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
     OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
     CODEX_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
+    PI_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    PAF_NPM_NAME = "@freibergergarcia/phone-a-friend";
+    PI_INSTALL_MARKER = ".phone-a-friend-install";
     CODEX_MARKETPLACE_NAME = "phone-a-friend-marketplace";
     OPENCODE_LEGACY_SKILLS = ["phone-a-team"];
     CODEX_LEGACY_SKILLS = [];
@@ -12149,9 +13293,9 @@ var require_internal = __commonJS({
     }
     InternalCodec.prototype.encoder = InternalEncoder;
     InternalCodec.prototype.decoder = InternalDecoder;
-    var StringDecoder = __require("string_decoder").StringDecoder;
+    var StringDecoder2 = __require("string_decoder").StringDecoder;
     function InternalDecoder(options, codec) {
-      this.decoder = new StringDecoder(codec.enc);
+      this.decoder = new StringDecoder2(codec.enc);
     }
     InternalDecoder.prototype.write = function(buf) {
       if (!Buffer2.isBuffer(buf)) {
@@ -15843,8 +16987,8 @@ var init_parse_editor_command = __esm({
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
-import { spawn as spawn3, spawnSync } from "child_process";
-import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "fs";
+import { spawn as spawn4, spawnSync } from "child_process";
+import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
 import path3 from "path";
 import os3 from "os";
 import { randomUUID as randomUUID4 } from "crypto";
@@ -15903,7 +17047,7 @@ var init_dist8 = __esm({
         this.createTempFile();
         const promise = new Promise((resolve5, reject) => {
           try {
-            const editorProcess = spawn3(this.editor.bin, this.editorArgs(), {
+            const editorProcess = spawn4(this.editor.bin, this.editorArgs(), {
               shell: false,
               stdio: "inherit"
             });
@@ -15952,7 +17096,7 @@ var init_dist8 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync5(this.tempFile, this.text, opt);
+          writeFileSync6(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
@@ -17216,14 +18360,17 @@ var init_detection = __esm({
       // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
       // exit with code 1 just because OpenCode is absent. Mark it optional so
       // doctor counts/exit-code only include OpenCode when it is present.
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true }
+      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true },
+      // Optional for the same reason: most users do not have pi installed.
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent", optional: true }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
       { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" },
-      { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" }
+      { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent CLI" }
     ];
   }
 });
@@ -72900,8 +74047,8 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn5 } from "child_process";
-import { mkdirSync as mkdirSync8, existsSync as existsSync12 } from "fs";
+import { spawn as spawn6 } from "child_process";
+import { mkdirSync as mkdirSync9, existsSync as existsSync12 } from "fs";
 import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
   const lines = [];
@@ -72926,14 +74073,16 @@ function formatBackendSummary(report) {
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
   lines.push(`  ${claudeInstalled ? "\u2713" : "!"} claude     ${claudeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${opencodeInstalled ? "\u2713" : "!"} opencode   ${opencodeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${codexInstalled ? "\u2713" : "!"} codex      ${codexInstalled ? "installed" : "not installed"}`);
+  lines.push(`  ${piInstalled ? "\u2713" : "!"} pi         ${piInstalled ? "installed" : "not installed"}`);
   return lines.join("\n");
 }
 function spawnPaf(args, processRef, fallbackMessage) {
   return new Promise((resolve5, reject) => {
-    const proc = spawn5(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
+    const proc = spawn6(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     processRef.current = proc;
@@ -72959,6 +74108,7 @@ function buildActionGroups(report, onRefresh, processRef) {
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
   return [
     {
       title: "Diagnostics",
@@ -72979,7 +74129,7 @@ function buildActionGroups(report, onRefresh, processRef) {
           run: async () => {
             const paths = configPaths();
             if (!existsSync12(paths.user)) {
-              mkdirSync8(dirname10(paths.user), { recursive: true });
+              mkdirSync9(dirname10(paths.user), { recursive: true });
               configInit(paths.user, true);
             }
             const editorEnv = process.env.EDITOR ?? "vi";
@@ -72987,7 +74137,7 @@ function buildActionGroups(report, onRefresh, processRef) {
             const editor = parts[0];
             const editorArgs = [...parts.slice(1), paths.user];
             return new Promise((resolve5, reject) => {
-              const proc = spawn5(editor, editorArgs, { stdio: "inherit" });
+              const proc = spawn6(editor, editorArgs, { stdio: "inherit" });
               processRef.current = proc;
               proc.on("close", () => {
                 processRef.current = null;
@@ -73071,6 +74221,27 @@ function buildActionGroups(report, onRefresh, processRef) {
           description: "Remove skills + marketplace registration (and any stale paf-* subagent symlinks)",
           confirm: "Uninstall Codex plugin? (y/n)",
           run: () => spawnPaf(["plugin", "uninstall", "--codex"], processRef, "Codex plugin uninstalled")
+        }
+      ]
+    },
+    {
+      title: "pi",
+      installed: piInstalled,
+      actions: [
+        {
+          label: piInstalled ? "Reinstall" : "Install",
+          description: piInstalled ? "Refresh skills (used in pi as /skill:phone-a-friend)" : "Install skills (used in pi as /skill:phone-a-friend)",
+          run: () => spawnPaf(
+            ["plugin", "install", "--pi", "--force", "--no-claude-cli-sync"],
+            processRef,
+            "pi skills installed"
+          )
+        },
+        {
+          label: "Uninstall",
+          description: "Remove the skills from the pi agent directory",
+          confirm: "Uninstall pi skills? (y/n)",
+          run: () => spawnPaf(["plugin", "uninstall", "--pi"], processRef, "pi skills uninstalled")
         }
       ]
     }
@@ -73527,7 +74698,9 @@ function PluginStatusBar({ installed = false, hosts }) {
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "OpenCode", installed: hosts.opencode }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Codex", installed: hosts.codex })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Codex", installed: hosts.codex }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "pi", installed: hosts.pi })
     ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
@@ -73549,7 +74722,8 @@ function readStatus() {
   return {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
-    codex: isCodexInstalled()
+    codex: isCodexInstalled(),
+    pi: isPiInstalled()
   };
 }
 function usePluginStatus() {
@@ -73569,14 +74743,14 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join10 } from "path";
-import { mkdirSync as mkdirSync9 } from "fs";
-import { homedir as homedir8 } from "os";
+import { join as join11 } from "path";
+import { mkdirSync as mkdirSync10 } from "fs";
+import { homedir as homedir9 } from "os";
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join10(homedir8(), ".config");
-  const dir = join10(configBase, "phone-a-friend");
-  mkdirSync9(dir, { recursive: true });
-  return join10(dir, "agentic.db");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join11(homedir9(), ".config");
+  const dir = join11(configBase, "phone-a-friend");
+  mkdirSync10(dir, { recursive: true });
+  return join11(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -74050,7 +75224,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn6 } from "child_process";
+import { spawn as spawn7 } from "child_process";
 import { randomUUID as randomUUID5 } from "crypto";
 function assertAgenticBackendSupported(backendName) {
   if (backendName === AGENTIC_NATIVE_BACKEND) return;
@@ -74211,7 +75385,7 @@ ${prompt}`,
         if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
         return new Promise((resolve5, reject) => {
           const grouped = process.platform !== "win32";
-          const child = spawn6("claude", args, {
+          const child = spawn7("claude", args, {
             env: this.cleanEnv(),
             cwd: repoPath,
             detached: grouped,
@@ -76158,6 +77332,7 @@ function isDeadCacheDisabled(env5 = process.env) {
 }
 
 // src/backends/gemini.ts
+init_schema_prompt();
 var GeminiBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -76373,12 +77548,6 @@ function classifyAttemptError(err) {
     return classifyGeminiError({ message: err.message });
   }
   return classifyGeminiError({ message: String(err) });
-}
-function injectSchemaPrompt(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
 }
 function maybeEmitGeminiSessionId(jsonOutput, onSessionCreated) {
   const sessionId = extractGeminiSessionId(jsonOutput);
@@ -77062,264 +78231,8 @@ init_backends();
 import { spawn as spawn2 } from "child_process";
 import { delimiter as pathDelimiter2, resolve as resolvePath2 } from "path";
 init_config();
-
-// src/diagnostics.ts
-init_backends();
-init_version();
-import { execFile as execFile2 } from "child_process";
-import { accessSync, constants as fsConstants, realpathSync, statSync, readFileSync as readFileSync5 } from "fs";
-import { delimiter as pathDelimiter, dirname as dirname5, join as join5, resolve as resolvePath } from "path";
-var DEFAULT_TIMEOUT_MS = 5e3;
-var DEFAULT_MAX_PROBES = 6;
-var VERSION_RE = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\d.])/;
-var SHELL_NOTE = "Interactive shell aliases and functions do not affect PaF subprocesses; only PATH order does.";
-function defaultDeps(overrides) {
-  return {
-    env: process.env,
-    execFileFn: execFile2,
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    maxProbes: DEFAULT_MAX_PROBES,
-    argv1: process.argv[1],
-    ...overrides
-  };
-}
-function isExecutableFile(path4) {
-  try {
-    if (!statSync(path4).isFile()) return false;
-    accessSync(path4, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function safeRealpath(path4) {
-  try {
-    return realpathSync(path4);
-  } catch {
-    return path4;
-  }
-}
-function resolveExecutableCandidates(command, env5 = process.env) {
-  const pathValue = env5.PATH ?? "/usr/bin:/bin";
-  const seen = /* @__PURE__ */ new Set();
-  const out = [];
-  for (const dir of pathValue.split(pathDelimiter)) {
-    const candidate = resolvePath(dir || ".", command);
-    if (!isExecutableFile(candidate)) continue;
-    const resolved = safeRealpath(candidate);
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    out.push({ path: candidate, resolvedPath: resolved });
-  }
-  return out;
-}
-function parseVersionOutput(stdout, stderr) {
-  for (const text of [stdout, stderr]) {
-    const match = VERSION_RE.exec(text);
-    if (match) return match[1];
-  }
-  return null;
-}
-function probeVersion(path4, deps = {}) {
-  const { execFileFn, timeoutMs, env: env5 } = defaultDeps(deps);
-  return new Promise((resolve5) => {
-    execFileFn(
-      path4,
-      ["--version"],
-      {
-        timeout: timeoutMs,
-        killSignal: "SIGKILL",
-        maxBuffer: 64 * 1024,
-        windowsHide: true,
-        env: env5,
-        encoding: "utf8"
-      },
-      (err, stdout, stderr) => {
-        const out = typeof stdout === "string" ? stdout : String(stdout ?? "");
-        const errOut = typeof stderr === "string" ? stderr : String(stderr ?? "");
-        if (err) {
-          const e = err;
-          if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-            resolve5({ version: null, versionStatus: "failed", versionError: "--version output exceeded the size limit" });
-            return;
-          }
-          if (e.killed || e.signal === "SIGKILL") {
-            resolve5({
-              version: null,
-              versionStatus: "timeout",
-              versionError: `--version did not finish within ${timeoutMs / 1e3}s`
-            });
-            return;
-          }
-          if (e.code === "EACCES" || e.code === "EPERM") {
-            resolve5({ version: null, versionStatus: "permission-denied", versionError: "permission denied" });
-            return;
-          }
-          if (typeof e.code === "string") {
-            resolve5({ version: null, versionStatus: "failed", versionError: e.code === "ENOENT" ? "executable not found (ENOENT)" : "failed to start" });
-            return;
-          }
-          const parsed2 = parseVersionOutput(out, errOut);
-          if (parsed2) {
-            resolve5({ version: parsed2, versionStatus: "ok" });
-            return;
-          }
-          const detail = typeof e.code === "number" ? `exit code ${e.code}` : "--version failed";
-          resolve5({ version: null, versionStatus: "failed", versionError: detail });
-          return;
-        }
-        const parsed = parseVersionOutput(out, errOut);
-        if (parsed) {
-          resolve5({ version: parsed, versionStatus: "ok" });
-          return;
-        }
-        resolve5({
-          version: null,
-          versionStatus: "unparsed",
-          versionError: (out || errOut).trim() ? "unrecognized version output" : "no output"
-        });
-      }
-    );
-  });
-}
-function buildExecutableGuidance(info2) {
-  const guidance = [];
-  const { command, selected, candidates } = info2;
-  if (!selected) {
-    return guidance;
-  }
-  const describe = (c) => {
-    const version = c.version ?? `version ${c.versionStatus}`;
-    return `${c.path} (${version})`;
-  };
-  if (candidates.length > 1) {
-    const others = candidates.filter((c) => c !== selected).map(describe).join(", ");
-    guidance.push(
-      `The first PATH match for "${command}" is ${describe(selected)}. Also on PATH: ${others}.`
-    );
-    if (info2.versionMismatch) {
-      guidance.push(
-        `These installs report different versions. If a relay fails on a model or flag that a newer ${command} supports, put that install's directory earlier in PATH for the PaF process, or remove the duplicates. A newer version does not by itself guarantee support for a given model.`
-      );
-    } else if (candidates.every((c) => c.versionStatus === "ok")) {
-      guidance.push("All probed candidates report the same version; no action needed unless one is stale.");
-    }
-    guidance.push(SHELL_NOTE);
-  }
-  for (const c of candidates) {
-    if (c.versionStatus === "ok" || c.versionStatus === "not-probed") continue;
-    guidance.push(
-      `Could not determine the version of ${c.path}: ${c.versionError ?? c.versionStatus}. Run "${c.path} --version" manually to inspect it.`
-    );
-  }
-  const skipped = candidates.filter((c) => c.versionStatus === "not-probed").length;
-  if (skipped > 0) {
-    guidance.push(`${skipped} additional PATH candidate(s) were not probed (probe cap reached).`);
-  }
-  return guidance;
-}
-async function inspectExecutable(command, deps = {}) {
-  const d = defaultDeps(deps);
-  const found = resolveExecutableCandidates(command, d.env);
-  const candidates = await Promise.all(
-    found.map(async (c, index) => {
-      if (index >= d.maxProbes) {
-        return { ...c, version: null, versionStatus: "not-probed" };
-      }
-      const probe = await probeVersion(c.path, d);
-      return { ...c, ...probe };
-    })
-  );
-  const selected = candidates[0] ?? null;
-  const versions = new Set(candidates.filter((c) => c.version).map((c) => c.version));
-  const partial = {
-    command,
-    selected,
-    candidates,
-    shadowed: candidates.length > 1,
-    versionMismatch: versions.size > 1
-  };
-  return { ...partial, guidance: buildExecutableGuidance(partial) };
-}
-function commandFor(backend) {
-  return BACKEND_COMMANDS[backend.name] ?? backend.name;
-}
-async function inspectExecutables(report, deps = {}) {
-  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
-  const commands = [...new Set(entries.map(commandFor))];
-  const results = await Promise.all(commands.map((cmd) => inspectExecutable(cmd, deps)));
-  const byCommand = new Map(commands.map((cmd, i) => [cmd, results[i]]));
-  for (const b of entries) {
-    const info2 = byCommand.get(commandFor(b));
-    if (info2) b.executable = info2;
-  }
-}
-function attachModelAndCapabilities(report, config) {
-  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
-  for (const b of entries) {
-    const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
-    b.model = {
-      requested: configured,
-      requestedSource: configured ? "paf-config" : "backend-default",
-      reported: null,
-      reportedNote: "Unknown: doctor does not run backends. Only a real relay reveals the model actually used."
-    };
-    try {
-      const backend = getBackend(b.name);
-      b.capabilities = {
-        declared: {
-          resumeStrategy: backend.capabilities.resumeStrategy,
-          requiresClientSessionId: backend.capabilities.requiresClientSessionId,
-          localFileAccess: backend.localFileAccess
-        },
-        verification: "declared-only",
-        verificationNote: "Declared by the PaF adapter in source; not verified against the installed CLI."
-      };
-    } catch {
-    }
-  }
-}
-function inspectPafPackage(entry) {
-  for (const root of [dirname5(entry), dirname5(dirname5(entry))]) {
-    try {
-      const pkg = JSON.parse(readFileSync5(join5(root, "package.json"), "utf8"));
-      if (pkg.name !== "@freibergergarcia/phone-a-friend" || typeof pkg.version !== "string") continue;
-      const isBundle = entry === join5(root, "dist", "index.js");
-      const isCheckoutWrapper = entry === join5(root, "phone-a-friend") && readFileSync5(entry, "utf8").includes('exec node "${SCRIPT_DIR}/dist/index.js" "$@"');
-      if (isBundle || isCheckoutWrapper) return { root, version: pkg.version };
-    } catch {
-    }
-  }
-  return null;
-}
-function inspectPafIdentity(deps = {}) {
-  const d = defaultDeps(deps);
-  const packageRoot = getPackageRoot();
-  const version = getVersion();
-  const entry = d.argv1 ? safeRealpath(d.argv1) : null;
-  const pathCandidates = resolveExecutableCandidates("phone-a-friend", d.env).map((c) => {
-    const pkg = inspectPafPackage(c.resolvedPath);
-    return pkg ? { ...c, version: pkg.version, versionStatus: "ok" } : { ...c, version: null, versionStatus: "unparsed", versionError: "unrecognized PaF installation layout" };
-  });
-  const selected = pathCandidates[0];
-  const runningRoot = safeRealpath(packageRoot);
-  const selectedPackage = selected ? inspectPafPackage(selected.resolvedPath) : null;
-  const selectedRoot = selectedPackage ? safeRealpath(selectedPackage.root) : null;
-  const runningDiffersFromPath = selectedRoot !== null && selectedRoot !== runningRoot;
-  const guidance = [];
-  if (runningDiffersFromPath && selected) {
-    guidance.push(
-      `This doctor run is PaF ${version} at ${packageRoot}, but "phone-a-friend" on PATH resolves to ${selected.path} (${selected.version ?? "unknown version"}). Host skills and slash commands that call "phone-a-friend" use the PATH install, so their behavior may differ from this checkout.`
-    );
-  }
-  if (pathCandidates.length > 1) {
-    const list = pathCandidates.map((c) => `${c.path} (${c.version ?? "unknown version"})`).join(", ");
-    guidance.push(`Multiple phone-a-friend installs are on PATH: ${list}. The first one wins for subprocess calls.`);
-  }
-  return { version, packageRoot, entry, pathCandidates, runningDiffersFromPath, guidance };
-}
-
-// src/backends/opencode.ts
+init_diagnostics();
+init_schema_prompt();
 var OpenCodeBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -77474,7 +78387,7 @@ var OpenCodeBackend = class {
     }
     const { provider, pure, standalone } = this.getConfig();
     const major = await detectOpenCodeMajor(opts.env, { cwd: opts.repoPath });
-    const promptWithSchema = opts.schema ? injectSchemaPrompt3(opts.prompt, opts.schema) : opts.prompt;
+    const promptWithSchema = opts.schema ? injectSchemaPrompt(opts.prompt, opts.schema) : opts.prompt;
     const args = buildOpenCodeArgs({
       prompt: promptWithSchema,
       repoPath: opts.repoPath,
@@ -77661,14 +78574,11 @@ var OpenCodeBackend = class {
     }
   }
 };
-function injectSchemaPrompt3(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
-}
 var OPENCODE_BACKEND = new OpenCodeBackend();
 registerBackend(OPENCODE_BACKEND);
+
+// src/index.ts
+init_pi();
 
 // src/cli.ts
 import { existsSync as existsSync13, readFileSync as readFileSync13 } from "fs";
@@ -84772,6 +85682,29 @@ async function setup(opts) {
       }
     }
   }
+  const piAvailable = report.host.some((h) => h.name === "pi" && h.available);
+  if (piAvailable) {
+    console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("pi integration")}`);
+    const installPi2 = await dist_default6({
+      message: "Install pi skills (/skill:phone-a-friend, /skill:curiosity-engine)?",
+      default: true
+    });
+    if (installPi2) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: "pi",
+          mode: "symlink",
+          force: true,
+          syncClaudeCli: false
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  pi install failed: ${err.message}`));
+      }
+    }
+  }
   const existing = loadConfig(opts?.repoRoot);
   const cfg = {
     ...existing,
@@ -84846,28 +85779,28 @@ init_version();
 init_installer();
 
 // src/updates.ts
-import { spawn as spawn4 } from "child_process";
+import { spawn as spawn5 } from "child_process";
 import {
-  closeSync as closeSync2,
+  closeSync as closeSync3,
   existsSync as existsSync8,
   fsyncSync as fsyncSync2,
-  mkdirSync as mkdirSync7,
-  openSync as openSync2,
+  mkdirSync as mkdirSync8,
+  openSync as openSync3,
   readFileSync as readFileSync11,
   renameSync as renameSync3,
   unlinkSync as unlinkSync3,
-  writeFileSync as writeFileSync6
+  writeFileSync as writeFileSync7
 } from "fs";
-import { homedir as homedir7 } from "os";
-import { dirname as dirname9, join as join9 } from "path";
+import { homedir as homedir8 } from "os";
+import { dirname as dirname9, join as join10 } from "path";
 var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
 var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 5e3;
 var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
 var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
-function defaultCachePath2(env5 = process.env, home = homedir7()) {
-  const base = env5.XDG_CONFIG_HOME ?? join9(home, ".config");
-  return join9(base, "phone-a-friend", "update-check.json");
+function defaultCachePath2(env5 = process.env, home = homedir8()) {
+  const base = env5.XDG_CONFIG_HOME ?? join10(home, ".config");
+  return join10(base, "phone-a-friend", "update-check.json");
 }
 function emptySnapshot(currentVersion) {
   return {
@@ -84917,16 +85850,16 @@ function rotateCorruptCache(filePath, _reason) {
 }
 function writeSnapshot(filePath, snapshot) {
   const dir = dirname9(filePath);
-  mkdirSync7(dir, { recursive: true });
+  mkdirSync8(dir, { recursive: true });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
   const payload = JSON.stringify(snapshot, null, 2);
-  const tmpFd = openSync2(tmpPath, "w");
+  const tmpFd = openSync3(tmpPath, "w");
   try {
     try {
-      writeFileSync6(tmpFd, payload, "utf-8");
+      writeFileSync7(tmpFd, payload, "utf-8");
       fsyncSync2(tmpFd);
     } finally {
-      closeSync2(tmpFd);
+      closeSync3(tmpFd);
     }
     renameSync3(tmpPath, filePath);
   } catch (err) {
@@ -84937,11 +85870,11 @@ function writeSnapshot(filePath, snapshot) {
     throw err;
   }
   try {
-    const dirFd = openSync2(dir, "r");
+    const dirFd = openSync3(dir, "r");
     try {
       fsyncSync2(dirFd);
     } finally {
-      closeSync2(dirFd);
+      closeSync3(dirFd);
     }
   } catch {
   }
@@ -85079,7 +86012,7 @@ function kickoffBackgroundRefresh(args) {
   if (!isPafEntryScript(entryScript)) return;
   if (isTestRuntimeEnv(process.env)) return;
   try {
-    const child = spawn4(
+    const child = spawn5(
       process.execPath,
       [entryScript, "__update-check", "refresh"],
       {
@@ -85163,6 +86096,9 @@ function detectMachineFlag(argv) {
 }
 
 // src/doctor.ts
+init_pi();
+init_backends();
+init_diagnostics();
 function countableBackends(report) {
   return [...report.cli, ...report.local].filter((b) => {
     if (b.planned) return false;
@@ -85233,6 +86169,7 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
   lines.push(`    ${hostInstallations.claude ? theme.checkmark : theme.warning("!")} Claude plugin ${hostInstallations.claude ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning("!")} OpenCode commands/skills ${hostInstallations.opencode ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.codex ? theme.checkmark : theme.warning("!")} Codex skills ${hostInstallations.codex ? theme.success("installed") : theme.warning("not installed")}`);
+  lines.push(`    ${hostInstallations.pi ? theme.checkmark : theme.warning("!")} pi skills ${hostInstallations.pi ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
@@ -85267,6 +86204,11 @@ function formatDiagnosticLines(b) {
       const flag = exe.versionMismatch ? ` ${theme.warning("[versions differ]")}` : "";
       lines.push(`${DIAG_INDENT}${theme.hint("also on PATH:")} ${others}${flag}`);
     }
+  }
+  if (b.model?.provider && exe?.selected) {
+    const { requested, requestedSource } = b.model.provider;
+    const shown = requestedSource === "invalid" ? theme.warning(`invalid [backends.${b.name}] provider in PaF config (expected a non-empty string)`) : requested ? `${requested} (from PaF config)` : `${b.name}'s default`;
+    lines.push(`${DIAG_INDENT}${theme.hint("provider:")} ${shown}`);
   }
   if (b.model && (exe?.selected || b.name === "ollama")) {
     const requested = b.model.requested ? `${b.model.requested} (from PaF config)` : "backend default";
@@ -85394,13 +86336,23 @@ function opencodeLineAdvisory(opencode) {
   if (parseOpenCodeMajor(selected.version) !== 2) return null;
   return `OpenCode 2.x (${selected.version}) detected at ${selected.path}. PaF adapts its arguments to this line; --fast and backends.opencode.pure have no effect on 2.x (no --pure), and the published docs at opencode.ai/docs describe 1.x. See opencode.ai/v2/docs for 2.x.`;
 }
+function piVersionAdvisory(pi) {
+  const selected = pi.executable?.selected;
+  if (!selected?.version || !/^\d+\.\d+\.\d+/.test(selected.version)) return null;
+  if (isSupportedPiVersion(selected.version)) return null;
+  return `pi ${selected.version} at ${selected.path} is older than ${PI_MIN_VERSION}, the oldest release phone-a-friend supports. Relays with --to pi will be refused. Upgrade: ${INSTALL_HINTS.pi}`;
+}
 async function collectAdvisories(report) {
-  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
-  if (!opencode) return [];
   const out = [];
-  const lineAdvisory = opencodeLineAdvisory(opencode);
-  if (lineAdvisory) out.push(lineAdvisory);
-  out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  const opencode = report.cli.find((b) => b.name === "opencode" && b.available);
+  if (opencode) {
+    const lineAdvisory = opencodeLineAdvisory(opencode);
+    if (lineAdvisory) out.push(lineAdvisory);
+    out.push(...collectOllamaAdvisories(await probeOllamaVersion()));
+  }
+  const pi = report.cli.find((b) => b.name === "pi" && b.available);
+  const piAdvisory = pi ? piVersionAdvisory(pi) : null;
+  if (piAdvisory) out.push(piAdvisory);
   return out;
 }
 function collectOllamaAdvisories(version) {
@@ -85428,7 +86380,8 @@ async function doctor(opts) {
   const hostInstallations = {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
-    codex: isCodexInstalled()
+    codex: isCodexInstalled(),
+    pi: isPiInstalled()
   };
   const updateCheck = collectUpdateCheckState(config);
   if (opts?.json) {
@@ -85630,7 +86583,7 @@ function beginTrackedRun(input) {
 init_tasks();
 
 // src/status-line.ts
-import { realpathSync as realpathSync3 } from "fs";
+import { realpathSync as realpathSync4 } from "fs";
 import { sep as sep2 } from "path";
 var STATUS_LINE_PREFIX = "\u25C7";
 var DEFAULT_RECENT_MINUTES = 2;
@@ -85671,7 +86624,7 @@ function truncateDetail(text, max = MAX_DETAIL_CHARS) {
 function taskMatchesCwd(task, cwd2) {
   const candidates = /* @__PURE__ */ new Set([cwd2]);
   try {
-    candidates.add(realpathSync3(cwd2));
+    candidates.add(realpathSync4(cwd2));
   } catch {
   }
   const root = task.repoPath.endsWith(sep2) ? task.repoPath : task.repoPath + sep2;
@@ -85882,7 +86835,7 @@ function printBackendAvailability() {
 }
 function resolveHostTarget(opts) {
   if (opts.all) return "all";
-  const selected = [opts.claude, opts.opencode, opts.codex].filter(Boolean).length;
+  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi].filter(Boolean).length;
   if (selected > 1) {
     throw new InstallerError(
       "Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag."
@@ -85890,6 +86843,7 @@ function resolveHostTarget(opts) {
   }
   if (opts.opencode) return "opencode";
   if (opts.codex) return "codex";
+  if (opts.pi) return "pi";
   return "claude";
 }
 function installAction(opts) {
@@ -85902,9 +86856,9 @@ function installAction(opts) {
       console.error("Error: --repo-root is not compatible with --github");
       return 1;
     }
-    if (opts.opencode || opts.codex || opts.all) {
+    if (opts.opencode || opts.codex || opts.pi || opts.all) {
       console.error(
-        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode` and/or `--codex` separately."
+        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, and pi has its own package manager. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode`, `--codex` and/or `--pi` separately."
       );
       return 1;
     }
@@ -85953,13 +86907,13 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
 }
 function addUninstallOptions(cmd) {
-  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
+  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--pi", "Uninstall for pi", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
 }
 async function run(argv) {
   const normalized = normalizeArgv(argv);
@@ -86075,11 +87029,11 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode").option("--repo <path>", "Repository path", process.cwd()).option(
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi").option("--repo <path>", "Repository path", process.cwd()).option(
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (maps to --pure for OpenCode; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {

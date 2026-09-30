@@ -173,6 +173,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   ollama: 'https://ollama.com/download',
   claude: 'npm install -g @anthropic-ai/claude-code',
   opencode: 'curl -fsSL https://opencode.ai/install | bash',
+  pi: 'npm install -g @earendil-works/pi-coding-agent',
 };
 
 export const BACKEND_COMMANDS: Record<string, string> = {
@@ -182,6 +183,7 @@ export const BACKEND_COMMANDS: Record<string, string> = {
   gemini: 'gemini',
   ollama: 'ollama',
   opencode: 'opencode',
+  pi: 'pi',
 };
 
 // ---------------------------------------------------------------------------
@@ -248,6 +250,13 @@ export interface SpawnCliOptions {
   label?: string;
   /** Receives stdout chunks as they arrive, for progress observers. Errors thrown here are ignored. */
   onStdout?: (chunk: string) => void;
+  /**
+   * Opt-in: after the timeout or SIGINT sends SIGTERM, send SIGKILL if the
+   * child has not closed within this many milliseconds. Without it the wait
+   * for a child that ignores SIGTERM has no bound (the long-standing default,
+   * kept for backends that have not opted in).
+   */
+  killGraceMs?: number;
 }
 
 export interface SpawnCliResult {
@@ -274,13 +283,21 @@ export function spawnCli(
       cwd: opts.cwd,
     });
 
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    const terminate = (): void => {
+      child.kill('SIGTERM');
+      if (opts.killGraceMs !== undefined && !killTimer) {
+        killTimer = setTimeout(() => { child.kill('SIGKILL'); }, opts.killGraceMs);
+      }
+    };
+
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
+      terminate();
     }, opts.timeoutMs);
 
-    const onSigint = () => { child.kill('SIGTERM'); };
+    const onSigint = () => { terminate(); };
     process.on('SIGINT', onSigint);
 
     const stdoutChunks: Buffer[] = [];
@@ -299,12 +316,14 @@ export function spawnCli(
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener('SIGINT', onSigint);
       reject(new BackendError(`${label} failed to start: ${err.message}`));
     });
 
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       process.removeListener('SIGINT', onSigint);
 
       const stdout = Buffer.concat(stdoutChunks).toString().trim();

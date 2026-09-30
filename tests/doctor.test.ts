@@ -18,10 +18,11 @@ const { mockInspectExecutables, mockAttachModelAndCapabilities, mockInspectPafId
   mockInspectPafIdentity: vi.fn(),
 }));
 
-const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled } = vi.hoisted(() => ({
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled, mockIsPiInstalled } = vi.hoisted(() => ({
   mockIsPluginInstalled: vi.fn(),
   mockIsOpenCodeInstalled: vi.fn(),
   mockIsCodexInstalled: vi.fn(),
+  mockIsPiInstalled: vi.fn(),
 }));
 
 vi.mock('../src/detection.js', () => ({
@@ -49,6 +50,7 @@ vi.mock('../src/installer.js', () => ({
   isPluginInstalled: mockIsPluginInstalled,
   isOpenCodeInstalled: mockIsOpenCodeInstalled,
   isCodexInstalled: mockIsCodexInstalled,
+  isPiInstalled: mockIsPiInstalled,
 }));
 
 // Helper: build a detection report
@@ -118,6 +120,7 @@ describe('doctor', () => {
     mockIsPluginInstalled.mockReturnValue(true);
     mockIsOpenCodeInstalled.mockReturnValue(false);
     mockIsCodexInstalled.mockReturnValue(false);
+    mockIsPiInstalled.mockReturnValue(false);
     mockInspectExecutables.mockResolvedValue(undefined);
     mockAttachModelAndCapabilities.mockReturnValue(undefined);
     mockInspectPafIdentity.mockReturnValue(pafIdentity());
@@ -166,6 +169,16 @@ describe('doctor', () => {
       expect(result.output).toContain('Host Install Status');
       expect(result.output).toContain('Claude plugin');
       expect(result.output).toContain('OpenCode commands/skills');
+    });
+
+    it('reports the pi skills install status in text and JSON', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      expect((await doctor.doctor()).output).toMatch(/! pi skills .*not installed/);
+
+      mockIsPiInstalled.mockReturnValue(true);
+      expect((await doctor.doctor()).output).toMatch(/pi skills .*installed/);
+      expect((await doctor.doctor()).output).not.toMatch(/pi skills .*not installed/);
+      expect(JSON.parse((await doctor.doctor({ json: true })).output).hostInstallations.pi).toBe(true);
     });
 
     it('shows install hints for missing backends', async () => {
@@ -328,7 +341,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
-      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false });
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false, pi: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });
@@ -390,6 +403,100 @@ describe('doctor', () => {
       report.cli.push({ name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', executable: executableInfo('opencode', [candidate('/usr/local/bin/opencode', '1.18.32')]) });
       mockDetectAll.mockResolvedValue(report);
       expect((await doctor.doctor()).output).not.toMatch(/OpenCode 2\.x/);
+    });
+
+    describe('pi', () => {
+      const PI = '/usr/local/bin/pi';
+      const piEntry = (version: string | null, status: Candidate['versionStatus'] = 'ok') => ({
+        name: 'pi', category: 'cli' as const, available: true, detail: 'Pi coding agent (pi found in PATH)', installHint: '',
+        optional: true, executable: executableInfo('pi', [candidate(PI, version, status)]),
+      });
+
+      it('advises when the installed pi is older than the minimum, without OpenCode installed', async () => {
+        const report = makeReport();
+        report.cli.push(piEntry('0.78.4'));
+        mockDetectAll.mockResolvedValue(report);
+        const result = await doctor.doctor();
+        expect(result.output).toMatch(/pi 0\.78\.4 .*older than 0\.79\.0/);
+        expect(result.output).toContain('npm install -g @earendil-works/pi-coding-agent');
+        // The OpenCode-only Ollama advisory stays tied to OpenCode.
+        expect(result.output).not.toMatch(/OpenCode detected/);
+        const parsed = JSON.parse((await doctor.doctor({ json: true })).output);
+        expect(parsed.advisories).toEqual([expect.stringMatching(/pi 0\.78\.4/)]);
+      });
+
+      it('stays silent on a supported pi, and does not change the exit code either way', async () => {
+        const supported = makeReport();
+        supported.cli.push(piEntry('0.87.1'));
+        mockDetectAll.mockResolvedValue(supported);
+        const ok = await doctor.doctor();
+        expect(ok.output).toContain(`exec: ${PI} (0.87.1)`);
+        expect(ok.output).not.toMatch(/older than/);
+
+        const old = makeReport();
+        old.cli.push(piEntry('0.78.4'));
+        mockDetectAll.mockResolvedValue(old);
+        expect((await doctor.doctor()).exitCode).toBe(ok.exitCode);
+      });
+
+      it('leaves an unreadable pi version to the generic probe advisory', async () => {
+        const report = makeReport();
+        report.cli.push(piEntry(null, 'timeout'));
+        mockDetectAll.mockResolvedValue(report);
+        expect((await doctor.doctor()).output).not.toMatch(/older than/);
+      });
+
+      it('keeps the OpenCode advisories when both are installed', async () => {
+        const report = makeReport();
+        report.cli.push({ name: 'opencode', category: 'cli', available: true, detail: 'found', installHint: '', executable: executableInfo('opencode', [candidate('/usr/local/bin/opencode', '2.0.14')]) });
+        report.cli.push(piEntry('0.78.4'));
+        mockDetectAll.mockResolvedValue(report);
+        const parsed = JSON.parse((await doctor.doctor({ json: true })).output);
+        expect(parsed.advisories).toEqual(expect.arrayContaining([
+          expect.stringMatching(/OpenCode 2\.x/),
+          expect.stringMatching(/pi 0\.78\.4/),
+        ]));
+      });
+
+      it('shows the configured provider and model, and says when pi picks its own', async () => {
+        const configured = makeReport();
+        configured.cli.push({
+          ...piEntry('0.87.1'),
+          model: {
+            requested: 'mlx-community/Qwen3.5-9B-MLX-4bit', requestedSource: 'paf-config', reported: null, reportedNote: 'Unknown',
+            provider: { requested: 'mlx', requestedSource: 'paf-config' },
+          },
+        });
+        mockDetectAll.mockResolvedValue(configured);
+        const output = (await doctor.doctor()).output;
+        expect(output).toContain('provider: mlx (from PaF config)');
+        expect(output).toContain('model: requested=mlx-community/Qwen3.5-9B-MLX-4bit (from PaF config), reported=unknown');
+
+        const unset = makeReport();
+        unset.cli.push({
+          ...piEntry('0.87.1'),
+          model: { requested: null, requestedSource: 'backend-default', reported: null, reportedNote: 'Unknown', provider: { requested: null, requestedSource: 'backend-default' } },
+        });
+        mockDetectAll.mockResolvedValue(unset);
+        expect((await doctor.doctor()).output).toContain("provider: pi's default");
+
+        const invalid = makeReport();
+        invalid.cli.push({
+          ...piEntry('0.87.1'),
+          model: { requested: null, requestedSource: 'backend-default', reported: null, reportedNote: 'Unknown', provider: { requested: null, requestedSource: 'invalid' } },
+        });
+        mockDetectAll.mockResolvedValue(invalid);
+        expect((await doctor.doctor()).output).toMatch(/provider: invalid \[backends\.pi\] provider in PaF config/);
+      });
+
+      it('prints no provider line for other backends', async () => {
+        const report = makeReport();
+        const codex = report.cli.find(b => b.name === 'codex')!;
+        codex.executable = executableInfo('codex', [candidate('/usr/local/bin/codex', '0.153.4')]);
+        codex.model = { requested: 'gpt-6-astra', requestedSource: 'paf-config', reported: null, reportedNote: 'Unknown' };
+        mockDetectAll.mockResolvedValue(report);
+        expect((await doctor.doctor()).output).not.toContain('provider:');
+      });
     });
 
     it('surfaces version-mismatch guidance as an advisory', async () => {

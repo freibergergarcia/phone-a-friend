@@ -5,13 +5,19 @@
 #   scripts/probe-backends.sh <backend> [model]
 #
 # Runs, in order: one-shot relay, two-turn --session recall, --schema,
-# --review, --verdict-json (plus --fast for opencode), a --stream relay
-# (backends without runStream fall back to batch inside the relay), a
+# --review, --verdict-json (plus --fast for opencode and pi), a --stream
+# relay (backends without runStream fall back to batch inside the relay), a
 # --quiet relay checked through `job result`, then `session list` and
 # `task list`. Ollama needs OLLAMA_HOST in the environment; the backend
 # reads it. Writes per-step stdout/stderr and a summary under
 # $PAF_PROBE_OUT (default: a temp dir). Nothing touches
 # ~/.config/phone-a-friend: XDG_CONFIG_HOME is scratch.
+#
+# A backend that needs config beyond --model gets it through
+# PAF_PROBE_CONFIG, a TOML file copied into the scratch config directory:
+#
+#   printf '[backends.pi]\nprovider = "mlx"\n' > /tmp/pi.toml
+#   PAF_PROBE_CONFIG=/tmp/pi.toml scripts/probe-backends.sh pi <model>
 #
 # Exit status is the number of failed steps. Every step runs even after a
 # failure so the summary is complete; compare it against the baseline table
@@ -23,6 +29,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PAF="node $ROOT/dist/index.js"
 OUTROOT=${PAF_PROBE_OUT:-$(mktemp -d)}
 export XDG_CONFIG_HOME="$OUTROOT/xdg-$B"; mkdir -p "$XDG_CONFIG_HOME"
+if [ -n "${PAF_PROBE_CONFIG:-}" ]; then
+  mkdir -p "$XDG_CONFIG_HOME/phone-a-friend"
+  cp "$PAF_PROBE_CONFIG" "$XDG_CONFIG_HOME/phone-a-friend/config.toml" || exit 99
+fi
 REPO="$OUTROOT/repo-$B"; rm -rf "$REPO"; mkdir -p "$REPO"; cd "$REPO"
 git init -q -b main; git config user.email p@x; git config user.name p
 printf 'function add(a, b) {\n  return a + b;\n}\nmodule.exports = { add };\n' > math.js
@@ -49,7 +59,10 @@ run schema --schema '{"type":"object","properties":{"ok":{"type":"boolean"},"wor
 run review --review --base main
 run verdict --review --base main --verdict-json
 # OpenCode: --fast maps to --pure on 1.x and must be a no-op on 2.x.
-[ "$B" = opencode ] && run fast --fast --prompt "Reply with exactly the single word PONG and nothing else."
+# pi: --fast maps to -nc -ns (no context files, no skills).
+case "$B" in
+  opencode|pi) run fast --fast --prompt "Reply with exactly the single word PONG and nothing else." ;;
+esac
 STREAM=--stream
 run stream --prompt "Reply with exactly the single word PONG and nothing else."
 STREAM=--no-stream

@@ -15,7 +15,7 @@ import { dirname } from 'node:path';
 import { detectAll, decorateOpenCodeModels } from '../detection.js';
 import { configPaths, configInit } from '../config.js';
 import type { DetectionReport, BackendStatus } from '../detection.js';
-import { isCodexInstalled, isOpenCodeInstalled, isPluginInstalled } from '../installer.js';
+import { isCodexInstalled, isOpenCodeInstalled, isPiInstalled, isPluginInstalled } from '../installer.js';
 
 interface Action {
   label: string;
@@ -64,9 +64,11 @@ function formatBackendSummary(report: DetectionReport): string {
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
   lines.push(`  ${claudeInstalled ? '✓' : '!'} claude     ${claudeInstalled ? 'installed' : 'not installed'}`);
   lines.push(`  ${opencodeInstalled ? '✓' : '!'} opencode   ${opencodeInstalled ? 'installed' : 'not installed'}`);
   lines.push(`  ${codexInstalled ? '✓' : '!'} codex      ${codexInstalled ? 'installed' : 'not installed'}`);
+  lines.push(`  ${piInstalled ? '✓' : '!'} pi         ${piInstalled ? 'installed' : 'not installed'}`);
 
   return lines.join('\n');
 }
@@ -106,6 +108,7 @@ function buildActionGroups(
   const claudeInstalled = isPluginInstalled();
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
+  const piInstalled = isPiInstalled();
 
   return [
     {
@@ -223,6 +226,31 @@ function buildActionGroups(
           confirm: 'Uninstall Codex plugin? (y/n)',
           run: () =>
             spawnPaf(['plugin', 'uninstall', '--codex'], processRef, 'Codex plugin uninstalled'),
+        },
+      ],
+    },
+    {
+      title: 'pi',
+      installed: piInstalled,
+      actions: [
+        {
+          label: piInstalled ? 'Reinstall' : 'Install',
+          description: piInstalled
+            ? 'Refresh skills (used in pi as /skill:phone-a-friend)'
+            : 'Install skills (used in pi as /skill:phone-a-friend)',
+          run: () =>
+            spawnPaf(
+              ['plugin', 'install', '--pi', '--force', '--no-claude-cli-sync'],
+              processRef,
+              'pi skills installed',
+            ),
+        },
+        {
+          label: 'Uninstall',
+          description: 'Remove the skills from the pi agent directory',
+          confirm: 'Uninstall pi skills? (y/n)',
+          run: () =>
+            spawnPaf(['plugin', 'uninstall', '--pi'], processRef, 'pi skills uninstalled'),
         },
       ],
     },

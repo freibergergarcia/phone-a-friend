@@ -13,6 +13,7 @@ import '../src/backends/gemini.js';
 import '../src/backends/ollama.js';
 import '../src/backends/claude.js';
 import '../src/backends/opencode.js';
+import '../src/backends/pi.js';
 
 import {
   resolveExecutableCandidates,
@@ -426,6 +427,39 @@ describe('attachModelAndCapabilities', () => {
     expect(claude.model?.requested).toBeNull();
     expect(claude.model?.requestedSource).toBe('backend-default');
     expect(claude.model?.reported).toBeNull();
+  });
+
+  it('reports the configured pi provider next to the model, and only for pi', () => {
+    const defaults = { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false };
+    const withPi = (): DetectionReport => {
+      const report = makeReport();
+      report.cli.push({ name: 'pi', category: 'cli', available: true, detail: 'found', installHint: '', optional: true });
+      return report;
+    };
+
+    const configured = withPi();
+    attachModelAndCapabilities(configured, {
+      defaults,
+      backends: { pi: { provider: 'mlx', model: 'mlx-community/Qwen3.5-9B-MLX-4bit' }, codex: { provider: 'ignored' } },
+    });
+    const pi = configured.cli.find(b => b.name === 'pi')!;
+    expect(pi.model?.requested).toBe('mlx-community/Qwen3.5-9B-MLX-4bit');
+    expect(pi.model?.provider).toEqual({ requested: 'mlx', requestedSource: 'paf-config' });
+    expect(pi.capabilities?.declared).toEqual({
+      resumeStrategy: 'native-session',
+      requiresClientSessionId: true,
+      localFileAccess: true,
+    });
+    expect(configured.cli.find(b => b.name === 'codex')!.model).not.toHaveProperty('provider');
+
+    const unset = withPi();
+    attachModelAndCapabilities(unset, { defaults });
+    expect(unset.cli.find(b => b.name === 'pi')!.model?.provider).toEqual({ requested: null, requestedSource: 'backend-default' });
+
+    // A value the backend would refuse at relay time is reported as such.
+    const invalid = withPi();
+    attachModelAndCapabilities(invalid, { defaults, backends: { pi: { provider: '   ' } } });
+    expect(invalid.cli.find(b => b.name === 'pi')!.model?.provider).toEqual({ requested: null, requestedSource: 'invalid' });
   });
 
   it('exposes declared capabilities and labels them as unverified', () => {
