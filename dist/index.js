@@ -4941,7 +4941,7 @@ function installPi(repoRoot, mode, force, piHome) {
       throw new InstallerError(`Missing pi skill source: ${join9(skillSource, "SKILL.md")}`);
     }
     const skillTarget = piSkillTarget(name, piHome);
-    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    const skillForce = force || isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     if (skillStatus === "installed" && mode === "copy") {
       writeFileSync5(join9(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}
@@ -4951,12 +4951,26 @@ function installPi(repoRoot, mode, force, piHome) {
   }
   return lines;
 }
+function canonicalPath(filePath) {
+  let existing = resolve3(filePath);
+  const missing = [];
+  for (; ; ) {
+    try {
+      return join9(realpathSync3(existing), ...missing);
+    } catch {
+      const parent = dirname8(existing);
+      if (parent === existing) return resolve3(filePath);
+      missing.unshift(existing.slice(parent.length).replace(/^[\\/]+/, ""));
+      existing = parent;
+    }
+  }
+}
 function isPafOwnedPiSkill(target, name, repoRoot) {
   if (!isSymlink(target)) return existsSync7(join9(target, PI_INSTALL_MARKER));
-  if (repoRoot && isStalePafSymlink(target, repoRoot)) return true;
   try {
     const link2 = readlinkSync(target);
     const absolute = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
+    if (repoRoot && canonicalPath(absolute) === canonicalPath(join9(repoRoot, "skills", name))) return true;
     const skillsDir = dirname8(absolute);
     if (absolute !== join9(skillsDir, name) || skillsDir !== join9(dirname8(skillsDir), "skills")) return false;
     return isPafPackageDir(dirname8(skillsDir));

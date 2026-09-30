@@ -1369,15 +1369,43 @@ describe('pi host integration', () => {
     expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
   });
 
-  it('replaces a stale PaF symlink without --force', () => {
+  it('treats a symlink elsewhere into this repository as the user\'s, on install and on uninstall', () => {
     const target = piSkillTarget('phone-a-friend', piHome);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.symlinkSync(path.join(repo, 'commands'), target);
 
-    const lines = install();
+    expect(() => install()).toThrow(/Destination already exists/);
+    const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
 
-    expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-friend')));
-    expect(lines.some(l => l.startsWith('- pi_skill:phone-a-friend: installed'))).toBe(true);
+    expect(lines).toContain('- pi_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
+    expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'commands')));
+  });
+
+  it('relinks a symlink from another PaF install location without --force', () => {
+    const other = makeTempDir('paf-other-install-');
+    const target = piSkillTarget('phone-a-friend', piHome);
+    try {
+      fs.mkdirSync(path.join(other, 'skills', 'phone-a-friend'), { recursive: true });
+      fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ name: '@freibergergarcia/phone-a-friend' }));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.symlinkSync(path.join(other, 'skills', 'phone-a-friend'), target);
+
+      const lines = install();
+
+      expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-friend')));
+      expect(lines.some(l => l.startsWith('- pi_skill:phone-a-friend: installed'))).toBe(true);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('uninstall removes a dangling symlink into this install', () => {
+    install();
+    fs.rmSync(path.join(repo, 'skills', 'phone-a-friend'), { recursive: true, force: true });
+
+    const lines = uninstallHosts({ target: 'pi', piHome, repoRoot: repo });
+
+    expect(lines).toContain('- pi_skill:phone-a-friend: removed');
   });
 
   it('fails when a skill source is missing', () => {

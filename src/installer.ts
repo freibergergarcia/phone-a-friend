@@ -883,7 +883,9 @@ function installPi(
       throw new InstallerError(`Missing pi skill source: ${join(skillSource, 'SKILL.md')}`);
     }
     const skillTarget = piSkillTarget(name, piHome);
-    const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
+    // A symlink PaF made from another install location is relinked without
+    // --force; anything else in the way needs the flag.
+    const skillForce = force || (isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot));
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     if (skillStatus === 'installed' && mode === 'copy') {
       writeFileSync(join(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}\n`);
@@ -893,19 +895,36 @@ function installPi(
   return lines;
 }
 
+/** `filePath` with symlinks resolved as far as it exists, so a removed target still compares. */
+function canonicalPath(filePath: string): string {
+  let existing = resolve(filePath);
+  const missing: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(existing), ...missing);
+    } catch {
+      const parent = dirname(existing);
+      if (parent === existing) return resolve(filePath);
+      missing.unshift(existing.slice(parent.length).replace(/^[\\/]+/, ''));
+      existing = parent;
+    }
+  }
+}
+
 /**
  * True when the pi skill at `target` was put there by PaF: a copy carrying
- * the install marker, a symlink into this install, or a symlink to
- * `<dir>/skills/<name>` where `<dir>` is a PaF package (its package.json
- * says so). The path's shape alone proves nothing, and a dangling symlink
- * has nothing left to check, so both are left alone.
+ * the install marker, a symlink to exactly `<this install>/skills/<name>`,
+ * or a symlink to `<dir>/skills/<name>` where `<dir>` is a PaF package by
+ * its package.json. A symlink to some other place inside the repository is
+ * the user's, the path's shape alone proves nothing, and a dangling symlink
+ * into another location has nothing left to check.
  */
 function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boolean {
   if (!isSymlink(target)) return existsSync(join(target, PI_INSTALL_MARKER));
-  if (repoRoot && isStalePafSymlink(target, repoRoot)) return true;
   try {
     const link = readlinkSync(target);
     const absolute = isAbsolute(link) ? link : resolve(dirname(target), link);
+    if (repoRoot && canonicalPath(absolute) === canonicalPath(join(repoRoot, 'skills', name))) return true;
     const skillsDir = dirname(absolute);
     if (absolute !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
     return isPafPackageDir(dirname(skillsDir));
