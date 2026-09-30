@@ -12,10 +12,17 @@
  *   be authoritative.
  * - The working directory selects the project, so every spawn uses the repo
  *   as cwd.
+ * - pi saves every run unless told otherwise. A plain relay passes
+ *   `--no-session`; a PaF session uses PaF's own session directory, and a
+ *   resume is checked against that directory before anything is spawned,
+ *   because `--session-id` silently creates a session that is missing.
  */
 
-import { realpathSync } from 'node:fs';
-import { delimiter as pathDelimiter, resolve as resolvePath } from 'node:path';
+import { closeSync, mkdirSync, openSync, readdirSync, readSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { delimiter as pathDelimiter, isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
+import { fileURLToPath } from 'node:url';
 import {
   type Backend,
   type BackendCapabilities,
@@ -28,7 +35,7 @@ import {
   SpawnCliTimeoutError,
   type SandboxMode,
 } from './index.js';
-import { loadConfig } from '../config.js';
+import { loadConfig, pafConfigDir } from '../config.js';
 import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
 import { injectSchemaPrompt } from './schema-prompt.js';
 
@@ -418,6 +425,253 @@ function canonicalRepoPath(repoPath: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Where PaF keeps pi sessions. Passing it as `--session-dir` overrides
+ * `PI_CODING_AGENT_SESSION_DIR` and the user and project `sessionDir`
+ * settings, and keeps PaF's sessions out of the user's `pi --resume` picker.
+ */
+export function piSessionDir(): string {
+  return join(pafConfigDir(), 'pi-sessions');
+}
+
+/** pi's bound on header discovery (`MAX_SESSION_HEADER_SCAN_BYTES`). */
+const PI_HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
+const PI_HEADER_READ_BUFFER_BYTES = 4096;
+
+/**
+ * Judge one physical line the way pi's `parseSessionHeaderCandidate` does:
+ * `undefined` to keep scanning (blank, malformed, or a falsy JSON value),
+ * `null` when the first parsed entry is not a session header, else the header.
+ */
+function piHeaderCandidate(line: string): Record<string, unknown> | null | undefined {
+  if (!line.trim()) return undefined;
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!entry) return undefined;
+  const record = entry as Record<string, unknown>;
+  if (record.type !== 'session' || typeof record.id !== 'string') return null;
+  return record;
+}
+
+/**
+ * Find a session file's header exactly as pi 0.87.1 does (`readSessionHeader`
+ * in its session manager): scan physical lines, skipping blank and malformed
+ * ones, inside a 1 MiB bound. Reading only the first line would disagree
+ * with pi on a file whose header follows junk. Throws on a read error or
+ * when the bound is exceeded; pi treats both as "not a session".
+ */
+function readPiSessionFileHeader(filePath: string): Record<string, unknown> | null {
+  const fd = openSync(filePath, 'r');
+  try {
+    const decoder = new StringDecoder('utf8');
+    const buffer = Buffer.allocUnsafe(PI_HEADER_READ_BUFFER_BYTES);
+    let pending = '';
+    let scannedBytes = 0;
+    while (scannedBytes < PI_HEADER_SCAN_LIMIT_BYTES) {
+      const readLength = Math.min(buffer.length, PI_HEADER_SCAN_LIMIT_BYTES - scannedBytes);
+      const bytesRead = readSync(fd, buffer, 0, readLength, null);
+      if (bytesRead === 0) {
+        return piHeaderCandidate(pending + decoder.end()) ?? null;
+      }
+      scannedBytes += bytesRead;
+      const chunk = decoder.write(buffer.subarray(0, bytesRead));
+      let lineStart = 0;
+      let newlineIndex = chunk.indexOf('\n', lineStart);
+      while (newlineIndex !== -1) {
+        const decision = piHeaderCandidate(pending + chunk.slice(lineStart, newlineIndex));
+        if (decision !== undefined) return decision;
+        pending = '';
+        lineStart = newlineIndex + 1;
+        newlineIndex = chunk.indexOf('\n', lineStart);
+      }
+      pending += chunk.slice(lineStart);
+    }
+    // A final header without a newline may end exactly at the bound.
+    const probe = Buffer.allocUnsafe(1);
+    if (readSync(fd, probe, 0, probe.length, null) === 0) {
+      return piHeaderCandidate(pending + decoder.end()) ?? null;
+    }
+    throw new Error('session header exceeds the scan bound');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * pi's `resolvePath` for a stored cwd on POSIX: `~` expansion, `file://` URLs,
+ * then lexical resolution against pi's working directory, which is the repo.
+ * (pi also rewrites Windows shell paths; PaF does not mirror that.) Throws
+ * where pi would, e.g. a `file://` URL with a host.
+ */
+function resolvePiStoredPath(stored: string, baseDir: string): string {
+  let normalized = stored;
+  if (normalized === '~') {
+    normalized = homedir();
+  } else if (normalized.startsWith('~/')) {
+    normalized = join(homedir(), normalized.slice(2));
+  } else if (/^file:\/\//.test(normalized)) {
+    normalized = fileURLToPath(normalized);
+  }
+  return isAbsolute(normalized) ? resolvePath(normalized) : resolvePath(baseDir, normalized);
+}
+
+function toHeader(record: Record<string, unknown>): PiSessionHeader {
+  return {
+    id: record.id as string,
+    cwd: typeof record.cwd === 'string' ? record.cwd : null,
+    timestamp: typeof record.timestamp === 'string' ? record.timestamp : null,
+  };
+}
+
+/**
+ * Every session file pi could open for `--session-id <id>` from `repoCwd`
+ * with PaF's session directory: the same scan as `SessionManager.findById`
+ * (each `*.jsonl`, header `id` equal, header `cwd` resolving to the working
+ * directory). pi takes the first match in directory order; the caller
+ * requires exactly one. A missing or unreadable directory yields none.
+ */
+function findPiSessionFiles(dir: string, id: string, repoCwd: string): PiSessionHeader[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+
+  const matches: PiSessionHeader[] = [];
+  for (const file of entries) {
+    if (!file.endsWith('.jsonl')) continue;
+    const filePath = join(dir, file);
+    let record: Record<string, unknown> | null;
+    try {
+      record = readPiSessionFileHeader(filePath);
+    } catch {
+      // Unreadable or oversized: not a session, for pi and for PaF.
+      continue;
+    }
+    if (!record || record.id !== id) continue;
+    const cwd = record.cwd;
+    if (typeof cwd !== 'string' || cwd === '') continue;
+    let resolved: string;
+    try {
+      resolved = resolvePiStoredPath(cwd, repoCwd);
+    } catch {
+      // pi's scan aborts on this error and then creates a new session.
+      throw new PiBackendError(
+        `pi session ${id} cannot be verified: the working directory recorded in ${filePath} cannot be resolved.`,
+      );
+    }
+    if (resolved === repoCwd) matches.push(toHeader(record));
+  }
+  return matches;
+}
+
+interface PiSessionPlan {
+  dir: string;
+  id: string;
+  /** The header read before spawning. Set on resume, null on start. */
+  expected: PiSessionHeader | null;
+}
+
+/**
+ * Decide the session flags for a call, failing before any spawn when a
+ * resume cannot be proven to reach an existing session.
+ */
+function planPiSession(opts: BackendRunOptions, repoCwd: string): PiSessionPlan | null {
+  const id = opts.sessionId;
+  if (!id) return null;
+  if (!isValidPiSessionId(id)) {
+    throw new PiBackendError(
+      `Invalid pi session ID "${id}". pi session IDs use letters, digits, ".", "_" and "-", ` +
+        'and start and end with a letter or digit.',
+    );
+  }
+
+  const dir = piSessionDir();
+  const matches = findPiSessionFiles(dir, id, repoCwd);
+
+  if (opts.resumeSession) {
+    if (matches.length === 0) {
+      throw new PiBackendError(
+        `pi session ${id} not found for ${repoCwd}: it is not in phone-a-friend's pi session directory (${dir}). ` +
+          'Sessions started directly in pi cannot be attached in this version.',
+      );
+    }
+    if (matches.length > 1) {
+      throw new PiBackendError(
+        `pi session ${id} is ambiguous: ${matches.length} session files in ${dir} carry that ID for ${repoCwd}. ` +
+          'Refusing to resume, because pi would pick one of them by directory order.',
+      );
+    }
+    return { dir, id, expected: matches[0] };
+  }
+
+  if (matches.length > 0) {
+    // `--session-id` would open that session instead of starting a new one.
+    throw new PiBackendError(
+      `pi session ${id} already exists for ${repoCwd} in ${dir}; refusing to start a new session under that ID.`,
+    );
+  }
+  mkdirSync(dir, { recursive: true });
+  return { dir, id, expected: null };
+}
+
+/**
+ * After a run, confirm pi used the session PaF asked for. Throwing here is
+ * what keeps a wrong mapping out of PaF's session store: the relay persists
+ * the ID it generated after any `run()` that resolves.
+ *
+ * On resume the emitted header must equal the one read before spawning. A
+ * resumed session re-emits its original header, while a session pi created
+ * in the meantime has a new timestamp. This is detection, not prevention.
+ */
+function confirmPiSession(
+  plan: PiSessionPlan,
+  header: PiSessionHeader | null,
+  stderr: string,
+  repoCwd: string,
+): void {
+  if (!header) {
+    throw new PiBackendError(`pi reported no session header, so session ${plan.id} cannot be confirmed.`);
+  }
+
+  if (plan.expected) {
+    const createdInstead = /No project session found with id|creating a new session/i.test(stderr);
+    const sameHeader =
+      header.id === plan.expected.id &&
+      header.cwd === plan.expected.cwd &&
+      header.timestamp === plan.expected.timestamp;
+    if (createdInstead || !sameHeader) {
+      throw new PiBackendError(
+        `pi did not resume session ${plan.id}: it reported session ${header.id} (started ${header.timestamp ?? 'unknown'}, ` +
+          `cwd ${header.cwd ?? 'unknown'}) instead of the one phone-a-friend checked. The reply was discarded.`,
+      );
+    }
+    return;
+  }
+
+  let reportedCwd: string | null = null;
+  try {
+    reportedCwd = header.cwd ? resolvePiStoredPath(header.cwd, repoCwd) : null;
+  } catch {
+    reportedCwd = null;
+  }
+  if (header.id !== plan.id || reportedCwd !== repoCwd) {
+    throw new PiBackendError(
+      `pi reported session ${header.id} in ${header.cwd ?? 'an unknown directory'}, not the requested ` +
+        `${plan.id} in ${repoCwd}. The session was not recorded.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Backend
 // ---------------------------------------------------------------------------
 
@@ -453,8 +707,9 @@ export class PiBackend implements Backend {
     'danger-full-access',
   ]);
   readonly capabilities: BackendCapabilities = {
-    resumeStrategy: 'unsupported',
-    requiresClientSessionId: false,
+    resumeStrategy: 'native-session',
+    // PaF picks the ID and passes it as `--session-id`, as for Claude and Gemini.
+    requiresClientSessionId: true,
   };
 
   async run(opts: BackendRunOptions): Promise<string> {
@@ -462,6 +717,8 @@ export class PiBackend implements Backend {
     const repoCwd = canonicalRepoPath(opts.repoPath);
     const provider = readPiProvider(opts.repoPath);
     await assertSupportedPi(opts.env, repoCwd);
+    // Last step before the spawn: a resume that cannot be proven fails here.
+    const session = planPiSession(opts, repoCwd);
 
     // pi has no structured-output flag: ask for JSON in the prompt and let
     // the caller parse it (best-effort, as for Gemini and OpenCode).
@@ -472,7 +729,7 @@ export class PiBackend implements Backend {
       model: opts.model,
       provider,
       fast: Boolean(opts.fast),
-      session: null,
+      session: session ? { dir: session.dir, id: session.id } : null,
     });
 
     try {
@@ -482,7 +739,12 @@ export class PiBackend implements Backend {
         cwd: repoCwd,
         label: 'pi',
       });
-      return parsePiJsonl(result.stdout, { stderr: result.stderr }).text;
+      const parsed = parsePiJsonl(result.stdout, { stderr: result.stderr });
+      if (session) {
+        confirmPiSession(session, parsed.header, result.stderr, repoCwd);
+        opts.onSessionCreated?.(session.id);
+      }
+      return parsed.text;
     } catch (err: unknown) {
       throw toPiError(err, opts.timeoutSeconds);
     }
