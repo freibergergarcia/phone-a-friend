@@ -596,7 +596,10 @@ pi remove npm:@freibergergarcia/phone-a-friend
 ```
 
 Package removal preserves local configuration and history. There is no uninstall
-lifecycle hook. Use `phone-a-friend task delete` / `task prune` and `session delete`
+lifecycle hook, so host integrations are not removed either; symlink installs (the
+default) are left pointing at the removed package. If you already removed it,
+reinstall the package, run `phone-a-friend plugin uninstall --all`, then uninstall
+again. Use `phone-a-friend task delete` / `task prune` and `session delete`
 / `session prune` for individual records. For complete PaF data removal, stop
 running jobs, back up needed data, and manually delete
 `~/.config/phone-a-friend/` (or `$XDG_CONFIG_HOME/phone-a-friend/`). Backend-native
