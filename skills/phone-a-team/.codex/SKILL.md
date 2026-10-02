@@ -41,13 +41,18 @@ If the user named only one backend, the team degenerates to a self-review loop a
    REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
    ```
 
-3. **Check the Codex sandbox mode.** You are running inside Codex. By default, Codex uses `workspace-write`, which **blocks subprocess access to the macOS Keychain and most outbound network**. That means relays to Claude will return `Not logged in · Please run /login` (false alarm — Claude is logged in; the sandbox is intercepting) and relays to Gemini will hang until the timeout fires (Gemini cannot reach Google for OAuth refresh).
+3. **Diagnose backend access if a relay fails.** Run `"$RELAY_BIN" doctor --json`
+   and check the selected executable/version. A login error or timeout alone
+   does not establish a sandbox problem. Compare the same backend command and
+   auth profile in a regular terminal before classifying the failure.
 
-   Before starting round 1, tell the user:
-
-   > /phone-a-team will spawn parallel relays to ${BACKENDS}. Codex's default sandbox blocks the keychain and OAuth refresh paths these CLIs need. For best results, restart Codex with `codex --sandbox danger-full-access` (or `--full-auto`). Alternatively, export `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` in your shell before launching Codex — the API-key path skips OAuth entirely.
-
-   If the user has already opened up the sandbox (or set the API keys), proceed. Otherwise it is reasonable to abort the team run upfront — running it would either burn the per-round timeout on every backend (Gemini hang) or surface a misleading "Not logged in" (Claude). Both are bad UX.
+   Keep PaF's read-only default. If a host sandbox restriction is confirmed,
+   use an authorized command escalation or a separately authorized terminal
+   run. `--full-auto` is not equivalent to `--sandbox danger-full-access` and
+   is not a keychain/network bypass. Permission changes and API-key billing
+   require separate user decisions. Report the failing backend and next
+   diagnostic step; redact credentials and stop automatic retries on auth
+   failures. Continue with working backends only if that still meets the task.
 
 ## Step 1 — Mint a team ID + per-backend session labels
 

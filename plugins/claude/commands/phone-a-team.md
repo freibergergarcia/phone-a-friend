@@ -1,0 +1,1221 @@
+---
+name: phone-a-team
+description: Iterative refinement — delegates tasks to backend(s) via agent teams, reviews, iterates up to MAX_ROUNDS rounds, synthesizes result.
+argument-hint: <task description> [--backend antigravity|codex|gemini|ollama|opencode|both|all] [--max-rounds N] [--model <name>]
+---
+
+# /phone-a-team
+
+Autonomous iterative refinement loop. Delegate a task to one or more backends,
+review the output, iterate with feedback, and synthesize the final result.
+
+## Goal
+
+Take a task description, relay it to backend(s) via `phone-a-friend`, review
+the output, iterate up to MAX_ROUNDS rounds until convergence, then present a
+synthesized result to the user.
+
+## Inputs
+
+- Task description and options: `$ARGUMENTS`
+
+## Step 0 — Relay mode
+
+```bash
+command -v phone-a-friend
+```
+
+- If found: set `RELAY_MODE = binary`
+- If not found: set `RELAY_MODE = direct`
+
+No hard abort. The skill continues either way.
+
+### Direct call reference
+
+When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
+`phone-a-friend` binary:
+
+| Backend | Direct command |
+|---------|---------------|
+| **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
+| **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null` |
+| **Gemini** | `gemini <gemini-approval-flags> --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
+| **OpenCode** | `opencode run --dir "$PWD" --model <provider/model> "$(cat "$PROMPT_FILE")"` — omit `--model` when no override is set; never pass a bare model name in direct mode (see OpenCode backend below) |
+
+pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
+
+Sandbox mapping for direct mode:
+- **Antigravity**: always `--sandbox --mode plan` (read-only). Antigravity
+  has no write mode; see Step 6.
+- **Codex**: pass the mode string directly (`--sandbox read-only` or
+  `--sandbox workspace-write`)
+- **Gemini**: map the sandbox to an approval mode (`<gemini-approval-flags>`):
+  `read-only` is `--sandbox --approval-mode plan`, `workspace-write` is
+  `--sandbox --approval-mode auto_edit`, and `danger-full-access` is
+  `--approval-mode yolo` without `--sandbox`. Never add `--yolo`. Plan Mode is
+  a best-effort read-only restriction: headless Gemini may exit Plan Mode and
+  switch to YOLO. Use Antigravity when enforced read-only behavior is required.
+- **Ollama**: no sandbox support. All context must be in the prompt.
+- **OpenCode**: no sandbox flag is available. `--dir "$PWD"` scopes the
+  workspace OpenCode reads but does not prevent writes. The user's OpenCode
+  permission config controls file access.
+
+In direct mode, build `PROMPT_FILE` from prompt + context + diff using this
+template and the quoted-heredoc rule:
+
+```
+You are helping another coding agent by reviewing or advising on work in a local repository.
+Repository path: <repo-path>
+Use the repository files for context when needed.
+Respond with concise, actionable feedback.
+
+Request:
+<relay-prompt>
+
+Additional Context:
+<context-payload>
+
+Git Diff:
+<diff output from git diff HEAD, if --include-diff is used>
+```
+
+Omit the "Additional Context" or "Git Diff" sections if they are not used for
+a given relay call.
+
+## Step 1 — Parse Arguments
+
+Extract the `--backend` flag, `--max-rounds` flag, and task description from
+`$ARGUMENTS`.
+
+### Backend parsing
+
+- If `$ARGUMENTS` contains `--backend antigravity`: set BACKEND = `antigravity`
+- If `$ARGUMENTS` contains `--backend codex`: set BACKEND = `codex`
+- If `$ARGUMENTS` contains `--backend gemini`: set BACKEND = `gemini`
+- If `$ARGUMENTS` contains `--backend ollama`: set BACKEND = `ollama`
+- If `$ARGUMENTS` contains `--backend opencode`: set BACKEND = `opencode`
+- If `$ARGUMENTS` contains `--backend both`: set BACKEND = `both`
+- If `$ARGUMENTS` contains `--backend all`: set BACKEND = `all`
+- If no `--backend` flag is present: set BACKEND = `codex` (default)
+- If `--backend` is present but the value is not `antigravity`, `codex`, `gemini`, `ollama`,
+  `opencode`, `both`, or `all`: report an error and stop. Valid values:
+  `antigravity`, `codex`, `gemini`, `ollama`, `opencode`, `both`, `all`.
+
+Note: `both` means `codex + gemini`. Ollama and
+OpenCode are separate single-backend options that run alone. `all` includes
+every available friend backend (see Step 2 — Backend selection for the
+resolution matrix and skip rules).
+
+### Max rounds parsing
+
+- If `$ARGUMENTS` contains `--max-rounds N` (where N is a number): set
+  `MAX_ROUNDS = N`, clamped to range [1, 5].
+- Else if `$ARGUMENTS` contains natural language like "no more than N
+  times", "no more than N rounds", "max N rounds", "up to N iterations",
+  or similar: extract N, set `MAX_ROUNDS = N`, clamped to [1, 5]. Only
+  extract natural language round caps when the phrase is clearly a
+  meta-instruction (not part of the task content). If ambiguous, leave the
+  text in TASK_DESCRIPTION and use the default MAX_ROUNDS. For example,
+  "review this code, max 2 rounds" → extract 2 (meta-instruction). "Fix the
+  loop that runs no more than 4 times" → do NOT extract (task content). When
+  in doubt, do not extract. Prefer the explicit `--max-rounds` flag for
+  unambiguous round caps.
+- If neither is present: set `MAX_ROUNDS = 3` (default).
+
+### Model override parsing
+
+Extract a model name from the task arguments.
+
+**Explicit flag (highest priority):**
+- If `$ARGUMENTS` contains `--model <name>`: validate `<name>` against
+  `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`.
+- If invalid (spaces, quotes, backticks, shell metacharacters, or a leading
+  punctuation character): abort and ask the user for a safe model name.
+- If valid: set `MODEL_OVERRIDE = <name>` and remove the `--model <name>`
+  pair from TASK_DESCRIPTION.
+- The character class allows `/` because OpenCode model identifiers are
+  `provider/model` (and can contain more than one slash, e.g.
+  `myprovider/vendor/model-name`). `/` is not a shell metacharacter, so
+  this does not weaken the injection guard.
+
+**Per-backend scoping (multi-backend rounds):**
+- `MODEL_OVERRIDE` is only safe to auto-apply to backends with an open,
+  passthrough model-naming scheme: `ollama` and `opencode`.
+- `codex`, `gemini`, and `claude` each have their own model-selection
+  mechanism (see the "Gemini model selection" section; Codex and Claude use
+  their CLI's own default unless a single-backend `--backend codex` or
+  `--backend gemini` run explicitly requested a model).
+- When BACKEND is a single backend, `MODEL_OVERRIDE` applies to that
+  backend directly.
+- When BACKEND is `all` and `--model` is present: apply the override ONLY
+  to `ollama` and `opencode` members of that round. Do NOT pass it to
+  `antigravity`, `codex`, `gemini`, or `claude` relay calls in that case. If no eligible
+  member is available on this machine, report that and continue — do not
+  abort, since which backends pass probes is a property of the machine,
+  not of the command.
+- When BACKEND is `both` and `--model` is present: **abort**. `both` is
+  codex + gemini, so no member can ever receive the override and the flag
+  would be silently inert. Tell the user: "`--model` has no effect with
+  `--backend both` — codex and gemini select their own models. Use a
+  single backend (`--backend codex` or `--backend gemini`) to set one."
+  This is the only empty-by-construction case.
+- Report the scoping decision to the user in the preflight summary, e.g.:
+  `Model override "myprovider/mymodel" applied to: opencode. Not applied
+  to: codex, gemini, claude (incompatible model-naming scheme).`
+
+**Natural language extraction (Ollama and OpenCode only, lower priority):**
+- Only attempt NL extraction when BACKEND is exactly `ollama` or `opencode`
+  and no `--model` flag was found.
+- Do NOT attempt NL extraction for `codex`, `gemini`, `both`, or `all`
+  backends.
+- Look for patterns: "use <name>", "with <name> model", "using <name>",
+  "via <name>", "the <name> model".
+- Only extract when the phrase is clearly a meta-instruction about which
+  model to use, not part of the task content itself.
+- If multiple candidate models are found, do not guess — leave in
+  TASK_DESCRIPTION.
+- If the candidate appears inside quotes, backticks, or code blocks, do
+  NOT extract (it's an example or reference, not a meta-instruction).
+- Validate extracted names with `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`. If
+  the extracted candidate fails validation, abort and ask the user for a
+  safe model name.
+
+**Examples:**
+- "review this code, use deepseek" (backend=ollama) → extract "deepseek" ✓
+- "analyze using qwen3-coder" (backend=ollama) → extract "qwen3-coder" ✓
+- "review this diff with myprovider/qwen3-coder" (backend=opencode) →
+  extract "myprovider/qwen3-coder" ✓
+- "debug the deepseek integration" → do NOT extract (task content) ✗
+- "Fix the domain model" → do NOT extract ("model" is task content) ✗
+- "Compare qwen3 vs llama3" → do NOT extract (multiple candidates) ✗
+- "Write docs showing --model qwen3 usage" → do NOT extract (inside example) ✗
+- "use deepseek" (backend=both) → do NOT extract (NL only for
+  ollama/opencode) ✗
+- When in doubt, do not extract.
+
+### Task description
+
+- Everything in `$ARGUMENTS` that is NOT the `--backend <value>` pair,
+  `--max-rounds <value>` pair, `--model <value>` pair, (or the natural
+  language round-cap/model phrase) is the TASK_DESCRIPTION.
+- If TASK_DESCRIPTION is empty after parsing, ask the user what task they want
+  to work on. Do not proceed until you have a task.
+
+### Diff inclusion policy
+
+`/phone-a-team` does NOT include the working-tree diff in relay prompts by
+default. PaF reads `defaults.include_diff` from user config; if a user has
+that set to `true`, every relay would silently leak the full git diff into
+every backend, which is surprising for general tasks.
+
+Suppress the diff on every relay this skill issues, unless the user
+explicitly asked for one of:
+
+- a code review of current changes
+- a review of the current diff, branch, or staged changes
+- a sanity check against the diff
+- "what's wrong with my changes?" or similar
+
+When the user asks for code review, use `--review` with `--review-scope branch`
+for committed branch changes, `working-tree` for staged/unstaged/untracked
+files, or `all` for both. Use `--include-diff` only for normal prompt mode.
+Probe `phone-a-friend relay --help` for `--review-scope` first. An older binary
+may omit the flag only for branch review; `working-tree` and `all` require the
+newer CLI because the legacy diff path cannot represent those contracts.
+
+The cleanest suppression flag is `--no-include-diff`, added in
+phone-a-friend v2.2.0. Older binaries reject the flag with `unknown option
+'--no-include-diff'`. Probe once before spawning workers, then reuse the
+gate on every relay command in this session:
+
+```bash
+if phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'; then
+  PAF_NO_DIFF="--no-include-diff"
+else
+  export PHONE_A_FRIEND_INCLUDE_DIFF=false
+  PAF_NO_DIFF=""
+fi
+```
+
+Append `$PAF_NO_DIFF` to every binary-mode relay command (lead and worker)
+in this session. The env var fallback works in v1.7.2 and later; the
+explicit flag is preferred when available because it doesn't leak the
+override into worker child processes.
+
+Use `phone-a-friend --version` if you also need to surface the binary
+version to the user (e.g., when explaining why a flag was rejected).
+
+## Step 2 — Preflight Check
+
+Verify that the requested backend(s) are installed and available.
+
+### CLI backends (antigravity, codex, gemini)
+
+Run these checks using `command -v`:
+
+```bash
+command -v agy     # check if the Antigravity CLI is available
+command -v codex   # check if codex CLI is available
+command -v gemini  # check if gemini CLI is available
+```
+
+### Ollama backend
+
+Ollama is an HTTP backend — the local binary is optional. Check server
+reachability **and discover available models**:
+
+```bash
+curl -sf http://localhost:11434/api/tags
+# Or if OLLAMA_HOST is set: curl -sf "$OLLAMA_HOST/api/tags"
+```
+
+Parse the JSON response to extract model names from the `models[].name`
+array. Store the list as `OLLAMA_AVAILABLE_MODELS` and select a model as
+`OLLAMA_SELECTED_MODEL` using this logic:
+
+**Model selection (precedence order):**
+
+**First, check for empty models — this takes priority over all selection
+rules.** If `OLLAMA_AVAILABLE_MODELS` is empty (server running but no models
+pulled), the server has nothing to run:
+- If BACKEND is exactly `ollama`, **abort**, even if `MODEL_OVERRIDE` or
+  config specifies a model. Tell user: "Ollama server is running but has no
+  models pulled. Install one with: `ollama pull <model-name>`".
+- If BACKEND is `all`, set
+  `OLLAMA_SKIP_REASON = server has no models pulled`, exclude `ollama` when
+  building `BACKENDS`, report the reason, and continue.
+
+If models are available, select using this precedence:
+1. If `MODEL_OVERRIDE` is set (from `--model` flag or NL extraction in
+   Step 1): set `OLLAMA_SELECTED_MODEL = MODEL_OVERRIDE`. Check if it exists
+   in `OLLAMA_AVAILABLE_MODELS`.
+   - If not found and BACKEND is exactly `ollama`, **abort** and ask the user
+     to choose one of the discovered local models.
+   - If not found and BACKEND is `all`, do not abort. Set
+     `OLLAMA_SKIP_REASON = model override "<name>" is not installed locally`,
+     exclude `ollama` when building `BACKENDS`, and report the reason in the
+     preflight summary. Continue with the other available backends. Do not
+     replace the explicit override with an arbitrary local model.
+2. If no override and `RELAY_MODE = binary`: check config by running
+   `phone-a-friend config get backends.ollama.model`. If a value is
+   returned, validate it against `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`,
+   then set `OLLAMA_SELECTED_MODEL` to that value. Validate against
+   `OLLAMA_AVAILABLE_MODELS`. If not found, abort and ask the user to choose
+   one of the discovered local models when BACKEND is exactly `ollama`; when
+   BACKEND is `all`, set `OLLAMA_SKIP_REASON`, exclude Ollama, report the
+   unavailable configured model, and continue.
+   If `RELAY_MODE = direct`: skip this step (the binary is not available to
+   query config). Fall through to option 3.
+3. If neither override nor config: set `OLLAMA_SELECTED_MODEL` to the first
+   model in `OLLAMA_AVAILABLE_MODELS`.
+
+Report the selected model to the user: "Ollama: using model `<name>`"
+
+### OpenCode backend
+
+OpenCode is a CLI backend — check binary presence:
+
+```bash
+command -v opencode
+```
+
+If not found, **abort** and tell user: "opencode CLI not found. Install:
+`curl -fsSL https://opencode.ai/install | bash`"
+
+**Model selection:**
+
+OpenCode has no discovery-and-select-first-available flow like Ollama does —
+there is no sensible "first available model" for an arbitrary custom
+provider set. Resolve in this order:
+
+1. If `MODEL_OVERRIDE` contains `/`: use it as the OpenCode model.
+2. If `MODEL_OVERRIDE` is set but does not contain `/` and
+   `RELAY_MODE = binary`: use it, but **warn** that `phone-a-friend` will
+   prefix it with the `backends.opencode.provider` config value (default
+   `ollama`). Suggest using `--backend ollama` directly or passing the
+   fully-qualified `provider/model` string.
+3. If `MODEL_OVERRIDE` is set but does not contain `/` and
+   `RELAY_MODE = direct`: never pass it to `opencode run`; the PaF binary is
+   unavailable to normalize it.
+   - If BACKEND is exactly `opencode`, **abort** with: "OpenCode direct mode
+     requires `--model <provider/model>`; pass a fully-qualified model such
+     as `ollama/<model>`, or use `--backend ollama` for a bare local model."
+   - If BACKEND is `all`, set
+     `OPENCODE_SKIP_REASON = direct mode requires provider/model`, exclude
+     `opencode` when building `BACKENDS`, and report the reason. Continue so
+     the bare override can still select an installed Ollama model.
+4. If no override: omit `--model` entirely. `phone-a-friend` resolves
+   `backends.opencode.model` from its own config, and OpenCode falls back
+   to its own configured default when that is unset. Do NOT abort — a
+   missing `--model` is a supported configuration, and aborting here would
+   break `--backend all` for every user who has not passed `--model`.
+
+Report the resolved model to the user: "OpenCode: using model `<name>`", or
+"OpenCode: no model override — using config/OpenCode default" when none is
+set. When `all` skips OpenCode because a direct-mode override is bare, report
+`OPENCODE_SKIP_REASON` instead. If OpenCode itself cannot resolve a model,
+that surfaces as a relay error and is handled by the Backend Failure Handling
+table (Step 7).
+
+**Decision table for `--backend opencode`:**
+
+| opencode available | Action |
+|--------------------|--------|
+| yes                | Proceed when the model passes the relay-mode rules above. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply |
+| no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
+
+### Decision table
+
+`opencode` has its own two-row table in the OpenCode backend section above,
+since it shares no probe columns with the backends below.
+
+| BACKEND   | codex available | gemini available | ollama reachable | ollama models | Action                                                    |
+|-----------|-----------------|------------------|------------------|---------------|-----------------------------------------------------------|
+| `codex`   | yes             | —                | —                | —             | Proceed normally                                          |
+| `codex`   | no              | —                | —                | —             | **Abort.** Tell user: "codex CLI not found. Install: `npm install -g @openai/codex`" |
+| `gemini`  | —               | yes              | —                | —             | Proceed normally                                          |
+| `gemini`  | —               | no               | —                | —             | **Abort.** Tell user: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
+| `ollama`  | —               | —                | yes              | > 0           | Proceed with auto-selected model                          |
+| `ollama`  | —               | —                | yes              | 0             | **Abort.** Tell user: "Ollama is running but has no models. Run: `ollama pull <model-name>`" |
+| `ollama`  | —               | —                | no               | —             | **Abort.** Tell user: "Ollama server not reachable at `localhost:11434` (or `$OLLAMA_HOST`). Is Ollama running? Install: https://ollama.com/download" |
+| `both`    | yes             | yes              | —                | —             | Proceed with both backends                                |
+| `both`    | yes             | no               | —                | —             | **Degrade** to codex only. Warn: "gemini not available, proceeding with codex only" |
+| `both`    | no              | yes              | —                | —             | **Degrade** to gemini only. Warn: "codex not available, proceeding with gemini only" |
+| `both`    | no              | no               | —                | —             | **Abort.** Tell user: "No backends available. Install at least one: `npm install -g @openai/codex` or `npm install -g @google/gemini-cli`" |
+
+After degradation, update BACKEND to the single available backend and continue.
+
+### Backend selection for `--backend all`
+
+When BACKEND is `all`, expand to every available friend backend, run probes,
+and report skipped backends with reasons. Never fail silently. (`opencode`
+is also directly selectable as its own `--backend opencode` value — see
+Backend parsing in Step 1. When `all` includes opencode alongside other
+backends, the model-scoping rule from Step 1 applies: `MODEL_OVERRIDE` goes
+to `ollama` and `opencode` members only, never to `antigravity`, `codex`, `gemini`, or
+`claude` relay calls.)
+
+Resolution matrix:
+
+| Friend backend | Include when |
+|----------------|--------------|
+| `antigravity`  | `command -v agy` succeeds |
+| `codex`        | `command -v codex` AND `codex --version` succeeds |
+| `gemini`       | `command -v gemini` succeeds (auth verified at first relay; transient errors handled by Gemini auto-routing) |
+| `ollama`       | `curl -sf "${OLLAMA_HOST:-http://localhost:11434}/api/tags"` succeeds AND parsed `models[]` has at least one entry AND `OLLAMA_SKIP_REASON` is unset |
+| `claude`       | `command -v claude` AND `claude --version` succeeds. Claude is excluded by default when this skill is running inside Claude Code (we are already orchestrating with Claude). Include only when the user explicitly asked for Claude in addition |
+| `opencode`     | `command -v opencode` succeeds AND the host is NOT OpenCode (`PHONE_A_FRIEND_HOST=opencode` means we are inside OpenCode; relaying back to opencode is blocked by the recursion guard regardless) |
+
+Build `BACKENDS` from the matrix, then emit a one-line summary BEFORE the
+round loop starts:
+
+```text
+Used: codex, gemini, ollama
+Skipped: claude (already host), opencode (host is opencode), gemini (CLI not found)
+```
+
+Skip-silently is forbidden. If zero backends pass probes, abort with the same
+message as the all-backends-unavailable row in the decision table above.
+
+For the rest of the loop, treat `all` like `both`: spawn one teammate per
+backend (or run them as parallel direct calls when teams are unavailable),
+collect outputs, and resolve conflicts using the existing rules.
+
+## Step 3 — Spawn the Agent Team
+
+Spawn worker teammate(s) for relay delegation. There is no separate "create
+team" step any more: Claude Code 2.1.178 removed the team create/delete
+tools. A teammate launches when the lead calls the Agent tool (alias `Task`)
+with a `name` while agent teams are enabled, and Claude Code removes the
+team's runtime state itself when the session ends.
+
+### Availability
+
+Teams exist only when all of these hold. Otherwise set `TEAM_ACTIVE=false`
+and run every relay directly via Bash in the current session; the loop is
+identical, only the execution mechanism changes.
+
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is set in the environment or in
+  `settings.json` under `env`. Without it a named Agent call runs as an
+  ordinary subagent, not a teammate.
+- The session is interactive. In `-p` / non-interactive mode Claude never
+  spawns teammates.
+- The Agent tool exposes a `name` parameter. If it does not, teams are
+  disabled in this session.
+
+Display is the user's setting, not this command's: `teammateMode: "tmux"`
+(or `"auto"` when already inside tmux or iTerm2) gives one split pane per
+teammate; the default `"in-process"` lists teammates in the agent panel
+below the prompt, where arrow keys select one and Enter opens its
+transcript. Idle rows hide after 30 seconds; the teammate stays addressable
+by name.
+
+Teammates cannot run background Bash and cannot spawn background subagents;
+every relay in a worker runs in the foreground of that worker's turn.
+
+### State Variables
+
+Set these during this step. They are referenced throughout the rest of the
+command:
+
+- `TEAM_ACTIVE` = true | false
+- `TEAM_ACTIVE` is the only team state you own. Claude Code derives the
+  team's name from the session (`session-<first 8 chars of the session id>`)
+  and stores its runtime state; do not choose, read, or edit it.
+- `WORKERS` = list of teammate names (if team created)
+- `OLLAMA_SELECTED_MODEL` = string (set during Step 2 preflight if Ollama
+  is a requested backend; used in all Ollama relay calls)
+- `SESSION_IDS` = map of backend name to session ID (binary mode only).
+  Generated as `paf-team-<backend>-<task-slug>-<4-char-random>` (e.g.,
+  `paf-team-codex-review-auth-b7e1`). The random suffix prevents
+  collisions across runs and repos. One session ID per session-capable
+  backend. Used in relay calls so the backend remembers previous rounds.
+
+  **Generate session IDs for every backend that supports session resume.**
+  PaF declares a resume strategy per backend (`native-session` for
+  antigravity, codex, claude, gemini, opencode; `transcript-replay` for ollama).
+  Generate a session ID for every backend:
+
+  | Backend | resumeStrategy | Generate SESSION_ID? |
+  |---|---|---|
+  | antigravity | native-session | yes |
+  | codex | native-session | yes |
+  | claude | native-session | yes |
+  | opencode | native-session | yes |
+  | ollama | transcript-replay | yes |
+  | gemini | native-session | YES, generate a SESSION_ID |
+
+  For `--backend both` (codex + gemini), generate a SESSION_ID for both
+  codex and gemini. For `--backend all`, generate SESSION_IDs for antigravity, codex,
+  claude, opencode, ollama, and gemini (every backend that runs).
+
+### Algorithm
+
+1. **Check availability** as described above. If teams are unavailable, set
+   `TEAM_ACTIVE=false` and skip to the end of this step. This is expected,
+   not an error.
+
+2. **Spawn teammate(s)** based on BACKEND by calling the Agent tool with a `name`. Each teammate MUST have a
+   **creative, unique human first name** — never generic labels like
+   "relay-worker" or "codex-agent". Draw from diverse cultures and regions,
+   invent fresh names each time (never reuse names from recent sessions or
+   pick from a fixed list). Announce to the user as **Name** (role / backend),
+   e.g. **Leila** (relay / codex), **Tomás** (relay / ollama:qwen3).
+
+   - **Single backend** (`antigravity`, `codex`, `gemini`, `ollama`, or `opencode`): one
+     Agent call with:
+     - `name`: a creative human first name
+     - `subagent_type: "general-purpose"`
+     - `prompt`: the worker template below, with the Round 1 relay command
+       already included
+   - **Both backends**: two Agent calls **in parallel**, each with a unique
+     human first name (same params as above).
+
+   Pass nothing else. Teammates start with the lead's permission settings
+   and their permission prompts appear in the lead session, so there is no
+   per-teammate permission mode at spawn time. Spawning needs no
+   confirmation from the user. Set `TEAM_ACTIVE=true` once the first spawn
+   succeeds.
+
+3. **Each teammate's prompt** must use this template:
+
+   Shell safety rule: every dynamic prompt/context payload must be written
+   to a temp file with a single-quoted heredoc before invoking Bash. Do not
+   splice user text, prior model output, or conversation context into
+   double-quoted shell arguments. Model names still go through the safe
+   model-name validation from Step 1.
+
+   **Binary mode** (`RELAY_MODE = binary`):
+   ```
+   You are a relay worker. Your ONLY job: run the command below via Bash,
+   then send the FULL output (not a summary) back to the team lead via
+   SendMessage.
+
+   Run this now:
+
+   PROMPT_FILE="$(mktemp)"
+   CONTEXT_FILE="$(mktemp)"
+   trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+   cat > "$PROMPT_FILE" <<'PAF_TEAM_PROMPT_EOF'
+   <prompt>
+   PAF_TEAM_PROMPT_EOF
+
+   cat > "$CONTEXT_FILE" <<'PAF_TEAM_CONTEXT_EOF'
+   <context>
+   PAF_TEAM_CONTEXT_EOF
+
+   phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" \
+     [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF \
+     [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+
+   Note: for `--to claude`, `--fast` has no effect.
+
+   `$PAF_NO_DIFF` comes from the probe in "Diff inclusion policy" above; it
+   resolves to `--no-include-diff` on new binaries and to an empty string on
+   older ones (with `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported). Pass it
+   through to every worker so the lead-side fallback applies uniformly.
+   Swap `$PAF_NO_DIFF` for `--include-diff` only when the user explicitly
+   asked for a diff/branch/staged review.
+
+   Include `--session <SESSION_ID>` for every session-capable backend
+   (`antigravity`, `codex`, `claude`, `gemini`, `opencode`, `ollama`).
+
+   Run the command in the foreground and wait for it. Teammates cannot run
+   background Bash, so do not use `run_in_background`, `&`, or `nohup`.
+
+   On the FIRST relay under a new session label, PaF prints an
+   informational stderr line: `[phone-a-friend] Session label "..." not
+   found in store. Starting a fresh session under this label.` This is
+   expected and not a failure.
+
+   After the relay completes, send the FULL unedited output to the team
+   lead via SendMessage. Include:
+   - The complete relay output (stdout and stderr)
+   - Whether the command succeeded or failed (exit code)
+   Do NOT summarize, interpret, or editorialize. Send the raw output.
+
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
+   ```
+
+   **Direct mode** (`RELAY_MODE = direct`):
+   ```
+   You are a relay worker. Your ONLY job: run the command below via Bash,
+   then send the FULL output (not a summary) back to the team lead via
+   SendMessage.
+
+   Run this now:
+
+   <direct-command>
+
+   After the command completes, send the FULL unedited output to the team
+   lead via SendMessage. Include:
+   - The complete command output (stdout and stderr)
+   - Whether the command succeeded or failed (exit code)
+   Do NOT summarize, interpret, or editorialize. Send the raw output.
+
+   SHUTDOWN: When the team lead asks you to shut down, approve the native
+   Claude Code Agent Teams shutdown request and exit your process. Do not
+   stay active waiting for follow-up. Do not construct a manual legacy
+   shutdown response unless explicitly recovering a stuck shutdown.
+   ```
+
+   Where `<direct-command>` is the backend-specific command from the "Direct
+   call reference" section. Build `<combined-prompt>` using the template from
+   that section, substituting the relay prompt, context payload, and diff as
+   applicable.
+
+   Backend-specific additions (both modes):
+   - For **gemini** workers: always include `--model` / `-m` per the Gemini
+     Model Priority section below.
+   - For **ollama** workers: always include `--model` / model field using
+     `OLLAMA_SELECTED_MODEL` discovered during preflight (Step 2). Never
+     omit the model for Ollama — the API returns HTTP 400 when no model is
+     specified and no server default is configured.
+   - For **opencode** workers: include `--model` using the validated
+     `MODEL_OVERRIDE` from preflight (Step 2) when one was set and accepted
+     for the current relay mode. When no override exists, omit `--model` and
+     let `backends.opencode.model` or OpenCode's own default apply. Direct
+     mode must never pass a bare model name.
+
+4. **Seed first task immediately** after spawning — include the Round 1
+   relay command directly in the teammate's spawn prompt. Do NOT just say
+   "wait for tasks" or "stand by" — this causes deadlock.
+
+5. **If any spawn fails**: ask each already-spawned teammate by name to shut
+   down via `SendMessage`, then set `TEAM_ACTIVE=false`. There is no team
+   deletion call; Claude Code cleans up when the session ends.
+
+6. Set `WORKERS` to the list of successfully spawned teammate names.
+
+### Fallback
+
+If `TEAM_ACTIVE=false` (team creation or spawning failed), all relay calls
+in Step 4 run directly via Bash in the current session. The loop behavior
+is identical — only the execution mechanism changes.
+
+## Step 4 — Iterative Loop (Max MAX_ROUNDS Rounds)
+
+Execute a do-review-decide loop. Maximum MAX_ROUNDS rounds. Stop early if
+converged.
+
+### Convergence trace
+
+Before the loop starts, initialize an in-memory `CONVERGENCE_TRACE` array.
+This trace is local to the current command run; it is not analytics, tracking,
+or persisted product telemetry.
+
+After the REVIEW phase of each round, append a verdict envelope (the exact
+same shape used by `phone-a-friend --verdict-json`). The array index is the
+round number minus one, so do not add a separate `round` property to the
+envelope:
+
+```
+CONVERGENCE_TRACE = []  # index = round - 1
+
+# Each entry is a verdict envelope:
+{
+  "schema_version": 1,
+  "verdict": "ship" | "iterate" | "abstain",
+  "summary": "<one-sentence synthesis>",
+  "findings": [
+    { "severity": "blocker" | "important" | "nit",
+      "title": "<headline>",
+      "rationale": "<why it matters>",
+      "location": "<file or file:line> or null" }
+  ]
+}
+```
+
+The verdict is **derived from severities**: any `blocker` or `important`
+finding => `iterate`; empty findings or only `nit` findings => `ship`;
+`abstain` only when the reviewer cannot make a confident call AND findings
+is empty. This matches `parseVerdict()` in PaF's `src/verdict.ts`. Do not
+contradict the rule (e.g. do not record verdict=ship while listing a
+blocker — that is a malformed envelope).
+
+Two ways to source the verdict envelope per round:
+
+1. **Lead-judged (default)**: the lead orchestrator runs the rubric in
+   Phase 2 REVIEW and emits the envelope based on its own judgment. No
+   extra relay call. Cheap, fits text-output rounds, suitable for most
+   tasks.
+2. **Backend-judged (optional, file-change rounds)**: when the round
+   produced file changes that exist as a git diff, the lead MAY also
+   run `phone-a-friend --to <backend> --review --review-scope <scope> --verdict-json` for an
+   independent third-party verdict. If used, merge it conservatively with
+   the lead-judged envelope: any blocker or important finding from either
+   source makes the trace verdict `iterate`, and a backend `ship` verdict
+   MUST NOT erase blocker or important findings the lead already found.
+   Prefer the backend envelope only when it is stricter than the lead, or
+   when the lead abstained and the backend produced a concrete verdict.
+   Cap at one verdict-json relay call per round.
+
+   A backend envelope with `verdict: "abstain"` and a summary beginning
+   `No changes found for review scope` is deterministic PaF output for an
+   empty selected scope, not reviewer uncertainty. Do not retry the same
+   scope; keep the lead verdict or correct the scope before another call.
+
+Both sources produce the same envelope shape, so CONVERGENCE_TRACE is uniform
+either way.
+
+### Timing Expectations
+
+Different backends have different response times:
+- **Codex**: 3-5 minutes for thorough reviews. It reads files one-by-one in
+  its sandbox, which is methodical but slow. Do not assume it is stuck.
+- **Gemini**: 30-90 seconds typically. Faster but may hit capacity errors.
+- **Ollama**: Depends on model size and hardware. Small models (qwen3) are
+  fast (10-30s). Large models (llama3.2:70b) can take minutes.
+- **OpenCode**: Depends on the configured provider/model. Custom
+  OpenAI-compatible providers typically respond in 5-30 seconds for
+  chat-style completions; large or slow providers can take longer.
+
+The relay timeout is 600 seconds by default. Do not intervene before that.
+
+### Execution Mode
+
+Before executing any round, select the execution mode based on team state:
+
+**With team (`TEAM_ACTIVE=true`):**
+- **DO phase**: Lead sends task to teammate(s) via `SendMessage`. For
+  `--backend both`, message both workers in parallel. Wait for results.
+  If a worker does not respond within the relay timeout (default 600
+  seconds) plus 30 seconds, set `TEAM_ACTIVE=false`, ask every worker by
+  name to shut down via `SendMessage`, and degrade to direct Bash mode for
+  the remainder of the loop.
+- **REVIEW phase**: Lead reviews output received from teammate(s). For
+  `--backend both`, resolve conflicts (see "Backend Both — Conflict
+  Resolution" below).
+- **DECIDE phase**: If next round is needed, send specific feedback to
+  teammate(s) via `SendMessage`.
+
+**Without team (`TEAM_ACTIVE=false`):**
+- **DO phase**: Lead runs relay calls directly via Bash. In binary mode,
+  use `phone-a-friend` commands. In direct mode, use backend CLIs directly
+  (see "Direct call reference" in Step 0). For `--backend both`, run
+  sequentially.
+- **REVIEW/DECIDE phases**: Same as above.
+
+### Round Structure
+
+Each round has three phases:
+
+#### Phase 1: DO
+
+Delegate the task to the backend via the relay. The lead's job is to
+**orchestrate**, not to do the backend's work.
+
+- **Single backend**: Relay the task (or sub-task) to the backend.
+
+  **Binary mode** (`RELAY_MODE = binary`):
+  ```bash
+  PROMPT_FILE="$(mktemp)"
+  CONTEXT_FILE="$(mktemp)"
+  trap 'rm -f "$PROMPT_FILE" "$CONTEXT_FILE"' EXIT
+
+  cat > "$PROMPT_FILE" <<'PAF_TEAM_PROMPT_EOF'
+<prompt>
+PAF_TEAM_PROMPT_EOF
+
+  cat > "$CONTEXT_FILE" <<'PAF_TEAM_CONTEXT_EOF'
+<context>
+PAF_TEAM_CONTEXT_EOF
+
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  ```
+
+  Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion
+  policy" — `--no-include-diff` on new binaries, empty on older ones with
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` exported. Swap for `--include-diff`
+  only when the user explicitly asked for a diff/branch/staged review.
+
+  Always include `--fast` (relay prompts are self-contained). For
+  `--to claude`, `--fast` has no effect. Include `--session` for every
+  session-capable backend: `antigravity`, `codex`, `claude`, `gemini`, `opencode`,
+  `ollama`. Pass the backend-specific ID from `SESSION_IDS`.
+
+  When `--session` is used, the session lets the backend remember
+  previous rounds, so follow-up prompts can focus on feedback deltas
+  rather than re-sending full context.
+
+  **Direct mode** (`RELAY_MODE = direct`):
+  ```bash
+  # Codex:
+  codex exec -C "$PWD" --skip-git-repo-check --sandbox <mode> "$(cat "$PROMPT_FILE")" < /dev/null
+  # Gemini (<gemini-approval-flags> per "Sandbox mapping for direct mode"):
+  gemini <gemini-approval-flags> --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"
+  # Ollama:
+  PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
+  curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
+    -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
+    | jq -r '.message.content'
+  ```
+
+  Note: `--fast` and `--session` are not available in direct mode. Direct
+  mode relay calls are always stateless (each round starts fresh).
+
+  In direct mode, build `PROMPT_FILE` using the template from the "Direct call
+  reference" section and the quoted-heredoc rule. If `--include-diff` is used,
+  run `git diff HEAD` and append the output to the template's "Git Diff"
+  section inside that file.
+
+  For gemini, omit `--model` by default and let auto-routing pick (see "Gemini model selection" section).
+  For ollama, always include `--model` / model field using `OLLAMA_SELECTED_MODEL` from preflight.
+  For opencode, include `--model` using `MODEL_OVERRIDE` when set and
+  validated for the current relay mode; otherwise omit it and let
+  config/OpenCode defaults apply. Direct mode must never pass a bare model
+  name to `opencode run`.
+- **Both backends**: Relay to each backend (in parallel if using teams,
+  sequentially otherwise). You may give them the same task or different
+  sub-tasks.
+
+#### Phase 2: REVIEW
+
+Evaluate the output against the convergence rubric. ALL items must pass:
+
+1. **Acceptance criteria met?** — Does the output accomplish the task as
+   described? Is the core request fulfilled?
+2. **No critical risks or correctness issues?** — Is the output free of bugs,
+   security issues, logical errors, and significant omissions?
+3. **Validation done?** — Has the output been checked (tests run, code
+   reviewed, logic verified)? If validation was explicitly skipped, is there
+   a documented reason?
+
+**Multi-artifact convergence rule**: If the task produces multiple
+deliverables (e.g., 5 architecture docs, 3 API endpoints), require explicit
+per-deliverable critique before allowing convergence. A blanket "looks good"
+is NOT sufficient — each deliverable must be individually evaluated against
+the rubric.
+
+**Round 1 convergence guard**: If the task description suggests significant
+complexity (multiple files, design work, refactoring, multi-step
+implementation), require at least a brief critique of each major output
+before declaring convergence. This prevents superficial "converged in
+round 1" on tasks that deserve iteration.
+
+**Backend both — conflict resolution**:
+- If both backends agree → stronger convergence signal; note agreement in
+  synthesis.
+- If they conflict → evaluate each against the rubric independently, select
+  the better output, note the disagreement and rationale for selection.
+- If one backend fails → continue with the successful one, note the failure.
+
+#### Phase 2.5: Convergence trace snapshot
+
+After REVIEW, append the verdict envelope for this round to
+`CONVERGENCE_TRACE` (see "Convergence trace" above). Display a one-line
+summary to the user before moving to DECIDE:
+
+```
+Round N: verdict=<ship|iterate|abstain> | catches: B blocker, I important, X nits
+```
+
+(omit zero-count categories: `Round 2: verdict=iterate | catches: 1 important, 2 nits`).
+
+**Diminishing-returns warning** (only when comparing round N to round N-1,
+both with verdict=iterate): if round N has equal-or-more findings than
+round N-1 AND blocker+important counts did not decrease, surface a single
+stderr-style line BEFORE the DECIDE phase:
+
+```
+Round N may not be making progress: same/more catches than round N-1, no severity decrease. Consider stopping.
+```
+
+This is a hint, not a hard stop. The lead may still continue if there is a
+reason (e.g. the round addressed a blocker but introduced an important
+finding). When continuing past the warning, briefly note the rationale in
+the next-round feedback.
+
+#### Phase 3: DECIDE
+
+Based on CONVERGENCE_TRACE[round-1].verdict and the review:
+
+- **Converged** (verdict = `ship`): Stop the loop. Execute Step 8
+  (Cleanup), then Step 9 (Final Synthesis). Do not iterate further — no
+  iterating for its own sake.
+- **Issues found** (verdict = `iterate`): Formulate specific, actionable
+  feedback derived from the round's findings (use the `title` and
+  `rationale` of each blocker/important entry). Start the next round
+  with this feedback incorporated into the prompt.
+- **Inconclusive** (verdict = `abstain`): The reviewer could not make
+  a confident call. Surface what's missing (in `summary`) and either
+  request that information from the user OR run one more round with a
+  more focused prompt. Do not declare convergence on `abstain`.
+- **Backend error** (timeout, crash, unexpected failure): Note the failure.
+  If another backend is available, try it. If no backend produced a
+  successful result this round: if a previous round had a usable result,
+  stop the loop and synthesize using that result. If no round has produced
+  a usable result, stop the loop and synthesize a failure summary. For
+  timeouts specifically, retry the backend in the next round (matching the
+  failure table). Only stop the loop on non-timeout failures when no backend
+  produced a result.
+- **Retry-eligible Gemini transient error** (HTTP 429, 499, 500, 503, 504;
+  RESOURCE_EXHAUSTED; "high demand"; model not found; transient/timeout):
+  try the next model in the priority list before skipping. For codex, skip this
+  backend for the current round. Retry in the next round. If using both
+  backends, continue with the other.
+
+### Round Progression Example
+
+```
+Round 1: Delegate task → Review output → Issues found → next round
+Round 2: Send revision prompt with feedback → Review → Nearly there → next round
+Round 3: Final polish request → Review → Converged ✅ → Cleanup → Synthesis
+```
+
+Or:
+
+```
+Round 1: Delegate task → Review output → Converged ✅ → Cleanup → Synthesis
+```
+
+Both are valid. Stop as soon as convergence is reached.
+
+### Final Round Forced Stop
+
+If the loop reaches the end of round MAX_ROUNDS without convergence, STOP.
+Do not continue to another round. Execute Step 8 (Cleanup), then Step 9
+(Final Synthesis) with:
+- The best result produced so far
+- An explicit list of unresolved items or remaining issues
+
+## Step 5 — Context Budget
+
+To avoid hitting relay size limits and to keep prompts focused:
+
+**Delegate-first rule**: Before the first relay call, do NOT read the entire
+codebase. Read at most 2-3 files for preflight context. The backend has
+`--repo` access and can read files itself. The lead's job is to orchestrate,
+not to become an expert on the codebase before delegating.
+
+**Per-round relay rules (binary mode with `--session`)**:
+When `--session` is active, session-capable backends (Codex, Claude,
+OpenCode) remember previous rounds natively. Each relay call only needs
+to send:
+  - The specific feedback or revision request for this round
+  - Any new context (e.g., updated diff after changes)
+Do NOT re-send the full task description, prior outputs, or summaries.
+The backend already has them in its session history.
+
+**Exception: Ollama with `--session`**: Ollama replays full history each
+call (prompt size grows per turn). Sessions work but follow-up prompts
+must stay concise to avoid hitting size limits.
+
+**Per-round relay rules (direct mode, no session)**:
+- Each relay call sends ONLY:
+  - The original TASK_DESCRIPTION
+  - The latest output or delta from the previous round
+  - A 2-3 sentence summary of prior rounds (if referencing them)
+- Do NOT send the full conversation history or all prior round outputs.
+- Each round starts fresh with task + latest state + brief summary.
+
+## Step 6 — Sandbox Policy
+
+Relay calls default to `--sandbox read-only`, but MUST escalate when the
+task requires writes.
+
+**Rules:**
+- OpenCode is an exception to the technical sandbox contract: neither the
+  PaF backend nor `opencode run` can enforce read-only access for OpenCode.
+  `--dir` scopes the workspace but does not prevent writes; the user's
+  OpenCode permission config is the enforcement boundary. For every
+  OpenCode review or other read-only round, add this explicit instruction
+  to the relay prompt: "Do not modify files. Review or advise only." This is
+  a behavioral instruction, not a sandbox guarantee.
+- Antigravity is read-only only: PaF rejects `--sandbox workspace-write`
+  for it. Never escalate its sandbox. On write tasks, Antigravity advises
+  and the lead applies the file changes.
+- If the task asks to **create or modify files** (e.g., "create .md files
+  under /architecture", "refactor the backend", "apply these changes"),
+  the relay call MUST use `--sandbox workspace-write` so the backend writes
+  the files directly (except Antigravity; see above).
+- The lead should only review and synthesize — not re-create what the
+  backend already produced. The backend does the writing; the lead does
+  the reviewing.
+- If the backend produces content in read-only mode (returns text rather
+  than writing files), the lead MAY write files as a fallback, but this
+  should be the exception, not the default.
+- When escalating sandbox permissions, note it in the final synthesis so the
+  user is aware that write operations were performed.
+
+## Step 7 — Backend Failure Handling
+
+Reference table for handling backend failures during the loop:
+
+| Scenario                               | Action                                            |
+|----------------------------------------|---------------------------------------------------|
+| Single backend requested, available    | Normal operation                                  |
+| Single backend requested, missing      | Abort with install hint (handled in Step 2)       |
+| Both requested, one missing            | Degrade to available (handled in Step 2)          |
+| Both requested, one fails mid-loop     | Continue with remaining backend, note failure     |
+| Both requested, both fail mid-loop     | Stop loop. Synthesize using best prior result, or failure summary if no prior result exists |
+| Ollama server unreachable mid-loop     | Treat as round failure. Retry next round. If still unreachable, stop with failure summary |
+| Ollama model not found                 | Treat as round failure (no model fallback for Ollama — user should specify a valid model) |
+| OpenCode CLI not found                 | Abort with install hint (handled in Step 2)       |
+| OpenCode relay error (auth, model not found, provider unreachable) | Treat as round failure. Retry next round once; if it fails twice, drop the backend for the remainder of the run and note it in the synthesis |
+| Gemini retry-eligible HTTP status (429, 499, 500, 503, 504) | Try next model in priority list first. If all models exhausted, skip for this round, retry next round |
+| Backend timeout                        | Gemini: try next model in priority list first. If all models exhausted, treat as failure for this round, retry next |
+| Gemini "high demand" / capacity error  | Try next model in priority list. If all exhausted, treat as round failure |
+| Gemini model not found                 | Try next model in priority list. If all exhausted, treat as round failure |
+| Gemini RESOURCE_EXHAUSTED              | Try next model in priority list. If all exhausted, treat as round failure, retry next round |
+| Gemini unclassified error              | Do NOT model-fallback. Treat as round failure immediately |
+
+**Precedence**: For gemini errors, always attempt model fallback **within the
+current round** before escalating to round-level retry. Only move to the next
+round (or stop) after the model priority list is exhausted.
+
+**Round reset**: Each new round starts again from model #1 in the priority
+list. Model fallback state does not carry across rounds.
+
+**Ollama note**: Ollama does not have a model priority list. If a relay call
+fails with "model not found", report the error and let the user specify a
+different model. Do not attempt automatic model fallback for Ollama.
+
+If all backends are unavailable or failing, stop the loop and move to
+synthesis with whatever results have been collected. Always explain what
+happened in the synthesis.
+
+## Step 8 — Cleanup
+
+**ALWAYS execute this step if any teammate was spawned (i.e., `TEAM_ACTIVE`
+was true at any point during this session)**, regardless of how the loop
+ended (convergence, forced stop, abort, error, or user interruption).
+**Execute cleanup BEFORE presenting the final synthesis** so that workers
+are not left running after the answer is on screen.
+
+1. Ask each teammate in WORKERS to shut down via `SendMessage`. Use natural
+   language and let Claude Code's native Agent Teams shutdown flow handle
+   approval.
+2. Wait up to 30 seconds for native shutdown confirmation messages, but stop
+   waiting as soon as every teammate has either approved or rejected
+   shutdown. Treat `shutdown_approved` as success. If a teammate rejects
+   shutdown, reports that it is still working, or does not respond, continue
+   to the next step after the timeout. This 30-second wait is the only cleanup wait allowed.
+3. Do NOT poll `~/.claude/teams/<team-name>/`, `config.json`, inbox files,
+   tmux pane state, or any other Claude-managed runtime state waiting for a
+   teammate or team directory to disappear. Do not use Bash `ls`, `grep`,
+   `test`, `sleep`, or `until` loops for cleanup verification. The docs
+   describe team files as runtime state that Claude Code manages; polling
+   them can hang in in-process mode.
+4. There is no team deletion call. Claude Code removes the team's runtime
+   state when the session ends and hides idle teammates from the panel. A
+   teammate that rejected shutdown or did not respond keeps running until
+   the session ends: say so to the user, and do NOT kill tmux panes from
+   the lead session (this can kill the lead). If a pane is still there after
+   the session ends, the user can run `tmux kill-session -t <name>`.
+5. Immediately continue to Step 9 and present the final synthesis. Do not
+   wait for any additional Agent Teams acknowledgement, runtime-state
+   change, file-system change, background command, or model reflection
+   step. In non-interactive print mode, successful cleanup must be followed immediately by final text.
+
+If a teammate does not respond to the shutdown request within 30 seconds,
+proceed to Step 9 anyway. Never leave the user without the synthesis
+because a worker is slow to exit.
+
+## Step 9 — Final Synthesis
+
+When the loop ends (converged, forced stop, or backend-failure stop), present
+a clear synthesis to the user. Include ALL of the following:
+
+1. **What was accomplished**: Summary of the result — what was done, what
+   changed, what was produced.
+2. **Which backend(s) contributed**: List which backends were called and what
+   each contributed.
+3. **How many rounds**: State the number of rounds executed (e.g., "Converged
+   in 2 rounds" or "Forced stop after MAX_ROUNDS rounds").
+4. **Convergence status**:
+   - If converged: state that all rubric items passed.
+   - If forced stop: list the specific unresolved items that prevented
+     convergence.
+5. **Sandbox note**: If `--sandbox workspace-write` was used at any point,
+   note it here.
+6. **Convergence retrospective** (from `CONVERGENCE_TRACE`):
+   - Find the first round whose verdict is `ship`. Call that one-based round
+     number `K` (`CONVERGENCE_TRACE` array index + 1).
+   - If `K` exists and `K < MAX_ROUNDS`, append:
+     `Hint: this run reached "ship" at round K. Try --max-rounds K next time for a similar task.`
+   - If `K` does not exist (no ship-verdict in any round), append:
+     `Hint: no round reached "ship" — task may need decomposition, more context, or out-of-band work before re-running.`
+   - If a diminishing-returns warning fired during the run, mention it
+     here too: `Round X did not show progress over round X-1; if you see
+     this pattern again, consider --max-rounds (X-1).`
+   - Skip the retrospective when only a single round ran (insufficient
+     data to make any recommendation).
+
+Format the synthesis clearly. The user should understand at a glance what
+happened and whether the result is complete.
+
+## Constraints
+
+- **Max MAX_ROUNDS rounds.** Never exceed MAX_ROUNDS rounds regardless of
+  convergence status. Default is 3, user can set 1-5 via `--max-rounds`.
+- **No nesting.** Do not invoke `/phone-a-team` from within a `/phone-a-team`
+  session. This command is not re-entrant.
+- **One team per session.** Only one team can be active. Do not attempt to
+  create multiple teams.
+- **Teammates inherit the lead's permission mode.** There is no
+  per-teammate mode at spawn time, and teammate permission prompts appear
+  in the lead session. Run the lead with bypass permissions if prompts
+  from workers would block the loop.
+- **Context size limits.** Respect the relay limits: 200 KB context, 300 KB
+  diff, 500 KB prompt. Use the context budget rules in Step 5.
+- **No changes to phone-a-friend internals.** This command uses
+  `phone-a-friend` as a black box. Do not modify its source files.
+- **Cleanup is mandatory.** Step 8 must execute if any teammate was
+  spawned (`TEAM_ACTIVE` was ever true), even on error paths.
+- **One backend per relay call.** Never pass comma-separated values to
+  `--to` (e.g. `phone-a-friend --to codex,gemini`). PaF is one backend per
+  call. For multi-backend rounds, run separate `phone-a-friend` invocations
+  (or message separate teammates).
+- **`phone-a-team` is not a PaF subcommand.** Never invoke
+  `phone-a-friend phone-a-team`. The valid PaF CLI shape is
+  `phone-a-friend --to <backend> ...`.
+- **`--backend` is a `/phone-a-team` argument, not a PaF flag.** Do not
+  pass `--backend` to the `phone-a-friend` CLI.
+- **Context hygiene.** Do not generate `--context-text` or
+  `--context-file` from repository files, `git show`, `git diff`,
+  `git status`, or other local file/git output for relays sent to
+  repo-aware backends (antigravity, codex, gemini, claude, opencode). Pass
+  `--repo "$PWD"` and let the backend read files with its own tools.
+  `--context-text` and `--context-file` are reserved for narrative
+  context that does not exist in the repo: prior round outputs,
+  conflict-resolution notes, the orchestrator's analysis, or feedback
+  to apply. Inlining repo content is wasteful, can leak tracked
+  uncommitted edits or committed secrets, and bypasses the backend's
+  normal file-access controls. For `ollama` (no repo file access), ask
+  before sending file content and send a minimal excerpt rather than
+  bulk-dumping. **Exception**: when the user explicitly asked for a
+  diff-scoped review (a code review of current changes, branch review,
+  or "what's wrong with my changes?"), `--include-diff` and direct-mode
+  `git diff HEAD` flows are the right tool for the job — that path is
+  documented above and is not what this rule prohibits. The rule
+  targets *unsolicited* repo-content dumps, not user-requested
+  diff-scoped reviews.
+
+## Gemini model selection
+
+For `--to gemini` (including the gemini side of `--backend both`), **omit
+`--model` by default** and let Gemini CLI's auto-routing pick. This mirrors
+how `--to codex` and `--to claude` are used in this command — the CLI's own
+default is the right default.
+
+Set `--model` explicitly only when reproducibility, specific capability, or
+debugging requires a pin.
+
+### Cache-aware failure for explicit pins
+
+PaF binary mode (`phone-a-friend --to gemini --model X`) caches strong 404s
+(`ModelNotFoundError`) at `~/.config/phone-a-friend/gemini-models.json` for
+24h and surfaces a clear error with the cache path, expiry, and bypass
+instructions. PaF does **not** auto-substitute another model — explicit
+pins surface explicit failures.
+
+What is and isn't cached:
+
+- **Cached** (24h): strong 404 (`ModelNotFoundError` from gemini-cli's own classifier).
+- **Not cached**: ambiguous 404s, 429 / RESOURCE_EXHAUSTED, authentication failures, any other error class.
+- **Not consulted**: when `--model` is unset (auto-routing), or during session resume.
+
+To bypass the cache: `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false`. Or delete the
+cache file to clear it.
+
+### Direct Gemini CLI mode
+
+When invoking `gemini` directly (no PaF wrapper), the dead-model cache does
+NOT apply. Orchestrator-level retry rules:
+
+- **Retry**: HTTP 429, 499, 500, 503, 504; RESOURCE_EXHAUSTED; transient/timeout.
+- **Do NOT retry**: auth failures, invalid args, permission errors, model-not-found.
+- **Default**: surface unclassified errors immediately, do not loop.
+
+Round-level retry: each new round can attempt a different `--model` if the
+prior round failed (see Step 7). When reporting errors in synthesis, list
+the attempted models and each error.
+
+This does NOT apply to `--to codex` or `--to ollama`.
+
+## Ollama Model Handling
+
+When using `--to ollama`:
+
+- **Always pass `--model`** in relay calls. Use `OLLAMA_SELECTED_MODEL`
+  discovered during preflight (Step 2). Never omit `--model` — the Ollama
+  API returns HTTP 400 when no model is specified and no server default is
+  configured.
+
+### Model selection precedence
+
+The following precedence determines `OLLAMA_SELECTED_MODEL` during preflight:
+
+1. **`MODEL_OVERRIDE`** (from `--model` flag or NL extraction in Step 1) —
+   highest priority. Validate against `OLLAMA_AVAILABLE_MODELS`. If not
+   found, abort only when BACKEND is exactly `ollama`. When BACKEND is `all`,
+   set `OLLAMA_SKIP_REASON`, exclude Ollama from `BACKENDS`, report why it
+   was skipped, and continue with the other available backends.
+2. **Config `backends.ollama.model`** — set via TUI model picker or
+   `phone-a-friend config set`. Validate against the safe model-name pattern
+   and available models. If invalid or unavailable, abort for a single
+   Ollama run or set `OLLAMA_SKIP_REASON` and continue without Ollama for an
+   `all` run.
+3. **First model from `/api/tags`** — fallback auto-selection.
+
+- **Do NOT maintain a model priority list** for Ollama. Unlike Gemini, Ollama
+  models are locally installed and user-specific. The preflight query
+  discovers what's actually available.
+- **If "model not found" error occurs mid-loop**: report the error in
+  synthesis and suggest the user run `ollama pull <model>` or check available
+  models with `ollama list`.
+
+## Notes
+
+- This is a prompt-only feature. All behavioral rules are best-effort prompt
+  policy. There is no runtime enforcement of the loop contract or round limits.
+- Token usage is higher than a single `/phone-a-friend` call. Each round
+  involves at least one relay call plus review overhead.
+- For simple one-shot reviews, use `/phone-a-friend` instead. Use
+  `/phone-a-team` when you want iterative refinement and convergence checking.

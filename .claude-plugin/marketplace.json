@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "phone-a-friend",
-      "description": "CLI relay that lets AI coding agents collaborate by sending prompts and repository context to backend agents.",
+      "description": "Get second opinions and code reviews from other coding backends in Claude Code. Requires the phone-a-friend CLI and separately configured backends.",
       "source": {
         "source": "npm",
         "package": "@freibergergarcia/phone-a-friend"

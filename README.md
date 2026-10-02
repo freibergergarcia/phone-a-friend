@@ -38,20 +38,13 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
 > [!IMPORTANT]
-> **Codex users:** Codex's default `workspace-write` sandbox blocks subprocess access to the macOS Keychain (where Claude stores OAuth tokens) and OAuth refresh network paths (Gemini and Antigravity). With the default sandbox, relays to Claude fail with a misleading `Not logged in` and Google CLI relays can hang until the timeout. Two workarounds today, both with tradeoffs:
->
-> **Option A — Lower the sandbox.** Per-session (preferred): launch Codex with `codex --sandbox danger-full-access`. Persistent (convenient but removes sandbox protections from every Codex session, not just PaF relays): add an alias to `~/.zshrc` or `~/.bashrc`:
-> ```bash
-> alias codex='codex --sandbox danger-full-access'
-> ```
->
-> **Option B — Use API keys for API-key backends.** Skips OAuth entirely for Claude/Gemini CLI, works in any sandbox:
-> ```bash
-> export ANTHROPIC_API_KEY=...
-> export GEMINI_API_KEY=...
-> ```
->
-> A portable-auth path via `claude setup-token` is planned for the Claude side. Antigravity uses `agy` subscription auth, so the current Antigravity-safe path from Codex is Option A or running PaF from a regular terminal.
+> **Codex users:** A host sandbox can restrict backend network or keychain access,
+> but an authentication error or timeout alone does not identify the cause. Start
+> with `phone-a-friend doctor --json`, then compare the same backend executable
+> and auth profile in a regular terminal. Keep PaF's read-only default. For a
+> confirmed host restriction, use authorized command escalation or an authorized
+> terminal run. `--full-auto` is not an unrestricted sandbox mode. Switching to
+> API-key billing is a separate choice.
 
 ## Quick Start
 
@@ -581,22 +574,41 @@ phone-a-friend agentic replay --session <id>
 
 ## Documentation
 
+
 Full usage guide, examples, CLI reference, and configuration details:
 
 **[freibergergarcia.github.io/phone-a-friend](https://freibergergarcia.github.io/phone-a-friend/)**
 
 ## Uninstall
 
-**npm install:**
+Remove host integrations explicitly while the CLI is still installed, then
+remove the global package:
 
 ```bash
+phone-a-friend plugin uninstall --all
 npm uninstall -g @freibergergarcia/phone-a-friend
 ```
 
-Automatically removes the Claude Code plugin (CLI-installed), OpenCode commands and skills, Codex skills, the pi skills PaF installed, and the `~/.config/phone-a-friend` directory (config, sessions, jobs).
+To remove only a pi package installed with pi's own package manager:
 
-> [!WARNING]
-> `npm uninstall -g` deletes `~/.config/phone-a-friend` entirely, including persisted session labels, the background job store, and agentic transcripts. Back up anything you want to keep before uninstalling. The agentic SQLite database at `~/.config/phone-a-friend/agentic.db` and any local config in `~/.config/phone-a-friend/config.toml` are wiped along with it.
+```bash
+pi remove npm:@freibergergarcia/phone-a-friend
+```
+
+Package removal preserves local configuration and history. There is no uninstall
+lifecycle hook, so host integrations are not removed either; symlink installs (the
+default) are left pointing at the removed package. If you already removed it,
+reinstall the package, run `phone-a-friend plugin uninstall --all`, then uninstall
+again. This cleans up OpenCode and Codex links from any location, but pi keeps a
+link to a removed package at a different path (for example after a Node version
+change); delete `phone-a-friend` and `curiosity-engine` under `~/.pi/agent/skills/`
+(or under `$PI_CODING_AGENT_DIR/skills/`) yourself in that case.
+
+Use `phone-a-friend task delete` / `task prune` and `session delete` /
+`session prune` for individual records. For complete PaF data removal, stop
+running jobs, back up needed data, and manually delete
+`~/.config/phone-a-friend/` (or `$XDG_CONFIG_HOME/phone-a-friend/`). Backend-native
+history is managed separately by each backend.
 
 **Claude Code marketplace:**
 
@@ -656,11 +668,11 @@ enough for skill changes: it re-registers the marketplace, whose plugin source i
 
 ## Privacy
 
-Phone a Friend does not collect, transmit, or store any data on servers operated by this project. There is no telemetry and no analytics.
-
-Prompts and repository context are passed only to backends you have installed and authenticated yourself: the Claude, Codex, Gemini, Antigravity, OpenCode, and pi CLIs, or a local Ollama instance. Each backend is governed by its own provider's privacy policy and terms.
-
-Local state (config, sessions, jobs, and agentic transcripts) is written only to `~/.config/phone-a-friend/` on your machine.
+Phone a Friend runs locally and operates no relay service or telemetry collector.
+Requests go to your selected backend and its configured provider. Local task,
+session and job history is enabled by default; optional update checks contact npm.
+See [Privacy and local data](PRIVACY.md) for retention, deletion and network details,
+and [Support](SUPPORT.md) for sanitized bug reporting.
 
 ## License
 

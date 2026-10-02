@@ -57,8 +57,8 @@ describe('pi package manifest', () => {
     expect((pkg.pi.skills as string[]).map((entry) => path.basename(entry)).sort()).toEqual(PI_SKILL_NAMES);
   });
 
-  it('does not opt into the public pi package gallery', () => {
-    expect(pkg.keywords).not.toContain('pi-package');
+  it('opts into the public pi package gallery', () => {
+    expect(pkg.keywords).toContain('pi-package');
   });
 
   // pi skips a skill with a malformed SKILL.md or no description (skills.md).
