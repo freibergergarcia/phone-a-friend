@@ -86,7 +86,7 @@
     "ink": "^7.0.5",
     "ora": "^9.3.0",
     "react": "^19.3.0",
-    "react-devtools-core": "^7.0.1",
+    "react-devtools-core": "^8.0.0",
     "smol-toml": "^1.8.0"
   },
   "devDependencies": {
