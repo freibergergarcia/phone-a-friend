@@ -599,8 +599,13 @@ Package removal preserves local configuration and history. There is no uninstall
 lifecycle hook, so host integrations are not removed either; symlink installs (the
 default) are left pointing at the removed package. If you already removed it,
 reinstall the package, run `phone-a-friend plugin uninstall --all`, then uninstall
-again. Use `phone-a-friend task delete` / `task prune` and `session delete`
-/ `session prune` for individual records. For complete PaF data removal, stop
+again. This cleans up OpenCode and Codex links from any location, but pi keeps a
+link to a removed package at a different path (for example after a Node version
+change); delete `phone-a-friend` and `curiosity-engine` under `~/.pi/agent/skills/`
+(or under `$PI_CODING_AGENT_DIR/skills/`) yourself in that case.
+
+Use `phone-a-friend task delete` / `task prune` and `session delete` /
+`session prune` for individual records. For complete PaF data removal, stop
 running jobs, back up needed data, and manually delete
 `~/.config/phone-a-friend/` (or `$XDG_CONFIG_HOME/phone-a-friend/`). Backend-native
 history is managed separately by each backend.

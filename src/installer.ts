@@ -928,8 +928,8 @@ function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boo
 
 /**
  * Unlike the OpenCode and Codex uninstallers, this one removes only what it
- * can show PaF installed. `npm uninstall` runs `plugin uninstall --all`, and
- * a user may keep a skill of their own under the same name.
+ * can show PaF installed: a user may keep a skill of their own under the same
+ * name.
  */
 function uninstallPi(piHome?: string, repoRoot?: string): string[] {
   return PI_SKILLS.map((name) => {
