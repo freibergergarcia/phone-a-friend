@@ -14,6 +14,12 @@
         "source": "npm",
         "package": "@freibergergarcia/phone-a-friend"
       }
+    },
+    {
+      "name": "paf-tasks",
+      "displayName": "Phone a Friend panel",
+      "description": "A Claude Code mod: every phone-a-friend review as a thread of rounds with its verdict and findings, live progress while a reviewer works. Needs Claude Code 2.1.287+ and the phone-a-friend CLI 4.5.0+ on PATH.",
+      "source": "./mods/paf-tasks"
     }
   ]
 }

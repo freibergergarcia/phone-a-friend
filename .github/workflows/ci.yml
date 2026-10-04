@@ -48,13 +48,30 @@ jobs:
       - run: npm test
       - run: npm run typecheck
 
+  paf-tasks:
+    # The Claude Code mod in mods/paf-tasks/ (needs Claude Code 2.1.287+).
+    runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_VERSION: "2.1.289"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Validate the marketplace and the mod
+        run: |
+          npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin validate --strict .
+          npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin validate --strict mods/paf-tasks
+      - name: Test the mod
+        run: npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" plugin test mods/paf-tasks
+
   tests:
-    needs: [test-node]
+    needs: [test-node, paf-tasks]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.test-node.result }}" != "success" ]; then
+          if [ "${{ needs.test-node.result }}" != "success" ] || [ "${{ needs.paf-tasks.result }}" != "success" ]; then
             exit 1
           fi

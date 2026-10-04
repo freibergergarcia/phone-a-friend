@@ -16,3 +16,5 @@ plans/
 node_modules/
 *.tsbuildinfo
 artifacts/
+# Written by Claude Code when it loads a plugin folder (mods/<name>/.claude-plugin/types/)
+.claude-plugin/types/

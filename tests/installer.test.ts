@@ -666,6 +666,48 @@ describe('uninstallHosts', () => {
     expect(marketplaceRemoveCalls.length).toBeGreaterThanOrEqual(1);
     expect(lines.some(l => l.includes('marketplace_remove'))).toBe(true);
   });
+
+  it('uninstalls the paf-tasks review panel before removing its marketplace', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    const args = mockExecFileSync.mock.calls.filter((c: unknown[]) => c[0] === 'claude').map((c: unknown[]) => (c[1] as string[]).join(' '));
+    const mod = args.indexOf('plugin uninstall paf-tasks@phone-a-friend-marketplace -s user');
+    expect(mod).toBeGreaterThanOrEqual(0);
+    expect(mod).toBeLessThan(args.indexOf('plugin marketplace remove phone-a-friend-marketplace'));
+    expect(lines).toContain('- claude_cli_mod_uninstall: ok');
+  });
+
+  it('with --purge-marketplace, uninstalls the panel even from a marketplace the user registered', () => {
+    mockExecFileSync.mockImplementation((cmd: string) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      return '';
+    });
+
+    uninstallHosts({ target: 'claude', claudeHome, claudeCliUnsync: 'always' });
+
+    const args = mockExecFileSync.mock.calls.filter((c: unknown[]) => c[0] === 'claude').map((c: unknown[]) => (c[1] as string[]).join(' '));
+    expect(args).toContain('plugin uninstall paf-tasks@phone-a-friend-marketplace -s user');
+  });
+
+  it('does not report the panel when it was never installed', () => {
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      if (args.includes('paf-tasks@phone-a-friend-marketplace')) {
+        throw Object.assign(new Error('not installed'), { status: 1, stdout: '', stderr: 'Plugin "paf-tasks" is not installed' });
+      }
+      return '';
+    });
+
+    const lines = uninstallHosts({ target: 'claude', claudeHome });
+
+    expect(lines.some(l => l.includes('mod_uninstall'))).toBe(false);
+    expect(lines.some(l => l.includes('claude_cli_marketplace_remove: ok'))).toBe(true);
+  });
 });
 
 describe('verifyBackends', () => {

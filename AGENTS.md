@@ -71,6 +71,7 @@ src/
 tests/               Vitest tests (mirrors src/ structure, includes spawn-cli, jobs, background-relay)
 commands/<name>.md   Rich Claude Code slash commands (full workflow, argument-hint, Gemini model selection, etc.)
 agents/paf-reviewer.md   Claude plugin subagent (background, Bash+Read, sonnet): runs one PaF command and reports receipt + verbatim findings
+mods/paf-tasks/          Optional Claude Code mod (separate plugin `paf-tasks`): review panel, conversation rows, spinner and band for PaF calls; tests run with `claude plugin test`, not vitest
 skills/<name>/SKILL.md         Canonical Agent Skills — primary OpenCode entry point, also auto-discovered by Claude Code as plugin-namespaced skills
 skills/<name>/COMMAND.opencode.md  Thin OpenCode command shim (overlay). Installer prefers this over commands/<name>.md when present, so OpenCode users get a small shim that delegates into SKILL.md while Claude users get the rich commands/<name>.md inline.
 dist/                Built bundle (committed, self-contained)
@@ -312,12 +313,14 @@ Global keys: `q` quit, `Tab`/`1-5` switch tabs, `r` refresh detection.
 npm test                  # vitest run
 npm run typecheck         # tsc --noEmit
 npm run build             # tsup (rebuilds dist/)
+claude plugin validate --strict mods/paf-tasks   # the paf-tasks mod (Claude Code 2.1.287+)
+claude plugin test mods/paf-tasks                # its own tests; vitest does not run them
 ```
 
 ## Versioning
 
 - Source of truth: `version` in `package.json`
-- Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this)
+- Must keep in sync: `.claude-plugin/plugin.json` `version` field (CI enforces this), and `mods/paf-tasks/.claude-plugin/plugin.json` (`tests/paf-tasks-mod.test.ts`; `scripts/bump-version.mjs` and the auto-bump workflow update it)
 - Runtime access: reads `package.json` via `src/version.ts`
 - CLI: `phone-a-friend --version`
 - **Auto-bump**: version is bumped automatically after merge based on PR labels
@@ -447,6 +450,28 @@ plugin from npm when users install through the marketplace.
 Marketplace install provides Claude Code integration only (slash commands and skills).
 For the full CLI (agentic mode and TUI dashboard), users
 still need `npm install -g @freibergergarcia/phone-a-friend`.
+
+The marketplace lists a second plugin, `paf-tasks`: the Claude Code mod in
+`mods/paf-tasks/` (review panel, conversation rows, spinner, band). It is opt-in
+(`/plugin install paf-tasks@phone-a-friend-marketplace`), and nothing in PaF
+installs it. Choices behind that, keep them in a rewrite:
+
+- **Its own plugin, never part of `phone-a-friend`.** Its `userConfig` uses
+  `options`, which Claude Code before 2.1.271 refuses as an invalid manifest, and
+  mods need 2.1.287+. Verified with 2.1.260: the panel plugin fails to load while
+  the `phone-a-friend` plugin in the same session keeps its skills. Merged, the
+  whole plugin would fail for those users, and everyone who updates would get a
+  self-opening panel unasked.
+- **Relative-path source** (`./mods/paf-tasks`): an npm plugin source cannot
+  name a subfolder. It resolves for a marketplace added from GitHub (main branch)
+  and for one `plugin install --claude` registers from the installed package
+  folder, which is why `mods/` is in the npm `files` list.
+- **Boundary rule.** The mod lists tasks only with `task list --repo <worktree>`
+  for worktrees of the session's repository, confirmed with
+  `git rev-parse --git-common-dir` before and after each listing; it never lists
+  the whole task store. Outside git it lists nothing.
+- Needs the CLI on `PATH` (4.5.0+ for `task list --repo`); it says so in the
+  panel when the CLI is missing or too old.
 
 OpenCode has no marketplace. `phone-a-friend plugin install --opencode` copies or symlinks the supported OpenCode skills (`phone-a-friend`, `curiosity-engine`) and their corresponding command shims into `~/.config/opencode/skills/` and `~/.config/opencode/commands/`, honoring `$XDG_CONFIG_HOME`. It also removes legacy `phone-a-team` OpenCode artifacts because `/phone-a-team` is supported in Claude Code and Codex, not OpenCode.
 

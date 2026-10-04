@@ -34,6 +34,7 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 | CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ |
 | Skill auto-discovery | ✓ | ✓ | ✓ | ✓ |
 | Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic |
+| Review panel in the session ([`paf-tasks` mod](mods/paf-tasks/README.md), optional) | ✓ | — | — | — |
 
 Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
@@ -78,6 +79,20 @@ To update: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin
 
 > [!NOTE]
 > Marketplace install ships only the slash commands and skills. For the full CLI (agentic mode and TUI), install via `npm install -g @freibergergarcia/phone-a-friend`.
+
+**Claude Code review panel (optional):**
+
+`paf-tasks` is a [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview), shipped as its own plugin in the same marketplace. It shows every phone-a-friend review in the session: each round's verdict and findings in the reviewer's own words, live progress while a reviewer works, and the call drawn as a call in the conversation instead of a wall of shell output. Open it with `/paf`. See [mods/paf-tasks](mods/paf-tasks/README.md) for what it shows and its options.
+
+```
+/plugin marketplace add freibergergarcia/phone-a-friend   # skip if already added
+/plugin install paf-tasks@phone-a-friend-marketplace
+/reload-plugins
+```
+
+It needs **Claude Code 2.1.287 or newer** (mods are on by default from that version; check with `claude --version`) and the **phone-a-friend CLI 4.5.0 or newer** on `PATH`, because it reads the reviews from `phone-a-friend task list`. On a Claude Code without mods the panel plugin fails to load (Claude Code reports an invalid manifest); the `phone-a-friend` plugin and its skills keep working. The Agents tab appears only when [herdr](https://herdr.dev) is installed.
+
+It is never installed for you: `phone-a-friend plugin install --claude` and `setup` register the marketplace but leave the panel to you. Its version follows phone-a-friend releases; update it like any plugin: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin update paf-tasks@phone-a-friend-marketplace`. To turn it off, disable it in `/plugin` (Installed tab) or uninstall it. When `phone-a-friend plugin install --claude` (or `setup`) registered the marketplace, `phone-a-friend plugin uninstall --claude` removes the panel together with it; a marketplace you added yourself with `/plugin marketplace add` is left alone, panel included, unless you add `--purge-marketplace`.
 
 **OpenCode commands and skills:**
 
@@ -613,6 +628,7 @@ history is managed separately by each backend.
 **Claude Code marketplace:**
 
 ```
+/plugin uninstall paf-tasks@phone-a-friend-marketplace          # if you installed the review panel
 /plugin uninstall phone-a-friend@phone-a-friend-marketplace
 /plugin marketplace remove phone-a-friend-marketplace
 ```

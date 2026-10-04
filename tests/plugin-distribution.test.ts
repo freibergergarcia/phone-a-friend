@@ -10,7 +10,7 @@ const fixtures: string[] = [];
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'paf-distribution-test-'));
   fixtures.push(dir);
-  for (const path of ['package.json', '.codex-plugin', '.claude-plugin', 'scripts', 'skills', 'commands', 'agents', 'assets', 'docs/distribution', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SUPPORT.md']) {
+  for (const path of ['package.json', '.codex-plugin', '.claude-plugin', 'scripts', 'skills', 'commands', 'agents', 'assets', 'docs/distribution', 'mods', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SUPPORT.md']) {
     cpSync(join(repo, path), join(dir, path), { recursive: true });
   }
   sync(dir);
@@ -64,7 +64,7 @@ describe('standalone plugin distribution', () => {
     const dir = fixture();
     const version = run(dir, 'bump-version.mjs', 'patch').trim();
     sync(dir);
-    for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'plugins/claude/.claude-plugin/plugin.json', 'plugins/phone-a-friend/.codex-plugin/plugin.json']) {
+    for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'plugins/claude/.claude-plugin/plugin.json', 'plugins/phone-a-friend/.codex-plugin/plugin.json', 'mods/paf-tasks/.claude-plugin/plugin.json']) {
       expect(JSON.parse(readFileSync(join(dir, path), 'utf8')).version).toBe(version);
     }
     run(dir, 'sync-codex-plugin.mjs', '--check');

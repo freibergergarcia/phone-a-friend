@@ -4587,10 +4587,15 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   const commands = [
     [["claude", "plugin", "disable", `${pluginName}@${marketplaceName}`, "-s", "user"], "disable"],
     [["claude", "plugin", "uninstall", `${pluginName}@${marketplaceName}`, "-s", "user"], "uninstall"],
+    [["claude", "plugin", "uninstall", `${MOD_PLUGIN_NAME}@${marketplaceName}`, "-s", "user"], "mod_uninstall"],
     [["claude", "plugin", "marketplace", "remove", marketplaceName], "marketplace_remove"]
   ];
   for (const [cmd, label] of commands) {
     const { code, output } = runClaudeCommand(cmd);
+    if (label === "mod_uninstall") {
+      if (code === 0) lines.push(`- claude_cli_${label}: ok`);
+      continue;
+    }
     if (code === 0 || looksLikeOkIfAlready(output)) {
       lines.push(`- claude_cli_${label}: ok`);
     } else {
@@ -5201,7 +5206,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, MOD_PLUGIN_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -5209,6 +5214,7 @@ var init_installer = __esm({
     init_pi();
     PLUGIN_NAME = "phone-a-friend";
     MARKETPLACE_NAME = "phone-a-friend-marketplace";
+    MOD_PLUGIN_NAME = "paf-tasks";
     LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
     INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "pi", "all"]);
