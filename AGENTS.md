@@ -250,7 +250,8 @@ phone-a-friend plugin install --codex --no-codex-cli-sync  # Skip the codex plug
 phone-a-friend plugin install --pi          # Install pi skills (loose files under pi's agent directory; used as /skill:<name>)
 phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
-phone-a-friend plugin update --claude       # Update Claude plugin
+phone-a-friend plugin update --claude       # Update Claude plugin (repoints a stale marketplace registration PaF made)
+phone-a-friend plugin update --claude --force-marketplace-sync  # Repoint any other registration (checkout, fork, missing folder)
 phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
 phone-a-friend plugin update --codex        # Update Codex plugin
 phone-a-friend plugin update --pi           # Update pi skills
@@ -438,6 +439,55 @@ The pure decision logic (`decideBanner`) is testable in isolation in `tests/upda
 
 ## Marketplace distribution
 
+### Claude marketplace registration (read before touching the installer)
+
+> [!IMPORTANT]
+> `claude plugin marketplace add` is idempotent on the marketplace **name**: a
+> second add from a different source prints `Marketplace '<name>' already on
+> disk`, exits 0 and keeps the first source (Claude Code CLI reference). Before
+> this was handled, PaF reported `claude_cli_marketplace_add: ok` while Claude
+> kept reading an old folder, so later plugins such as `paf-tasks` were missing
+> and nothing said so.
+
+`syncClaudeMarketplace()` in `src/installer.ts` compares sources itself:
+
+| Registered vs this install | What `plugin install/update --claude` does |
+|---|---|
+| Not registered, or the same source | Regular add, update, install, enable, update |
+| A folder PaF can prove it made: this install's folder, or another `node_modules` install whose `package.json` is PaF's (a previous Node version) | Repoints automatically |
+| Anything else: a checkout, a fork, a missing folder, another remote | Leaves it, prints the source and the fix: `--force-marketplace-sync` |
+
+- **Source per install.** An npm-style install (any path with a `node_modules`
+  segment) registers `freibergergarcia/phone-a-friend` from GitHub, because its
+  folder moves with every nvm/fnm/Homebrew Node change. A checkout registers its
+  own folder, so local edits load in place. `plugin install --github` always
+  registers GitHub and repoints a folder registration.
+- **Repoint = remove, add, reinstall.** Claude has no "change source", and
+  `marketplace remove` uninstalls the marketplace's plugins. The repoint first
+  reads every install of `phone-a-friend` and `paf-tasks` from
+  `installed_plugins.json` (all scopes; project scopes are reinstalled with that
+  project as the working directory), and restores them after the add. If the add
+  fails (GitHub needs `git` and the network), the previous folder is re-added
+  and the plugins reinstalled.
+- **Ownership record.** A successful registration writes
+  `<PaF config dir>/claude-marketplace.json`. Uninstall's `auto` mode removes a
+  remote marketplace only when it matches that record, so a GitHub marketplace
+  the user added by hand is still left alone.
+- **`CLAUDE_CONFIG_DIR`.** `claudeConfigRoot()` resolves an explicit home, then
+  `CLAUDE_CONFIG_DIR`, then `~/.claude`. The `claude` CLI PaF spawns inherits the
+  variable, so the registry PaF reads must come from the same place.
+- **Doctor** prints an advisory when the registered source differs from this
+  install's (`claudeMarketplaceAdvisory()`), naming the fix command.
+- **Not handled:** Codex's marketplace registration has the same add-by-name
+  behavior (`syncCodexPluginRegistration`); its npm installs already register
+  GitHub (`codexMarketplaceSource`), so only checkout registrations can go stale
+  there. Its replace/remove semantics are unverified.
+- Tests: `tests/installer.test.ts` ("Claude marketplace source and stale
+  registrations") stubs `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME` for every
+  test, so the suite never reads or writes the real Claude or PaF config.
+
+### Installing from the marketplace
+
 Users can install the Claude Code plugin (commands and skills) via the marketplace:
 
     /plugin marketplace add freibergergarcia/phone-a-friend
@@ -464,8 +514,9 @@ installs it. Choices behind that, keep them in a rewrite:
   self-opening panel unasked.
 - **Relative-path source** (`./mods/paf-tasks`): an npm plugin source cannot
   name a subfolder. It resolves for a marketplace added from GitHub (main branch)
-  and for one `plugin install --claude` registers from the installed package
-  folder, which is why `mods/` is in the npm `files` list.
+  and for one `plugin install --claude` registers from a checkout folder. `mods/`
+  stays in the npm `files` list for registrations older PaF versions made from
+  the installed package folder.
 - **Boundary rule.** The mod lists tasks only with `task list --repo <worktree>`
   for worktrees of the session's repository, confirmed with
   `git rev-parse --git-common-dir` before and after each listing; it never lists

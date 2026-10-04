@@ -23,6 +23,7 @@ import { resolve, join, dirname, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 import { resolvePiStoredPath } from './backends/pi.js';
+import { pafConfigDir } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -196,11 +197,12 @@ function isSymlink(filePath: string): boolean {
   }
 }
 
-function runClaudeCommand(args: string[]): { code: number; output: string } {
+function runClaudeCommand(args: string[], cwd?: string): { code: number; output: string } {
   try {
     const result = execFileSync(args[0], args.slice(1), {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...(cwd ? { cwd } : {}),
     });
     return { code: 0, output: result.trim() };
   } catch (err: unknown) {
@@ -358,9 +360,17 @@ function unsyncClaudePluginRegistration(
   return lines;
 }
 
+/**
+ * Claude Code's configuration directory: `CLAUDE_CONFIG_DIR` when set, else
+ * `~/.claude`. The `claude` CLI that PaF shells out to inherits the same
+ * variable, so PaF must read the registry it writes from the same place.
+ */
+export function claudeConfigRoot(claudeHome?: string): string {
+  return claudeHome || process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+}
+
 export function claudeTarget(claudeHome?: string): string {
-  const base = claudeHome ?? join(homedir(), '.claude');
-  return join(base, 'plugins', PLUGIN_NAME);
+  return join(claudeConfigRoot(claudeHome), 'plugins', PLUGIN_NAME);
 }
 
 export function opencodeConfigRoot(opencodeHome?: string): string {
@@ -497,7 +507,7 @@ export function isPluginInstalled(claudeHome?: string): boolean {
   // theoretically be a false positive, but in practice Claude Code removes
   // the cache directory on uninstall. The authoritative check would be
   // parsing `claude plugin list`, but that's too slow for a TUI status bar.
-  const home = claudeHome ?? join(homedir(), '.claude');
+  const home = claudeConfigRoot(claudeHome);
   const cacheBase = join(home, 'plugins', 'cache', MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync(cacheBase);
@@ -1043,6 +1053,79 @@ function isValidRepoRoot(repoRoot: string): boolean {
   return existsSync(join(repoRoot, '.claude-plugin', 'plugin.json'));
 }
 
+// ---------------------------------------------------------------------------
+// Claude marketplace source
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the Claude marketplace is (or would be) registered from.
+ *
+ * `claude plugin marketplace add` is idempotent on the marketplace *name*: a
+ * second add from a different source prints "already on disk", exits 0 and
+ * keeps the first source. PaF therefore compares sources itself before adding,
+ * instead of trusting the add to repoint a stale registration.
+ */
+export type ClaudeMarketplaceSource =
+  | { kind: 'github'; repo: string }
+  | { kind: 'directory'; path: string }
+  | { kind: 'other'; type: string };
+
+/**
+ * The source this install registers. An npm-style install (any path with a
+ * `node_modules` segment: npm, pnpm, Volta, Homebrew's Node formulas) uses the
+ * GitHub repository, because its folder changes whenever the Node install
+ * does (nvm, fnm, a Homebrew upgrade) and a folder registration would go
+ * stale silently. A checkout registers its own folder so local edits load.
+ */
+export function claudeMarketplaceSource(resolvedRepo: string): ClaudeMarketplaceSource {
+  return resolvedRepo.split(sep).includes('node_modules')
+    ? { kind: 'github', repo: GITHUB_REPO }
+    : { kind: 'directory', path: resolvedRepo };
+}
+
+function sourceArgument(source: ClaudeMarketplaceSource): string | null {
+  if (source.kind === 'github') return source.repo;
+  if (source.kind === 'directory') return source.path;
+  return null;
+}
+
+export function describeClaudeMarketplaceSource(source: ClaudeMarketplaceSource): string {
+  if (source.kind === 'github') return `GitHub ${source.repo}`;
+  if (source.kind === 'directory') return `folder ${source.path}`;
+  return `a ${source.type} source`;
+}
+
+function canonicalDir(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function sameClaudeMarketplaceSource(a: ClaudeMarketplaceSource, b: ClaudeMarketplaceSource): boolean {
+  if (a.kind === 'github' && b.kind === 'github') return a.repo.toLowerCase() === b.repo.toLowerCase();
+  if (a.kind === 'directory' && b.kind === 'directory') return canonicalDir(a.path) === canonicalDir(b.path);
+  return false;
+}
+
+/** The registered source of `marketplaceName` in Claude's registry, or null when absent or unreadable. */
+export function registeredClaudeMarketplace(
+  marketplaceName: string = MARKETPLACE_NAME,
+  claudeHome?: string,
+): ClaudeMarketplaceSource | null {
+  const registryPath = join(claudeConfigRoot(claudeHome), 'plugins', 'known_marketplaces.json');
+  try {
+    const source = JSON.parse(readFileSync(registryPath, 'utf-8'))?.[marketplaceName]?.source;
+    if (!source || typeof source.source !== 'string') return null;
+    if (source.source === 'github' && typeof source.repo === 'string') return { kind: 'github', repo: source.repo };
+    if (source.source === 'directory' && typeof source.path === 'string') return { kind: 'directory', path: source.path };
+    return { kind: 'other', type: source.source };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if the marketplace is already registered with a remote (non-directory) source.
  * Returns the source type (e.g. "github", "git", "npm") if remote, or null if
@@ -1052,18 +1135,204 @@ export function getMarketplaceSourceType(
   marketplaceName: string = MARKETPLACE_NAME,
   claudeHome?: string,
 ): string | null {
-  const home = claudeHome ?? join(homedir(), '.claude');
-  const registryPath = join(home, 'plugins', 'known_marketplaces.json');
+  const registered = registeredClaudeMarketplace(marketplaceName, claudeHome);
+  if (!registered || registered.kind === 'directory') return null;
+  return registered.kind === 'github' ? 'github' : registered.type;
+}
+
+export interface ClaudeMarketplaceStatus {
+  registered: ClaudeMarketplaceSource | null;
+  expected: ClaudeMarketplaceSource;
+  matches: boolean;
+  /** A folder registration whose folder no longer exists. */
+  missingPath: boolean;
+  /** A stale registration PaF may repoint without asking: see {@link isPafOwnedRegistration}. */
+  pafOwned: boolean;
+}
+
+/**
+ * A folder registration PaF can prove it made: this install's own folder, or
+ * another npm-style PaF install (a `node_modules` path whose package.json
+ * names PaF's package, such as the install of a previous Node version).
+ * A missing folder, a checkout or a fork proves nothing and is left to the
+ * user.
+ */
+function isPafOwnedRegistration(registered: ClaudeMarketplaceSource, resolvedRepo: string): boolean {
+  if (registered.kind !== 'directory') return false;
+  if (canonicalDir(registered.path) === canonicalDir(resolvedRepo)) return true;
+  if (!registered.path.split(sep).includes('node_modules')) return false;
   try {
-    const data = JSON.parse(readFileSync(registryPath, 'utf-8'));
-    const entry = data[marketplaceName];
-    if (!entry?.source?.source) return null;
-    const sourceType = entry.source.source;
-    // "directory" is a local source; everything else is remote
-    return sourceType === 'directory' ? null : sourceType;
+    return JSON.parse(readFileSync(join(registered.path, 'package.json'), 'utf-8'))?.name === PAF_NPM_NAME;
+  } catch {
+    return false;
+  }
+}
+
+export function claudeMarketplaceStatus(repoRoot: string, claudeHome?: string): ClaudeMarketplaceStatus {
+  const resolvedRepo = resolve(repoRoot);
+  const expected = claudeMarketplaceSource(resolvedRepo);
+  const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+  const matches = registered !== null && sameClaudeMarketplaceSource(registered, expected);
+  return {
+    registered,
+    expected,
+    matches,
+    missingPath: registered?.kind === 'directory' && !existsSync(registered.path),
+    pafOwned: registered !== null && !matches && isPafOwnedRegistration(registered, resolvedRepo),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ownership record
+// ---------------------------------------------------------------------------
+
+/**
+ * PaF records the source it registered, so uninstall can tell a marketplace
+ * PaF added (removed with PaF) from one the user added (left alone). The
+ * registry alone cannot: a GitHub registration looks the same either way.
+ */
+function marketplaceRecordPath(pafHome?: string): string {
+  return join(pafHome ?? pafConfigDir(), 'claude-marketplace.json');
+}
+
+function readMarketplaceRecord(pafHome?: string): ClaudeMarketplaceSource | null {
+  try {
+    const source = JSON.parse(readFileSync(marketplaceRecordPath(pafHome), 'utf-8'))?.source;
+    if (source?.kind === 'github' && typeof source.repo === 'string') return { kind: 'github', repo: source.repo };
+    if (source?.kind === 'directory' && typeof source.path === 'string') return { kind: 'directory', path: source.path };
+    return null;
   } catch {
     return null;
   }
+}
+
+function writeMarketplaceRecord(source: ClaudeMarketplaceSource, pafHome?: string): void {
+  try {
+    const path = marketplaceRecordPath(pafHome);
+    ensureParent(path);
+    writeFileSync(path, `${JSON.stringify({ source }, null, 2)}\n`);
+  } catch {
+    // Best-effort: without the record, uninstall falls back to the registry check.
+  }
+}
+
+function clearMarketplaceRecord(pafHome?: string): void {
+  try {
+    removePath(marketplaceRecordPath(pafHome));
+  } catch {
+    // Best-effort.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Repointing a stale registration
+// ---------------------------------------------------------------------------
+
+interface ClaudePluginInstall {
+  plugin: string;
+  scope: string;
+  projectPath?: string;
+}
+
+/**
+ * Every install of PaF's two plugins in every scope, from Claude's
+ * installed_plugins.json, so a repoint can restore them: `marketplace remove`
+ * uninstalls a marketplace's plugins.
+ */
+function pafPluginInstalls(claudeHome?: string): ClaudePluginInstall[] {
+  const path = join(claudeConfigRoot(claudeHome), 'plugins', 'installed_plugins.json');
+  let plugins: Record<string, unknown>;
+  try {
+    plugins = JSON.parse(readFileSync(path, 'utf-8'))?.plugins ?? {};
+  } catch {
+    return [];
+  }
+  const installs: ClaudePluginInstall[] = [];
+  for (const plugin of [PLUGIN_NAME, MOD_PLUGIN_NAME]) {
+    const entries = plugins[`${plugin}@${MARKETPLACE_NAME}`];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (typeof entry?.scope !== 'string') continue;
+      installs.push({
+        plugin,
+        scope: entry.scope,
+        ...(typeof entry.projectPath === 'string' ? { projectPath: entry.projectPath } : {}),
+      });
+    }
+  }
+  return installs;
+}
+
+/**
+ * `skipUserMain`: leave the user-scope phone-a-friend install to the regular
+ * sync that follows a successful repoint.
+ */
+function reinstallPafPlugins(installs: ClaudePluginInstall[], skipUserMain: boolean): string[] {
+  const lines: string[] = [];
+  for (const install of installs) {
+    if (skipUserMain && install.plugin === PLUGIN_NAME && install.scope === 'user') continue;
+    const where = install.projectPath ? `${install.scope} ${install.projectPath}` : install.scope;
+    const label = `claude_cli_reinstall:${install.plugin} (${where})`;
+    if (install.scope !== 'user' && !(install.projectPath && existsSync(install.projectPath))) {
+      lines.push(`- ${label}: skipped (project folder not found)`);
+      continue;
+    }
+    const { code, output } = runClaudeCommand(
+      ['claude', 'plugin', 'install', `${install.plugin}@${MARKETPLACE_NAME}`, '-s', install.scope],
+      install.scope === 'user' ? undefined : install.projectPath,
+    );
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- ${label}: ok`);
+    } else {
+      lines.push(`- ${label}: failed`);
+      if (output) lines.push(`  output: ${output}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Replace a registration with `target`. Claude has no "change source", and a
+ * repeat add keeps the old one, so this removes the marketplace and adds it
+ * from `target`. `marketplace remove` uninstalls the marketplace's plugins:
+ * the caller reinstalls `installs` once the regular sync has run. When the
+ * add fails, the previous folder source is restored (with its plugins) so
+ * the user is not left without a marketplace.
+ */
+function repointClaudeMarketplace(
+  previous: ClaudeMarketplaceSource,
+  target: ClaudeMarketplaceSource,
+  claudeHome?: string,
+): { lines: string[]; ok: boolean; installs: ClaudePluginInstall[] } {
+  const lines = [
+    `- claude_cli_marketplace_repoint: ${describeClaudeMarketplaceSource(previous)} -> ${describeClaudeMarketplaceSource(target)}`,
+  ];
+  const installs = pafPluginInstalls(claudeHome);
+  const remove = runClaudeCommand(['claude', 'plugin', 'marketplace', 'remove', MARKETPLACE_NAME]);
+  if (remove.code !== 0) {
+    lines.push('- claude_cli_marketplace_remove: failed');
+    if (remove.output) lines.push(`  output: ${remove.output}`);
+    return { lines, ok: false, installs };
+  }
+  lines.push('- claude_cli_marketplace_remove: ok');
+
+  const add = runClaudeCommand(['claude', 'plugin', 'marketplace', 'add', sourceArgument(target)!]);
+  if (add.code !== 0) {
+    lines.push('- claude_cli_marketplace_add: failed');
+    if (add.output) lines.push(`  output: ${add.output}`);
+    const restore = previous.kind === 'directory' && existsSync(previous.path)
+      ? runClaudeCommand(['claude', 'plugin', 'marketplace', 'add', previous.path])
+      : null;
+    if (restore?.code === 0) {
+      lines.push(`- claude_cli_marketplace_restore: ok (${describeClaudeMarketplaceSource(previous)})`);
+      lines.push(...reinstallPafPlugins(installs, false));
+    } else {
+      lines.push(`  Re-add it by hand: claude plugin marketplace add ${GITHUB_REPO}`);
+    }
+    return { lines, ok: false, installs };
+  }
+  lines.push(`- claude_cli_marketplace_add: ok (${describeClaudeMarketplaceSource(target)})`);
+  return { lines, ok: true, installs };
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,18 +1340,86 @@ export function getMarketplaceSourceType(
 // ---------------------------------------------------------------------------
 
 /**
+ * Register (or keep in sync) the Claude marketplace from `target`.
+ *
+ * - Not registered, or registered from `target`: the regular add/update/install.
+ * - Registered elsewhere: repointed when PaF owns the old registration or the
+ *   caller forces it; otherwise left alone with the command that fixes it.
+ */
+function syncClaudeMarketplace(opts: {
+  target: ClaudeMarketplaceSource;
+  resolvedRepo?: string;
+  force: boolean;
+  claudeHome?: string;
+  pafHome?: string;
+}): string[] {
+  const { target, resolvedRepo, force, claudeHome, pafHome } = opts;
+  const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+  const lines: string[] = [];
+  let reinstall: ClaudePluginInstall[] = [];
+
+  if (registered && !sameClaudeMarketplaceSource(registered, target)) {
+    const owned = resolvedRepo !== undefined && isPafOwnedRegistration(registered, resolvedRepo);
+    if (!owned && !force) {
+      const missing = registered.kind === 'directory' && !existsSync(registered.path)
+        ? ' (that folder no longer exists)'
+        : '';
+      lines.push(
+        `- claude_cli_sync: skipped (${MARKETPLACE_NAME} is registered from ` +
+          `${describeClaudeMarketplaceSource(registered)}${missing}; this install uses ` +
+          `${describeClaudeMarketplaceSource(target)})`,
+      );
+      lines.push(
+        '  Run `phone-a-friend plugin update --claude --force-marketplace-sync` to switch it; ' +
+          'installed phone-a-friend and paf-tasks plugins are reinstalled.',
+      );
+      return lines;
+    }
+    if (!commandAvailable('claude')) {
+      lines.push('- claude_cli: skipped (claude binary not found)');
+      return lines;
+    }
+    const repoint = repointClaudeMarketplace(registered, target, claudeHome);
+    lines.push(...repoint.lines);
+    if (!repoint.ok) return lines;
+    reinstall = repoint.installs;
+  }
+
+  lines.push(...cleanupLegacyMarketplace());
+  const sync = syncClaudePluginRegistration(sourceArgument(target)!);
+  lines.push(...sync);
+  lines.push(...reinstallPafPlugins(reinstall, true));
+  if (!sync.some(l => l.startsWith('- claude_cli: skipped')) && !sync.some(l => l.includes('marketplace_add: failed'))) {
+    writeMarketplaceRecord(target, pafHome);
+  }
+  return lines;
+}
+
+function commandAvailable(command: string): boolean {
+  try {
+    execFileSync('which', [command], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Install the plugin via GitHub marketplace (npm source).
  * Cleans up any existing local symlink, removes legacy marketplace,
- * and registers via the GitHub-hosted marketplace.
+ * and registers via the GitHub-hosted marketplace. An existing folder
+ * registration is repointed, since switching to GitHub is what was asked.
  */
-export function installFromGitHubMarketplace(): string[] {
+export function installFromGitHubMarketplace(opts: { claudeHome?: string; pafHome?: string } = {}): string[] {
   const lines: string[] = [];
   // Only remove local symlink; skip marketplace unsync since we re-register immediately
-  lines.push(...uninstallHosts({ target: 'claude', claudeCliUnsync: 'never' }));
-  // Clean up legacy marketplace name
-  lines.push(...cleanupLegacyMarketplace());
-  // Register via GitHub marketplace
-  lines.push(...syncClaudePluginRegistration(GITHUB_REPO));
+  lines.push(...uninstallHosts({ target: 'claude', claudeCliUnsync: 'never', claudeHome: opts.claudeHome }));
+  lines.push(...syncClaudeMarketplace({
+    target: { kind: 'github', repo: GITHUB_REPO },
+    force: true,
+    claudeHome: opts.claudeHome,
+    pafHome: opts.pafHome,
+  }));
   return lines;
 }
 
@@ -1104,8 +1441,14 @@ export interface InstallOptions {
    * runs regardless of this flag.
    */
   syncCodexCli?: boolean;
-  /** Force overwrite of a remote marketplace source with local path. */
+  /**
+   * Repoint a Claude marketplace registered from another source even when PaF
+   * cannot prove it made that registration (a checkout, a fork, a missing
+   * folder, a different remote).
+   */
   forceMarketplaceSync?: boolean;
+  /** PaF's config directory, for the marketplace ownership record. Defaults to `pafConfigDir()`. */
+  pafHome?: string;
 }
 
 export function installHosts(opts: InstallOptions): string[] {
@@ -1121,6 +1464,7 @@ export function installHosts(opts: InstallOptions): string[] {
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false,
+    pafHome,
   } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
@@ -1164,15 +1508,13 @@ export function installHosts(opts: InstallOptions): string[] {
   }
 
   if (shouldInstallClaude && syncClaudeCli) {
-    // Guard: don't overwrite a remote marketplace source with a local path
-    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
-    if (remoteSource && !forceMarketplaceSync) {
-      lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
-      lines.push(`  Use --force-marketplace-sync to overwrite, or --no-claude-cli-sync to skip.`);
-    } else {
-      lines.push(...cleanupLegacyMarketplace());
-      lines.push(...syncClaudePluginRegistration(resolvedRepo));
-    }
+    lines.push(...syncClaudeMarketplace({
+      target: claudeMarketplaceSource(resolvedRepo),
+      resolvedRepo,
+      force: forceMarketplaceSync,
+      claudeHome,
+      pafHome,
+    }));
   }
 
   if (shouldInstallCodex && syncCodexCli) {
@@ -1201,8 +1543,11 @@ export interface UninstallOptions {
    *   proceed when local/directory or not registered.
    * - 'always': unconditionally remove marketplace registration (--purge-marketplace).
    * - 'never': never unsync (used internally when re-registering immediately after).
+   * A remote source PaF itself registered (per its ownership record) counts as PaF's.
    */
   claudeCliUnsync?: 'auto' | 'always' | 'never';
+  /** PaF's config directory, for the marketplace ownership record. Defaults to `pafConfigDir()`. */
+  pafHome?: string;
   /**
    * Controls whether Codex plugin + marketplace registration is removed.
    * - 'auto' (default): proceed when `codex` is in PATH; no-op otherwise.
@@ -1222,6 +1567,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
     repoRoot,
     claudeCliUnsync = 'auto',
     codexCliUnsync = 'auto',
+    pafHome,
   } = opts;
 
   if (!INSTALL_TARGETS.has(target)) {
@@ -1267,16 +1613,21 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
   }
 
   if (claudeCliUnsync === 'auto') {
-    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
-    if (remoteSource) {
-      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${remoteSource})`);
+    const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+    const record = readMarketplaceRecord(pafHome);
+    const registeredByPaf = registered !== null && record !== null && sameClaudeMarketplaceSource(registered, record);
+    if (registered && registered.kind !== 'directory' && !registeredByPaf) {
+      const type = registered.kind === 'github' ? 'github' : registered.type;
+      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${type})`);
       lines.push(`  Use --purge-marketplace to force removal.`);
       return lines;
     }
   }
 
-  // 'always' or 'auto' with no remote source
-  lines.push(...unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome));
+  // 'always', or 'auto' with a folder source, no source, or one PaF registered
+  const unsync = unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome);
+  lines.push(...unsync);
+  if (unsync.some(l => l.includes('marketplace_remove: ok'))) clearMarketplaceRecord(pafHome);
 
   return lines;
 }

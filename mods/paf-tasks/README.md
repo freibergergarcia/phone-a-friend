@@ -32,6 +32,12 @@ Update: `/plugin marketplace update phone-a-friend-marketplace`, then
 `/plugin update paf-tasks@phone-a-friend-marketplace`. Its version follows
 phone-a-friend releases. Remove: `/plugin uninstall paf-tasks@phone-a-friend-marketplace`,
 or disable it in `/plugin` (Installed tab).
+If `/plugin install` cannot find `paf-tasks`, the marketplace is probably
+registered from an old folder: Claude Code keeps the first source of a
+marketplace name. `phone-a-friend doctor` says so, and
+`phone-a-friend plugin update --claude` (add `--force-marketplace-sync` when
+doctor asks for it) repoints it and reinstalls what you had.
+
 When `phone-a-friend plugin install --claude` registered the marketplace,
 `phone-a-friend plugin uninstall --claude` removes the panel with it; a
 marketplace you added yourself is left alone, panel included, unless you add

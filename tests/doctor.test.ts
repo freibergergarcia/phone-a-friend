@@ -18,6 +18,17 @@ const { mockInspectExecutables, mockAttachModelAndCapabilities, mockInspectPafId
   mockInspectPafIdentity: vi.fn(),
 }));
 
+const { mockClaudeMarketplaceStatus } = vi.hoisted(() => ({
+  // Default: not registered, so no marketplace advisory.
+  mockClaudeMarketplaceStatus: vi.fn(() => ({
+    registered: null,
+    expected: { kind: 'github', repo: 'freibergergarcia/phone-a-friend' },
+    matches: false,
+    missingPath: false,
+    pafOwned: false,
+  })),
+}));
+
 const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled, mockIsPiInstalled } = vi.hoisted(() => ({
   mockIsPluginInstalled: vi.fn(),
   mockIsOpenCodeInstalled: vi.fn(),
@@ -46,12 +57,18 @@ vi.mock('../src/diagnostics.js', () => ({
   inspectPafIdentity: mockInspectPafIdentity,
 }));
 
-vi.mock('../src/installer.js', () => ({
-  isPluginInstalled: mockIsPluginInstalled,
-  isOpenCodeInstalled: mockIsOpenCodeInstalled,
-  isCodexInstalled: mockIsCodexInstalled,
-  isPiInstalled: mockIsPiInstalled,
-}));
+vi.mock('../src/installer.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/installer.js')>('../src/installer.js');
+  return {
+    isPluginInstalled: mockIsPluginInstalled,
+    isOpenCodeInstalled: mockIsOpenCodeInstalled,
+    isCodexInstalled: mockIsCodexInstalled,
+    isPiInstalled: mockIsPiInstalled,
+    claudeMarketplaceStatus: mockClaudeMarketplaceStatus,
+    describeClaudeMarketplaceSource: actual.describeClaudeMarketplaceSource,
+    MARKETPLACE_NAME: actual.MARKETPLACE_NAME,
+  };
+});
 
 // Helper: build a detection report
 function makeReport(overrides?: Partial<DetectionReport>): DetectionReport {
@@ -675,5 +692,61 @@ describe('doctor', () => {
       expect(parsed).not.toHaveProperty('config');
       expect(raw).not.toContain('"PATH"');
     });
+  });
+});
+
+describe('Claude marketplace advisory', () => {
+  const expected = { kind: 'github' as const, repo: 'freibergergarcia/phone-a-friend' };
+
+  it('says nothing when the marketplace is unregistered or matches', async () => {
+    const { claudeMarketplaceAdvisory } = await import('../src/doctor.js');
+    expect(claudeMarketplaceAdvisory({ registered: null, expected, matches: false, missingPath: false, pafOwned: false })).toBeNull();
+    expect(claudeMarketplaceAdvisory({ registered: expected, expected, matches: true, missingPath: false, pafOwned: false })).toBeNull();
+  });
+
+  it('names the stale folder and the plain update when PaF owns it', async () => {
+    const { claudeMarketplaceAdvisory } = await import('../src/doctor.js');
+    const text = claudeMarketplaceAdvisory({
+      registered: { kind: 'directory', path: '/old/node_modules/@freibergergarcia/phone-a-friend' },
+      expected,
+      matches: false,
+      missingPath: false,
+      pafOwned: true,
+    });
+    expect(text).toContain('folder /old/node_modules/@freibergergarcia/phone-a-friend');
+    expect(text).toContain('GitHub freibergergarcia/phone-a-friend');
+    expect(text).toContain('`phone-a-friend plugin update --claude`');
+    expect(text).not.toContain('--force-marketplace-sync');
+  });
+
+  it('asks for --force-marketplace-sync for a missing folder PaF cannot prove it made', async () => {
+    const { claudeMarketplaceAdvisory } = await import('../src/doctor.js');
+    const text = claudeMarketplaceAdvisory({
+      registered: { kind: 'directory', path: '/gone' },
+      expected,
+      matches: false,
+      missingPath: true,
+      pafOwned: false,
+    });
+    expect(text).toContain('(that folder no longer exists)');
+    expect(text).toContain('--force-marketplace-sync');
+  });
+
+  it('appears in doctor --json advisories', async () => {
+    mockClaudeMarketplaceStatus.mockReturnValueOnce({
+      registered: { kind: 'directory', path: '/gone' },
+      expected,
+      matches: false,
+      missingPath: true,
+      pafOwned: false,
+    });
+    mockDetectAll.mockResolvedValue(makeReport());
+    mockLoadConfig.mockReturnValue({ defaults: { backend: 'codex', sandbox: 'read-only', timeout: 600, include_diff: false } });
+    mockConfigPaths.mockReturnValue({ user: '/home/test/.config/phone-a-friend/config.toml', repo: null });
+    const { doctor } = await import('../src/doctor.js');
+    const result = await doctor({ json: true });
+    expect(JSON.parse(result.output).advisories).toEqual(
+      expect.arrayContaining([expect.stringMatching(/phone-a-friend-marketplace is registered from folder \/gone/)]),
+    );
   });
 });

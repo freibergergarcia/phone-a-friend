@@ -22,6 +22,10 @@ import {
   isPluginInstalled,
   installFromGitHubMarketplace,
   getMarketplaceSourceType,
+  claudeConfigRoot,
+  claudeTarget,
+  claudeMarketplaceSource,
+  claudeMarketplaceStatus,
   opencodeCommandTarget,
   opencodeSkillTarget,
   codexConfigRoot,
@@ -95,6 +99,19 @@ function makeRepo(prefix = 'phone-a-friend-repo-'): string {
 function makeHome(): string {
   return makeTempDir('phone-a-friend-home-');
 }
+
+// Keep every test away from the real Claude and PaF config: functions called
+// without an explicit home fall back to CLAUDE_CONFIG_DIR and XDG_CONFIG_HOME.
+let isolatedEnvRoot: string;
+beforeEach(() => {
+  isolatedEnvRoot = makeTempDir('paf-installer-env-');
+  vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(isolatedEnvRoot, 'claude'));
+  vi.stubEnv('XDG_CONFIG_HOME', path.join(isolatedEnvRoot, 'xdg'));
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  fs.rmSync(isolatedEnvRoot, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1990,7 +2007,8 @@ describe('installHosts marketplace sync guard', () => {
       syncClaudeCli: true,
     });
 
-    expect(lines.some(l => l.includes('skipped') && l.includes('github'))).toBe(true);
+    expect(lines.some(l => l.includes('claude_cli_sync: skipped') && l.includes('GitHub freibergergarcia/phone-a-friend'))).toBe(true);
+    expect(lines.some(l => l.includes('--force-marketplace-sync'))).toBe(true);
     // Should NOT have called claude plugin marketplace add
     const marketplaceAddCalls = mockExecFileSync.mock.calls.filter(
       (c: unknown[]) =>
@@ -2031,14 +2049,14 @@ describe('installHosts marketplace sync guard', () => {
     expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
   });
 
-  it('syncs normally when marketplace has directory source', () => {
+  it('syncs normally when the marketplace is registered from this checkout', () => {
     const pluginsDir = path.join(claudeHome, 'plugins');
     fs.mkdirSync(pluginsDir, { recursive: true });
     fs.writeFileSync(
       path.join(pluginsDir, 'known_marketplaces.json'),
       JSON.stringify({
         [MARKETPLACE_NAME]: {
-          source: { source: 'directory', path: '/some/local/path' },
+          source: { source: 'directory', path: repo },
         },
       }),
     );
@@ -2123,5 +2141,210 @@ describe('codex marketplace_add source selection (npm-scoped install)', () => {
       try { fs.rmSync(scopedRepo, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(codexHome, { recursive: true, force: true }); } catch {}
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale Claude marketplace registrations
+// ---------------------------------------------------------------------------
+
+describe('Claude marketplace source and stale registrations', () => {
+  let root: string;
+  let claudeHome: string;
+  let pafHome: string;
+
+  /** An npm-style global install of PaF under `<root>/<prefix>/lib/node_modules`. */
+  function makeNpmInstall(prefix: string): string {
+    const dir = path.join(root, prefix, 'lib', 'node_modules', '@freibergergarcia', 'phone-a-friend');
+    fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude-plugin', 'plugin.json'), '{"name":"phone-a-friend"}');
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"@freibergergarcia/phone-a-friend"}');
+    return dir;
+  }
+
+  function register(source: Record<string, string>): void {
+    fs.mkdirSync(path.join(claudeHome, 'plugins'), { recursive: true });
+    fs.writeFileSync(
+      path.join(claudeHome, 'plugins', 'known_marketplaces.json'),
+      JSON.stringify({ [MARKETPLACE_NAME]: { source } }),
+    );
+  }
+
+  function recordInstalls(plugins: Record<string, unknown[]>): void {
+    fs.mkdirSync(path.join(claudeHome, 'plugins'), { recursive: true });
+    fs.writeFileSync(
+      path.join(claudeHome, 'plugins', 'installed_plugins.json'),
+      JSON.stringify({ version: 2, plugins }),
+    );
+  }
+
+  function claudeCalls(): { args: string[]; cwd?: string }[] {
+    return mockExecFileSync.mock.calls
+      .filter((c: unknown[]) => c[0] === 'claude')
+      .map((c: unknown[]) => ({ args: c[1] as string[], cwd: (c[2] as { cwd?: string } | undefined)?.cwd }));
+  }
+
+  function removesOurs(args: string[]): boolean {
+    return args.join(' ') === `plugin marketplace remove ${MARKETPLACE_NAME}`;
+  }
+
+  function isAdd(args: string[]): boolean {
+    return args[1] === 'marketplace' && args[2] === 'add';
+  }
+
+  function syncFrom(repoRoot: string, extra: Partial<Parameters<typeof installHosts>[0]> = {}): string[] {
+    return installHosts({ repoRoot, target: 'claude', claudeHome, pafHome, ...extra });
+  }
+
+  beforeEach(() => {
+    mockExecFileSync.mockReset();
+    mockExecFileSync.mockImplementation((cmd: string) => (cmd === 'which' ? '/usr/local/bin/claude' : ''));
+    root = makeTempDir('paf-marketplace-');
+    claudeHome = path.join(root, 'claude-home');
+    pafHome = path.join(root, 'paf-home');
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('claudeConfigRoot prefers an explicit home, then CLAUDE_CONFIG_DIR', () => {
+    expect(claudeConfigRoot('/explicit')).toBe('/explicit');
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/profile');
+    expect(claudeConfigRoot()).toBe('/profile');
+    expect(claudeTarget()).toBe(path.join('/profile', 'plugins', PLUGIN_NAME));
+  });
+
+  it('reads the registry under CLAUDE_CONFIG_DIR when no home is passed', () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', claudeHome);
+    register({ source: 'github', repo: GITHUB_REPO });
+    expect(getMarketplaceSourceType()).toBe('github');
+  });
+
+  it('registers an npm install from GitHub and a checkout from its folder', () => {
+    expect(claudeMarketplaceSource(makeNpmInstall('node24'))).toEqual({ kind: 'github', repo: GITHUB_REPO });
+    const checkout = makeRepo();
+    expect(claudeMarketplaceSource(checkout)).toEqual({ kind: 'directory', path: checkout });
+    fs.rmSync(checkout, { recursive: true, force: true });
+  });
+
+  it('a fresh npm install adds the GitHub marketplace and records it', () => {
+    syncFrom(makeNpmInstall('node24'));
+    const add = claudeCalls().find(c => isAdd(c.args));
+    expect(add?.args).toContain(GITHUB_REPO);
+    const record = JSON.parse(fs.readFileSync(path.join(pafHome, 'claude-marketplace.json'), 'utf-8'));
+    expect(record.source).toEqual({ kind: 'github', repo: GITHUB_REPO });
+  });
+
+  it('an npm install already registered from GitHub syncs without repointing', () => {
+    register({ source: 'github', repo: GITHUB_REPO });
+    const lines = syncFrom(makeNpmInstall('node24'));
+    expect(claudeCalls().some(c => removesOurs(c.args))).toBe(false);
+    expect(lines.some(l => l.includes('claude_cli_update: ok'))).toBe(true);
+  });
+
+  it('repoints a registration left by a previous Node version and reinstalls every plugin it had', () => {
+    const old = makeNpmInstall('node22');
+    const project = path.join(root, 'some-project');
+    fs.mkdirSync(project);
+    register({ source: 'directory', path: old });
+    recordInstalls({
+      [`${PLUGIN_NAME}@${MARKETPLACE_NAME}`]: [{ scope: 'user' }, { scope: 'project', projectPath: project }],
+      [`paf-tasks@${MARKETPLACE_NAME}`]: [{ scope: 'user' }],
+    });
+
+    const lines = syncFrom(makeNpmInstall('node24'));
+
+    const calls = claudeCalls();
+    const removeIndex = calls.findIndex(c => c.args.join(' ') === `plugin marketplace remove ${MARKETPLACE_NAME}`);
+    const addIndex = calls.findIndex(c => isAdd(c.args) && c.args.includes(GITHUB_REPO));
+    expect(removeIndex).toBeGreaterThanOrEqual(0);
+    expect(addIndex).toBeGreaterThan(removeIndex);
+    expect(calls).toContainEqual({ args: ['plugin', 'install', `paf-tasks@${MARKETPLACE_NAME}`, '-s', 'user'], cwd: undefined });
+    expect(calls).toContainEqual({ args: ['plugin', 'install', `${PLUGIN_NAME}@${MARKETPLACE_NAME}`, '-s', 'project'], cwd: project });
+    expect(lines.some(l => l.includes('marketplace_repoint') && l.includes(old))).toBe(true);
+    // Restored installs come after the regular user-scope install of phone-a-friend.
+    const userInstall = calls.findIndex(c => c.args.join(' ') === `plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME} -s user`);
+    const panelInstall = calls.findIndex(c => c.args.join(' ') === `plugin install paf-tasks@${MARKETPLACE_NAME} -s user`);
+    expect(userInstall).toBeGreaterThan(addIndex);
+    expect(panelInstall).toBeGreaterThan(userInstall);
+  });
+
+  it('repoints a registration of this very install folder (pre-GitHub npm registration)', () => {
+    const current = makeNpmInstall('node24');
+    register({ source: 'directory', path: current });
+    syncFrom(current);
+    expect(claudeCalls().some(c => isAdd(c.args) && c.args.includes(GITHUB_REPO))).toBe(true);
+  });
+
+  it('leaves a checkout registration alone and says how to switch', () => {
+    const checkout = makeRepo();
+    register({ source: 'directory', path: checkout });
+    const lines = syncFrom(makeNpmInstall('node24'));
+    expect(claudeCalls()).toEqual([]);
+    expect(lines.some(l => l.includes('claude_cli_sync: skipped') && l.includes(checkout))).toBe(true);
+    expect(lines.some(l => l.includes('--force-marketplace-sync'))).toBe(true);
+    expect(fs.existsSync(path.join(pafHome, 'claude-marketplace.json'))).toBe(false);
+    fs.rmSync(checkout, { recursive: true, force: true });
+  });
+
+  it('names a registered folder that no longer exists', () => {
+    register({ source: 'directory', path: path.join(root, 'gone') });
+    const lines = syncFrom(makeNpmInstall('node24'));
+    expect(lines.some(l => l.includes('that folder no longer exists'))).toBe(true);
+    expect(claudeCalls()).toEqual([]);
+  });
+
+  it('--force-marketplace-sync repoints a registration PaF cannot prove it made', () => {
+    register({ source: 'directory', path: path.join(root, 'gone') });
+    syncFrom(makeNpmInstall('node24'), { forceMarketplaceSync: true });
+    expect(claudeCalls().some(c => removesOurs(c.args))).toBe(true);
+    expect(claudeCalls().some(c => isAdd(c.args) && c.args.includes(GITHUB_REPO))).toBe(true);
+  });
+
+  it('restores the previous folder when the new source cannot be added', () => {
+    const old = makeNpmInstall('node22');
+    register({ source: 'directory', path: old });
+    recordInstalls({ [`paf-tasks@${MARKETPLACE_NAME}`]: [{ scope: 'user' }] });
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      if (cmd === 'claude' && args[2] === 'add' && args[3] === GITHUB_REPO) {
+        throw Object.assign(new Error('clone failed'), { status: 1, stderr: 'git clone failed' });
+      }
+      return '';
+    });
+
+    const lines = syncFrom(makeNpmInstall('node24'));
+
+    expect(claudeCalls().some(c => isAdd(c.args) && c.args.includes(old))).toBe(true);
+    expect(lines.some(l => l.includes('marketplace_restore: ok'))).toBe(true);
+    expect(claudeCalls()).toContainEqual({ args: ['plugin', 'install', `paf-tasks@${MARKETPLACE_NAME}`, '-s', 'user'], cwd: undefined });
+    expect(fs.existsSync(path.join(pafHome, 'claude-marketplace.json'))).toBe(false);
+  });
+
+  it('plugin install --github repoints a folder registration', () => {
+    register({ source: 'directory', path: makeRepo() });
+    installFromGitHubMarketplace({ claudeHome, pafHome });
+    expect(claudeCalls().some(c => removesOurs(c.args))).toBe(true);
+    expect(claudeCalls().some(c => isAdd(c.args) && c.args.includes(GITHUB_REPO))).toBe(true);
+  });
+
+  it('uninstall removes a GitHub marketplace PaF registered, and keeps one the user added', () => {
+    register({ source: 'github', repo: GITHUB_REPO });
+    const kept = uninstallHosts({ target: 'claude', claudeHome, pafHome });
+    expect(kept.some(l => l.includes('claude_cli_unsync: skipped'))).toBe(true);
+
+    syncFrom(makeNpmInstall('node24'));
+    mockExecFileSync.mockClear();
+    const removed = uninstallHosts({ target: 'claude', claudeHome, pafHome });
+    expect(removed.some(l => l.includes('marketplace_remove: ok'))).toBe(true);
+    expect(fs.existsSync(path.join(pafHome, 'claude-marketplace.json'))).toBe(false);
+  });
+
+  it('claudeMarketplaceStatus reports a stale, missing registration', () => {
+    register({ source: 'directory', path: path.join(root, 'gone') });
+    const status = claudeMarketplaceStatus(makeNpmInstall('node24'), claudeHome);
+    expect(status).toMatchObject({ matches: false, missingPath: true, pafOwned: false });
+    expect(status.expected).toEqual({ kind: 'github', repo: GITHUB_REPO });
   });
 });
