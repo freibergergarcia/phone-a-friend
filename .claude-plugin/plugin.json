@@ -2,7 +2,7 @@
   "name": "phone-a-friend",
   "displayName": "Phone a Friend",
   "description": "Get second opinions, repository reviews, structured Q&A and multi-backend team feedback in local Claude Code. Relay to separately configured Antigravity, Codex, Gemini, Claude, OpenCode, pi or Ollama backends. Full operation requires Node.js 22.13+, the phone-a-friend CLI on PATH, and backend accounts or model servers. Installation does not install or authenticate them. Requests reach the selected provider; PaF keeps local history by default.",
-  "version": "4.13.0",
+  "version": "4.13.1",
   "author": {
     "name": "Bruno Freiberger"
   },
