@@ -346,8 +346,8 @@ function addInstallOptions(cmd: Command): Command {
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
     .option('--no-codex-cli-sync', 'Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)')
-    .option('--github', 'Use GitHub marketplace (npm source) instead of local symlink')
-    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
+    .option('--github', 'Register the Claude marketplace from GitHub, repointing a folder registration')
+    .option('--force-marketplace-sync', 'Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)');
 }
 
 function addUpdateOptions(cmd: Command): Command {
@@ -361,7 +361,7 @@ function addUpdateOptions(cmd: Command): Command {
     .option('--repo-root <path>', 'Repository root path')
     .option('--no-claude-cli-sync', 'Skip Claude CLI sync')
     .option('--no-codex-cli-sync', 'Skip Codex CLI sync')
-    .option('--force-marketplace-sync', 'Overwrite remote marketplace source with local path');
+    .option('--force-marketplace-sync', 'Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)');
 }
 
 function addUninstallOptions(cmd: Command): Command {

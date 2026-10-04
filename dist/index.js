@@ -4501,11 +4501,12 @@ function isSymlink(filePath) {
     return false;
   }
 }
-function runClaudeCommand(args) {
+function runClaudeCommand(args, cwd2) {
   try {
     const result = execFileSync4(args[0], args.slice(1), {
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      ...cwd2 ? { cwd: cwd2 } : {}
     });
     return { code: 0, output: result.trim() };
   } catch (err) {
@@ -4620,9 +4621,11 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   }
   return lines;
 }
+function claudeConfigRoot(claudeHome) {
+  return claudeHome || process.env.CLAUDE_CONFIG_DIR || join9(homedir7(), ".claude");
+}
 function claudeTarget(claudeHome) {
-  const base = claudeHome ?? join9(homedir7(), ".claude");
-  return join9(base, "plugins", PLUGIN_NAME);
+  return join9(claudeConfigRoot(claudeHome), "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
@@ -4699,7 +4702,7 @@ function isPluginInstalled(claudeHome) {
   } catch {
   }
   if (existsSync7(target)) return true;
-  const home = claudeHome ?? join9(homedir7(), ".claude");
+  const home = claudeConfigRoot(claudeHome);
   const cacheBase = join9(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
@@ -5062,24 +5065,220 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
 function isValidRepoRoot(repoRoot) {
   return existsSync7(join9(repoRoot, ".claude-plugin", "plugin.json"));
 }
-function getMarketplaceSourceType(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const home = claudeHome ?? join9(homedir7(), ".claude");
-  const registryPath = join9(home, "plugins", "known_marketplaces.json");
+function claudeMarketplaceSource(resolvedRepo) {
+  return resolvedRepo.split(sep).includes("node_modules") ? { kind: "github", repo: GITHUB_REPO } : { kind: "directory", path: resolvedRepo };
+}
+function sourceArgument(source) {
+  if (source.kind === "github") return source.repo;
+  if (source.kind === "directory") return source.path;
+  return null;
+}
+function describeClaudeMarketplaceSource(source) {
+  if (source.kind === "github") return `GitHub ${source.repo}`;
+  if (source.kind === "directory") return `folder ${source.path}`;
+  return `a ${source.type} source`;
+}
+function canonicalDir(path4) {
   try {
-    const data = JSON.parse(readFileSync9(registryPath, "utf-8"));
-    const entry = data[marketplaceName];
-    if (!entry?.source?.source) return null;
-    const sourceType = entry.source.source;
-    return sourceType === "directory" ? null : sourceType;
+    return realpathSync3(path4);
+  } catch {
+    return resolve3(path4);
+  }
+}
+function sameClaudeMarketplaceSource(a, b) {
+  if (a.kind === "github" && b.kind === "github") return a.repo.toLowerCase() === b.repo.toLowerCase();
+  if (a.kind === "directory" && b.kind === "directory") return canonicalDir(a.path) === canonicalDir(b.path);
+  return false;
+}
+function registeredClaudeMarketplace(marketplaceName = MARKETPLACE_NAME, claudeHome) {
+  const registryPath = join9(claudeConfigRoot(claudeHome), "plugins", "known_marketplaces.json");
+  try {
+    const source = JSON.parse(readFileSync9(registryPath, "utf-8"))?.[marketplaceName]?.source;
+    if (!source || typeof source.source !== "string") return null;
+    if (source.source === "github" && typeof source.repo === "string") return { kind: "github", repo: source.repo };
+    if (source.source === "directory" && typeof source.path === "string") return { kind: "directory", path: source.path };
+    return { kind: "other", type: source.source };
   } catch {
     return null;
   }
 }
-function installFromGitHubMarketplace() {
+function isPafOwnedRegistration(registered, resolvedRepo) {
+  if (registered.kind !== "directory") return false;
+  if (canonicalDir(registered.path) === canonicalDir(resolvedRepo)) return true;
+  if (!registered.path.split(sep).includes("node_modules")) return false;
+  try {
+    return JSON.parse(readFileSync9(join9(registered.path, "package.json"), "utf-8"))?.name === PAF_NPM_NAME;
+  } catch {
+    return false;
+  }
+}
+function claudeMarketplaceStatus(repoRoot, claudeHome) {
+  const resolvedRepo = resolve3(repoRoot);
+  const expected = claudeMarketplaceSource(resolvedRepo);
+  const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+  const matches = registered !== null && sameClaudeMarketplaceSource(registered, expected);
+  return {
+    registered,
+    expected,
+    matches,
+    missingPath: registered?.kind === "directory" && !existsSync7(registered.path),
+    pafOwned: registered !== null && !matches && isPafOwnedRegistration(registered, resolvedRepo)
+  };
+}
+function marketplaceRecordPath(pafHome) {
+  return join9(pafHome ?? pafConfigDir(), "claude-marketplace.json");
+}
+function readMarketplaceRecord(pafHome) {
+  try {
+    const source = JSON.parse(readFileSync9(marketplaceRecordPath(pafHome), "utf-8"))?.source;
+    if (source?.kind === "github" && typeof source.repo === "string") return { kind: "github", repo: source.repo };
+    if (source?.kind === "directory" && typeof source.path === "string") return { kind: "directory", path: source.path };
+    return null;
+  } catch {
+    return null;
+  }
+}
+function writeMarketplaceRecord(source, pafHome) {
+  try {
+    const path4 = marketplaceRecordPath(pafHome);
+    ensureParent(path4);
+    writeFileSync5(path4, `${JSON.stringify({ source }, null, 2)}
+`);
+  } catch {
+  }
+}
+function clearMarketplaceRecord(pafHome) {
+  try {
+    removePath(marketplaceRecordPath(pafHome));
+  } catch {
+  }
+}
+function pafPluginInstalls(claudeHome) {
+  const path4 = join9(claudeConfigRoot(claudeHome), "plugins", "installed_plugins.json");
+  let plugins;
+  try {
+    plugins = JSON.parse(readFileSync9(path4, "utf-8"))?.plugins ?? {};
+  } catch {
+    return [];
+  }
+  const installs = [];
+  for (const plugin of [PLUGIN_NAME, MOD_PLUGIN_NAME]) {
+    const entries = plugins[`${plugin}@${MARKETPLACE_NAME}`];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (typeof entry?.scope !== "string") continue;
+      installs.push({
+        plugin,
+        scope: entry.scope,
+        ...typeof entry.projectPath === "string" ? { projectPath: entry.projectPath } : {}
+      });
+    }
+  }
+  return installs;
+}
+function reinstallPafPlugins(installs, skipUserMain) {
   const lines = [];
-  lines.push(...uninstallHosts({ target: "claude", claudeCliUnsync: "never" }));
+  for (const install of installs) {
+    if (skipUserMain && install.plugin === PLUGIN_NAME && install.scope === "user") continue;
+    const where = install.projectPath ? `${install.scope} ${install.projectPath}` : install.scope;
+    const label = `claude_cli_reinstall:${install.plugin} (${where})`;
+    if (install.scope !== "user" && !(install.projectPath && existsSync7(install.projectPath))) {
+      lines.push(`- ${label}: skipped (project folder not found)`);
+      continue;
+    }
+    const { code, output } = runClaudeCommand(
+      ["claude", "plugin", "install", `${install.plugin}@${MARKETPLACE_NAME}`, "-s", install.scope],
+      install.scope === "user" ? void 0 : install.projectPath
+    );
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- ${label}: ok`);
+    } else {
+      lines.push(`- ${label}: failed`);
+      if (output) lines.push(`  output: ${output}`);
+    }
+  }
+  return lines;
+}
+function repointClaudeMarketplace(previous, target, claudeHome) {
+  const lines = [
+    `- claude_cli_marketplace_repoint: ${describeClaudeMarketplaceSource(previous)} -> ${describeClaudeMarketplaceSource(target)}`
+  ];
+  const installs = pafPluginInstalls(claudeHome);
+  const remove = runClaudeCommand(["claude", "plugin", "marketplace", "remove", MARKETPLACE_NAME]);
+  if (remove.code !== 0) {
+    lines.push("- claude_cli_marketplace_remove: failed");
+    if (remove.output) lines.push(`  output: ${remove.output}`);
+    return { lines, ok: false, installs };
+  }
+  lines.push("- claude_cli_marketplace_remove: ok");
+  const add = runClaudeCommand(["claude", "plugin", "marketplace", "add", sourceArgument(target)]);
+  if (add.code !== 0) {
+    lines.push("- claude_cli_marketplace_add: failed");
+    if (add.output) lines.push(`  output: ${add.output}`);
+    const restore = previous.kind === "directory" && existsSync7(previous.path) ? runClaudeCommand(["claude", "plugin", "marketplace", "add", previous.path]) : null;
+    if (restore?.code === 0) {
+      lines.push(`- claude_cli_marketplace_restore: ok (${describeClaudeMarketplaceSource(previous)})`);
+      lines.push(...reinstallPafPlugins(installs, false));
+    } else {
+      lines.push(`  Re-add it by hand: claude plugin marketplace add ${GITHUB_REPO}`);
+    }
+    return { lines, ok: false, installs };
+  }
+  lines.push(`- claude_cli_marketplace_add: ok (${describeClaudeMarketplaceSource(target)})`);
+  return { lines, ok: true, installs };
+}
+function syncClaudeMarketplace(opts) {
+  const { target, resolvedRepo, force, claudeHome, pafHome } = opts;
+  const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+  const lines = [];
+  let reinstall = [];
+  if (registered && !sameClaudeMarketplaceSource(registered, target)) {
+    const owned = resolvedRepo !== void 0 && isPafOwnedRegistration(registered, resolvedRepo);
+    if (!owned && !force) {
+      const missing = registered.kind === "directory" && !existsSync7(registered.path) ? " (that folder no longer exists)" : "";
+      lines.push(
+        `- claude_cli_sync: skipped (${MARKETPLACE_NAME} is registered from ${describeClaudeMarketplaceSource(registered)}${missing}; this install uses ${describeClaudeMarketplaceSource(target)})`
+      );
+      lines.push(
+        "  Run `phone-a-friend plugin update --claude --force-marketplace-sync` to switch it; installed phone-a-friend and paf-tasks plugins are reinstalled."
+      );
+      return lines;
+    }
+    if (!commandAvailable("claude")) {
+      lines.push("- claude_cli: skipped (claude binary not found)");
+      return lines;
+    }
+    const repoint = repointClaudeMarketplace(registered, target, claudeHome);
+    lines.push(...repoint.lines);
+    if (!repoint.ok) return lines;
+    reinstall = repoint.installs;
+  }
   lines.push(...cleanupLegacyMarketplace());
-  lines.push(...syncClaudePluginRegistration(GITHUB_REPO));
+  const sync = syncClaudePluginRegistration(sourceArgument(target));
+  lines.push(...sync);
+  lines.push(...reinstallPafPlugins(reinstall, true));
+  if (!sync.some((l) => l.startsWith("- claude_cli: skipped")) && !sync.some((l) => l.includes("marketplace_add: failed"))) {
+    writeMarketplaceRecord(target, pafHome);
+  }
+  return lines;
+}
+function commandAvailable(command) {
+  try {
+    execFileSync4("which", [command], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function installFromGitHubMarketplace(opts = {}) {
+  const lines = [];
+  lines.push(...uninstallHosts({ target: "claude", claudeCliUnsync: "never", claudeHome: opts.claudeHome }));
+  lines.push(...syncClaudeMarketplace({
+    target: { kind: "github", repo: GITHUB_REPO },
+    force: true,
+    claudeHome: opts.claudeHome,
+    pafHome: opts.pafHome
+  }));
   return lines;
 }
 function installHosts(opts) {
@@ -5094,7 +5293,8 @@ function installHosts(opts) {
     piHome,
     syncClaudeCli = true,
     syncCodexCli = true,
-    forceMarketplaceSync = false
+    forceMarketplaceSync = false,
+    pafHome
   } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -5129,14 +5329,13 @@ function installHosts(opts) {
     lines.push(...installPi(resolvedRepo, mode, force, piHome));
   }
   if (shouldInstallClaude && syncClaudeCli) {
-    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
-    if (remoteSource && !forceMarketplaceSync) {
-      lines.push(`- claude_cli_sync: skipped (marketplace already registered via ${remoteSource})`);
-      lines.push(`  Use --force-marketplace-sync to overwrite, or --no-claude-cli-sync to skip.`);
-    } else {
-      lines.push(...cleanupLegacyMarketplace());
-      lines.push(...syncClaudePluginRegistration(resolvedRepo));
-    }
+    lines.push(...syncClaudeMarketplace({
+      target: claudeMarketplaceSource(resolvedRepo),
+      resolvedRepo,
+      force: forceMarketplaceSync,
+      claudeHome,
+      pafHome
+    }));
   }
   if (shouldInstallCodex && syncCodexCli) {
     lines.push(...syncCodexPluginRegistration(codexMarketplaceSource(resolvedRepo)));
@@ -5152,7 +5351,8 @@ function uninstallHosts(opts) {
     piHome,
     repoRoot,
     claudeCliUnsync = "auto",
-    codexCliUnsync = "auto"
+    codexCliUnsync = "auto",
+    pafHome
   } = opts;
   if (!INSTALL_TARGETS.has(target)) {
     throw new InstallerError(`Invalid target: ${target}`);
@@ -5188,14 +5388,19 @@ function uninstallHosts(opts) {
     return lines;
   }
   if (claudeCliUnsync === "auto") {
-    const remoteSource = getMarketplaceSourceType(MARKETPLACE_NAME, claudeHome);
-    if (remoteSource) {
-      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${remoteSource})`);
+    const registered = registeredClaudeMarketplace(MARKETPLACE_NAME, claudeHome);
+    const record = readMarketplaceRecord(pafHome);
+    const registeredByPaf = registered !== null && record !== null && sameClaudeMarketplaceSource(registered, record);
+    if (registered && registered.kind !== "directory" && !registeredByPaf) {
+      const type = registered.kind === "github" ? "github" : registered.type;
+      lines.push(`- claude_cli_unsync: skipped (marketplace registered via ${type})`);
       lines.push(`  Use --purge-marketplace to force removal.`);
       return lines;
     }
   }
-  lines.push(...unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome));
+  const unsync = unsyncClaudePluginRegistration(MARKETPLACE_NAME, PLUGIN_NAME, claudeHome);
+  lines.push(...unsync);
+  if (unsync.some((l) => l.includes("marketplace_remove: ok"))) clearMarketplaceRecord(pafHome);
   return lines;
 }
 function verifyBackends() {
@@ -5212,6 +5417,7 @@ var init_installer = __esm({
     "use strict";
     init_backends();
     init_pi();
+    init_config();
     PLUGIN_NAME = "phone-a-friend";
     MARKETPLACE_NAME = "phone-a-friend-marketplace";
     MOD_PLUGIN_NAME = "paf-tasks";
@@ -86361,6 +86567,13 @@ async function collectAdvisories(report) {
   if (piAdvisory) out.push(piAdvisory);
   return out;
 }
+function claudeMarketplaceAdvisory(status) {
+  if (!status.registered || status.matches) return null;
+  const from = describeClaudeMarketplaceSource(status.registered);
+  const missing = status.missingPath ? " (that folder no longer exists)" : "";
+  const fix = status.pafOwned ? "`phone-a-friend plugin update --claude`" : "`phone-a-friend plugin update --claude --force-marketplace-sync`";
+  return `Claude's ${MARKETPLACE_NAME} is registered from ${from}${missing}, but this install uses ${describeClaudeMarketplaceSource(status.expected)}. Claude keeps reading the old catalog, so plugins added since then (such as paf-tasks) are missing. Run ${fix} to switch it; installed phone-a-friend and paf-tasks plugins are reinstalled.`;
+}
 function collectOllamaAdvisories(version) {
   if (!version) {
     return ["OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17."];
@@ -86379,9 +86592,11 @@ async function doctor(opts) {
   await inspectExecutables(report);
   attachModelAndCapabilities(report, config);
   const paf = inspectPafIdentity();
+  const marketplaceAdvisory = claudeMarketplaceAdvisory(claudeMarketplaceStatus(getPackageRoot()));
   const advisories = [
     ...await collectAdvisories(report),
-    ...collectDiagnosticAdvisories(report, paf)
+    ...collectDiagnosticAdvisories(report, paf),
+    ...marketplaceAdvisory ? [marketplaceAdvisory] : []
   ];
   const hostInstallations = {
     claude: isPluginInstalled(),
@@ -86913,10 +87128,10 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Use GitHub marketplace (npm source) instead of local symlink").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Register the Claude marketplace from GitHub, repointing a folder registration").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Overwrite remote marketplace source with local path");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
 }
 function addUninstallOptions(cmd) {
   return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--pi", "Uninstall for pi", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");

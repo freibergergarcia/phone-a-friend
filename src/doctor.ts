@@ -9,10 +9,19 @@
 
 import { detectAll, decorateOpenCodeModels, type DetectionReport, type BackendStatus } from './detection.js';
 import { loadConfig, configPaths, DEFAULT_CONFIG, type PafConfig } from './config.js';
-import { getVersion } from './version.js';
+import { getPackageRoot, getVersion } from './version.js';
 import { formatBackendLine, formatBackendModels } from './display.js';
 import { theme, banner } from './theme.js';
-import { isCodexInstalled, isOpenCodeInstalled, isPiInstalled, isPluginInstalled } from './installer.js';
+import {
+  claudeMarketplaceStatus,
+  describeClaudeMarketplaceSource,
+  isCodexInstalled,
+  isOpenCodeInstalled,
+  isPiInstalled,
+  isPluginInstalled,
+  MARKETPLACE_NAME,
+  type ClaudeMarketplaceStatus,
+} from './installer.js';
 import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './updates.js';
 import { parseOpenCodeMajor } from './backends/opencode.js';
 import { PI_MIN_VERSION, isSupportedPiVersion } from './backends/pi.js';
@@ -436,6 +445,26 @@ async function collectAdvisories(report: DetectionReport): Promise<string[]> {
   return out;
 }
 
+/**
+ * A Claude marketplace registered from somewhere other than this install
+ * keeps serving that source's catalog: `claude plugin marketplace add` never
+ * replaces a registered source. Read-only; `plugin update --claude` repairs it.
+ */
+export function claudeMarketplaceAdvisory(status: ClaudeMarketplaceStatus): string | null {
+  if (!status.registered || status.matches) return null;
+  const from = describeClaudeMarketplaceSource(status.registered);
+  const missing = status.missingPath ? ' (that folder no longer exists)' : '';
+  const fix = status.pafOwned
+    ? '`phone-a-friend plugin update --claude`'
+    : '`phone-a-friend plugin update --claude --force-marketplace-sync`';
+  return (
+    `Claude's ${MARKETPLACE_NAME} is registered from ${from}${missing}, but this install uses ` +
+    `${describeClaudeMarketplaceSource(status.expected)}. Claude keeps reading the old catalog, so plugins ` +
+    `added since then (such as paf-tasks) are missing. Run ${fix} to switch it; installed ` +
+    `phone-a-friend and paf-tasks plugins are reinstalled.`
+  );
+}
+
 function collectOllamaAdvisories(version: string | null): string[] {
   if (!version) {
     return ['OpenCode detected but could not verify Ollama version. Tool-calling models need Ollama >= 0.17.'];
@@ -463,9 +492,11 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
   attachModelAndCapabilities(report, config);
   const paf = inspectPafIdentity();
 
+  const marketplaceAdvisory = claudeMarketplaceAdvisory(claudeMarketplaceStatus(getPackageRoot()));
   const advisories = [
     ...(await collectAdvisories(report)),
     ...collectDiagnosticAdvisories(report, paf),
+    ...(marketplaceAdvisory ? [marketplaceAdvisory] : []),
   ];
   const hostInstallations = {
     claude: isPluginInstalled(),
