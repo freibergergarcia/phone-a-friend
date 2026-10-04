@@ -321,7 +321,7 @@ command -v opencode
 ```
 
 If not found, **abort** and tell user: "opencode CLI not found. Install:
-`curl -fsSL https://opencode.ai/install | bash`"
+`npm install -g opencode-ai`"
 
 **Model selection:**
 
@@ -363,7 +363,7 @@ table (Step 7).
 | opencode available | Action |
 |--------------------|--------|
 | yes                | Proceed when the model passes the relay-mode rules above. Pass `--model` only when `MODEL_OVERRIDE` is set; otherwise omit it and let config/OpenCode defaults apply |
-| no                 | **Abort.** Tell user: "opencode CLI not found. Install: `curl -fsSL https://opencode.ai/install \| bash`" |
+| no                 | **Abort.** Tell user: "opencode CLI not found. Install: `npm install -g opencode-ai`" |
 
 ### Decision table
 

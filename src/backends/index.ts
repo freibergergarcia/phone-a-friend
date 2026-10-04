@@ -172,7 +172,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   gemini: 'npm install -g @google/gemini-cli',
   ollama: 'https://ollama.com/download',
   claude: 'npm install -g @anthropic-ai/claude-code',
-  opencode: 'curl -fsSL https://opencode.ai/install | bash',
+  opencode: 'npm install -g opencode-ai',
   pi: 'npm install -g @earendil-works/pi-coding-agent',
 };
 

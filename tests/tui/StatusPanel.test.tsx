@@ -69,7 +69,7 @@ describe('StatusPanel', () => {
           category: 'cli',
           available: false,
           detail: 'opencode not found in PATH',
-          installHint: 'curl -fsSL https://opencode.ai/install | bash',
+          installHint: 'npm install -g opencode-ai',
           optional: true,
         },
         {

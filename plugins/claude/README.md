@@ -44,6 +44,18 @@ Keep the default read-only relay policy. Diagnose authentication or connectivity
 failures with `doctor` and the backend CLI before changing permissions. Host
 sandbox restrictions and provider credentials are separate concerns.
 
+## Credentials
+
+This plugin reads no API keys, tokens or credential files, and asks for none.
+Each backend CLI (Codex, Gemini CLI, Antigravity, Claude Code, OpenCode, pi)
+signs in with its own login or key, which you set up with that tool. The
+plugin runs the `phone-a-friend` CLI or, as a fallback, a backend CLI directly;
+the only network address it names itself is a local Ollama server
+(`localhost:11434`, or `OLLAMA_HOST`). Mentions of OAuth, keychains or API keys
+in the skills are troubleshooting notes for those CLIs' own sign-in.
+
+## Data
+
 Prompts, supplied context and requested diffs go to the selected backend and its
 configured provider. PaF stores local history by default. See [PRIVACY.md](PRIVACY.md)
 and [SUPPORT.md](SUPPORT.md). Full usage and backend limitations are in the

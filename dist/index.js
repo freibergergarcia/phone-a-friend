@@ -181,7 +181,7 @@ var init_backends = __esm({
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
       claude: "npm install -g @anthropic-ai/claude-code",
-      opencode: "curl -fsSL https://opencode.ai/install | bash",
+      opencode: "npm install -g opencode-ai",
       pi: "npm install -g @earendil-works/pi-coding-agent"
     };
     BACKEND_COMMANDS = {
@@ -18572,7 +18572,7 @@ var init_detection = __esm({
       // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
       // exit with code 1 just because OpenCode is absent. Mark it optional so
       // doctor counts/exit-code only include OpenCode when it is present.
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI", optional: true },
+      { name: "opencode", installHint: "npm install -g opencode-ai", label: "OpenCode CLI", optional: true },
       // Optional for the same reason: most users do not have pi installed.
       { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent", optional: true }
     ];
@@ -18580,7 +18580,7 @@ var init_detection = __esm({
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
-      { name: "opencode", installHint: "curl -fsSL https://opencode.ai/install | bash", label: "OpenCode CLI" },
+      { name: "opencode", installHint: "npm install -g opencode-ai", label: "OpenCode CLI" },
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
       { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent CLI" }
     ];

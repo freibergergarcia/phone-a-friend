@@ -42,6 +42,13 @@ for (const [folder, manifestFile] of [
       }
     }
   }
+  if (folder === 'plugins/claude') {
+    // Claude directory listing icon: square PNG, 512-2048 px, under 2 MB.
+    const png = readFileSync(join(dir, '.claude-plugin/icon.png'));
+    assert(png.subarray(1, 4).toString() === 'PNG', 'icon.png: not a PNG');
+    const [width, height] = [png.readUInt32BE(16), png.readUInt32BE(20)];
+    assert(width === height && width >= 512 && width <= 2048 && png.length < 2 * 1024 * 1024, 'icon.png: expected a square 512-2048 px PNG under 2 MB');
+  }
   if (manifest.interface) {
     const ui = manifest.interface;
     for (const [field, limit] of Object.entries({ displayName: 30, shortDescription: 30, longDescription: 4000, developerName: 80 })) {
