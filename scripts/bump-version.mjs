@@ -50,6 +50,7 @@ const VERSIONED_MANIFESTS = [
   "plugins/claude/.claude-plugin/plugin.json",
   ".codex-plugin/plugin.json",
   "plugins/phone-a-friend/.codex-plugin/plugin.json",
+  "mods/paf-tasks/.claude-plugin/plugin.json",
 ];
 
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));

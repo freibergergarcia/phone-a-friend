@@ -30,6 +30,8 @@ import { resolvePiStoredPath } from './backends/pi.js';
 
 export const PLUGIN_NAME = 'phone-a-friend';
 export const MARKETPLACE_NAME = 'phone-a-friend-marketplace';
+// The optional review panel (mods/paf-tasks), a second plugin in the same marketplace.
+export const MOD_PLUGIN_NAME = 'paf-tasks';
 
 /** Previous marketplace name; cleaned up during install/uninstall for existing users. */
 const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
@@ -314,11 +316,19 @@ function unsyncClaudePluginRegistration(
   const commands: [string[], string][] = [
     [['claude', 'plugin', 'disable', `${pluginName}@${marketplaceName}`, '-s', 'user'], 'disable'],
     [['claude', 'plugin', 'uninstall', `${pluginName}@${marketplaceName}`, '-s', 'user'], 'uninstall'],
+    [['claude', 'plugin', 'uninstall', `${MOD_PLUGIN_NAME}@${marketplaceName}`, '-s', 'user'], 'mod_uninstall'],
     [['claude', 'plugin', 'marketplace', 'remove', marketplaceName], 'marketplace_remove'],
   ];
 
   for (const [cmd, label] of commands) {
     const { code, output } = runClaudeCommand(cmd);
+    // The review panel comes from the same marketplace, so it goes with it
+    // rather than stay installed without one. Most users never installed it:
+    // a failure here is not reported.
+    if (label === 'mod_uninstall') {
+      if (code === 0) lines.push(`- claude_cli_${label}: ok`);
+      continue;
+    }
     if (code === 0 || looksLikeOkIfAlready(output)) {
       lines.push(`- claude_cli_${label}: ok`);
     } else {

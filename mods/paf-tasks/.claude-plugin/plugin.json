@@ -1,0 +1,55 @@
+{
+  "name": "paf-tasks",
+  "displayName": "Phone a Friend panel",
+  "version": "4.12.0",
+  "description": "phone-a-friend, made legible: every review as a thread of rounds with its verdict and findings, live progress while a reviewer works, and the agent sessions that need you",
+  "author": {
+    "name": "Bruno Freiberger"
+  },
+  "homepage": "https://github.com/freibergergarcia/phone-a-friend/tree/main/mods/paf-tasks#readme",
+  "repository": "https://github.com/freibergergarcia/phone-a-friend",
+  "license": "Apache-2.0",
+  "keywords": [
+    "phone-a-friend",
+    "code-review",
+    "mod",
+    "codex"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "panel": {
+      "type": "string",
+      "title": "Side panel shows",
+      "description": "both (Reviews and Agents tabs), calls (phone-a-friend reviews only) or agents (herdr agent sessions only)",
+      "options": [
+        "both",
+        "calls",
+        "agents"
+      ],
+      "default": "both"
+    },
+    "auto_open": {
+      "type": "boolean",
+      "title": "Open the panel by itself",
+      "description": "Open the side panel by itself once there are reviews to show (until you close it)",
+      "default": true
+    },
+    "band": {
+      "type": "string",
+      "title": "Line above the prompt",
+      "description": "One line for a running or just-finished call: auto (only while the panel is not on screen), always, or never",
+      "options": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default": "auto"
+    },
+    "transcript": {
+      "type": "boolean",
+      "title": "Draw calls in the conversation",
+      "description": "Show a phone-a-friend call in the transcript as a call (who was asked, the verdict, the findings) instead of the shell command and its raw output",
+      "default": true
+    }
+  }
+}
