@@ -227,7 +227,7 @@ describe('detection', () => {
       expect(claude!.available).toBe(false);
       expect(claude!.installHint).toContain('npm install');
       expect(opencode!.available).toBe(false);
-      expect(opencode!.installHint).toContain('opencode.ai');
+      expect(opencode!.installHint).toContain('opencode-ai');
     });
 
     it('lists pi as a host, found through its binary', async () => {

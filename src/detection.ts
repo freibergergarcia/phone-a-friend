@@ -68,7 +68,7 @@ const CLI_BACKENDS: { name: string; command?: string; installHint: string; label
   // never installed OpenCode CLI shouldn't see `phone-a-friend doctor`
   // exit with code 1 just because OpenCode is absent. Mark it optional so
   // doctor counts/exit-code only include OpenCode when it is present.
-  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI', optional: true },
+  { name: 'opencode', installHint: 'npm install -g opencode-ai', label: 'OpenCode CLI', optional: true },
   // Optional for the same reason: most users do not have pi installed.
   { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent', optional: true },
 ];
@@ -78,7 +78,7 @@ const OLLAMA_INSTALL_HINT = 'brew install ollama  # or: curl -fsSL https://ollam
 
 const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] = [
   { name: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code', label: 'Claude Code CLI' },
-  { name: 'opencode', installHint: 'curl -fsSL https://opencode.ai/install | bash', label: 'OpenCode CLI' },
+  { name: 'opencode', installHint: 'npm install -g opencode-ai', label: 'OpenCode CLI' },
   { name: 'codex', installHint: 'npm install -g @openai/codex', label: 'OpenAI Codex CLI' },
   { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent CLI' },
 ];
