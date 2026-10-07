@@ -77,6 +77,10 @@ declare module 'claude-code' {
       // Where this session is: its worktree, the repository's worktrees, its pane in herdr.
       here: string | null
       roots: string[]
+      // Worktrees past the panel's limit, which are not asked about.
+      skippedWorktrees: number
+      // The branch checked out here; null on a detached HEAD.
+      branch: string | null
       pane: string | null
       // Whether the panel is on screen: placed, and the tab that shows.
       isOnScreen: boolean

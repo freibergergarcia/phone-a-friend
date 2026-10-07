@@ -161,6 +161,19 @@ test('everything asked about one branch is one thread, oldest round first, a liv
   expect(first?.labels).toEqual(['pi-impl'])
 })
 
+test('a branch is one thread across worktrees, whatever their folders are called; a detached HEAD is one per worktree', async () => {
+  const moved = task({ id: 'm0000001', repoPath: '/work/paf-r2', promptPreview: 'Round 1.' }, 9_000, 30)
+  const detachedHere = task({ id: 'd0000001', branch: null, promptPreview: 'Check this commit.' }, 600, 20)
+  const detachedThere = task({ id: 'd0000002', branch: null, repoPath: QUIET, promptPreview: 'Check that commit.' }, 500, 20)
+  const threads = toThreads([SHIP, moved, detachedHere, detachedThere])
+  expect(threads.map(thread => [thread.key, thread.rounds.length])).toEqual([
+    [`detached:${QUIET}`, 1],
+    [`detached:${ROOT}`, 1],
+    ['feat/pi-backend', 2],
+  ])
+  expect(threads[0]?.title).toBe('detached HEAD (paf-quiet)')
+})
+
 test('a worktree path names its repository and its worktree', async () => {
   expect(placeOf('/home/me/.herdr/worktrees/phone-a-friend/worktree-green-river-fb03')).toEqual({ repo: 'phone-a-friend', worktree: 'green-river' })
   expect(placeOf('/home/me/conductor/workspaces/phone-a-friend/memphis')).toEqual({ repo: 'phone-a-friend', worktree: 'memphis' })

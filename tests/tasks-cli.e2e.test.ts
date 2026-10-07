@@ -190,6 +190,23 @@ if (outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one fin
     expect(JSON.parse(run(['task', 'list', '--json']).stdout)).toEqual([]);
   });
 
+  it('writes a JSON listing larger than a pipe buffer in full', () => {
+    const store = new TaskStore(join(root, 'config', 'phone-a-friend', 'tasks.db'));
+    const repoRoot = git('rev-parse', '--show-toplevel');
+    for (let i = 0; i < 12; i += 1) {
+      const record = store.create({ kind: 'relay', backend: 'codex', repoPath: repoRoot });
+      store.start(record.id, process.pid);
+      store.complete(record.id, `answer ${i} `.repeat(2_000));
+    }
+    store.close();
+
+    // spawnSync reads stdout through a pipe, as the paf-tasks panel does.
+    const result = run(['task', 'list', '--json', '--limit', '50']);
+    expect(result.status, result.stderr).toBe(0);
+    expect(Buffer.byteLength(result.stdout)).toBeGreaterThan(128 * 1024);
+    expect(JSON.parse(result.stdout)).toHaveLength(12);
+  });
+
   it('prints progress lines and a receipt on stderr for a review', () => {
     const result = run(['--to', 'codex', '--repo', repo, '--review', '--review-scope', 'working-tree']);
     expect(result.status, result.stderr).toBe(0);

@@ -30,7 +30,7 @@ import {
   verdictText,
 } from './format'
 import type { Binding, CallState, HerdrWorkspace, RelayCall } from './format'
-import { handoff, isActive, isSelf, parseTime, placeOf, questionOf, roundOf, toAgentCards, toThreads, usualMs } from './model'
+import { handoff, isActive, isSelf, parseTime, placeOf, questionOf, roundOf, threadKeyOf, toAgentCards, toThreads, usualMs } from './model'
 import type { AgentCard, AgentState, Here, Round, Thread } from './model'
 
 const PANE = 'paf-tasks'
@@ -47,6 +47,8 @@ const KEPT_TASKS = 80
 const KEPT_RESULT_CHARS = 12_000
 const WORKTREES_TTL_MS = 60_000
 const MAX_WORKTREES = 16
+// Another branch with nothing newer than this is folded under "+N more".
+const QUIET_BRANCH_MS = 7 * 24 * 60 * 60_000
 // How often another worktree of this repository is asked about: one with a
 // recent answer every 15 s, a quiet one once a minute. (One with a reviewer
 // at work is asked on every tick, like this one.) A few at a time, each given
@@ -78,7 +80,7 @@ const roundAtom = atom({ plugin: 'paf-tasks', key: 'round' } as const, null)
 const fullAtom = atom({ plugin: 'paf-tasks', key: 'isFull' } as const, false)
 const allRoundsAtom = atom({ plugin: 'paf-tasks', key: 'isAllRounds' } as const, false)
 const allBranchesAtom = atom({ plugin: 'paf-tasks', key: 'isAllBranches' } as const, false)
-const scopeAtom = atom({ plugin: 'paf-tasks', key: 'scope' } as const, 'project')
+const scopeAtom = atom({ plugin: 'paf-tasks', key: 'scope' } as const, 'repo')
 const agentsAtom = atom({ plugin: 'paf-tasks', key: 'agents' } as const, [])
 const sinceAtom = atom({ plugin: 'paf-tasks', key: 'agentsSince' } as const, {})
 const agentsProblemAtom = atom({ plugin: 'paf-tasks', key: 'agentsProblem' } as const, null)
@@ -87,6 +89,8 @@ const waitingAtom = atom({ plugin: 'paf-tasks', key: 'waiting' } as const, [])
 const callStartsAtom = atom({ plugin: 'paf-tasks', key: 'callStarts' } as const, {})
 const hereAtom = atom({ plugin: 'paf-tasks', key: 'here' } as const, null)
 const rootsAtom = atom({ plugin: 'paf-tasks', key: 'roots' } as const, [])
+const skippedAtom = atom({ plugin: 'paf-tasks', key: 'skippedWorktrees' } as const, 0)
+const branchAtom = atom({ plugin: 'paf-tasks', key: 'branch' } as const, null)
 const paneAtom = atom({ plugin: 'paf-tasks', key: 'pane' } as const, null)
 const onScreenAtom = atom({ plugin: 'paf-tasks', key: 'isOnScreen' } as const, false)
 
@@ -122,7 +126,8 @@ const agentStatus = new Map<string, string>()
 // This repository's worktrees (and the git directory they share), and each
 // one's tasks as last listed.
 // `isRepo`: git listed worktrees here; `common` is their shared git directory, null when it could not be read.
-type Place = { at: number; cwd: string; here: string; roots: string[]; common: string | null; isRepo: boolean }
+// `skipped`: worktrees past MAX_WORKTREES, which are not asked about.
+type Place = { at: number; cwd: string; here: string; roots: string[]; skipped: number; common: string | null; isRepo: boolean }
 let worktrees: Place | null = null
 const byRoot = new Map<string, PafTask[]>()
 const askedAt = new Map<string, number>()
@@ -132,15 +137,20 @@ let selfPane: string | null = null
 // written out where it happens, so each hook that refreshes builds one of
 // these from its own `$` instead of passing `$` along.
 type Io = {
-  run: (argv: string[], timeoutMs: number) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+  run: (argv: string[], timeoutMs: number) => Promise<{ exitCode: number; stdout: string; stderr: string; isStdoutTruncated?: boolean }>
   cwd: () => Promise<string>
   now: () => Promise<number>
   toast: (text: string) => void
   scope: () => Promise<PafScope>
+  // Whether the other worktrees are read: for the all-worktrees view, or for
+  // the Agents view, which says what each session's reviewer last did.
+  wantsOthers: () => Promise<boolean>
   problem: (text: string | null) => Promise<unknown>
   // `null` leaves a value as it is, so an unchanged list redraws nothing.
   save: (tasks: PafTask[] | null, timeline: Record<string, TimelineEntry[]> | null, now: number) => Promise<unknown>
-  savePlace: (here: string, roots: string[]) => Promise<unknown>
+  savePlace: (here: string, roots: string[], skipped: number) => Promise<unknown>
+  // The branch checked out here, null on a detached HEAD.
+  saveBranch: (branch: string | null) => Promise<unknown>
   // A new call started: show it instead of whatever was selected.
   follow: () => Promise<unknown>
   since: () => Promise<Record<string, number>>
@@ -153,8 +163,8 @@ type Io = {
 }
 
 // What changed since the last look: tasks that finished (toasted) and whether
-// a new one started. The first look only records.
-function compare(tasks: PafTask[]): { finished: PafTask[]; started: boolean } {
+// a new one started in this worktree. The first look only records.
+function compare(tasks: PafTask[], here: string): { finished: PafTask[]; started: boolean } {
   const finished: PafTask[] = []
   let started = false
   for (const task of tasks) {
@@ -162,7 +172,8 @@ function compare(tasks: PafTask[]): { finished: PafTask[]; started: boolean } {
     seen.set(task.id, task.status)
     if (primedAt === null || before === task.status) continue
     if (isActive(task)) {
-      if (before === undefined) started = true
+      // A call in another worktree does not take the panel away from this one.
+      if (before === undefined && task.repoPath === here) started = true
       continue
     }
     const end = parseTime(task.finishedAt)
@@ -207,6 +218,7 @@ const isNotInstalled = (reason: string): boolean => /failed to start|ENOENT|not 
 // records: another repository's prompts and answers are not read at all.
 async function worktreesOf(io: Io, cwd: string, now: number): Promise<Place> {
   if (worktrees === null || worktrees.cwd !== cwd || now - worktrees.at >= WORKTREES_TTL_MS) {
+    let all: string[] = []
     let roots: string[] = []
     let common: string | null = null
     let isListed = false
@@ -216,7 +228,8 @@ async function worktreesOf(io: Io, cwd: string, now: number): Promise<Place> {
         io.run(['git', '-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], 5_000),
       ])
       if (listed.exitCode === 0) {
-        roots = parseWorktrees(listed.stdout).slice(0, MAX_WORKTREES)
+        all = parseWorktrees(listed.stdout)
+        roots = all.slice(0, MAX_WORKTREES)
         isListed = true
       }
       if (dir.exitCode === 0) common = dir.stdout.trim() || null
@@ -225,6 +238,7 @@ async function worktreesOf(io: Io, cwd: string, now: number): Promise<Place> {
     }
     const here = rootOf(cwd, roots) ?? cwd
     if (!roots.includes(here)) roots.unshift(here)
+    const skipped = all.filter(root => !roots.includes(root)).length
     if (isListed) {
       // What was listed for a worktree that is gone is let go.
       for (const root of [...byRoot.keys()]) {
@@ -235,11 +249,23 @@ async function worktreesOf(io: Io, cwd: string, now: number): Promise<Place> {
       }
     }
     // A listing that failed, or a git directory that could not be read, is asked for again in a few seconds.
-    worktrees = { at: isListed && common !== null ? now : now - WORKTREES_TTL_MS + 5_000, cwd, here, roots, common, isRepo: isListed }
+    worktrees = { at: isListed && common !== null ? now : now - WORKTREES_TTL_MS + 5_000, cwd, here, roots, skipped, common, isRepo: isListed }
   }
   // Written only when it differs from what $.state holds.
-  await io.savePlace(worktrees.here, worktrees.roots)
+  await io.savePlace(worktrees.here, worktrees.roots, worktrees.skipped)
   return worktrees
+}
+
+// The branch checked out in this worktree, asked on every refresh so a switch
+// shows up at once. null on a detached HEAD; undefined when git cannot say.
+async function branchOf(io: Io, root: string): Promise<string | null | undefined> {
+  try {
+    const found = await io.run(['git', '-C', root, 'branch', '--show-current'], 5_000)
+    if (found.exitCode !== 0) return undefined
+    return found.stdout.trim() || null
+  } catch {
+    return undefined
+  }
 }
 
 // Whether a listed path is, right now, a worktree of this repository: the
@@ -264,7 +290,13 @@ async function listTasks(io: Io, root: string, limit: number, timeoutMs: number)
     if (/unknown (?:command|option)|too many arguments/i.test(listed.stderr)) return TOO_OLD
     return fit(oneLine(listed.stderr) || `phone-a-friend exited ${listed.exitCode}`, 240)
   }
-  return (JSON.parse(listed.stdout) as Record<string, unknown>[]).map(slim)
+  if (listed.isStdoutTruncated) return 'The task list was too long to read. Narrow it with: phone-a-friend task prune --older-than 30'
+  try {
+    return (JSON.parse(listed.stdout) as Record<string, unknown>[]).map(slim)
+  } catch {
+    // phone-a-friend before the fix cut its piped output at 64 KiB.
+    return 'phone-a-friend cut its task list short, so it could not be read. Update phone-a-friend: npm install -g @freibergergarcia/phone-a-friend'
+  }
 }
 
 const TOO_OLD = 'This phone-a-friend is too old for the panel, which needs 4.5.0 or newer. Update it: npm install -g @freibergergarcia/phone-a-friend'
@@ -298,14 +330,15 @@ function commit(io: Io): Promise<void> {
     const place = worktrees
     if (place === null) return
     const scope = await io.scope()
-    const tasks = (scope === 'project' ? place.roots : [place.here])
+    const tasks = ((await io.wantsOthers()) ? place.roots : [place.here])
       .flatMap(root => byRoot.get(root) ?? [])
       .sort((a, b) => startOf(b) - startOf(a))
       .slice(0, KEPT_TASKS)
       .map(task => (task.result !== null && task.result.length > KEPT_RESULT_CHARS ? { ...task, result: task.result.slice(0, KEPT_RESULT_CHARS) } : task))
 
     const now = await io.now()
-    const { finished, started } = compare(tasks)
+    // Toasts and following a new call keep to what the panel shows.
+    const { finished, started } = compare(scope === 'project' ? tasks : tasks.filter(task => task.repoPath === place.here), place.here)
     if (primedAt === null) primedAt = now
     for (const task of finished) io.toast(toastOf(task))
     if (started) {
@@ -319,8 +352,10 @@ function commit(io: Io): Promise<void> {
     lastTasks = stamp
     // The steps follow on their own: a slow `task show` holds up no list.
     stepping = refreshSteps(io, tasks)
-    // The panel opens by itself only where there is something to read.
-    if (tasks.length > 0 && !hasRevealed) {
+    // The panel opens by itself only for a call in this worktree that is
+    // running or just finished, never for history.
+    const isFresh = (task: PafTask): boolean => isActive(task) || now - (parseTime(task.finishedAt) ?? 0) < RECENT_MS
+    if (!hasRevealed && tasks.some(task => task.repoPath === place.here && isFresh(task))) {
       hasRevealed = true
       await io.reveal()
       await syncOnScreen(io)
@@ -445,7 +480,8 @@ async function refresh(io: Io, isWaited = false): Promise<void> {
         return
       }
     }
-    const mine = await listTasks(io, place.here, 60, 15_000)
+    const [mine, branch] = await Promise.all([listTasks(io, place.here, 60, 15_000), branchOf(io, place.here)])
+    if (branch !== undefined) await io.saveBranch(branch)
     // Checked again after: a list read while the path changed hands is dropped unseen.
     if (typeof mine !== 'string' && !(await isConfirmed())) {
       await forget(io, 'This folder changed repository while it was being read. Asking again shortly.')
@@ -459,7 +495,7 @@ async function refresh(io: Io, isWaited = false): Promise<void> {
     }
     byRoot.set(place.here, mine)
     await commit(io)
-    if ((await io.scope()) === 'project') others = refreshOthers(io)
+    if (await io.wantsOthers()) others = refreshOthers(io)
   } catch (err) {
     anyActive = false
     lastTasks = ''
@@ -660,6 +696,7 @@ export const register: Register = (on, options) => {
       now: () => $.clock.now(),
       toast: text => $.ui.toast(text, { timeoutMs: 8_000 }),
       scope: async () => ((await read($, scopeAtom)) === 'repo' ? 'repo' : 'project'),
+      wantsOthers: async () => (await read($, scopeAtom)) !== 'repo' || (shows(panel, 'agents') && herdrMissingAt === null),
       problem: text => update($, problemAtom, () => text),
       save: async (tasks, timeline, now) => {
         if (tasks !== null) await update($, tasksAtom, () => tasks)
@@ -667,9 +704,13 @@ export const register: Register = (on, options) => {
         await update($, problemAtom, () => null)
         await update($, polledAtom, () => now)
       },
-      savePlace: async (here, roots) => {
+      savePlace: async (here, roots, skipped) => {
         if ((await read($, hereAtom)) !== here) await update($, hereAtom, () => here)
         if ((await read($, rootsAtom)).join('\n') !== roots.join('\n')) await update($, rootsAtom, () => roots)
+        if ((await read($, skippedAtom)) !== skipped) await update($, skippedAtom, () => skipped)
+      },
+      saveBranch: async branch => {
+        if ((await read($, branchAtom)) !== branch) await update($, branchAtom, () => branch)
       },
       follow: async () => {
         await update($, threadAtom, () => null)
@@ -758,6 +799,7 @@ export const register: Register = (on, options) => {
         now: () => $.clock.now(),
         toast: text => $.ui.toast(text, { timeoutMs: 8_000 }),
         scope: async () => ((await read($, scopeAtom)) === 'repo' ? 'repo' : 'project'),
+        wantsOthers: async () => (await read($, scopeAtom)) !== 'repo' || (shows(panel, 'agents') && herdrMissingAt === null),
         problem: text => update($, problemAtom, () => text),
         save: async (tasks, timeline, now) => {
           if (tasks !== null) await update($, tasksAtom, () => tasks)
@@ -765,9 +807,13 @@ export const register: Register = (on, options) => {
           await update($, problemAtom, () => null)
           await update($, polledAtom, () => now)
         },
-        savePlace: async (here, roots) => {
+        savePlace: async (here, roots, skipped) => {
           if ((await read($, hereAtom)) !== here) await update($, hereAtom, () => here)
           if ((await read($, rootsAtom)).join('\n') !== roots.join('\n')) await update($, rootsAtom, () => roots)
+          if ((await read($, skippedAtom)) !== skipped) await update($, skippedAtom, () => skipped)
+        },
+        saveBranch: async branch => {
+          if ((await read($, branchAtom)) !== branch) await update($, branchAtom, () => branch)
         },
         follow: async () => {
           await update($, threadAtom, () => null)
@@ -1162,17 +1208,27 @@ export const register: Register = (on, options) => {
     const isFull = await read($, fullAtom)
     const isAllRounds = await read($, allRoundsAtom)
     const isAllBranches = await read($, allBranchesAtom)
+    const branch = await read($, branchAtom)
+    const skipped = await read($, skippedAtom)
 
-    const threads = toThreads(tasks)
-    // Something live first, then this worktree's own branch, then the latest.
+    // The Agents view may have read other worktrees; this view shows them only when asked.
+    const threads = toThreads(scope === 'project' ? tasks : tasks.filter(task => task.repoPath === here.root))
+    // The branch checked out here leads; another worktree's live call never
+    // takes its place. Then live, then the latest.
+    const currentKey = threadKeyOf(branch, here.root)
     const ranked = [...threads].sort(
       (a, b) =>
+        Number(b.key === currentKey) - Number(a.key === currentKey) ||
         Number(b.state === 'live') - Number(a.state === 'live') ||
-        Number(b.rounds.at(-1)?.task.repoPath === here.root) - Number(a.rounds.at(-1)?.task.repoPath === here.root) ||
         b.lastAt - a.lastAt,
     )
-    const thread: Thread | null = ranked.find(item => item.key === threadKey) ?? ranked[0] ?? null
+    // Another branch is shown only when the person picked it.
+    const thread: Thread | null = ranked.find(item => item.key === threadKey) ?? ranked.find(item => item.key === currentKey) ?? null
     const rest = ranked.filter(item => item !== thread)
+    // A branch nobody has asked about for a week is history: folded until asked for.
+    const isQuiet = (item: Thread): boolean => item.state !== 'live' && now - item.lastAt >= QUIET_BRANCH_MS
+    const unfolded = rest.filter(item => !isQuiet(item)).slice(0, FOLDED_BRANCHES)
+    const branches = isAllBranches ? rest : unfolded
 
     const switchScope = async () => {
       await update($, scopeAtom, current => (current === 'repo' ? 'project' : 'repo'))
@@ -1197,8 +1253,44 @@ export const register: Register = (on, options) => {
     }
     const controls = (
       <Box columnGap={2} marginTop={gap}>
+        {rest.length > 0 && <Button key="branch" plain hotkey="b" label="next branch" dimColor onPress={() => void nextThread()} />}
         <Button key="scope" plain hotkey="w" label={scope === 'repo' ? 'all worktrees' : 'this worktree only'} dimColor onPress={() => void switchScope()} />
         <Button key="refresh" plain hotkey="r" label="refresh" dimColor onPress={() => void pollNow?.(true)} />
+      </Box>
+    )
+    const skippedNote =
+      scope === 'project' && skipped > 0 ? (
+        <Text dimColor wrap="wrap">{`${skipped} more worktree${skipped === 1 ? ' is' : 's are'} not read: the panel reads ${MAX_WORKTREES}.`}</Text>
+      ) : null
+
+    const otherBranches = rest.length > 0 && !isInline && (
+      <Box flexDirection="column" marginTop={1}>
+        <Text dimColor bold>
+          {scope === 'repo' ? 'OTHER BRANCHES HERE' : 'OTHER BRANCHES'}
+        </Text>
+        {branches.map(other => {
+          const last = other.rounds.at(-1) as Round
+          const look = lookOf(other.state === 'live' ? (other.rounds.find(round => round.state === 'live') ?? last) : last, frame)
+          const right = `${other.rounds.length} round${other.rounds.length === 1 ? '' : 's'} · ${age(now - other.lastAt)}`
+          return (
+            <Box justifyContent="space-between" columnGap={2}>
+              <Box columnGap={1} flexShrink={1}>
+                <Text color={look.color}>{look.glyph}</Text>
+                <Button key={`thread-${other.key}`} plain dimColor label={fit(other.title, Math.max(10, width - right.length - 5))} onPress={() => void openThread(other.key)} />
+              </Box>
+              <Text dimColor>{right}</Text>
+            </Box>
+          )
+        })}
+        {rest.length > unfolded.length && (
+          <Button
+            key="branches"
+            plain
+            dimColor
+            label={isAllBranches ? 'fewer branches' : `+${rest.length - unfolded.length} more`}
+            onPress={() => update($, allBranchesAtom, value => !value)}
+          />
+        )}
       </Box>
     )
 
@@ -1213,7 +1305,13 @@ export const register: Register = (on, options) => {
               </Text>
             </Box>
           )}
-          {problem === null && (
+          {problem === null && rest.length > 0 && (
+            <Box marginTop={1}>
+              <Text>{`No reviews on ${branch ?? 'this detached HEAD'} yet.`}</Text>
+            </Box>
+          )}
+          {otherBranches}
+          {problem === null && rest.length === 0 && (
             <Box flexDirection="column" marginTop={1}>
               <Text>No reviews {scope === 'repo' ? 'in this worktree' : 'in this repository'} yet.</Text>
               <Box marginTop={gap}>
@@ -1227,6 +1325,7 @@ export const register: Register = (on, options) => {
               </Box>
             </Box>
           )}
+          {skippedNote}
           {controls}
         </Box>
       )
@@ -1419,8 +1518,6 @@ export const register: Register = (on, options) => {
       )
     }
 
-    const branches = isAllBranches ? rest : rest.slice(0, FOLDED_BRANCHES)
-
     return (
       <Box flexDirection="column">
         {header}
@@ -1468,36 +1565,8 @@ export const register: Register = (on, options) => {
           )}
         </Box>
 
-        {rest.length > 0 && !isInline && (
-          <Box flexDirection="column" marginTop={1}>
-            <Text dimColor bold>
-              {scope === 'repo' ? 'OTHER BRANCHES HERE' : 'OTHER BRANCHES'}
-            </Text>
-            {branches.map(other => {
-              const last = other.rounds.at(-1) as Round
-              const look = lookOf(other.state === 'live' ? (other.rounds.find(round => round.state === 'live') ?? last) : last, frame)
-              const right = `${other.rounds.length} round${other.rounds.length === 1 ? '' : 's'} · ${age(now - other.lastAt)}`
-              return (
-                <Box justifyContent="space-between" columnGap={2}>
-                  <Box columnGap={1} flexShrink={1}>
-                    <Text color={look.color}>{look.glyph}</Text>
-                    <Button key={`thread-${other.key}`} plain dimColor label={fit(other.title, Math.max(10, width - right.length - 5))} onPress={() => void openThread(other.key)} />
-                  </Box>
-                  <Text dimColor>{right}</Text>
-                </Box>
-              )
-            })}
-            {rest.length > FOLDED_BRANCHES && (
-              <Button
-                key="branches"
-                plain
-                dimColor
-                label={isAllBranches ? 'fewer branches' : `+${rest.length - FOLDED_BRANCHES} more`}
-                onPress={() => update($, allBranchesAtom, value => !value)}
-              />
-            )}
-          </Box>
-        )}
+        {otherBranches}
+        {skippedNote}
 
         <Box columnGap={2} marginTop={gap} flexWrap="wrap">
           <Button key="older" plain hotkey="j" label="older" dimColor onPress={() => void step(1)} />
