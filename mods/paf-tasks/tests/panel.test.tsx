@@ -20,12 +20,14 @@ type World = {
   isCommonUnreadable?: boolean
   // Not a git repository at all.
   isNotRepo?: boolean
+  // The branch checked out in the session's worktree; null for a detached HEAD.
+  branch?: string | null
 }
 
 // The host beneath the mod: git, phone-a-friend and herdr answered from `world`,
 // which a test may change between polls. Returns every command that was run.
-function host(on: On, world: World): { runs: string[][]; toasts: string[]; copied: string[]; submitted: string[] } {
-  const seen = { runs: [] as string[][], toasts: [] as string[], copied: [] as string[], submitted: [] as string[] }
+function host(on: On, world: World): { runs: string[][]; toasts: string[]; copied: string[]; submitted: string[]; opened: number } {
+  const seen = { runs: [] as string[][], toasts: [] as string[], copied: [] as string[], submitted: [] as string[], opened: 0 }
   on('process.run', async (_$, e) => {
     const argv = [...e.argv]
     seen.runs.push(argv)
@@ -34,6 +36,7 @@ function host(on: On, world: World): { runs: string[][]; toasts: string[]; copie
       if (world.isCommonUnreadable) return ran('', 128, 'fatal: not a git repository')
       return ran(world.foreign?.includes(argv[2] ?? '') ? '/elsewhere/other-repo/.git\n' : `${ROOT}/.git\n`)
     }
+    if (argv[0] === 'git' && argv.includes('--show-current')) return ran(`${world.branch === undefined ? 'feat/pi-backend' : (world.branch ?? '')}\n`)
     if (argv[0] === 'git') return ran(PORCELAIN)
     if (argv[0] === 'herdr') {
       if (world.herdr === 'missing') return ran('', 127, 'env: node: No such file or directory')
@@ -46,7 +49,10 @@ function host(on: On, world: World): { runs: string[][]; toasts: string[]; copie
     const repo = argv.includes('--repo') ? argv[argv.indexOf('--repo') + 1] : null
     return ran(JSON.stringify(world.tasks.filter(item => repo === null || item.repoPath === repo)))
   })
-  on('ui.open', async () => ({ value: world.isPlaced === false ? { isPlaced: false, reason: 'the terminal is too narrow' } : { isPlaced: true } }))
+  on('ui.open', async () => {
+    seen.opened += 1
+    return { value: world.isPlaced === false ? { isPlaced: false, reason: 'the terminal is too narrow' } : { isPlaced: true } }
+  })
   on('ui.close', async () => ({ value: undefined }))
   on('ui.panes', async () => ({
     value: [{ id: 'paf-tasks', title: 'phone-a-friend', isShown: true, isFocused: false, isPlaced: world.isPlaced !== false }],
@@ -104,8 +110,11 @@ test('the panel shows the thread for this branch: its trail, its rounds, and wha
     // A finding that opens with code is left as written.
     expect(await ui.find({ type: 'Markdown', text: /^`piAgentDir\(\)` does not expand/ })).toBeDefined()
 
-    // The other branch of this repository is one press away.
-    expect((await ui.find({ key: 'thread-paf-quiet:chore/plugin-directory-readiness' }))?.props.label).toBe('chore/plugin-directory-readiness')
+    // Another worktree's branch is not shown until asked for, then one press away.
+    expect(await ui.find({ key: 'thread-chore/plugin-directory-readiness' })).toBeUndefined()
+    await ui.press({ key: 'scope' })
+    expect((await ui.find({ key: 'thread-chore/plugin-directory-readiness' }))?.props.label).toBe('chore/plugin-directory-readiness')
+    await ui.press({ key: 'scope' })
     await ui.unmount()
   }
 })
@@ -164,18 +173,91 @@ test('PaF is asked about each worktree of this repository by path, never for its
   expect(lists.length).toBeGreaterThan(0)
   expect(lists.every(argv => argv.includes('--repo'))).toBe(true)
   // The session sits in a folder of its worktree; the gone worktree is not asked about.
+  // The other one is, for the Agents view: what its session's reviewer last said.
   expect([...new Set(lists.map(argv => argv[argv.indexOf('--repo') + 1]))].sort()).toEqual([ROOT, QUIET])
   expect(seen.runs.find(argv => argv[0] === 'git')).toEqual(['git', '-C', `${ROOT}/src`, 'worktree', 'list', '--porcelain'])
 
-  // "this worktree only" drops the other worktree's thread and stops asking about it.
+  // The reviews show this worktree until "all worktrees" is pressed.
   const ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
-  expect(await ui.find({ key: 'thread-paf-quiet:chore/plugin-directory-readiness' })).toBeDefined()
-  const before = seen.runs.length
-  await ui.press({ key: 'scope' })
-  expect(await ui.find({ key: 'thread-paf-quiet:chore/plugin-directory-readiness' })).toBeUndefined()
+  expect(await ui.find({ key: 'thread-chore/plugin-directory-readiness' })).toBeUndefined()
   expect((await ui.find({ key: 'scope' }))?.props.label).toBe('all worktrees')
-  expect(seen.runs.slice(before).filter(argv => argv.includes(QUIET))).toEqual([])
+  await ui.press({ key: 'scope' })
+  expect(await ui.find({ key: 'thread-chore/plugin-directory-readiness' })).toBeDefined()
+  expect((await ui.find({ key: 'scope' }))?.props.label).toBe('this worktree only')
+  await ui.press({ key: 'scope' })
   await ui.unmount()
+})
+
+test('without the Agents view, this worktree alone is asked about until all worktrees are asked for', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const seen = host(on, { tasks: [SHIP, ELSEWHERE], herdr: 'missing' })
+  await $.command.run(paf())
+  // herdr is found missing on the first look; from then on the other worktree is left alone.
+  const before = seen.runs.length
+  await clock.advance(2_000)
+  await $.command.run(paf())
+  expect(seen.runs.slice(before).filter(argv => argv[0] === 'phone-a-friend' && argv.includes(QUIET))).toEqual([])
+
+  const ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'scope' })
+  expect(seen.runs.filter(argv => argv[0] === 'phone-a-friend' && argv.includes(QUIET)).length).toBeGreaterThan(0)
+  expect(await ui.find({ key: 'thread-chore/plugin-directory-readiness' })).toBeDefined()
+  await ui.press({ key: 'scope' })
+  await ui.unmount()
+})
+
+test('the panel leads with the branch checked out here, and history waits behind "more"', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const old = task({ id: 'o0000001', branch: 'feat/rust-poc', promptPreview: 'Gate B for the Rust harness.' }, 20 * 86_400, 300)
+  const recent = task({ id: 'r0000001', branch: 'fix/marketplace', promptPreview: 'Round 2 on the marketplace fix.' }, 86_400, 60)
+  // A reviewer at work in another worktree does not take this one's place.
+  const busy = { ...ELSEWHERE, id: 'e0000001', status: 'running' as const, finishedAt: null }
+  host(on, { tasks: [SHIP, REVISE, old, recent, busy] })
+  await $.command.run(paf())
+
+  const ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: 'feat/pi-backend' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'OTHER BRANCHES HERE' })).toBeDefined()
+  expect(await ui.find({ key: 'thread-fix/marketplace' })).toBeDefined()
+  expect(await ui.find({ key: 'thread-feat/rust-poc' })).toBeUndefined()
+  expect((await ui.find({ key: 'branches' }))?.props.label).toBe('+1 more')
+  await ui.press({ key: 'branches' })
+  expect(await ui.find({ key: 'thread-feat/rust-poc' })).toBeDefined()
+
+  await ui.press({ key: 'scope' })
+  expect(await ui.find({ type: 'Text', text: 'feat/pi-backend' })).toBeDefined()
+  expect(await ui.find({ key: 'thread-chore/plugin-directory-readiness' })).toBeDefined()
+  await ui.press({ key: 'scope' })
+  await ui.unmount()
+})
+
+test('on a branch with no reviews yet the panel says so, and lists the branches that have some', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  host(on, { tasks: [SHIP, REVISE], branch: 'main' })
+  await $.command.run(paf())
+
+  const ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: 'No reviews on main yet.' })).toBeDefined()
+  expect(await ui.find({ key: 'round-b2d2d470' })).toBeUndefined()
+  await ui.press({ key: 'thread-feat/pi-backend' })
+  expect(await ui.find({ key: 'round-b2d2d470' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the panel opens by itself for a call here that is running or just finished, never for history', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const world: World = { tasks: [SHIP, { ...ELSEWHERE, id: 'e0000002', status: 'running', finishedAt: null }] }
+  const seen = host(on, world)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: { command: 'paf' } }))
+  await $.session.start({ cwd: `${ROOT}/src`, surface: 'terminal', isInteractive: true })
+  await clock.advance(2_000)
+  // An old review here and a call at work in another worktree: nothing to open for.
+  expect(seen.opened).toBe(0)
+
+  world.tasks = [{ ...LIVE, id: 'l0000002' }, ...world.tasks]
+  await clock.advance(16_000)
+  expect(seen.opened).toBe(1)
 })
 
 test('a listed worktree path that now holds another repository is not asked about', async ($, on) => {
@@ -287,7 +369,7 @@ test('with no reviews yet the panel says what it is for', async ($, on) => {
 
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'paf-tasks', surface, ...PANE })
-    expect(await ui.find({ type: 'Text', text: /No reviews in this repository yet/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /No reviews in this worktree yet/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'ask codex to review this branch' })).toBeDefined()
     await ui.unmount()
   }

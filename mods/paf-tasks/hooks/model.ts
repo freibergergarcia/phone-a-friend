@@ -638,11 +638,16 @@ export function placeOf(path: string | null): { repo: string; worktree: string |
   return { repo: last, worktree: null }
 }
 
+// The thread a task belongs to. Every task listed is of this repository (git
+// confirmed it), so a branch names one thread across its worktrees; work on a
+// detached HEAD is one thread per worktree.
+export const threadKeyOf = (branch: string | null, repoPath: string | null): string => branch ?? `detached:${repoPath ?? ''}`
+
 // Everything asked about one branch is one thread, whoever was asked.
 export function toThreads(tasks: readonly PafTask[]): Thread[] {
   const groups = new Map<string, PafTask[]>()
   for (const task of tasks) {
-    const key = `${placeOf(task.repoPath).repo}:${task.branch ?? task.repoPath ?? ''}`
+    const key = threadKeyOf(task.branch, task.repoPath)
     const group = groups.get(key)
     if (group) group.push(task)
     else groups.set(key, [task])
@@ -654,10 +659,11 @@ export function toThreads(tasks: readonly PafTask[]): Thread[] {
     const last = rounds[rounds.length - 1]
     const first = rounds[0]
     if (!last || !first) continue
-    const repo = placeOf(last.task.repoPath).repo
+    const place = placeOf(last.task.repoPath)
+    const repo = place.repo
     threads.push({
       key,
-      title: last.task.branch ?? repo,
+      title: last.task.branch ?? `detached HEAD (${place.worktree ?? repo})`,
       repo,
       backends: [...new Set(rounds.map(round => round.task.backend))],
       labels: [...new Set(rounds.map(round => round.task.sessionLabel).filter((label): label is string => label !== null))],

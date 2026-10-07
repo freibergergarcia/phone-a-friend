@@ -56,14 +56,17 @@ marketplace you added yourself is left alone, panel included, unless you add
 `ctrl+o` still shows the command and its raw output, with the same line under
 it. While the turn waits, its spinner says `Waiting on codex…`.
 
-**In the panel** (`/paf`). Everything asked about one branch is one thread:
+**In the panel** (`/paf`). Everything asked about one branch is one thread,
+and the thread for the branch checked out in this worktree comes first (on a
+branch with no reviews yet, the panel says so):
 
 - the **trail**, one mark per round, oldest to newest (`✗ ✓ ✗ ✗ ✓`): whether the
   review is converging;
 - the rounds, newest first, each with its verdict;
 - the open round: what was asked, the findings with severity and location, or
   for a round still running, its steps and how long this usually takes;
-- other branches of the same repository.
+- other branches of this worktree; one with nothing newer than a week is
+  folded under `+N more`. `w` adds the repository's other worktrees.
 
 `2` switches to **Agents** (with herdr): the sessions herdr runs, grouped by
 what needs you, with what each one's reviewer last said. Enter jumps to a session.
@@ -71,8 +74,9 @@ what needs you, with what each one's reviewer last said. Enter jumps to a sessio
 **Above the prompt**, one line while a reviewer works and the panel is not on
 screen. A toast when a round finishes.
 
-The panel opens by itself once the repository has reviews to show, and stays
-closed once you close it, until you type `/paf`.
+The panel opens by itself when a call in this worktree is running or has just
+finished, not for older reviews, and stays closed once you close it, until you
+type `/paf`.
 
 ## Keys (panel focused: `/paf`, a click, or `ctrl+x tab`)
 
@@ -84,7 +88,7 @@ closed once you close it, until you type `/paf`.
 | `s` | send the round's findings to Claude |
 | `c` | copy the reviewer's answer |
 | `b` | next branch |
-| `w` | this worktree only / all worktrees |
+| `w` | all worktrees / this worktree only (the default) |
 | `r` | refresh now |
 | `1` / `2` | Reviews / Agents |
 
@@ -115,9 +119,11 @@ One read off the answer is shown as the facts: `3 findings`, `no findings`.
 
 ## What it reads
 
-- `git worktree list` for the session's repository, then
-  `phone-a-friend task list --json --repo <worktree>` for each worktree, and
-  `task show <id> --json` for a running task. It never lists the whole task
+- `git worktree list` for the session's repository, `git branch --show-current`
+  for this worktree, then `phone-a-friend task list --json --repo <worktree>`
+  for this worktree, and for the others while the Agents tab or the
+  all-worktrees view needs them (up to 16; the panel says when more are left
+  out), and `task show <id> --json` for a running task. It never lists the whole task
   store, so another repository's records are not read. Before and after each
   listing, `git rev-parse --git-common-dir` confirms the path still belongs to
   this repository; outside git, or when that cannot be confirmed, nothing is

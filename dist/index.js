@@ -88139,11 +88139,23 @@ async function formatAgenticEvents(events) {
 }
 
 // src/index.ts
+function exitWhenFlushed(code) {
+  process.exitCode = code;
+  const streams = [process.stdout, process.stderr].filter((stream) => stream.writableLength > 0);
+  if (streams.length === 0) process.exit(code);
+  let pending = streams.length;
+  const done = () => {
+    pending -= 1;
+    if (pending === 0) process.exit(code);
+  };
+  setTimeout(() => process.exit(code), 5e3).unref();
+  for (const stream of streams) stream.write("", done);
+}
 run(process.argv.slice(2)).then(
-  (code) => process.exit(code),
+  (code) => exitWhenFlushed(code),
   (err) => {
     console.error(err);
-    process.exit(1);
+    exitWhenFlushed(1);
   }
 );
 /*! Bundled license information:
