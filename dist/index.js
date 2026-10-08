@@ -210,39 +210,219 @@ var init_schema_prompt = __esm({
   }
 });
 
+// node_modules/smol-toml/dist/error.js
+function getLineColFromPtr(string, ptr) {
+  let lines = string.slice(0, ptr).split(/\r?\n/);
+  return [lines.length, lines.pop().length + 1];
+}
+function makeCodeBlock(string, line, column) {
+  let lines = string.split(/\r?\n/);
+  let codeblock = "";
+  let numberLen = (Math.log10(line + 1) | 0) + 1;
+  for (let i = line - 1; i <= line + 1; i++) {
+    let l = lines[i - 1];
+    if (!l)
+      continue;
+    codeblock += i.toString().padEnd(numberLen, " ");
+    codeblock += ":  ";
+    codeblock += l;
+    codeblock += "\n";
+    if (i === line) {
+      codeblock += " ".repeat(numberLen + column + 2);
+      codeblock += "^\n";
+    }
+  }
+  return codeblock;
+}
+var TomlError;
+var init_error = __esm({
+  "node_modules/smol-toml/dist/error.js"() {
+    "use strict";
+    TomlError = class _TomlError extends Error {
+      line;
+      column;
+      codeblock;
+      constructor(message, options) {
+        const [line, column] = getLineColFromPtr(options.toml, options.ptr);
+        const codeblock = makeCodeBlock(options.toml, line, column);
+        super(`Invalid TOML document: ${message}
+
+${codeblock}`, options);
+        this.line = line;
+        this.column = column;
+        this.codeblock = codeblock;
+      }
+      /** @internal */
+      static x(message, ctx, ptr) {
+        throw new _TomlError(message, { toml: ctx.s, ptr: ptr ?? ctx.p });
+      }
+    };
+  }
+});
+
+// node_modules/smol-toml/dist/primitive.js
+function parseString(ctx) {
+  let startPtr = ctx.p;
+  let c = ctx.s.charCodeAt(ctx.p++);
+  let first = c;
+  let isLiteral = c === 39;
+  let isMultiline = c === ctx.s.charCodeAt(ctx.p) && c === ctx.s.charCodeAt(ctx.p + 1);
+  if (isMultiline) {
+    if ((c = ctx.s.charCodeAt(ctx.p += 2)) === 10)
+      ctx.p++;
+    else if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)
+      ctx.p += 2;
+  }
+  let parsed = "";
+  let sliceStart = ctx.p;
+  let state = 0;
+  for (; ctx.p < ctx.s.length; ctx.p++) {
+    c = ctx.s.charCodeAt(ctx.p);
+    if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
+      state = state && 3;
+    } else if (c < 32 && c !== 9 || c === 127) {
+      TomlError.x("control characters are not allowed in strings", ctx);
+    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
+      if (isMultiline) {
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+        if (ctx.s.charCodeAt(ctx.p + 3) === first)
+          ctx.p++;
+      }
+      if (!state) {
+        let s = ctx.s.slice(sliceStart, ctx.p);
+        parsed = parsed ? parsed + s : s;
+      }
+      ctx.p += isMultiline ? 3 : 1;
+      return parsed;
+    } else if (!state) {
+      if (!isLiteral && c === 92) {
+        parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
+        state = 1;
+      }
+    } else if (state === 1) {
+      if (c === 120 || c === 117 || c === 85) {
+        let errPtr = ctx.p++ - 1;
+        let value = 0;
+        let len = c === 120 ? 2 : c === 117 ? 4 : 8;
+        for (let j = 0; j < len; j++, ctx.p++) {
+          let hex = ctx.s.charCodeAt(ctx.p);
+          let digit = (
+            /* 0-9 */
+            hex >= 48 && hex <= 57 ? hex - 48 : (
+              /* A-F */
+              hex >= 65 && hex <= 70 ? hex - 65 + 10 : (
+                /* a-f */
+                hex >= 97 && hex <= 102 ? hex - 97 + 10 : -1
+              )
+            )
+          );
+          if (digit < 0)
+            TomlError.x("invalid non-hex character in unicode escape", ctx);
+          value = value << 4 | digit;
+        }
+        if (value < 0 || value > 1114111 || value >= 55296 && value <= 57343) {
+          TomlError.x("invalid unicode escape", ctx, errPtr);
+        }
+        parsed += String.fromCodePoint(value);
+        sliceStart = ctx.p--;
+        state = 0;
+      } else if (isMultiline && (c === 32 || c === 9)) {
+        state = 2;
+      } else {
+        if (c === 98)
+          parsed += "\b";
+        else if (c === 116)
+          parsed += "	";
+        else if (c === 110)
+          parsed += "\n";
+        else if (c === 102)
+          parsed += "\f";
+        else if (c === 114)
+          parsed += "\r";
+        else if (c === 101)
+          parsed += "\x1B";
+        else if (c === 34)
+          parsed += '"';
+        else if (c === 92)
+          parsed += "\\";
+        else
+          TomlError.x("unrecognised escape sequence", ctx);
+        sliceStart = ctx.p + 1;
+        state = 0;
+      }
+    } else if (c !== 32 && c !== 9) {
+      if (state === 2)
+        TomlError.x("invalid escape: only line-ending whitespace may be escaped", ctx, sliceStart);
+      state = !isLiteral && c === 92 ? 1 : 0;
+      sliceStart = ctx.p;
+    }
+  }
+  TomlError.x("unfinished string", ctx, startPtr);
+}
+var init_primitive = __esm({
+  "node_modules/smol-toml/dist/primitive.js"() {
+    "use strict";
+    init_error();
+  }
+});
+
 // node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE, TomlDate;
 var init_date = __esm({
   "node_modules/smol-toml/dist/date.js"() {
     "use strict";
-    DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
+    DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[Tt ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|z|[-+]\d{2}:\d{2})?$/i;
     TomlDate = class _TomlDate extends Date {
       #hasDate = false;
       #hasTime = false;
       #offset = null;
-      constructor(date) {
+      constructor(date, fasttype, unsafeDelim) {
         let hasDate = true;
         let hasTime = true;
         let offset = "Z";
+        let c;
         if (typeof date === "string") {
-          let match = date.match(DATE_TIME_RE);
-          if (match) {
-            if (!match[1]) {
-              hasDate = false;
-              date = `0000-01-01T${date}`;
+          if (fasttype)
+            prep: {
+              if (fasttype < 3) {
+                if (+date.slice(11, 13) > 23) {
+                  date = "";
+                  break prep;
+                }
+                if (fasttype === 2) {
+                  offset = null;
+                  date += "Z";
+                } else if ((c = date.charCodeAt(date.length - 1)) !== 90 && c !== 122) {
+                  offset = date.slice(date.length - 6);
+                }
+                if (unsafeDelim)
+                  date = date.slice(0, 10) + "T" + date.slice(11);
+              } else if (fasttype === 4) {
+                date = +date.slice(0, 2) > 23 ? "" : `0000-01-01T${date}Z`;
+              }
+              hasDate = fasttype !== 4;
+              hasTime = fasttype !== 3;
             }
-            hasTime = !!match[2];
-            hasTime && date[10] === " " && (date = date.replace(" ", "T"));
-            if (match[2] && +match[2] > 23) {
-              date = "";
+          else {
+            let match = date.match(DATE_TIME_RE);
+            if (match) {
+              if (!match[1]) {
+                hasDate = false;
+                date = `0000-01-01T${date}`;
+              }
+              hasTime = !!match[2];
+              hasTime && date[10] === " " && (date = date.replace(" ", "T"));
+              if (match[2] && +match[2] > 23) {
+                date = "";
+              } else {
+                offset = match[3] || null;
+                if (!offset && hasTime)
+                  date += "Z";
+              }
             } else {
-              offset = match[3] || null;
-              date = date.toUpperCase();
-              if (!offset && hasTime)
-                date += "Z";
+              date = "";
             }
-          } else {
-            date = "";
           }
         }
         super(date);
@@ -275,7 +455,7 @@ var init_date = __esm({
           return iso.slice(11, 23);
         if (this.#offset === null)
           return iso.slice(0, -1);
-        if (this.#offset === "Z")
+        if (this.#offset === "Z" || this.#offset === "z")
           return iso;
         let offset = +this.#offset.slice(1, 3) * 60 + +this.#offset.slice(4, 6);
         offset = this.#offset[0] === "-" ? offset : -offset;
@@ -308,59 +488,224 @@ var init_date = __esm({
   }
 });
 
-// node_modules/smol-toml/dist/error.js
-function getLineColFromPtr(string, ptr) {
-  let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
-  return [lines.length, lines.pop().length + 1];
+// node_modules/smol-toml/dist/extract.js
+function isDigit(char, base = 10) {
+  return base === 16 ? char > 47 && char < 58 || char > 64 && char < 71 || char > 96 && char < 103 : char > 47 && char < 48 + base;
 }
-function makeCodeBlock(string, line, column) {
-  let lines = string.split(/\r\n|\n|\r/g);
-  let codeblock = "";
-  let numberLen = (Math.log10(line + 1) | 0) + 1;
-  for (let i = line - 1; i <= line + 1; i++) {
-    let l = lines[i - 1];
-    if (!l)
-      continue;
-    codeblock += i.toString().padEnd(numberLen, " ");
-    codeblock += ":  ";
-    codeblock += l;
-    codeblock += "\n";
-    if (i === line) {
-      codeblock += " ".repeat(numberLen + column + 2);
-      codeblock += "^\n";
+function isEndOfValue(char, delim) {
+  return char === 32 || char === 9 || char === 10 || char === 13 || // Structure end or next value delimiter
+  delim && (char === delim || char === 44) || // Comment
+  char === 35;
+}
+function extractValue(ctx, end) {
+  let errPtr = ctx.p;
+  let c = ctx.s.charCodeAt(ctx.p);
+  if (c === 91 || c === 123) {
+    ctx.d-- || TomlError.x("document contains excessively nested structures. aborting.", ctx);
+    let value = c === 91 ? parseArray(ctx) : parseInlineTable(ctx);
+    ctx.d++;
+    return value;
+  }
+  if (c === 34 || c === 39) {
+    return parseString(ctx);
+  }
+  if (c === 116) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 114 || ctx.s.charCodeAt(++ctx.p) !== 117 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      TomlError.x("invalid value", ctx, errPtr);
+    return ctx.p++, true;
+  }
+  if (c === 102) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 108 || ctx.s.charCodeAt(++ctx.p) !== 115 || ctx.s.charCodeAt(++ctx.p) !== 101)
+      TomlError.x("invalid value", ctx, errPtr);
+    return ctx.p++, false;
+  }
+  if (c === 43 || c === 45) {
+    return parseNumber(ctx, ctx.p, ctx.s.charCodeAt(++ctx.p), 44 - c, end);
+  }
+  if (ctx.s.charCodeAt(ctx.p + 4) === 45 && ctx.s.charCodeAt(ctx.p + 7) === 45) {
+    return parseDate(ctx, c, end);
+  }
+  if (ctx.s.charCodeAt(ctx.p + 2) === 58) {
+    return parseTime(ctx, c, end);
+  }
+  return parseNumber(ctx, ctx.p, c, 0, end);
+}
+function parseNumber(ctx, startPtr, startChr, sign, endChr) {
+  let c = startChr;
+  let state = 0;
+  let hasUnderscores = false;
+  if (c === 105) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 110 || ctx.s.charCodeAt(++ctx.p) !== 102)
+      TomlError.x("invalid value", ctx, startPtr);
+    return ctx.p++, (sign || 1) / 0;
+  }
+  if (c === 110) {
+    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 110)
+      TomlError.x("invalid value", ctx, startPtr);
+    return ctx.p++, NaN;
+  }
+  if (c === 48) {
+    if (++ctx.p >= ctx.s.length || isEndOfValue(c = ctx.s.charCodeAt(ctx.p), endChr))
+      return ctx.bi === true ? 0n : 0;
+    if (!sign) {
+      if (c === 120)
+        return parseIntegerBaseN(ctx, startPtr, 16, endChr);
+      else if (c === 98)
+        return parseIntegerBaseN(ctx, startPtr, 2, endChr);
+      else if (c === 111)
+        return parseIntegerBaseN(ctx, startPtr, 8, endChr);
+    }
+    if (c === 46)
+      state = 2;
+    else if (c === 101 || c === 69)
+      state = 4;
+    else
+      TomlError.x("illegal leading zero", ctx, startPtr);
+  } else if (!isDigit(c))
+    TomlError.x("invalid value", ctx, startPtr);
+  while (++ctx.p < ctx.s.length && (c = ctx.s.charCodeAt(ctx.p), !isEndOfValue(c, endChr))) {
+    if (!state)
+      state = 1;
+    if (c === 95) {
+      if (!(state & 1))
+        TomlError.x("illegal underscore", ctx);
+      state += 11;
+      hasUnderscores = true;
+    } else if (state === 1 && c === 46)
+      state = 2;
+    else if ((state === 1 || state === 3) && (c === 101 || c === 69))
+      state = 4;
+    else if (state === 4 && (c === 43 || c === 45)) {
+    } else if (!isDigit(c))
+      TomlError.x(`illegal character in numeric literal`, ctx);
+    else if (state > 9)
+      state -= 11;
+    else if (!(state & 1))
+      state++;
+  }
+  if (!state) {
+    let val = (startChr - 48) * (sign || 1);
+    return ctx.bi === true ? BigInt(val) : val;
+  }
+  if (!(state & 1))
+    TomlError.x("unfinished numeric value", ctx, startPtr);
+  let str = ctx.s.slice(startPtr, ctx.p);
+  if (hasUnderscores)
+    str = str.replaceAll("_", "");
+  return state > 1 ? parseFloat(str) : parseInteger(ctx, str, 10, startPtr);
+}
+function parseIntegerBaseN(ctx, startPtr, base, endChr) {
+  let c, underscore = 1;
+  while (++ctx.p < ctx.s.length && (c = ctx.s.charCodeAt(ctx.p), !isEndOfValue(c, endChr))) {
+    if (c === 95) {
+      if (underscore & 1)
+        TomlError.x("illegal underscore", ctx);
+      underscore = 3;
+    } else if (!isDigit(c, base))
+      TomlError.x(`illegal character in numeric literal`, ctx);
+    else if (underscore & 1)
+      underscore--;
+  }
+  if (underscore & 1)
+    TomlError.x("unfinished numeric value", ctx);
+  let str = ctx.s.slice(startPtr + 2, ctx.p);
+  if (underscore)
+    str = str.replaceAll("_", "");
+  return parseInteger(ctx, str, base, startPtr);
+}
+function parseInteger(ctx, str, base, startPtr) {
+  if (ctx.bi !== true)
+    int: {
+      let val = parseInt(str, base);
+      if (!Number.isSafeInteger(val)) {
+        if (ctx.bi)
+          break int;
+        TomlError.x("integer value cannot be represented losslessly", ctx, startPtr);
+      }
+      return val;
+    }
+  return base === 10 ? BigInt(str) : BigInt((base === 2 ? "0b" : base === 8 ? "0o" : "0x") + str);
+}
+function parseDate(ctx, c, endChr) {
+  let startPtr = ctx.p++, unsafeSeparator;
+  if (!isDigit(c) || !isDigit(ctx.s.charCodeAt(ctx.p++)) || !isDigit(ctx.s.charCodeAt(ctx.p++)) || !isDigit(ctx.s.charCodeAt(ctx.p++))) {
+    return parseNumber(ctx, ctx.p = startPtr, c, 0, endChr);
+  }
+  ctx.p += 5;
+  if (!isDigit(ctx.s.charCodeAt(ctx.p++)))
+    TomlError.x("invalid date-time: date part is malformed", ctx, startPtr);
+  if (ctx.p >= ctx.s.length || ((c = ctx.s.charCodeAt(ctx.p)) !== 32 || (unsafeSeparator = true, !isDigit(ctx.s.charCodeAt(ctx.p + 1)))) && c !== 84 && c !== 116) {
+    let t2 = ctx.s.slice(startPtr, ctx.p);
+    return readDate(ctx, t2, 3, false, startPtr);
+  }
+  if (ctx.s.charCodeAt(ctx.p += 3) !== 58)
+    TomlError.x("invalid date-time: time part is malformed", ctx, startPtr);
+  if (ctx.s.charCodeAt(ctx.p += 3) === 58)
+    ctx.p += 3;
+  if (ctx.s.charCodeAt(ctx.p) === 46)
+    while (isDigit(ctx.s.charCodeAt(++ctx.p)))
+      ;
+  if (c = ctx.s.charCodeAt(ctx.p)) {
+    if (c === 90 || c === 122) {
+      let t2 = ctx.s.slice(startPtr, ++ctx.p);
+      return readDate(ctx, t2, 1, unsafeSeparator, startPtr, "[+00:00]");
+    }
+    if (c === 43 || c === 45) {
+      let t2 = ctx.s.slice(startPtr, ctx.p += 6);
+      return readDate(ctx, t2, 1, unsafeSeparator, startPtr, !ctx.ld && "[" + ctx.s.slice(ctx.p - 6, ctx.p) + "]");
     }
   }
-  return codeblock;
+  let t = ctx.s.slice(startPtr, ctx.p);
+  return readDate(ctx, t, 2, unsafeSeparator, startPtr);
 }
-var TomlError;
-var init_error = __esm({
-  "node_modules/smol-toml/dist/error.js"() {
+function parseTime(ctx, c, endChr) {
+  let start = ctx.p;
+  if (!isDigit(c) || !isDigit(ctx.s.charCodeAt(++ctx.p))) {
+    return parseNumber(ctx, --ctx.p, c, 0, endChr);
+  }
+  if (ctx.s.charCodeAt(ctx.p += 4) === 58)
+    ctx.p += 3;
+  if (ctx.s.charCodeAt(ctx.p) === 46)
+    while (isDigit(ctx.s.charCodeAt(++ctx.p)))
+      ;
+  let t = ctx.s.slice(start, ctx.p);
+  return readDate(ctx, t, 4, false, start);
+}
+function readDate(ctx, str, type, unsafeDelim, errPtr, temporalSuffix) {
+  if (ctx.ld) {
+    let date = new TomlDate(str, type, unsafeDelim);
+    if (!date.isValid())
+      TomlError.x("invalid date", ctx, errPtr);
+    return date;
+  }
+  try {
+    if (temporalSuffix)
+      str += temporalSuffix;
+    switch (type) {
+      case 1:
+        return Temporal.ZonedDateTime.from(str);
+      case 2:
+        return Temporal.PlainDateTime.from(str);
+      case 3:
+        return Temporal.PlainDate.from(str);
+      case 4:
+        return Temporal.PlainTime.from(str);
+    }
+  } catch (e) {
+    TomlError.x(e instanceof Error ? e.message : "" + e, ctx, errPtr);
+  }
+}
+var init_extract = __esm({
+  "node_modules/smol-toml/dist/extract.js"() {
     "use strict";
-    TomlError = class extends Error {
-      line;
-      column;
-      codeblock;
-      constructor(message, options) {
-        const [line, column] = getLineColFromPtr(options.toml, options.ptr);
-        const codeblock = makeCodeBlock(options.toml, line, column);
-        super(`Invalid TOML document: ${message}
-
-${codeblock}`, options);
-        this.line = line;
-        this.column = column;
-        this.codeblock = codeblock;
-      }
-    };
+    init_primitive();
+    init_struct();
+    init_error();
+    init_date();
   }
 });
 
 // node_modules/smol-toml/dist/util.js
-function indexOfNewline(str, start = 0) {
-  let idx = str.indexOf("\n", start);
-  if (str.charCodeAt(idx - 1) === 13)
-    idx--;
-  return idx;
-}
 function skipComment(ctx) {
   for (; ctx.p < ctx.s.length; ctx.p++) {
     let c = ctx.s.charCodeAt(ctx.p);
@@ -371,42 +716,19 @@ function skipComment(ctx) {
       break;
     }
     if (c < 32 && c !== 9 || c === 127) {
-      throw new TomlError("control characters are not allowed in comments", {
-        toml: ctx.s,
-        ptr: ctx.p
-      });
+      TomlError.x("control characters are not allowed in comments", ctx);
     }
   }
 }
 function skipVoid(ctx, banNewLines, banComments) {
   let c;
-  while (1) {
-    while ((c = ctx.s.charCodeAt(ctx.p)) === 32 || c === 9 || !banNewLines && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10))
+  while (ctx.p < ctx.s.length) {
+    while (ctx.p < ctx.s.length && ((c = ctx.s.charCodeAt(ctx.p)) === 32 || c === 9 || !banNewLines && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)))
       ctx.p++;
     if (banComments || c !== 35)
       break;
     skipComment(ctx);
   }
-}
-function skipUntil(ctx, sep3, end) {
-  let ptr = ctx.p;
-  if (!end) {
-    ptr = indexOfNewline(ctx.s, ptr);
-    ctx.p = ptr < 0 ? ctx.s.length : ptr;
-    return;
-  }
-  for (; ctx.p < ctx.s.length; ctx.p++) {
-    let c = ctx.s.charCodeAt(ctx.p);
-    if (c === 35) {
-      skipComment(ctx);
-    } else if (c === end || c === sep3) {
-      return;
-    }
-  }
-  throw new TomlError("cannot find end of structure", {
-    toml: ctx.s,
-    ptr
-  });
 }
 var init_util = __esm({
   "node_modules/smol-toml/dist/util.js"() {
@@ -415,282 +737,51 @@ var init_util = __esm({
   }
 });
 
-// node_modules/smol-toml/dist/primitive.js
-function parseString(ctx) {
-  let start = ctx.p;
-  let c = ctx.s.charCodeAt(ctx.p++);
-  let first = c;
-  let isLiteral = c === 39;
-  let isMultiline = c === ctx.s.charCodeAt(ctx.p) && c === ctx.s.charCodeAt(ctx.p + 1);
-  if (isMultiline) {
-    if ((c = ctx.s.charCodeAt(ctx.p += 2)) === 10)
-      ctx.p++;
-    else if (c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)
-      ctx.p += 2;
-  }
-  let parsed = "";
-  let sliceStart = ctx.p;
+// node_modules/smol-toml/dist/struct.js
+function parseKey(ctx, end = 61) {
+  let startPtr;
   let state = 0;
-  for (; ctx.p < ctx.s.length; ctx.p++) {
-    c = ctx.s.charCodeAt(ctx.p);
-    if (isMultiline && (c === 10 || c === 13 && ctx.s.charCodeAt(ctx.p + 1) === 10)) {
-      state = state && 3;
-    } else if (c < 32 && c !== 9 || c === 127) {
-      throw new TomlError("control characters are not allowed in strings", {
-        toml: ctx.s,
-        ptr: ctx.p
-      });
-    } else if ((!state || state === 3) && c === first && (!isMultiline || ctx.s.charCodeAt(ctx.p + 1) === first && ctx.s.charCodeAt(ctx.p + 2) === first)) {
-      if (isMultiline) {
-        if (ctx.s.charCodeAt(ctx.p + 3) === first)
-          ctx.p++;
-        if (ctx.s.charCodeAt(ctx.p + 3) === first)
-          ctx.p++;
-      }
+  let parsed = [];
+  let sliceStart;
+  let c = ctx.s.charCodeAt(startPtr = ctx.p);
+  do {
+    if (c === end) {
       if (!state)
-        parsed += ctx.s.slice(sliceStart, ctx.p);
-      ctx.p += isMultiline ? 3 : 1;
-      return parsed;
-    } else if (!state) {
-      if (!isLiteral && c === 92) {
-        parsed += ctx.s.slice(sliceStart, sliceStart = ctx.p);
-        state = 1;
-      }
-    } else if (state === 1) {
-      if (c === 120 || c === 117 || c === 85) {
-        let value = 0;
-        let len = c === 120 ? 2 : c === 117 ? 4 : 8;
-        for (let j = 0; j < len; j++, ctx.p++) {
-          let hex = ctx.s.charCodeAt(ctx.p + 1);
-          let digit = (
-            /* 0-9 */
-            hex >= 48 && hex <= 57 ? hex - 48 : (
-              /* A-F */
-              hex >= 65 && hex <= 70 ? hex - 65 + 10 : (
-                /* a-f */
-                hex >= 97 && hex <= 102 ? hex - 97 + 10 : -1
-              )
-            )
-          );
-          if (digit < 0)
-            throw new TomlError("invalid non-hex character in unicode escape", { toml: ctx.s, ptr: ctx.p + 1 });
-          value = value << 4 | digit;
-        }
-        if (value < 0 || value > 1114111 || value >= 55296 && value <= 57343) {
-          throw new TomlError("invalid unicode escape", { toml: ctx.s, ptr: ctx.p });
-        }
-        parsed += String.fromCodePoint(value);
-        sliceStart = ctx.p + 1;
-        state = 0;
-      } else if (c === 32 || c === 9) {
+        TomlError.x("unexpected end of key", ctx);
+      if (state === 1)
+        parsed.push(ctx.s.slice(sliceStart, ctx.p));
+      return ctx.p++, parsed;
+    } else if (c === 46) {
+      if (!state)
+        TomlError.x("illegal empty bare key", ctx);
+      if (state === 1)
+        parsed.push(ctx.s.slice(sliceStart, ctx.p));
+      state = 0;
+    } else if (!state && (c === 34 || c === 39)) {
+      if (c === ctx.s.charCodeAt(ctx.p + 1) && c === ctx.s.charCodeAt(ctx.p + 2))
+        TomlError.x("illegal quoted key: multiline strings are not allowed", ctx);
+      parsed.push(parseString(ctx));
+      state = 2;
+      ctx.p--;
+    } else if (c === 32 || c === 9) {
+      if (state === 1) {
+        parsed.push(ctx.s.slice(sliceStart, ctx.p));
         state = 2;
-      } else {
-        if (c === 98)
-          parsed += "\b";
-        else if (c === 116)
-          parsed += "	";
-        else if (c === 110)
-          parsed += "\n";
-        else if (c === 102)
-          parsed += "\f";
-        else if (c === 114)
-          parsed += "\r";
-        else if (c === 101)
-          parsed += "\x1B";
-        else if (c === 34)
-          parsed += '"';
-        else if (c === 92)
-          parsed += "\\";
-        else
-          throw new TomlError("unrecognized escape sequence", { toml: ctx.s, ptr: ctx.p });
-        sliceStart = ctx.p + 1;
-        state = 0;
       }
-    } else if (c !== 32 && c !== 9) {
-      if (state === 2) {
-        throw new TomlError("invalid escape: only line-ending whitespace may be escaped", {
-          toml: ctx.s,
-          ptr: sliceStart
-        });
-      }
-      state = !isLiteral && c === 92 ? 1 : 0;
+    } else if (state === 2 || c < 48 && c !== 45 || c > 57 && c < 65 || c > 90 && c < 97 && c !== 95 || c > 122) {
+      TomlError.x("illegal character in key", ctx);
+    } else if (!state) {
+      state = 1;
       sliceStart = ctx.p;
     }
-  }
-  throw new TomlError("unfinished string", { toml: ctx.s, ptr: start });
+  } while (c = ctx.s.charCodeAt(++ctx.p));
+  TomlError.x("incomplete key-value: cannot find end of key", ctx, startPtr);
 }
-function sliceAndTrimEndOf(ctx, start, end) {
-  let value = ctx.s.slice(start, end);
-  let commentIdx = value.indexOf("#");
-  if (commentIdx > 0) {
-    skipComment({ s: value, p: commentIdx, d: 0 });
-    value = value.slice(0, commentIdx);
-  }
-  return value.trimEnd();
-}
-function parseValue(ctx, integersAsBigInt, end) {
-  let ptr = ctx.p;
-  let err = { toml: ctx.s, ptr };
-  skipUntil(ctx, 44, end);
-  let value = sliceAndTrimEndOf(ctx, ptr, ctx.p);
-  if (!value)
-    throw new TomlError("incomplete declaration: value expected", err);
-  if (value === "-inf")
-    return -Infinity;
-  if (value === "inf" || value === "+inf")
-    return Infinity;
-  if (value === "nan" || value === "+nan" || value === "-nan")
-    return NaN;
-  if (value === "-0")
-    return integersAsBigInt ? 0n : 0;
-  let isInt = INT_REGEX.test(value);
-  if (isInt || FLOAT_REGEX.test(value)) {
-    if (LEADING_ZERO.test(value)) {
-      throw new TomlError("leading zeroes are not allowed", err);
-    }
-    value = value.replace(/_/g, "");
-    let numeric = +value;
-    if (isNaN(numeric)) {
-      throw new TomlError("invalid number", err);
-    }
-    if (isInt) {
-      if ((isInt = !Number.isSafeInteger(numeric)) && !integersAsBigInt) {
-        throw new TomlError("integer value cannot be represented losslessly", err);
-      }
-      if (isInt || integersAsBigInt === true)
-        numeric = BigInt(value);
-    }
-    return numeric;
-  }
-  const date = new TomlDate(value);
-  if (!date.isValid())
-    throw new TomlError("invalid value", err);
-  return date;
-}
-var INT_REGEX, FLOAT_REGEX, LEADING_ZERO;
-var init_primitive = __esm({
-  "node_modules/smol-toml/dist/primitive.js"() {
-    "use strict";
-    init_date();
-    init_error();
-    init_util();
-    INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
-    FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
-    LEADING_ZERO = /^[+-]?0[0-9_]/;
-  }
-});
-
-// node_modules/smol-toml/dist/extract.js
-function extractValue(ctx, end, integersAsBigInt) {
-  let ptr = ctx.p;
-  let c = ctx.s.charCodeAt(ptr);
-  if (c === 91 || c === 123) {
-    if (!ctx.d--) {
-      throw new TomlError("document contains excessively nested structures. aborting.", {
-        toml: ctx.s,
-        ptr
-      });
-    }
-    let value = c === 91 ? parseArray(ctx, integersAsBigInt) : parseInlineTable(ctx, integersAsBigInt);
-    ctx.d++;
-    return value;
-  }
-  if (c === 34 || c === 39) {
-    return parseString(ctx);
-  }
-  if (c === 116) {
-    if (ctx.s.charCodeAt(++ctx.p) !== 114 || ctx.s.charCodeAt(++ctx.p) !== 117 || ctx.s.charCodeAt(++ctx.p) !== 101)
-      throw new TomlError("invalid value", { toml: ctx.s, ptr });
-    ctx.p++;
-    return true;
-  }
-  if (c === 102) {
-    if (ctx.s.charCodeAt(++ctx.p) !== 97 || ctx.s.charCodeAt(++ctx.p) !== 108 || ctx.s.charCodeAt(++ctx.p) !== 115 || ctx.s.charCodeAt(++ctx.p) !== 101)
-      throw new TomlError("invalid value", { toml: ctx.s, ptr });
-    ctx.p++;
-    return false;
-  }
-  return parseValue(ctx, integersAsBigInt, end);
-}
-var init_extract = __esm({
-  "node_modules/smol-toml/dist/extract.js"() {
-    "use strict";
-    init_primitive();
-    init_struct();
-    init_error();
-  }
-});
-
-// node_modules/smol-toml/dist/struct.js
-function parseKey(ctx, end = "=") {
-  let start = ctx.p;
-  let dot = start - 1;
-  let parsed = [];
-  let endPtr = ctx.s.indexOf(end, start);
-  if (endPtr < 0) {
-    throw new TomlError("incomplete key-value: cannot find end of key", {
-      toml: ctx.s,
-      ptr: start
-    });
-  }
-  do {
-    let c = ctx.s.charCodeAt(ctx.p = ++dot);
-    if (c !== 32 && c !== 9) {
-      if (c === 34 || c === 39) {
-        if (c === ctx.s.charCodeAt(ctx.p + 1) && c === ctx.s.charCodeAt(ctx.p + 2)) {
-          throw new TomlError("multiline strings are not allowed in keys", {
-            toml: ctx.s,
-            ptr: ctx.p
-          });
-        }
-        let part = parseString(ctx);
-        dot = ctx.s.indexOf(".", ctx.p);
-        let strEnd = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
-        let newLine = indexOfNewline(strEnd);
-        if (newLine > -1) {
-          throw new TomlError("newlines are not allowed in keys", {
-            toml: ctx.s,
-            ptr: newLine
-          });
-        }
-        if (strEnd.trimStart()) {
-          throw new TomlError("found extra tokens after the string part", {
-            toml: ctx.s,
-            ptr: ctx.p
-          });
-        }
-        if (endPtr < ctx.p) {
-          endPtr = ctx.s.indexOf(end, ctx.p);
-          if (endPtr < 0) {
-            throw new TomlError("incomplete key-value: cannot find end of key", {
-              toml: ctx.s,
-              ptr: start
-            });
-          }
-        }
-        parsed.push(part);
-      } else {
-        dot = ctx.s.indexOf(".", ctx.p);
-        let part = ctx.s.slice(ctx.p, dot < 0 || dot > endPtr ? endPtr : dot);
-        if (!KEY_PART_RE.test(part)) {
-          throw new TomlError("only letter, numbers, dashes and underscores are allowed in keys", {
-            toml: ctx.s,
-            ptr: ctx.p
-          });
-        }
-        parsed.push(part.trimEnd());
-      }
-    }
-  } while (dot + 1 && dot < endPtr);
-  ctx.p = endPtr + 1;
-  skipVoid(ctx, true, true);
-  return parsed;
-}
-function parseInlineTable(ctx, integersAsBigInt) {
-  let res = {};
+function parseInlineTable(ctx) {
+  let startPtr = ctx.p++;
+  let res = /* @__PURE__ */ Object.create(null);
   let seen = /* @__PURE__ */ new Set();
   let c;
-  ctx.p++;
   while (ctx.p < ctx.s.length) {
     skipVoid(ctx);
     if ((c = ctx.s.charCodeAt(ctx.p)) === 125) {
@@ -700,68 +791,68 @@ function parseInlineTable(ctx, integersAsBigInt) {
     let k;
     let t = res;
     let hasOwn = false;
-    let p = ctx.p;
+    let errPtr = ctx.p;
     let key = parseKey(ctx);
     for (let i = 0; i < key.length; i++) {
       if (i)
-        t = hasOwn ? t[k] : t[k] = {};
+        t = hasOwn ? t[k] : t[k] = /* @__PURE__ */ Object.create(null);
       k = key[i];
       if ((hasOwn = Object.hasOwn(t, k)) && (typeof t[k] !== "object" || seen.has(t[k]))) {
-        throw new TomlError("trying to redefine an already defined value", {
-          toml: ctx.s,
-          ptr: p
-        });
+        TomlError.x("trying to redefine an already defined value", ctx, errPtr);
       }
-      if (!hasOwn && k === "__proto__") {
+      let unsafe = k === "__proto__";
+      if (ctx.uk && (unsafe || k === "constructor")) {
+        t = ctx.uk !== 1 && TomlError.x("document contains an unsafe property", ctx, errPtr);
+        break;
+      }
+      if (!hasOwn && unsafe) {
         Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
       }
     }
     if (hasOwn) {
-      throw new TomlError("trying to redefine an already defined value", {
-        toml: ctx.s,
-        ptr: ctx.p
-      });
+      TomlError.x("trying to redefine an already defined value", ctx, errPtr);
     }
-    let value = extractValue(ctx, 125, integersAsBigInt);
-    seen.add(t[k] = value);
+    skipVoid(ctx, true, true);
+    let value = extractValue(
+      ctx,
+      125
+      /* } */
+    );
+    if (t && typeof (t[k] = value) === "object")
+      seen.add(value);
     skipVoid(ctx);
     if ((c = ctx.s.charCodeAt(ctx.p++)) === 125) {
       return res;
     }
-    if (c !== 44) {
-      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
-    }
+    if (c !== 44)
+      TomlError.x("expected comma or end of structure", ctx, ctx.p - 1);
   }
-  throw new TomlError("unfinished table encountered", {
-    toml: ctx.s,
-    ptr: ctx.p
-  });
+  TomlError.x("unfinished table", ctx, startPtr);
 }
-function parseArray(ctx, integersAsBigInt) {
+function parseArray(ctx) {
+  let startPtr = ctx.p++;
   let res = [];
   let c;
-  ctx.p++;
   while (ctx.p < ctx.s.length) {
     skipVoid(ctx);
     if ((c = ctx.s.charCodeAt(ctx.p)) === 93) {
       ctx.p++;
       return res;
     }
-    res.push(extractValue(ctx, 93, integersAsBigInt));
+    res.push(extractValue(
+      ctx,
+      93
+      /* ] */
+    ));
     skipVoid(ctx);
     if ((c = ctx.s.charCodeAt(ctx.p++)) === 93) {
       return res;
     }
-    if (c !== 44) {
-      throw new TomlError("expected comma or end of structure", { toml: ctx.s, ptr: ctx.p - 1 });
-    }
+    if (c !== 44)
+      TomlError.x("expected comma or end of structure", ctx, ctx.p - 1);
   }
-  throw new TomlError("unfinished array encountered", {
-    toml: ctx.s,
-    ptr: ctx.p
-  });
+  TomlError.x("unfinished array", ctx, startPtr);
 }
-var KEY_PART_RE;
 var init_struct = __esm({
   "node_modules/smol-toml/dist/struct.js"() {
     "use strict";
@@ -769,12 +860,11 @@ var init_struct = __esm({
     init_extract();
     init_util();
     init_error();
-    KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
   }
 });
 
 // node_modules/smol-toml/dist/parse.js
-function peekTable(key, table, meta, type) {
+function peekTable(ctx, key, table, meta, type) {
   let t = table;
   let m = meta;
   let k;
@@ -782,7 +872,7 @@ function peekTable(key, table, meta, type) {
   let state;
   for (let i = 0; i < key.length; i++) {
     if (i) {
-      t = hasOwn ? t[k] : t[k] = {};
+      t = hasOwn ? t[k] : t[k] = /* @__PURE__ */ Object.create(null);
       m = (state = m[k]).c;
       if (type === 0 && (state.t === 1 || state.t === 2)) {
         return null;
@@ -798,7 +888,10 @@ function peekTable(key, table, meta, type) {
       return null;
     }
     if (!hasOwn) {
-      if (k === "__proto__") {
+      let unsafe = k === "__proto__";
+      if (ctx.uk && (unsafe || k === "constructor"))
+        return false;
+      if (unsafe) {
         Object.defineProperty(t, k, { enumerable: true, configurable: true, writable: true });
         Object.defineProperty(m, k, { enumerable: true, configurable: true, writable: true });
       }
@@ -806,7 +899,7 @@ function peekTable(key, table, meta, type) {
         t: i < key.length - 1 && type === 2 ? 3 : type,
         d: false,
         i: 0,
-        c: {}
+        c: /* @__PURE__ */ Object.create(null)
       };
     }
   }
@@ -819,43 +912,60 @@ function peekTable(key, table, meta, type) {
       state.d = true;
       t[k] = [];
     }
-    t[k].push(t = {});
-    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: {} };
+    t[k].push(t = /* @__PURE__ */ Object.create(null));
+    state.c[state.i++] = state = { t: 1, d: false, i: 0, c: /* @__PURE__ */ Object.create(null) };
   }
   if (state.d) {
     return null;
   }
   state.d = true;
   if (type === 1) {
-    t = hasOwn ? t[k] : t[k] = {};
+    t = hasOwn ? t[k] : t[k] = /* @__PURE__ */ Object.create(null);
   } else if (type === 0 && hasOwn) {
     return null;
   }
   return [k, t, state.c];
 }
-function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
-  let ctx = { s: toml, p: 0, d: maxDepth };
-  let res = {};
-  let meta = {};
+function validateTablePeek(ctx, peek, ptr) {
+  if (peek === null || ctx.uk === 2)
+    TomlError.x(peek === null ? "trying to redefine an already defined table or value" : "document contains an unsafe property", ctx, ptr);
+}
+function parse(toml, options = {}) {
+  let ctx = {
+    s: toml,
+    p: 0,
+    d: options.maxDepth ?? 1e3,
+    bi: options.integersAsBigInt ?? false,
+    ld: options.useLegacyDate ?? true,
+    uk: options.unsafeKeyBehaviour === "throw" ? 2 : options.unsafeKeyBehaviour === "drop" ? 1 : 0
+  };
+  let res = /* @__PURE__ */ Object.create(null);
+  let meta = /* @__PURE__ */ Object.create(null);
   let tmp;
+  let skipping = false;
   let tbl = res;
   let m = meta;
+  if (toml.charCodeAt(0) === 65279)
+    ctx.p++;
   skipVoid(ctx);
   while (ctx.p < toml.length) {
     if (toml.charCodeAt(ctx.p) === 91) {
       let isTableArray = toml.charCodeAt(++ctx.p) === 91;
       tmp = ctx.p += +isTableArray;
-      let k = parseKey(ctx, "]");
+      skipping = false;
+      let k = parseKey(
+        ctx,
+        93
+        /* ] */
+      );
       if (isTableArray) {
-        if (toml.charCodeAt(ctx.p - 1) !== 93) {
-          throw new TomlError("expected end of table declaration", {
-            toml,
-            ptr: ctx.p - 1
-          });
+        if (toml.charCodeAt(ctx.p) !== 93) {
+          TomlError.x("expected end of table array declaration", ctx);
         }
         ctx.p++;
       }
       let p = peekTable(
+        ctx,
         k,
         res,
         meta,
@@ -863,37 +973,33 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
         /* Type.EXPLICIT */
       );
       if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr: tmp
-        });
+        validateTablePeek(ctx, p, tmp);
+        skipping = true;
+      } else {
+        m = p[2];
+        tbl = p[1];
       }
-      m = p[2];
-      tbl = p[1];
     } else {
       tmp = ctx.p;
       let k = parseKey(ctx);
       let p = peekTable(
+        ctx,
         k,
         tbl,
         m,
         0
         /* Type.DOTTED */
       );
-      if (!p) {
-        throw new TomlError("trying to redefine an already defined table or value", {
-          toml,
-          ptr: tmp
-        });
-      }
-      p[1][p[0]] = extractValue(ctx, void 0, integersAsBigInt);
+      if (!p && !skipping)
+        validateTablePeek(ctx, p, tmp);
+      skipVoid(ctx, true, true);
+      let v = extractValue(ctx, void 0);
+      if (p && !skipping)
+        p[1][p[0]] = v;
     }
     skipVoid(ctx, true);
-    if (ctx.p < toml.length && (tmp = toml.charCodeAt(ctx.p)) !== 10 && tmp !== 13) {
-      throw new TomlError("each key-value declaration must be followed by an end-of-line", {
-        toml,
-        ptr: ctx.p
-      });
+    if (ctx.p < toml.length && (tmp = toml.charCodeAt(ctx.p)) !== 10 && (tmp !== 13 || toml.charCodeAt(ctx.p + 1) !== 10)) {
+      TomlError.x("each key-value declaration must be followed by an end-of-line", ctx);
     }
     skipVoid(ctx);
   }
@@ -915,11 +1021,21 @@ function extendedTypeOf(obj) {
   if (type === "object") {
     if (Array.isArray(obj))
       return "array";
-    if (typeof obj?.getUTCDate === "function" && obj instanceof Date)
+    if (typeof obj.getUTCDate === "function" && obj instanceof Date)
       return "date";
-    if (globalThis.Temporal && // check for the 'since' property as an early bailout that avoids running all 5 instanceof checks
-    typeof obj?.since === "function" && (obj instanceof Temporal.Instant || obj instanceof Temporal.PlainDate || obj instanceof Temporal.PlainDateTime || obj instanceof Temporal.PlainTime || obj instanceof Temporal.ZonedDateTime)) {
-      return "temporal";
+    if (globalThis.Temporal) {
+      if (obj.until) {
+        if (obj instanceof Temporal.ZonedDateTime)
+          return "temporal/tz+uc";
+        if (obj instanceof Temporal.PlainDateTime || obj instanceof Temporal.PlainDate)
+          return "temporal/uc";
+        if (obj instanceof Temporal.PlainTime || obj instanceof Temporal.Instant)
+          return "temporal";
+        if (obj instanceof Temporal.PlainYearMonth)
+          return "temporal/x";
+      } else if (obj.toPlainDate && obj instanceof Temporal.PlainMonthDay || obj.negated && obj instanceof Temporal.Duration) {
+        return "temporal/x";
+      }
     }
   }
   return type;
@@ -931,16 +1047,20 @@ function isArrayOfTables(obj) {
   }
   return obj.length != 0;
 }
+function formatWellFormedStringUnchecked(s) {
+  return JSON.stringify(s).replaceAll("\x7F", "\\u007f");
+}
 function formatString(s) {
-  return JSON.stringify(s).replace(/\x7f/g, "\\u007f");
+  return formatWellFormedStringUnchecked(HAS_WELLFORMED ? s.toWellFormed() : s);
 }
-function stringifyTemporal(temporal) {
-  return temporal.toString({
-    calendarName: "never",
-    timeZoneName: "never"
-  });
+function formatKey(s) {
+  if (BARE_KEY.test(s))
+    return s;
+  if (HAS_WELLFORMED && !s.isWellFormed())
+    throw new RangeError("key contains illegal lone surrogates");
+  return formatWellFormedStringUnchecked(s);
 }
-function stringifyValue(val, type, depth, numberAsFloat) {
+function stringifyValue(val, type, depth, numberAsFloat, strictTemporal) {
   if (depth === 0) {
     throw new Error("Could not stringify the object: maximum object depth exceeded");
   }
@@ -957,6 +1077,7 @@ function stringifyValue(val, type, depth, numberAsFloat) {
         return val.toFixed(1);
     case "bigint":
     case "boolean":
+    case "temporal":
       return val.toString();
     case "string":
       return formatString(val);
@@ -965,14 +1086,37 @@ function stringifyValue(val, type, depth, numberAsFloat) {
         throw new TypeError("cannot serialize invalid date");
       return val.toISOString();
     case "object":
-      return stringifyInlineTable(val, depth, numberAsFloat);
+      return stringifyInlineTable(val, depth, numberAsFloat, strictTemporal);
     case "array":
-      return stringifyArray(val, depth, numberAsFloat);
-    case "temporal":
-      return stringifyTemporal(val);
+      return stringifyArray(val, depth, numberAsFloat, strictTemporal);
+    // @ts-expect-error -- intentional fallthrough case
+    case "temporal/tz+uc":
+      if (strictTemporal) {
+        let tz = val.timeZoneId;
+        let tzc = tz.charCodeAt(0);
+        if (
+          // Classic offset
+          tzc !== 43 && tzc !== 45 && // Fast pre-check pass; see below for the actually accepted values
+          (tzc !== 85 && tzc !== 71 && tzc !== 90 && tzc !== 69 || // UTC and its aliases; Temporal implementations don't all canonicalise unfortunately
+          tz !== "UTC" && tz !== "UCT" && tz !== "Universal" && tz !== "Zulu" && // GMT is a TZ but it's for all intents and purposes equivalent to UTC. Safe to downgrade.
+          !tz.startsWith("GMT") && tz !== "Greenwich" && // Etc/* are all safe to downgrade to offset (either UTC, GMT, or offset)
+          !tz.startsWith("Etc/"))
+        ) {
+          throw new TypeError("Temporal objects with an IANA timezone are not allowed in Temporal strict mode");
+        }
+      }
+    case "temporal/uc":
+      if (strictTemporal && val.calendarId !== "iso8601")
+        throw new TypeError("Temporal objects with a non-default calendar are not allowed in Temporal strict mode");
+      return val.toString({
+        calendarName: "never",
+        timeZoneName: "never"
+      });
+    case "temporal/x":
+      throw new TypeError("Unsupported " + val[Symbol.toStringTag]);
   }
 }
-function stringifyInlineTable(obj, depth, numberAsFloat) {
+function stringifyInlineTable(obj, depth, numberAsFloat, strictTemporal) {
   let keys = Object.keys(obj);
   if (keys.length === 0)
     return "{}";
@@ -981,13 +1125,11 @@ function stringifyInlineTable(obj, depth, numberAsFloat) {
     let k = keys[i];
     if (i)
       res += ", ";
-    res += BARE_KEY.test(k) ? k : formatString(k);
-    res += " = ";
-    res += stringifyValue(obj[k], extendedTypeOf(obj[k]), depth - 1, numberAsFloat);
+    res += formatKey(k) + " = " + stringifyValue(obj[k], extendedTypeOf(obj[k]), depth - 1, numberAsFloat, strictTemporal);
   }
   return res + " }";
 }
-function stringifyArray(array, depth, numberAsFloat) {
+function stringifyArray(array, depth, numberAsFloat, strictTemporal) {
   if (array.length === 0)
     return "[]";
   let res = "[ ";
@@ -997,11 +1139,11 @@ function stringifyArray(array, depth, numberAsFloat) {
     if (array[i] === null || array[i] === void 0) {
       throw new TypeError("arrays cannot contain null or undefined values");
     }
-    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat);
+    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat, strictTemporal);
   }
   return res + " ]";
 }
-function stringifyArrayTable(array, key, depth, numberAsFloat) {
+function stringifyArrayTable(array, key, depth, numberAsFloat, strictTemporal) {
   if (depth === 0) {
     throw new Error("Could not stringify the object: maximum object depth exceeded");
   }
@@ -1009,11 +1151,11 @@ function stringifyArrayTable(array, key, depth, numberAsFloat) {
   for (let i = 0; i < array.length; i++) {
     res += `${res && "\n"}[[${key}]]
 `;
-    res += stringifyTable(0, array[i], key, depth, numberAsFloat);
+    res += stringifyTable(0, array[i], key, depth, numberAsFloat, strictTemporal);
   }
   return res;
 }
-function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat) {
+function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat, strictTemporal) {
   if (depth === 0) {
     throw new Error("Could not stringify the object: maximum object depth exceeded");
   }
@@ -1027,16 +1169,16 @@ function stringifyTable(tableKey, obj, prefix, depth, numberAsFloat) {
       if (type === "symbol" || type === "function") {
         throw new TypeError(`cannot serialize values of type '${type}'`);
       }
-      let key = BARE_KEY.test(k) ? k : formatString(k);
+      let key = formatKey(k);
       if (type === "array" && isArrayOfTables(obj[k])) {
-        tables += (tables && "\n") + stringifyArrayTable(obj[k], prefix ? `${prefix}.${key}` : key, depth - 1, numberAsFloat);
+        tables += (tables && "\n") + stringifyArrayTable(obj[k], prefix ? `${prefix}.${key}` : key, depth - 1, numberAsFloat, strictTemporal);
       } else if (type === "object") {
         let tblKey = prefix ? `${prefix}.${key}` : key;
-        tables += (tables && "\n") + stringifyTable(tblKey, obj[k], tblKey, depth - 1, numberAsFloat);
+        tables += (tables && "\n") + stringifyTable(tblKey, obj[k], tblKey, depth - 1, numberAsFloat, strictTemporal);
       } else {
         preamble += key;
         preamble += " = ";
-        preamble += stringifyValue(obj[k], type, depth, numberAsFloat);
+        preamble += stringifyValue(obj[k], type, depth, numberAsFloat, strictTemporal);
         preamble += "\n";
       }
     }
@@ -1047,20 +1189,21 @@ ${preamble}` : `[${tableKey}]`;
   return preamble && tables ? `${preamble}
 ${tables}` : preamble || tables;
 }
-function stringify(obj, { maxDepth = 1e3, numbersAsFloat = false } = {}) {
+function stringify(obj, { maxDepth = 1e3, numbersAsFloat = false, strictTemporal = false } = {}) {
   if (extendedTypeOf(obj) !== "object") {
     throw new TypeError("stringify can only be called with an object");
   }
-  let str = stringifyTable(0, obj, "", maxDepth, numbersAsFloat);
+  let str = stringifyTable(0, obj, "", maxDepth, numbersAsFloat, strictTemporal);
   if (str[str.length - 1] !== "\n")
     return str + "\n";
   return str;
 }
-var BARE_KEY;
+var BARE_KEY, HAS_WELLFORMED;
 var init_stringify = __esm({
   "node_modules/smol-toml/dist/stringify.js"() {
     "use strict";
     BARE_KEY = /^[a-z0-9-_]+$/i;
+    HAS_WELLFORMED = !!"".isWellFormed;
   }
 });
 
@@ -51090,7 +51233,7 @@ var require_backend = __commonJS({
       if (typeof exports === "object" && typeof module === "object")
         module.exports = factory();
       else if (typeof define === "function" && define.amd)
-        define([], factory);
+        define("ReactDevToolsBackend", [], factory);
       else if (typeof exports === "object")
         exports["ReactDevToolsBackend"] = factory();
       else
@@ -51114,7 +51257,7 @@ var require_backend = __commonJS({
                     return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
                   }, _typeof(o);
                 }
-                var ErrorStackParser = __webpack_require__2(206), React17 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
+                var ErrorStackParser = __webpack_require__2(206), React17 = __webpack_require__2(189), assign = Object.assign, ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel"), REACT_RECOVERABLE_TYPE = /* @__PURE__ */ Symbol.for("react.recoverable"), hasOwnProperty = Object.prototype.hasOwnProperty, hookLog = [], primitiveStackCache = null;
                 function getPrimitiveStackCache() {
                   if (null === primitiveStackCache) {
                     var cache3 = /* @__PURE__ */ new Map();
@@ -51168,6 +51311,10 @@ var require_backend = __commonJS({
                         Dispatcher.use({
                           $$typeof: REACT_CONTEXT_TYPE,
                           _currentValue: null
+                        });
+                        Dispatcher.use({
+                          $$typeof: REACT_RECOVERABLE_TYPE,
+                          _reason: void 0
                         });
                         Dispatcher.use({
                           then: function then() {
@@ -51240,6 +51387,17 @@ var require_backend = __commonJS({
                           dispatcherHookName: "Use"
                         });
                         throw SuspenseException;
+                      }
+                      if (usable.$$typeof === REACT_RECOVERABLE_TYPE) {
+                        hookLog.push({
+                          displayName: null,
+                          primitive: "Recoverable",
+                          stackError: Error(),
+                          value: void 0,
+                          debugInfo: null,
+                          dispatcherHookName: "Use"
+                        });
+                        return;
                       }
                       if (usable.$$typeof === REACT_CONTEXT_TYPE) return fulfilledValue = readContext(usable), hookLog.push({
                         displayName: usable.displayName || "Context",
@@ -51417,18 +51575,18 @@ var require_backend = __commonJS({
                     }];
                   },
                   useSyncExternalStore: function useSyncExternalStore(subscribe, getSnapshot) {
+                    subscribe = nextHook();
                     nextHook();
-                    nextHook();
-                    subscribe = getSnapshot();
+                    getSnapshot = null !== subscribe ? subscribe.memoizedState : getSnapshot();
                     hookLog.push({
                       displayName: null,
                       primitive: "SyncExternalStore",
                       stackError: Error(),
-                      value: subscribe,
+                      value: getSnapshot,
                       debugInfo: null,
                       dispatcherHookName: "SyncExternalStore"
                     });
-                    return subscribe;
+                    return getSnapshot;
                   },
                   useId: function useId() {
                     var hook = nextHook();
@@ -51709,8 +51867,7 @@ var require_backend = __commonJS({
                     throw wrapperError;
                   }
                 }
-                function inspectHooks(renderFunction, props, currentDispatcher) {
-                  null == currentDispatcher && (currentDispatcher = ReactSharedInternals);
+                function inspectHooksImpl(renderFunction, props, currentDispatcher) {
                   var previousDispatcher = currentDispatcher.H;
                   currentDispatcher.H = DispatcherProxy;
                   try {
@@ -51729,9 +51886,7 @@ var require_backend = __commonJS({
                     return context._currentValue = value;
                   });
                 }
-                __webpack_unused_export__ = inspectHooks;
-                exports2.inspectHooksOfFiber = function(fiber, currentDispatcher) {
-                  null == currentDispatcher && (currentDispatcher = ReactSharedInternals);
+                function inspectHooksOfFiberImpl(fiber, currentDispatcher) {
                   if (0 !== fiber.tag && 15 !== fiber.tag && 11 !== fiber.tag) throw Error("Unknown Fiber. Needs to be a function component to inspect hooks.");
                   getPrimitiveStackCache();
                   currentHook = fiber.memoizedState;
@@ -51765,10 +51920,8 @@ var require_backend = __commonJS({
                     if (11 === fiber.tag) {
                       var renderFunction = thenableState.render;
                       context = props;
-                      var ref = fiber.ref;
-                      fiber = currentDispatcher;
-                      var previousDispatcher = fiber.H;
-                      fiber.H = DispatcherProxy;
+                      var ref = fiber.ref, previousDispatcher = currentDispatcher.H;
+                      currentDispatcher.H = DispatcherProxy;
                       try {
                         var ancestorStackError = Error();
                         renderFunction(context, ref);
@@ -51777,15 +51930,27 @@ var require_backend = __commonJS({
                       } finally {
                         var readHookLog = hookLog;
                         hookLog = [];
-                        fiber.H = previousDispatcher;
+                        currentDispatcher.H = previousDispatcher;
                       }
                       var rootStack = void 0 === ancestorStackError ? [] : ErrorStackParser.parse(ancestorStackError);
                       return buildTree(rootStack, readHookLog);
                     }
-                    return inspectHooks(thenableState, props, currentDispatcher);
+                    return inspectHooksImpl(thenableState, props, currentDispatcher);
                   } finally {
                     currentThenableState = currentContextDependency = currentHook = currentFiber = null, currentThenableIndex = 0, restoreContexts(propName);
                   }
+                }
+                __webpack_unused_export__ = function(renderFunction, props, currentDispatcher) {
+                  return inspectHooksImpl(renderFunction, props, null != currentDispatcher ? currentDispatcher : ReactSharedInternals);
+                };
+                exports2.inspectHooksOfFiber = function(fiber, currentDispatcher) {
+                  return inspectHooksOfFiberImpl(fiber, null != currentDispatcher ? currentDispatcher : ReactSharedInternals);
+                };
+                __webpack_unused_export__ = function(fiber, currentDispatcher) {
+                  return inspectHooksOfFiberImpl(fiber, currentDispatcher);
+                };
+                __webpack_unused_export__ = function(renderFunction, props, currentDispatcher) {
+                  return inspectHooksImpl(renderFunction, props, currentDispatcher);
                 };
               })
             ),
@@ -51814,13 +51979,13 @@ var require_backend = __commonJS({
                     return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
                   }, _typeof(o);
                 }
-                var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_POSTPONE_TYPE = /* @__PURE__ */ Symbol.for("react.postpone"), REACT_VIEW_TRANSITION_TYPE = /* @__PURE__ */ Symbol.for("react.view_transition"), MAYBE_ITERATOR_SYMBOL = Symbol.iterator;
+                var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_VIEW_TRANSITION_TYPE = /* @__PURE__ */ Symbol.for("react.view_transition"), MAYBE_ITERATOR_SYMBOL = Symbol.iterator;
                 function getIteratorFn(maybeIterable) {
                   if (null === maybeIterable || "object" !== _typeof(maybeIterable)) return null;
                   maybeIterable = MAYBE_ITERATOR_SYMBOL && maybeIterable[MAYBE_ITERATOR_SYMBOL] || maybeIterable["@@iterator"];
                   return "function" === typeof maybeIterable ? maybeIterable : null;
                 }
-                var ReactNoopUpdateQueue = {
+                var REACT_OPTIMISTIC_KEY = /* @__PURE__ */ Symbol.for("react.optimistic_key"), ReactNoopUpdateQueue = {
                   isMounted: function isMounted() {
                     return false;
                   },
@@ -51895,7 +52060,7 @@ var require_backend = __commonJS({
                 }
                 var userProvidedKeyEscapeRegex = /\/+/g;
                 function getElementKey(element, index) {
-                  return "object" === _typeof(element) && null !== element && null != element.key ? escape3("" + element.key) : index.toString(36);
+                  return "object" === _typeof(element) && null !== element && null != element.key ? element.key === REACT_OPTIMISTIC_KEY ? index.toString(36) : escape3("" + element.key) : index.toString(36);
                 }
                 function resolveThenable(thenable) {
                   switch (thenable.status) {
@@ -51962,14 +52127,13 @@ var require_backend = __commonJS({
                 }
                 function lazyInitializer(payload) {
                   if (-1 === payload._status) {
-                    var ctor = payload._result;
-                    ctor = ctor();
-                    ctor.then(function(moduleObject) {
-                      if (0 === payload._status || -1 === payload._status) payload._status = 1, payload._result = moduleObject;
+                    var ctor = payload._result, thenable = ctor();
+                    thenable.then(function(moduleObject) {
+                      if (0 === payload._status || -1 === payload._status) payload._status = 1, payload._result = moduleObject, void 0 === thenable.status && (thenable.status = "fulfilled", thenable.value = moduleObject);
                     }, function(error2) {
-                      if (0 === payload._status || -1 === payload._status) payload._status = 2, payload._result = error2;
+                      if (0 === payload._status || -1 === payload._status) payload._status = 2, payload._result = error2, void 0 === thenable.status && (thenable.status = "rejected", thenable.reason = error2);
                     });
-                    -1 === payload._status && (payload._status = 0, payload._result = ctor);
+                    -1 === payload._status && (payload._status = 0, payload._result = thenable);
                   }
                   if (1 === payload._status) return payload._result.default;
                   throw payload._result;
@@ -52066,7 +52230,7 @@ var require_backend = __commonJS({
                 exports2.cloneElement = function(element, config, children) {
                   if (null === element || void 0 === element) throw Error("The argument must be a React element, but you passed " + element + ".");
                   var props = assign({}, element.props), key = element.key;
-                  if (null != config) for (propName in void 0 !== config.key && (key = "" + config.key), config) !hasOwnProperty.call(config, propName) || "key" === propName || "__self" === propName || "__source" === propName || "ref" === propName && void 0 === config.ref || (props[propName] = config[propName]);
+                  if (null != config) for (propName in void 0 !== config.key && (key = config.key === REACT_OPTIMISTIC_KEY ? REACT_OPTIMISTIC_KEY : "" + config.key), config) !hasOwnProperty.call(config, propName) || "key" === propName || "__self" === propName || "__source" === propName || "ref" === propName && void 0 === config.ref || (props[propName] = config[propName]);
                   var propName = arguments.length - 2;
                   if (1 === propName) props.children = children;
                   else if (1 < propName) {
@@ -52093,7 +52257,7 @@ var require_backend = __commonJS({
                 };
                 exports2.createElement = function(type, config, children) {
                   var propName, props = {}, key = null;
-                  if (null != config) for (propName in void 0 !== config.key && (key = "" + config.key), config) hasOwnProperty.call(config, propName) && "key" !== propName && "__self" !== propName && "__source" !== propName && (props[propName] = config[propName]);
+                  if (null != config) for (propName in void 0 !== config.key && (key = config.key === REACT_OPTIMISTIC_KEY ? REACT_OPTIMISTIC_KEY : "" + config.key), config) hasOwnProperty.call(config, propName) && "key" !== propName && "__self" !== propName && "__source" !== propName && (props[propName] = config[propName]);
                   var childrenLength = arguments.length - 2;
                   if (1 === childrenLength) props.children = children;
                   else if (1 < childrenLength) {
@@ -52135,17 +52299,13 @@ var require_backend = __commonJS({
                     compare: void 0 === compare ? null : compare
                   };
                 };
+                exports2.optimisticKey = REACT_OPTIMISTIC_KEY;
                 exports2.startTransition = startTransition;
                 exports2.unstable_Activity = REACT_ACTIVITY_TYPE;
                 exports2.unstable_SuspenseList = REACT_SUSPENSE_LIST_TYPE;
                 exports2.unstable_getCacheForType = function(resourceType) {
                   var dispatcher = ReactSharedInternals.A;
                   return dispatcher ? dispatcher.getCacheForType(resourceType) : resourceType();
-                };
-                exports2.unstable_postpone = function(reason) {
-                  reason = Error(reason);
-                  reason.$$typeof = REACT_POSTPONE_TYPE;
-                  throw reason;
                 };
                 exports2.unstable_startGestureTransition = function(provider, scope, options) {
                   if (null == provider) throw Error("A Timeline is required as the first argument to startGestureTransition.");
@@ -52222,7 +52382,7 @@ var require_backend = __commonJS({
                 exports2.useTransition = function() {
                   return ReactSharedInternals.H.useTransition();
                 };
-                exports2.version = "19.3.0-experimental-3cde211b-20251020";
+                exports2.version = "19.3.0-experimental-1d34f91d-20260909";
               })
             ),
             /***/
@@ -53771,6 +53931,7 @@ var require_backend = __commonJS({
               )
             });
             ;
+            var process24 = __webpack_require__(169);
             function _typeof(o) {
               "@babel/helpers - typeof";
               return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
@@ -53778,6 +53939,35 @@ var require_backend = __commonJS({
               } : function(o2) {
                 return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
               }, _typeof(o);
+            }
+            var reportGlobalError = typeof reportError === "function" ? reportError : function(error2) {
+              if ((typeof window === "undefined" ? "undefined" : _typeof(window)) === "object" && typeof window.ErrorEvent === "function") {
+                var message = _typeof(error2) === "object" && error2 !== null && typeof error2.message === "string" ? String(error2.message) : String(error2);
+                var event = new window.ErrorEvent("error", {
+                  bubbles: true,
+                  cancelable: true,
+                  message,
+                  error: error2
+                });
+                var shouldLog = window.dispatchEvent(event);
+                if (!shouldLog) {
+                  return;
+                }
+              } else if ((typeof process24 === "undefined" ? "undefined" : _typeof(process24)) === "object" && typeof process24.emit === "function") {
+                process24.emit("uncaughtException", error2);
+                return;
+              }
+              console["error"](error2);
+            };
+            const shared_reportGlobalError = reportGlobalError;
+            ;
+            function events_typeof(o) {
+              "@babel/helpers - typeof";
+              return events_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
+                return typeof o2;
+              } : function(o2) {
+                return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
+              }, events_typeof(o);
             }
             function _classCallCheck(instance, Constructor) {
               if (!(instance instanceof Constructor)) {
@@ -53810,14 +54000,14 @@ var require_backend = __commonJS({
             }
             function _toPropertyKey(t) {
               var i = _toPrimitive(t, "string");
-              return "symbol" == _typeof(i) ? i : i + "";
+              return "symbol" == events_typeof(i) ? i : i + "";
             }
             function _toPrimitive(t, r) {
-              if ("object" != _typeof(t) || !t) return t;
+              if ("object" != events_typeof(t) || !t) return t;
               var e = t[Symbol.toPrimitive];
               if (void 0 !== e) {
                 var i = e.call(t, r || "default");
-                if ("object" != _typeof(i)) return i;
+                if ("object" != events_typeof(i)) return i;
                 throw new TypeError("@@toPrimitive must return a primitive value.");
               }
               return ("string" === r ? String : Number)(t);
@@ -53860,9 +54050,11 @@ var require_backend = __commonJS({
                         try {
                           _listener.apply(null, args);
                         } catch (error2) {
-                          if (caughtError === null) {
+                          if (!didThrow) {
                             didThrow = true;
                             caughtError = error2;
+                          } else {
+                            shared_reportGlobalError(error2);
                           }
                         }
                       }
@@ -53901,15 +54093,14 @@ var require_backend = __commonJS({
             var TREE_OPERATION_REORDER_CHILDREN = 3;
             var TREE_OPERATION_UPDATE_TREE_BASE_DURATION = 4;
             var TREE_OPERATION_UPDATE_ERRORS_OR_WARNINGS = 5;
-            var TREE_OPERATION_REMOVE_ROOT = 6;
             var TREE_OPERATION_SET_SUBTREE_MODE = 7;
             var SUSPENSE_TREE_OPERATION_ADD = 8;
             var SUSPENSE_TREE_OPERATION_REMOVE = 9;
             var SUSPENSE_TREE_OPERATION_REORDER_CHILDREN = 10;
             var SUSPENSE_TREE_OPERATION_RESIZE = 11;
             var SUSPENSE_TREE_OPERATION_SUSPENDERS = 12;
+            var TREE_OPERATION_APPLIED_ACTIVITY_SLICE_CHANGE = 13;
             var PROFILING_FLAG_BASIC_SUPPORT = 1;
-            var PROFILING_FLAG_TIMELINE_SUPPORT = 2;
             var PROFILING_FLAG_PERFORMANCE_TRACKS_SUPPORT = 4;
             var UNKNOWN_SUSPENDERS_NONE = 0;
             var UNKNOWN_SUSPENDERS_REASON_PRODUCTION = 1;
@@ -53923,7 +54114,6 @@ var require_backend = __commonJS({
             var constants_LOCAL_STORAGE_ALWAYS_OPEN_IN_EDITOR = "React::DevTools::alwaysOpenInEditor";
             var LOCAL_STORAGE_PARSE_HOOK_NAMES_KEY = "React::DevTools::parseHookNames";
             var constants_SESSION_STORAGE_RECORD_CHANGE_DESCRIPTIONS_KEY = "React::DevTools::recordChangeDescriptions";
-            var constants_SESSION_STORAGE_RECORD_TIMELINE_KEY = "React::DevTools::recordTimeline";
             var constants_SESSION_STORAGE_RELOAD_AND_PROFILE_KEY = "React::DevTools::reloadAndProfile";
             var LOCAL_STORAGE_BROWSER_THEME = "React::DevTools::theme";
             var LOCAL_STORAGE_TRACE_UPDATES_ENABLED_KEY = "React::DevTools::traceUpdatesEnabled";
@@ -54082,114 +54272,6 @@ var require_backend = __commonJS({
             var lru_cache = __webpack_require__(730);
             var lru_cache_default = /* @__PURE__ */ __webpack_require__.n(lru_cache);
             ;
-            var enableHydrationLaneScheduling = true;
-            var disableSchedulerTimeoutInWorkLoop = false;
-            var enableSuspenseCallback = false;
-            var enableScopeAPI = false;
-            var enableCreateEventHandleAPI = false;
-            var enableLegacyFBSupport = false;
-            var enableYieldingBeforePassive = false;
-            var enableThrottledScheduling = false;
-            var enableLegacyCache = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableAsyncIterableChildren = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableTaint = (
-              /* unused pure expression or super */
-              null
-            );
-            var enablePostpone = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableHalt = true;
-            var enableViewTransition = true;
-            var enableGestureTransition = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableScrollEndPolyfill = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableSuspenseyImages = false;
-            var enableFizzBlockingRender = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableSrcObject = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableHydrationChangeEvent = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableDefaultTransitionIndicator = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableObjectFiber = false;
-            var enableTransitionTracing = false;
-            var enableLegacyHidden = false;
-            var enableSuspenseAvoidThisFallback = false;
-            var enableCPUSuspense = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableNoCloningMemoCache = false;
-            var enableUseEffectEventHook = true;
-            var enableFizzExternalRuntime = (
-              /* unused pure expression or super */
-              null
-            );
-            var alwaysThrottleRetries = true;
-            var passChildrenWhenCloningPersistedNodes = false;
-            var enableEagerAlternateStateNodeCleanup = true;
-            var enableRetryLaneExpiration = false;
-            var retryLaneExpirationMs = 5e3;
-            var syncLaneExpirationMs = 250;
-            var transitionLaneExpirationMs = 5e3;
-            var enableInfiniteRenderLoopDetection = false;
-            var enableFragmentRefs = true;
-            var enableFragmentRefsScrollIntoView = true;
-            var renameElementSymbol = true;
-            var enableHiddenSubtreeInsertionEffectCleanup = true;
-            var disableLegacyContext = true;
-            var disableLegacyContextForFunctionComponents = true;
-            var enableMoveBefore = false;
-            var disableClientCache = true;
-            var enableReactTestRendererWarning = true;
-            var disableLegacyMode = true;
-            var disableCommentsAsDOMContainers = true;
-            var enableTrustedTypesIntegration = false;
-            var disableInputAttributeSyncing = false;
-            var disableTextareaChildren = false;
-            var enableProfilerTimer = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableComponentPerformanceTrack = true;
-            var enableSchedulingProfiler = !enableComponentPerformanceTrack && false;
-            var enableProfilerCommitHooks = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableProfilerNestedUpdatePhase = (
-              /* unused pure expression or super */
-              null
-            );
-            var enableAsyncDebugInfo = true;
-            var enableUpdaterTracking = (
-              /* unused pure expression or super */
-              null
-            );
-            var ownerStackLimit = 1e4;
-            ;
             function ReactSymbols_typeof(o) {
               "@babel/helpers - typeof";
               return ReactSymbols_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
@@ -54199,7 +54281,7 @@ var require_backend = __commonJS({
               }, ReactSymbols_typeof(o);
             }
             var REACT_LEGACY_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.element");
-            var REACT_ELEMENT_TYPE = renameElementSymbol ? /* @__PURE__ */ Symbol.for("react.transitional.element") : REACT_LEGACY_ELEMENT_TYPE;
+            var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element");
             var REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal");
             var REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment");
             var REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode");
@@ -54216,8 +54298,8 @@ var require_backend = __commonJS({
             var REACT_LEGACY_HIDDEN_TYPE = /* @__PURE__ */ Symbol.for("react.legacy_hidden");
             var REACT_TRACING_MARKER_TYPE = /* @__PURE__ */ Symbol.for("react.tracing_marker");
             var REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
-            var REACT_POSTPONE_TYPE = /* @__PURE__ */ Symbol.for("react.postpone");
             var REACT_VIEW_TRANSITION_TYPE = /* @__PURE__ */ Symbol.for("react.view_transition");
+            var REACT_RECOVERABLE_TYPE = /* @__PURE__ */ Symbol.for("react.recoverable");
             var MAYBE_ITERATOR_SYMBOL = Symbol.iterator;
             var FAUX_ITERATOR_SYMBOL = "@@iterator";
             function getIteratorFn(maybeIterable) {
@@ -54231,6 +54313,7 @@ var require_backend = __commonJS({
               return null;
             }
             var ASYNC_ITERATOR = Symbol.asyncIterator;
+            var REACT_OPTIMISTIC_KEY = /* @__PURE__ */ Symbol.for("react.optimistic_key");
             ;
             var types_ElementTypeClass = 1;
             var ElementTypeContext = 2;
@@ -54249,15 +54332,18 @@ var require_backend = __commonJS({
             var ElementTypeActivity = 17;
             var ComponentFilterElementType = 1;
             var ComponentFilterDisplayName = 2;
-            var ComponentFilterLocation = 3;
+            var types_ComponentFilterLocation = 3;
             var ComponentFilterHOC = 4;
             var ComponentFilterEnvironmentName = 5;
+            var types_ComponentFilterActivitySlice = 6;
             var StrictMode = 1;
+            var ActivityHiddenMode = 2;
+            var ActivityVisibleMode = 3;
             ;
             var isArray = Array.isArray;
             const src_isArray = isArray;
             ;
-            var process24 = __webpack_require__(169);
+            var utils_process = __webpack_require__(169);
             function ownKeys(e, r) {
               var t = Object.keys(e);
               if (Object.getOwnPropertySymbols) {
@@ -54471,11 +54557,6 @@ var require_backend = __commonJS({
                     }
                     break;
                   }
-                  case TREE_OPERATION_REMOVE_ROOT: {
-                    i += 1;
-                    logs.push("Remove root ".concat(rootID));
-                    break;
-                  }
                   case TREE_OPERATION_SET_SUBTREE_MODE: {
                     var _id2 = operations[i + 1];
                     var mode = operations[i + 2];
@@ -54581,11 +54662,18 @@ var require_backend = __commonJS({
                     for (var changeIndex = 0; changeIndex < changeLength; changeIndex++) {
                       var _id8 = operations[i++];
                       var hasUniqueSuspenders = operations[i++] === 1;
+                      var endTime = operations[i++] / 1e3;
                       var _isSuspended = operations[i++] === 1;
                       var environmentNamesLength = operations[i++];
                       i += environmentNamesLength;
-                      logs.push("Suspense node ".concat(_id8, " unique suspenders set to ").concat(String(hasUniqueSuspenders), " is suspended set to ").concat(String(_isSuspended), " with ").concat(String(environmentNamesLength), " environments"));
+                      logs.push("Suspense node ".concat(_id8, " unique suspenders set to ").concat(String(hasUniqueSuspenders), " ending at ").concat(String(endTime), " is suspended set to ").concat(String(_isSuspended), " with ").concat(String(environmentNamesLength), " environments"));
                     }
+                    break;
+                  }
+                  case TREE_OPERATION_APPLIED_ACTIVITY_SLICE_CHANGE: {
+                    i++;
+                    var activitySliceIDChange = operations[i++];
+                    logs.push(activitySliceIDChange === 0 ? "Reset applied activity slice" : "Applied activity slice change to " + activitySliceIDChange);
                     break;
                   }
                   default:
@@ -54606,29 +54694,29 @@ var require_backend = __commonJS({
                 var raw = localStorageGetItem(LOCAL_STORAGE_COMPONENT_FILTER_PREFERENCES_KEY);
                 if (raw != null) {
                   var parsedFilters = JSON.parse(raw);
-                  return filterOutLocationComponentFilters(parsedFilters);
+                  return persistableComponentFilters(parsedFilters);
                 }
               } catch (error2) {
               }
               return getDefaultComponentFilters();
             }
             function setSavedComponentFilters(componentFilters) {
-              localStorageSetItem(LOCAL_STORAGE_COMPONENT_FILTER_PREFERENCES_KEY, JSON.stringify(filterOutLocationComponentFilters(componentFilters)));
+              localStorageSetItem(LOCAL_STORAGE_COMPONENT_FILTER_PREFERENCES_KEY, JSON.stringify(persistableComponentFilters(componentFilters)));
             }
-            function filterOutLocationComponentFilters(componentFilters) {
+            function persistableComponentFilters(componentFilters) {
               if (!Array.isArray(componentFilters)) {
                 return componentFilters;
               }
               return componentFilters.filter(function(f) {
-                return f.type !== ComponentFilterLocation;
+                return f.type !== ComponentFilterLocation && f.type !== ComponentFilterActivitySlice;
               });
             }
             var vscodeFilepath = "vscode://file/{path}:{line}:{column}";
             function getDefaultPreset() {
-              return typeof process24.env.EDITOR_URL === "string" ? "custom" : "vscode";
+              return typeof utils_process.env.EDITOR_URL === "string" ? "custom" : "vscode";
             }
             function getDefaultOpenInEditorURL() {
-              return typeof process24.env.EDITOR_URL === "string" ? process24.env.EDITOR_URL : vscodeFilepath;
+              return typeof utils_process.env.EDITOR_URL === "string" ? utils_process.env.EDITOR_URL : vscodeFilepath;
             }
             function getOpenInEditorURL() {
               try {
@@ -54792,7 +54880,7 @@ var require_backend = __commonJS({
                   if (Number.isNaN(data)) {
                     return "nan";
                   } else if (!Number.isFinite(data)) {
-                    return "infinity";
+                    return data > 0 ? "infinity" : "-infinity";
                   } else {
                     return "number";
                   }
@@ -55145,6 +55233,7 @@ var require_backend = __commonJS({
                 case "boolean":
                 case "number":
                 case "infinity":
+                case "-infinity":
                 case "nan":
                 case "null":
                 case "undefined":
@@ -55192,19 +55281,16 @@ var require_backend = __commonJS({
             }
             function getProfilingSettings() {
               return {
-                recordChangeDescriptions: sessionStorageGetItem(SESSION_STORAGE_RECORD_CHANGE_DESCRIPTIONS_KEY) === "true",
-                recordTimeline: sessionStorageGetItem(SESSION_STORAGE_RECORD_TIMELINE_KEY) === "true"
+                recordChangeDescriptions: sessionStorageGetItem(SESSION_STORAGE_RECORD_CHANGE_DESCRIPTIONS_KEY) === "true"
               };
             }
-            function onReloadAndProfile(recordChangeDescriptions, recordTimeline) {
+            function onReloadAndProfile(recordChangeDescriptions) {
               sessionStorageSetItem(SESSION_STORAGE_RELOAD_AND_PROFILE_KEY, "true");
               sessionStorageSetItem(SESSION_STORAGE_RECORD_CHANGE_DESCRIPTIONS_KEY, recordChangeDescriptions ? "true" : "false");
-              sessionStorageSetItem(SESSION_STORAGE_RECORD_TIMELINE_KEY, recordTimeline ? "true" : "false");
             }
             function onReloadAndProfileFlagsReset() {
               sessionStorageRemoveItem(SESSION_STORAGE_RELOAD_AND_PROFILE_KEY);
               sessionStorageRemoveItem(SESSION_STORAGE_RECORD_CHANGE_DESCRIPTIONS_KEY);
-              sessionStorageRemoveItem(SESSION_STORAGE_RECORD_TIMELINE_KEY);
             }
             function unionOfTwoArrays(a, b) {
               var result = a;
@@ -55585,6 +55671,7 @@ var require_backend = __commonJS({
                   return _value;
                 }
                 case "infinity":
+                case "-infinity":
                 case "nan":
                 case "undefined":
                   cleaned.push(path4);
@@ -55658,6 +55745,8 @@ var require_backend = __commonJS({
                   return;
                 } else if (value.type === "infinity") {
                   parent[last] = Infinity;
+                } else if (value.type === "-infinity") {
+                  parent[last] = -Infinity;
                 } else if (value.type === "nan") {
                   parent[last] = NaN;
                 } else if (value.type === "undefined") {
@@ -55910,7 +55999,7 @@ var require_backend = __commonJS({
               var formatted = safeToString(maybeMessage);
               if (typeof maybeMessage === "string") {
                 if (args.length) {
-                  var REGEXP = /(%?)(%([jds]))/g;
+                  var REGEXP = /(%?)(%([jdisf]))/g;
                   formatted = formatted.replace(REGEXP, function(match, escaped, ptn, flag) {
                     var arg = args.shift();
                     switch (flag) {
@@ -56087,7 +56176,7 @@ var require_backend = __commonJS({
                 baseComponentName: "",
                 hocNames: []
               };
-              var hocRegex = /([A-Z][a-zA-Z0-9]*?)\((.*)\)/g;
+              var hocRegex = /^([A-Za-z_$][A-Za-z0-9_$]*)\((.*)\)$/;
               var hocNames = [];
               var baseComponentName = displayName;
               var match;
@@ -56423,6 +56512,14 @@ var require_backend = __commonJS({
               return isReactNativeEnvironment() ? showOverlayNative(elements, agent2) : showOverlayWeb(elements, componentName, agent2, hideAfterTimeout);
             }
             ;
+            function Highlighter_typeof(o) {
+              "@babel/helpers - typeof";
+              return Highlighter_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
+                return typeof o2;
+              } : function(o2) {
+                return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
+              }, Highlighter_typeof(o);
+            }
             var iframesListeningTo = /* @__PURE__ */ new Set();
             var inspectOnlySuspenseNodes = false;
             function setupHighlighter(bridge, agent2) {
@@ -56433,6 +56530,59 @@ var require_backend = __commonJS({
               bridge.addListener("shutdown", stopInspectingHost);
               bridge.addListener("startInspectingHost", startInspectingHost);
               bridge.addListener("stopInspectingHost", stopInspectingHost);
+              bridge.addListener("scrollTo", scrollDocumentTo);
+              bridge.addListener("requestScrollPosition", sendScroll);
+              var applyingScroll = false;
+              function scrollDocumentTo(_ref) {
+                var left = _ref.left, top = _ref.top, right = _ref.right, bottom = _ref.bottom;
+                if (isReactNativeEnvironment()) {
+                  return;
+                }
+                if (left === Math.round(window.scrollX) && top === Math.round(window.scrollY)) {
+                  return;
+                }
+                applyingScroll = true;
+                window.scrollTo({
+                  top,
+                  left,
+                  behavior: "smooth"
+                });
+              }
+              var scrollTimer = null;
+              function sendScroll() {
+                if (isReactNativeEnvironment()) {
+                  return;
+                }
+                if (scrollTimer) {
+                  clearTimeout(scrollTimer);
+                  scrollTimer = null;
+                }
+                if (applyingScroll) {
+                  return;
+                }
+                var left = window.scrollX;
+                var top = window.scrollY;
+                var right = left + window.innerWidth;
+                var bottom = top + window.innerHeight;
+                bridge.send("scrollTo", {
+                  left,
+                  top,
+                  right,
+                  bottom
+                });
+              }
+              function scrollEnd() {
+                sendScroll();
+                applyingScroll = false;
+              }
+              if ((typeof document === "undefined" ? "undefined" : Highlighter_typeof(document)) === "object" && typeof document.addEventListener === "function") {
+                document.addEventListener("scroll", function() {
+                  if (!scrollTimer) {
+                    scrollTimer = setTimeout(sendScroll, 400);
+                  }
+                });
+                document.addEventListener("scrollend", scrollEnd);
+              }
               function startInspectingHost(onlySuspenseNodes) {
                 inspectOnlySuspenseNodes = onlySuspenseNodes;
                 registerListenersOnWindow(window);
@@ -56477,8 +56627,8 @@ var require_backend = __commonJS({
               function clearHostInstanceHighlight() {
                 hideOverlay(agent2);
               }
-              function highlightHostInstance(_ref) {
-                var displayName = _ref.displayName, hideAfterTimeout = _ref.hideAfterTimeout, id = _ref.id, openBuiltinElementsPanel = _ref.openBuiltinElementsPanel, rendererID = _ref.rendererID, scrollIntoView = _ref.scrollIntoView;
+              function highlightHostInstance(_ref2) {
+                var displayName = _ref2.displayName, hideAfterTimeout = _ref2.hideAfterTimeout, id = _ref2.id, openBuiltinElementsPanel = _ref2.openBuiltinElementsPanel, rendererID = _ref2.rendererID, scrollIntoView = _ref2.scrollIntoView;
                 var renderer2 = agent2.rendererInterfaces[rendererID];
                 if (renderer2 == null) {
                   console.warn('Invalid renderer id "'.concat(rendererID, '" for element "').concat(id, '"'));
@@ -56497,7 +56647,7 @@ var require_backend = __commonJS({
                       continue;
                     }
                     var nodeRects = typeof node.getClientRects === "function" ? node.getClientRects() : [];
-                    if (nodeRects.length > 0 && (nodeRects.length > 2 || nodeRects[0].width > 0 || nodeRects[0].height > 0)) {
+                    if (typeof node.getClientRects === "undefined" || nodeRects.length > 0 && (nodeRects.length > 2 || nodeRects[0].width > 0 || nodeRects[0].height > 0)) {
                       if (scrollIntoView && typeof node.scrollIntoView === "function") {
                         if (scrollDelayTimer) {
                           clearTimeout(scrollDelayTimer);
@@ -56519,8 +56669,8 @@ var require_backend = __commonJS({
                 }
                 hideOverlay(agent2);
               }
-              function highlightHostInstances(_ref2) {
-                var displayName = _ref2.displayName, hideAfterTimeout = _ref2.hideAfterTimeout, elements = _ref2.elements, scrollIntoView = _ref2.scrollIntoView;
+              function highlightHostInstances(_ref3) {
+                var displayName = _ref3.displayName, hideAfterTimeout = _ref3.hideAfterTimeout, elements = _ref3.elements, scrollIntoView = _ref3.scrollIntoView;
                 var nodes = [];
                 for (var i = 0; i < elements.length; i++) {
                   var _elements$i = elements[i], id = _elements$i.id, rendererID = _elements$i.rendererID;
@@ -56574,9 +56724,12 @@ var require_backend = __commonJS({
                 return false;
               }
               var scrollDelayTimer = null;
-              function scrollToHostInstance(_ref3) {
-                var id = _ref3.id, rendererID = _ref3.rendererID;
+              function scrollToHostInstance(_ref4) {
+                var id = _ref4.id, rendererID = _ref4.rendererID;
                 hideOverlay(agent2);
+                if (isReactNativeEnvironment()) {
+                  return;
+                }
                 if (scrollDelayTimer) {
                   clearTimeout(scrollDelayTimer);
                   scrollDelayTimer = null;
@@ -56975,31 +57128,6 @@ var require_backend = __commonJS({
                 return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
               }, bridge_typeof(o);
             }
-            function bridge_toConsumableArray(arr) {
-              return bridge_arrayWithoutHoles(arr) || bridge_iterableToArray(arr) || bridge_unsupportedIterableToArray(arr) || bridge_nonIterableSpread();
-            }
-            function bridge_nonIterableSpread() {
-              throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
-            }
-            function bridge_unsupportedIterableToArray(o, minLen) {
-              if (!o) return;
-              if (typeof o === "string") return bridge_arrayLikeToArray(o, minLen);
-              var n = Object.prototype.toString.call(o).slice(8, -1);
-              if (n === "Object" && o.constructor) n = o.constructor.name;
-              if (n === "Map" || n === "Set") return Array.from(o);
-              if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return bridge_arrayLikeToArray(o, minLen);
-            }
-            function bridge_iterableToArray(iter) {
-              if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter);
-            }
-            function bridge_arrayWithoutHoles(arr) {
-              if (Array.isArray(arr)) return bridge_arrayLikeToArray(arr);
-            }
-            function bridge_arrayLikeToArray(arr, len) {
-              if (len == null || len > arr.length) len = arr.length;
-              for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
-              return arr2;
-            }
             function bridge_classCallCheck(instance, Constructor) {
               if (!(instance instanceof Constructor)) {
                 throw new TypeError("Cannot call a class as a function");
@@ -57046,6 +57174,29 @@ var require_backend = __commonJS({
               return (_isNativeReflectConstruct = function _isNativeReflectConstruct2() {
                 return !!t;
               })();
+            }
+            function _get() {
+              if (typeof Reflect !== "undefined" && Reflect.get) {
+                _get = Reflect.get.bind();
+              } else {
+                _get = function _get2(target, property, receiver) {
+                  var base = _superPropBase(target, property);
+                  if (!base) return;
+                  var desc = Object.getOwnPropertyDescriptor(base, property);
+                  if (desc.get) {
+                    return desc.get.call(arguments.length < 3 ? target : receiver);
+                  }
+                  return desc.value;
+                };
+              }
+              return _get.apply(this, arguments);
+            }
+            function _superPropBase(object, property) {
+              while (!Object.prototype.hasOwnProperty.call(object, property)) {
+                object = _getPrototypeOf(object);
+                if (object === null) break;
+              }
+              return object;
             }
             function _getPrototypeOf(o) {
               _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf2(o2) {
@@ -57117,15 +57268,26 @@ var require_backend = __commonJS({
                 bridge_defineProperty(_this, "_flush", function() {
                   try {
                     if (_this._messageQueue.length) {
-                      for (var i = 0; i < _this._messageQueue.length; i += 2) {
-                        var _this$_wall;
-                        (_this$_wall = _this._wall).send.apply(_this$_wall, [_this._messageQueue[i]].concat(bridge_toConsumableArray(_this._messageQueue[i + 1])));
+                      for (var i = 0; i < _this._messageQueue.length; i++) {
+                        var _this$_messageQueue$i = _this._messageQueue[i], event = _this$_messageQueue$i.event, payload = _this$_messageQueue$i.payload;
+                        _this._wall.send(event, payload);
                       }
                       _this._messageQueue.length = 0;
                     }
                   } finally {
                     _this._scheduledFlush = false;
                   }
+                });
+                bridge_defineProperty(_this, "_handleMessage", function(message) {
+                  if (message === null || bridge_typeof(message) !== "object" || !("event" in message)) {
+                    return;
+                  }
+                  var event = message.event;
+                  if (typeof event !== "string" || event.length === 0) {
+                    throw new TypeError("Bridge event names must be non-empty strings.");
+                  }
+                  _this._assertNotShutdown("receive a message");
+                  _this.emit(event, message.payload);
                 });
                 bridge_defineProperty(_this, "overrideValueAtPath", function(_ref) {
                   var id = _ref.id, path4 = _ref.path, rendererID = _ref.rendererID, type = _ref.type, value = _ref.value;
@@ -57169,11 +57331,11 @@ var require_backend = __commonJS({
                   }
                 });
                 _this._wall = wall;
-                _this._wallUnlisten = wall.listen(function(message) {
-                  if (message && message.event) {
-                    _this.emit(message.event, message.payload);
-                  }
-                }) || null;
+                var wallUnlisten = wall.listen(_this._handleMessage);
+                if (typeof wallUnlisten !== "function") {
+                  throw new TypeError("Wall.listen() must return an unlisten function.");
+                }
+                _this._wallUnlisten = wallUnlisten;
                 _this.addListener("overrideValueAtPath", _this.overrideValueAtPath);
                 return _this;
               }
@@ -57184,16 +57346,32 @@ var require_backend = __commonJS({
                   return this._wall;
                 }
               }, {
+                key: "addListener",
+                value: function addListener(event, listener) {
+                  this._assertNotShutdown("add a listener");
+                  _get(_getPrototypeOf(Bridge2.prototype), "addListener", this).call(this, event, listener);
+                }
+              }, {
+                key: "emit",
+                value: function emit(event) {
+                  var _get2;
+                  this._assertNotShutdown("emit an event");
+                  for (var _len = arguments.length, args = new Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+                    args[_key - 1] = arguments[_key];
+                  }
+                  (_get2 = _get(_getPrototypeOf(Bridge2.prototype), "emit", this)).call.apply(_get2, [this, event].concat(args));
+                }
+              }, {
                 key: "send",
-                value: function send(event) {
-                  if (this._isShutdown) {
-                    console.warn('Cannot send message "'.concat(event, '" through a Bridge that has been shutdown.'));
-                    return;
+                value: function send(event, payload) {
+                  this._assertNotShutdown("send a message");
+                  if (typeof event !== "string" || event.length === 0) {
+                    throw new TypeError("Bridge event names must be non-empty strings.");
                   }
-                  for (var _len = arguments.length, payload = new Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
-                    payload[_key - 1] = arguments[_key];
-                  }
-                  this._messageQueue.push(event, payload);
+                  this._messageQueue.push({
+                    event,
+                    payload
+                  });
                   if (!this._scheduledFlush) {
                     this._scheduledFlush = true;
                     if (typeof devtoolsJestTestScheduler === "function") {
@@ -57206,25 +57384,29 @@ var require_backend = __commonJS({
               }, {
                 key: "shutdown",
                 value: function shutdown() {
-                  if (this._isShutdown) {
-                    console.warn("Bridge was already shutdown.");
-                    return;
-                  }
+                  this._assertNotShutdown("shut down");
                   this.emit("shutdown");
                   this.send("shutdown");
                   this._isShutdown = true;
-                  this.addListener = function() {
-                  };
-                  this.emit = function() {
-                  };
                   this.removeAllListeners();
                   var wallUnlisten = this._wallUnlisten;
-                  if (wallUnlisten) {
-                    wallUnlisten();
+                  this._wallUnlisten = null;
+                  try {
+                    if (wallUnlisten !== null) {
+                      wallUnlisten();
+                    }
+                  } finally {
+                    do {
+                      this._flush();
+                    } while (this._messageQueue.length);
                   }
-                  do {
-                    this._flush();
-                  } while (this._messageQueue.length);
+                }
+              }, {
+                key: "_assertNotShutdown",
+                value: function _assertNotShutdown(action) {
+                  if (this._isShutdown) {
+                    throw new Error("Cannot ".concat(action, " through a Bridge that has been shut down."));
+                  }
                 }
               }]);
             })(EventEmitter4);
@@ -57521,7 +57703,7 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "getBackendVersion", function() {
-                  var version = "7.0.1-3cde211b0c";
+                  var version = "8.0.0-1d34f91dfd";
                   if (version) {
                     _this._bridge.send("backendVersion", version);
                   }
@@ -57686,12 +57868,10 @@ var require_backend = __commonJS({
                   }
                 });
                 agent_defineProperty(_this, "overrideSuspenseMilestone", function(_ref14) {
-                  var suspendedSet = _ref14.suspendedSet;
-                  for (var rendererID in _this._rendererInterfaces) {
-                    var renderer2 = _this._rendererInterfaces[rendererID];
-                    if (renderer2.supportsTogglingSuspense) {
-                      renderer2.overrideSuspenseMilestone(suspendedSet);
-                    }
+                  var rendererID = _ref14.rendererID, suspendedSet = _ref14.suspendedSet;
+                  var renderer2 = _this._rendererInterfaces[rendererID];
+                  if (renderer2.supportsTogglingSuspense) {
+                    renderer2.overrideSuspenseMilestone(suspendedSet);
                   }
                 });
                 agent_defineProperty(_this, "overrideValueAtPath", function(_ref15) {
@@ -57755,9 +57935,9 @@ var require_backend = __commonJS({
                   _this._bridge.send("isReloadAndProfileSupportedByBackend", true);
                 });
                 agent_defineProperty(_this, "reloadAndProfile", function(_ref20) {
-                  var recordChangeDescriptions = _ref20.recordChangeDescriptions, recordTimeline = _ref20.recordTimeline;
+                  var recordChangeDescriptions = _ref20.recordChangeDescriptions;
                   if (typeof _this._onReloadAndProfile === "function") {
-                    _this._onReloadAndProfile(recordChangeDescriptions, recordTimeline);
+                    _this._onReloadAndProfile(recordChangeDescriptions);
                   }
                   _this._bridge.send("reloadAppForProfiling");
                 });
@@ -57780,10 +57960,7 @@ var require_backend = __commonJS({
                 });
                 agent_defineProperty(_this, "syncSelectionFromBuiltinElementsPanel", function() {
                   var target = window.__REACT_DEVTOOLS_GLOBAL_HOOK__.$0;
-                  if (target == null) {
-                    return;
-                  }
-                  _this.selectNode(target);
+                  _this.selectNode(target == null ? null : target);
                 });
                 agent_defineProperty(_this, "shutdown", function() {
                   _this.emit("shutdown");
@@ -57791,11 +57968,11 @@ var require_backend = __commonJS({
                   _this.removeAllListeners();
                 });
                 agent_defineProperty(_this, "startProfiling", function(_ref22) {
-                  var recordChangeDescriptions = _ref22.recordChangeDescriptions, recordTimeline = _ref22.recordTimeline;
+                  var recordChangeDescriptions = _ref22.recordChangeDescriptions;
                   _this._isProfiling = true;
                   for (var rendererID in _this._rendererInterfaces) {
                     var renderer2 = _this._rendererInterfaces[rendererID];
-                    renderer2.startProfiling(recordChangeDescriptions, recordTimeline);
+                    renderer2.startProfiling(recordChangeDescriptions);
                   }
                   _this._bridge.send("profilingStatus", _this._isProfiling);
                 });
@@ -57843,6 +58020,10 @@ var require_backend = __commonJS({
                       }
                     }
                     renderer2.updateComponentFilters(componentFilters);
+                  }
+                  var target = window.__REACT_DEVTOOLS_GLOBAL_HOOK__.$0;
+                  if (target != null) {
+                    _this.selectNode(target);
                   }
                 });
                 agent_defineProperty(_this, "getEnvironmentNames", function() {
@@ -58056,24 +58237,14 @@ var require_backend = __commonJS({
               }, {
                 key: "selectNode",
                 value: function selectNode(target) {
-                  var match = this.getIDForHostInstance(target);
-                  if (match !== null) {
-                    this._bridge.send("selectElement", match.id);
-                  }
+                  var match = target !== null ? this.getIDForHostInstance(target) : null;
+                  this._bridge.send("selectElement", match !== null ? match.id : null);
                 }
               }, {
                 key: "registerRendererInterface",
                 value: function registerRendererInterface(rendererID, rendererInterface) {
                   this._rendererInterfaces[rendererID] = rendererInterface;
                   rendererInterface.setTraceUpdatesEnabled(this._traceUpdatesEnabled);
-                  var renderer2 = rendererInterface.renderer;
-                  if (renderer2 !== null) {
-                    var devRenderer = renderer2.bundleType === 1;
-                    var enableSuspenseTab = devRenderer && gte(renderer2.version, "19.3.0-canary");
-                    if (enableSuspenseTab) {
-                      this._bridge.send("enableSuspenseTab");
-                    }
-                  }
                   var selection = this._persistedSelection;
                   if (selection !== null && selection.rendererID === rendererID) {
                     rendererInterface.setTrackedPath(selection.path);
@@ -58330,7 +58501,27 @@ var require_backend = __commonJS({
                           } catch (x) {
                             control = x;
                           }
-                          fn.call(Fake.prototype);
+                          var prototypeModified = false;
+                          var prevProps;
+                          try {
+                            prevProps = Object.getOwnPropertyDescriptor(fn.prototype, "props");
+                            Object.defineProperty(fn.prototype, "props", {
+                              configurable: true,
+                              set: function set() {
+                                throw Error();
+                              }
+                            });
+                            prototypeModified = true;
+                            new fn();
+                          } finally {
+                            if (prototypeModified) {
+                              if (prevProps !== void 0) {
+                                Object.defineProperty(fn.prototype, "props", prevProps);
+                              } else {
+                                delete fn.prototype.props;
+                              }
+                            }
+                          }
                         }
                       } else {
                         try {
@@ -58818,36 +59009,36 @@ var require_backend = __commonJS({
               var result = [];
               for (var i = framesToSkip; i < structuredStackTrace.length; i++) {
                 var callSite = structuredStackTrace[i];
-                var _name = callSite.getFunctionName() || "<anonymous>";
+                var _name = typeof callSite.getFunctionName === "function" ? callSite.getFunctionName() || "<anonymous>" : "";
                 if (_name.includes("react_stack_bottom_frame") || _name.includes("react-stack-bottom-frame")) {
                   break;
-                } else if (callSite.isNative()) {
-                  var isAsync = callSite.isAsync();
+                } else if (typeof callSite.isNative === "function" && callSite.isNative()) {
+                  var isAsync = typeof callSite.isAsync === "function" && callSite.isAsync();
                   result.push([_name, "", 0, 0, 0, 0, isAsync]);
                 } else {
-                  if (callSite.isConstructor()) {
+                  if (typeof callSite.isConstructor === "function" && callSite.isConstructor()) {
                     _name = "new " + _name;
-                  } else if (!callSite.isToplevel()) {
+                  } else if (typeof callSite.isToplevel === "function" && !callSite.isToplevel()) {
                     _name = getMethodCallName(callSite);
                   }
                   if (_name === "<anonymous>") {
                     _name = "";
                   }
-                  var filename = callSite.getScriptNameOrSourceURL() || "<anonymous>";
+                  var filename = typeof callSite.getScriptNameOrSourceURL === "function" ? callSite.getScriptNameOrSourceURL() || "<anonymous>" : "";
                   if (filename === "<anonymous>") {
                     filename = "";
-                    if (callSite.isEval()) {
-                      var origin = callSite.getEvalOrigin();
+                    if (typeof callSite.isEval === "function" && callSite.isEval()) {
+                      var origin = typeof callSite.getEvalOrigin === "function" ? callSite.getEvalOrigin() : null;
                       if (origin) {
                         filename = origin.toString() + ", <anonymous>";
                       }
                     }
                   }
-                  var line = callSite.getLineNumber() || 0;
-                  var col = callSite.getColumnNumber() || 0;
+                  var line = typeof callSite.getLineNumber === "function" && callSite.getLineNumber() || 0;
+                  var col = typeof callSite.getColumnNumber === "function" && callSite.getColumnNumber() || 0;
                   var enclosingLine = typeof callSite.getEnclosingLineNumber === "function" ? callSite.getEnclosingLineNumber() || 0 : 0;
                   var enclosingCol = typeof callSite.getEnclosingColumnNumber === "function" ? callSite.getEnclosingColumnNumber() || 0 : 0;
-                  var _isAsync = callSite.isAsync();
+                  var _isAsync = typeof callSite.isAsync === "function" && callSite.isAsync();
                   result.push([_name, filename, line, col, enclosingLine, enclosingCol, _isAsync]);
                 }
               }
@@ -58949,20 +59140,16 @@ var require_backend = __commonJS({
             var SUSPENSE_LIST_SYMBOL_STRING = "Symbol(react.suspense_list)";
             var SERVER_CONTEXT_DEFAULT_VALUE_NOT_LOADED_SYMBOL_STRING = "Symbol(react.server_context.defaultValue)";
             var ReactSymbols_REACT_MEMO_CACHE_SENTINEL = /* @__PURE__ */ Symbol.for("react.memo_cache_sentinel");
+            var ReactSymbols_REACT_OPTIMISTIC_KEY = /* @__PURE__ */ Symbol.for("react.optimistic_key");
             ;
+            var enableActivitySlices = (
+              /* unused pure expression or super */
+              null
+            );
             var enableLogger = false;
             var enableStyleXFeatures = false;
             var isInternalFacebookBuild = false;
             null;
-            ;
-            function is(x, y) {
-              return x === y && (x !== 0 || 1 / x === 1 / y) || x !== x && y !== y;
-            }
-            var objectIs = typeof Object.is === "function" ? Object.is : is;
-            const shared_objectIs = objectIs;
-            ;
-            var hasOwnProperty_hasOwnProperty = Object.prototype.hasOwnProperty;
-            const shared_hasOwnProperty = hasOwnProperty_hasOwnProperty;
             ;
             function ReactIODescription_typeof(o) {
               "@babel/helpers - typeof";
@@ -59026,1328 +59213,114 @@ var require_backend = __commonJS({
               }
             }
             ;
-            function describeFiber(workTagMap, workInProgress, currentDispatcherRef) {
-              var HostHoistable = workTagMap.HostHoistable, HostSingleton = workTagMap.HostSingleton, HostComponent = workTagMap.HostComponent, LazyComponent = workTagMap.LazyComponent, SuspenseComponent = workTagMap.SuspenseComponent, SuspenseListComponent = workTagMap.SuspenseListComponent, FunctionComponent = workTagMap.FunctionComponent, IndeterminateComponent = workTagMap.IndeterminateComponent, SimpleMemoComponent = workTagMap.SimpleMemoComponent, ForwardRef = workTagMap.ForwardRef, ClassComponent = workTagMap.ClassComponent, ViewTransitionComponent = workTagMap.ViewTransitionComponent, ActivityComponent = workTagMap.ActivityComponent;
-              switch (workInProgress.tag) {
-                case HostHoistable:
-                case HostSingleton:
-                case HostComponent:
-                  return describeBuiltInComponentFrame(workInProgress.type);
-                case LazyComponent:
-                  return describeBuiltInComponentFrame("Lazy");
-                case SuspenseComponent:
-                  return describeBuiltInComponentFrame("Suspense");
-                case SuspenseListComponent:
-                  return describeBuiltInComponentFrame("SuspenseList");
-                case ViewTransitionComponent:
-                  return describeBuiltInComponentFrame("ViewTransition");
-                case ActivityComponent:
-                  return describeBuiltInComponentFrame("Activity");
-                case FunctionComponent:
-                case IndeterminateComponent:
-                case SimpleMemoComponent:
-                  return describeFunctionComponentFrame(workInProgress.type, currentDispatcherRef);
-                case ForwardRef:
-                  return describeFunctionComponentFrame(workInProgress.type.render, currentDispatcherRef);
-                case ClassComponent:
-                  return describeClassComponentFrame(workInProgress.type, currentDispatcherRef);
-                default:
-                  return "";
-              }
-            }
-            function getStackByFiberInDevAndProd(workTagMap, workInProgress, currentDispatcherRef) {
-              try {
-                var info2 = "";
-                var node = workInProgress;
-                do {
-                  info2 += describeFiber(workTagMap, node, currentDispatcherRef);
-                  var debugInfo = node._debugInfo;
-                  if (debugInfo) {
-                    for (var i = debugInfo.length - 1; i >= 0; i--) {
-                      var entry = debugInfo[i];
-                      if (typeof entry.name === "string") {
-                        info2 += describeDebugInfoFrame(entry.name, entry.env);
-                      }
-                    }
-                  }
-                  node = node.return;
-                } while (node);
-                return info2;
-              } catch (x) {
-                return "\nError generating stack: " + x.message + "\n" + x.stack;
-              }
-            }
-            function getSourceLocationByFiber(workTagMap, fiber, currentDispatcherRef) {
-              try {
-                var info2 = describeFiber(workTagMap, fiber, currentDispatcherRef);
-                if (info2 !== "") {
-                  return info2.slice(1);
-                }
-              } catch (x) {
-                console.error(x);
-              }
-              return null;
-            }
-            function DevToolsFiberComponentStack_supportsConsoleTasks(fiber) {
-              return !!fiber._debugTask;
-            }
-            function supportsOwnerStacks(fiber) {
-              return fiber._debugStack !== void 0;
-            }
-            function getOwnerStackByFiberInDev(workTagMap, workInProgress, currentDispatcherRef) {
-              var HostHoistable = workTagMap.HostHoistable, HostSingleton = workTagMap.HostSingleton, HostText = workTagMap.HostText, HostComponent = workTagMap.HostComponent, SuspenseComponent = workTagMap.SuspenseComponent, SuspenseListComponent = workTagMap.SuspenseListComponent, ViewTransitionComponent = workTagMap.ViewTransitionComponent, ActivityComponent = workTagMap.ActivityComponent;
-              try {
-                var info2 = "";
-                if (workInProgress.tag === HostText) {
-                  workInProgress = workInProgress.return;
-                }
-                switch (workInProgress.tag) {
-                  case HostHoistable:
-                  case HostSingleton:
-                  case HostComponent:
-                    info2 += describeBuiltInComponentFrame(workInProgress.type);
-                    break;
-                  case SuspenseComponent:
-                    info2 += describeBuiltInComponentFrame("Suspense");
-                    break;
-                  case SuspenseListComponent:
-                    info2 += describeBuiltInComponentFrame("SuspenseList");
-                    break;
-                  case ViewTransitionComponent:
-                    info2 += describeBuiltInComponentFrame("ViewTransition");
-                    break;
-                  case ActivityComponent:
-                    info2 += describeBuiltInComponentFrame("Activity");
-                    break;
-                }
-                var owner = workInProgress;
-                while (owner) {
-                  if (typeof owner.tag === "number") {
-                    var fiber = owner;
-                    owner = fiber._debugOwner;
-                    var debugStack = fiber._debugStack;
-                    if (owner && debugStack) {
-                      if (typeof debugStack !== "string") {
-                        debugStack = formatOwnerStack(debugStack);
-                      }
-                      if (debugStack !== "") {
-                        info2 += "\n" + debugStack;
-                      }
-                    }
-                  } else if (owner.debugStack != null) {
-                    var ownerStack = owner.debugStack;
-                    owner = owner.owner;
-                    if (owner && ownerStack) {
-                      info2 += "\n" + formatOwnerStack(ownerStack);
-                    }
-                  } else {
-                    break;
-                  }
-                }
-                return info2;
-              } catch (x) {
-                return "\nError generating stack: " + x.message + "\n" + x.stack;
-              }
-            }
-            ;
-            var cachedStyleNameToValueMap = /* @__PURE__ */ new Map();
-            function getStyleXData(data) {
-              var sources = /* @__PURE__ */ new Set();
-              var resolvedStyles = {};
-              crawlData(data, sources, resolvedStyles);
-              return {
-                sources: Array.from(sources).sort(),
-                resolvedStyles
-              };
-            }
-            function crawlData(data, sources, resolvedStyles) {
-              if (data == null) {
-                return;
-              }
-              if (src_isArray(data)) {
-                data.forEach(function(entry) {
-                  if (entry == null) {
-                    return;
-                  }
-                  if (src_isArray(entry)) {
-                    crawlData(entry, sources, resolvedStyles);
-                  } else {
-                    crawlObjectProperties(entry, sources, resolvedStyles);
-                  }
-                });
-              } else {
-                crawlObjectProperties(data, sources, resolvedStyles);
-              }
-              resolvedStyles = Object.fromEntries(Object.entries(resolvedStyles).sort());
-            }
-            function crawlObjectProperties(entry, sources, resolvedStyles) {
-              var keys = Object.keys(entry);
-              keys.forEach(function(key) {
-                var value = entry[key];
-                if (typeof value === "string") {
-                  if (key === value) {
-                    sources.add(key);
-                  } else {
-                    var propertyValue = getPropertyValueForStyleName(value);
-                    if (propertyValue != null) {
-                      resolvedStyles[key] = propertyValue;
-                    }
-                  }
-                } else {
-                  var nestedStyle = {};
-                  resolvedStyles[key] = nestedStyle;
-                  crawlData([value], sources, nestedStyle);
-                }
-              });
-            }
-            function getPropertyValueForStyleName(styleName) {
-              if (cachedStyleNameToValueMap.has(styleName)) {
-                return cachedStyleNameToValueMap.get(styleName);
-              }
-              for (var styleSheetIndex = 0; styleSheetIndex < document.styleSheets.length; styleSheetIndex++) {
-                var styleSheet = document.styleSheets[styleSheetIndex];
-                var rules = null;
-                try {
-                  rules = styleSheet.cssRules;
-                } catch (_e) {
-                  continue;
-                }
-                for (var ruleIndex = 0; ruleIndex < rules.length; ruleIndex++) {
-                  if (!(rules[ruleIndex] instanceof CSSStyleRule)) {
-                    continue;
-                  }
-                  var rule = rules[ruleIndex];
-                  var cssText = rule.cssText, selectorText = rule.selectorText, style = rule.style;
-                  if (selectorText != null) {
-                    if (selectorText.startsWith(".".concat(styleName))) {
-                      var match = cssText.match(/{ *([a-z\-]+):/);
-                      if (match !== null) {
-                        var property = match[1];
-                        var value = style.getPropertyValue(property);
-                        cachedStyleNameToValueMap.set(styleName, value);
-                        return value;
-                      } else {
-                        return null;
-                      }
-                    }
-                  }
-                }
-              }
-              return null;
-            }
-            ;
-            var CHANGE_LOG_URL = "https://github.com/facebook/react/blob/main/packages/react-devtools/CHANGELOG.md";
-            var UNSUPPORTED_VERSION_URL = "https://reactjs.org/blog/2019/08/15/new-react-devtools.html#how-do-i-get-the-old-version-back";
-            var REACT_DEVTOOLS_WORKPLACE_URL = "https://fburl.com/react-devtools-workplace-group";
-            var THEME_STYLES = {
-              light: {
-                "--color-attribute-name": "#ef6632",
-                "--color-attribute-name-not-editable": "#23272f",
-                "--color-attribute-name-inverted": "rgba(255, 255, 255, 0.7)",
-                "--color-attribute-value": "#1a1aa6",
-                "--color-attribute-value-inverted": "#ffffff",
-                "--color-attribute-editable-value": "#1a1aa6",
-                "--color-background": "#ffffff",
-                "--color-background-hover": "rgba(0, 136, 250, 0.1)",
-                "--color-background-inactive": "#e5e5e5",
-                "--color-background-invalid": "#fff0f0",
-                "--color-background-selected": "#0088fa",
-                "--color-button-background": "#ffffff",
-                "--color-button-background-focus": "#ededed",
-                "--color-button-background-hover": "rgba(0, 0, 0, 0.2)",
-                "--color-button": "#5f6673",
-                "--color-button-disabled": "#cfd1d5",
-                "--color-button-active": "#0088fa",
-                "--color-button-focus": "#23272f",
-                "--color-button-hover": "#23272f",
-                "--color-border": "#eeeeee",
-                "--color-commit-did-not-render-fill": "#cfd1d5",
-                "--color-commit-did-not-render-fill-text": "#000000",
-                "--color-commit-did-not-render-pattern": "#cfd1d5",
-                "--color-commit-did-not-render-pattern-text": "#333333",
-                "--color-commit-gradient-0": "#37afa9",
-                "--color-commit-gradient-1": "#63b19e",
-                "--color-commit-gradient-2": "#80b393",
-                "--color-commit-gradient-3": "#97b488",
-                "--color-commit-gradient-4": "#abb67d",
-                "--color-commit-gradient-5": "#beb771",
-                "--color-commit-gradient-6": "#cfb965",
-                "--color-commit-gradient-7": "#dfba57",
-                "--color-commit-gradient-8": "#efbb49",
-                "--color-commit-gradient-9": "#febc38",
-                "--color-commit-gradient-text": "#000000",
-                "--color-component-name": "#6a51b2",
-                "--color-component-name-inverted": "#ffffff",
-                "--color-component-badge-background": "#e6e6e6",
-                "--color-component-badge-background-inverted": "rgba(255, 255, 255, 0.25)",
-                "--color-component-badge-count": "#777d88",
-                "--color-component-badge-count-inverted": "rgba(255, 255, 255, 0.7)",
-                "--color-console-error-badge-text": "#ffffff",
-                "--color-console-error-background": "#fff0f0",
-                "--color-console-error-border": "#ffd6d6",
-                "--color-console-error-icon": "#eb3941",
-                "--color-console-error-text": "#fe2e31",
-                "--color-console-warning-badge-text": "#000000",
-                "--color-console-warning-background": "#fffbe5",
-                "--color-console-warning-border": "#fff5c1",
-                "--color-console-warning-icon": "#f4bd00",
-                "--color-console-warning-text": "#64460c",
-                "--color-context-background": "rgba(0,0,0,.9)",
-                "--color-context-background-hover": "rgba(255, 255, 255, 0.1)",
-                "--color-context-background-selected": "#178fb9",
-                "--color-context-border": "#3d424a",
-                "--color-context-text": "#ffffff",
-                "--color-context-text-selected": "#ffffff",
-                "--color-dim": "#777d88",
-                "--color-dimmer": "#cfd1d5",
-                "--color-dimmest": "#eff0f1",
-                "--color-error-background": "hsl(0, 100%, 97%)",
-                "--color-error-border": "hsl(0, 100%, 92%)",
-                "--color-error-text": "#ff0000",
-                "--color-expand-collapse-toggle": "#777d88",
-                "--color-forget-badge-background": "#2683e2",
-                "--color-forget-badge-background-inverted": "#1a6bbc",
-                "--color-forget-text": "#fff",
-                "--color-link": "#0000ff",
-                "--color-modal-background": "rgba(255, 255, 255, 0.75)",
-                "--color-bridge-version-npm-background": "#eff0f1",
-                "--color-bridge-version-npm-text": "#000000",
-                "--color-bridge-version-number": "#0088fa",
-                "--color-primitive-hook-badge-background": "#e5e5e5",
-                "--color-primitive-hook-badge-text": "#5f6673",
-                "--color-record-active": "#fc3a4b",
-                "--color-record-hover": "#3578e5",
-                "--color-record-inactive": "#0088fa",
-                "--color-resize-bar": "#eeeeee",
-                "--color-resize-bar-active": "#dcdcdc",
-                "--color-resize-bar-border": "#d1d1d1",
-                "--color-resize-bar-dot": "#333333",
-                "--color-timeline-internal-module": "#d1d1d1",
-                "--color-timeline-internal-module-hover": "#c9c9c9",
-                "--color-timeline-internal-module-text": "#444",
-                "--color-timeline-native-event": "#ccc",
-                "--color-timeline-native-event-hover": "#aaa",
-                "--color-timeline-network-primary": "#fcf3dc",
-                "--color-timeline-network-primary-hover": "#f0e7d1",
-                "--color-timeline-network-secondary": "#efc457",
-                "--color-timeline-network-secondary-hover": "#e3ba52",
-                "--color-timeline-priority-background": "#f6f6f6",
-                "--color-timeline-priority-border": "#eeeeee",
-                "--color-timeline-user-timing": "#c9cacd",
-                "--color-timeline-user-timing-hover": "#93959a",
-                "--color-timeline-react-idle": "#d3e5f6",
-                "--color-timeline-react-idle-hover": "#c3d9ef",
-                "--color-timeline-react-render": "#9fc3f3",
-                "--color-timeline-react-render-hover": "#83afe9",
-                "--color-timeline-react-render-text": "#11365e",
-                "--color-timeline-react-commit": "#c88ff0",
-                "--color-timeline-react-commit-hover": "#b281d6",
-                "--color-timeline-react-commit-text": "#3e2c4a",
-                "--color-timeline-react-layout-effects": "#b281d6",
-                "--color-timeline-react-layout-effects-hover": "#9d71bd",
-                "--color-timeline-react-layout-effects-text": "#3e2c4a",
-                "--color-timeline-react-passive-effects": "#b281d6",
-                "--color-timeline-react-passive-effects-hover": "#9d71bd",
-                "--color-timeline-react-passive-effects-text": "#3e2c4a",
-                "--color-timeline-react-schedule": "#9fc3f3",
-                "--color-timeline-react-schedule-hover": "#2683E2",
-                "--color-timeline-react-suspense-rejected": "#f1cc14",
-                "--color-timeline-react-suspense-rejected-hover": "#ffdf37",
-                "--color-timeline-react-suspense-resolved": "#a6e59f",
-                "--color-timeline-react-suspense-resolved-hover": "#89d281",
-                "--color-timeline-react-suspense-unresolved": "#c9cacd",
-                "--color-timeline-react-suspense-unresolved-hover": "#93959a",
-                "--color-timeline-thrown-error": "#ee1638",
-                "--color-timeline-thrown-error-hover": "#da1030",
-                "--color-timeline-text-color": "#000000",
-                "--color-timeline-text-dim-color": "#ccc",
-                "--color-timeline-react-work-border": "#eeeeee",
-                "--color-timebar-background": "#f6f6f6",
-                "--color-search-match": "yellow",
-                "--color-search-match-current": "#f7923b",
-                "--color-selected-tree-highlight-active": "rgba(0, 136, 250, 0.1)",
-                "--color-selected-tree-highlight-inactive": "rgba(0, 0, 0, 0.05)",
-                "--color-scroll-caret": "rgba(150, 150, 150, 0.5)",
-                "--color-tab-selected-border": "#0088fa",
-                "--color-text": "#000000",
-                "--color-text-invalid": "#ff0000",
-                "--color-text-selected": "#ffffff",
-                "--color-toggle-background-invalid": "#fc3a4b",
-                "--color-toggle-background-on": "#0088fa",
-                "--color-toggle-background-off": "#cfd1d5",
-                "--color-toggle-text": "#ffffff",
-                "--color-warning-background": "#fb3655",
-                "--color-warning-background-hover": "#f82042",
-                "--color-warning-text-color": "#ffffff",
-                "--color-warning-text-color-inverted": "#fd4d69",
-                "--color-suspense-default": "#0088fa",
-                "--color-transition-default": "#6a51b2",
-                "--color-suspense-server": "#62bc6a",
-                "--color-transition-server": "#3f7844",
-                "--color-suspense-other": "#f3ce49",
-                "--color-transition-other": "#917b2c",
-                "--color-suspense-errored": "#d57066",
-                "--color-scroll-thumb": "#c2c2c2",
-                "--color-scroll-track": "#fafafa",
-                "--color-tooltip-background": "rgba(0, 0, 0, 0.9)",
-                "--color-tooltip-text": "#ffffff",
-                "--elevation-4": "0 2px 4px -1px rgba(0,0,0,.2),0 4px 5px 0 rgba(0,0,0,.14),0 1px 10px 0 rgba(0,0,0,.12)"
-              },
-              dark: {
-                "--color-attribute-name": "#9d87d2",
-                "--color-attribute-name-not-editable": "#ededed",
-                "--color-attribute-name-inverted": "#282828",
-                "--color-attribute-value": "#cedae0",
-                "--color-attribute-value-inverted": "#ffffff",
-                "--color-attribute-editable-value": "yellow",
-                "--color-background": "#282c34",
-                "--color-background-hover": "rgba(255, 255, 255, 0.1)",
-                "--color-background-inactive": "#3d424a",
-                "--color-background-invalid": "#5c0000",
-                "--color-background-selected": "#178fb9",
-                "--color-button-background": "#282c34",
-                "--color-button-background-focus": "#3d424a",
-                "--color-button-background-hover": "rgba(255, 255, 255, 0.2)",
-                "--color-button": "#afb3b9",
-                "--color-button-active": "#61dafb",
-                "--color-button-disabled": "#4f5766",
-                "--color-button-focus": "#a2e9fc",
-                "--color-button-hover": "#ededed",
-                "--color-border": "#3d424a",
-                "--color-commit-did-not-render-fill": "#777d88",
-                "--color-commit-did-not-render-fill-text": "#000000",
-                "--color-commit-did-not-render-pattern": "#666c77",
-                "--color-commit-did-not-render-pattern-text": "#ffffff",
-                "--color-commit-gradient-0": "#37afa9",
-                "--color-commit-gradient-1": "#63b19e",
-                "--color-commit-gradient-2": "#80b393",
-                "--color-commit-gradient-3": "#97b488",
-                "--color-commit-gradient-4": "#abb67d",
-                "--color-commit-gradient-5": "#beb771",
-                "--color-commit-gradient-6": "#cfb965",
-                "--color-commit-gradient-7": "#dfba57",
-                "--color-commit-gradient-8": "#efbb49",
-                "--color-commit-gradient-9": "#febc38",
-                "--color-commit-gradient-text": "#000000",
-                "--color-component-name": "#61dafb",
-                "--color-component-name-inverted": "#282828",
-                "--color-component-badge-background": "#5e6167",
-                "--color-component-badge-background-inverted": "#46494e",
-                "--color-component-badge-count": "#8f949d",
-                "--color-component-badge-count-inverted": "rgba(255, 255, 255, 0.85)",
-                "--color-console-error-badge-text": "#000000",
-                "--color-console-error-background": "#290000",
-                "--color-console-error-border": "#5c0000",
-                "--color-console-error-icon": "#eb3941",
-                "--color-console-error-text": "#fc7f7f",
-                "--color-console-warning-badge-text": "#000000",
-                "--color-console-warning-background": "#332b00",
-                "--color-console-warning-border": "#665500",
-                "--color-console-warning-icon": "#f4bd00",
-                "--color-console-warning-text": "#f5f2ed",
-                "--color-context-background": "rgba(255,255,255,.95)",
-                "--color-context-background-hover": "rgba(0, 136, 250, 0.1)",
-                "--color-context-background-selected": "#0088fa",
-                "--color-context-border": "#eeeeee",
-                "--color-context-text": "#000000",
-                "--color-context-text-selected": "#ffffff",
-                "--color-dim": "#8f949d",
-                "--color-dimmer": "#777d88",
-                "--color-dimmest": "#4f5766",
-                "--color-error-background": "#200",
-                "--color-error-border": "#900",
-                "--color-error-text": "#f55",
-                "--color-expand-collapse-toggle": "#8f949d",
-                "--color-forget-badge-background": "#2683e2",
-                "--color-forget-badge-background-inverted": "#1a6bbc",
-                "--color-forget-text": "#fff",
-                "--color-link": "#61dafb",
-                "--color-modal-background": "rgba(0, 0, 0, 0.75)",
-                "--color-bridge-version-npm-background": "rgba(0, 0, 0, 0.25)",
-                "--color-bridge-version-npm-text": "#ffffff",
-                "--color-bridge-version-number": "yellow",
-                "--color-primitive-hook-badge-background": "rgba(0, 0, 0, 0.25)",
-                "--color-primitive-hook-badge-text": "rgba(255, 255, 255, 0.7)",
-                "--color-record-active": "#fc3a4b",
-                "--color-record-hover": "#a2e9fc",
-                "--color-record-inactive": "#61dafb",
-                "--color-resize-bar": "#282c34",
-                "--color-resize-bar-active": "#31363f",
-                "--color-resize-bar-border": "#3d424a",
-                "--color-resize-bar-dot": "#cfd1d5",
-                "--color-timeline-internal-module": "#303542",
-                "--color-timeline-internal-module-hover": "#363b4a",
-                "--color-timeline-internal-module-text": "#7f8899",
-                "--color-timeline-native-event": "#b2b2b2",
-                "--color-timeline-native-event-hover": "#949494",
-                "--color-timeline-network-primary": "#fcf3dc",
-                "--color-timeline-network-primary-hover": "#e3dbc5",
-                "--color-timeline-network-secondary": "#efc457",
-                "--color-timeline-network-secondary-hover": "#d6af4d",
-                "--color-timeline-priority-background": "#1d2129",
-                "--color-timeline-priority-border": "#282c34",
-                "--color-timeline-user-timing": "#c9cacd",
-                "--color-timeline-user-timing-hover": "#93959a",
-                "--color-timeline-react-idle": "#3d485b",
-                "--color-timeline-react-idle-hover": "#465269",
-                "--color-timeline-react-render": "#2683E2",
-                "--color-timeline-react-render-hover": "#1a76d4",
-                "--color-timeline-react-render-text": "#11365e",
-                "--color-timeline-react-commit": "#731fad",
-                "--color-timeline-react-commit-hover": "#611b94",
-                "--color-timeline-react-commit-text": "#e5c1ff",
-                "--color-timeline-react-layout-effects": "#611b94",
-                "--color-timeline-react-layout-effects-hover": "#51167a",
-                "--color-timeline-react-layout-effects-text": "#e5c1ff",
-                "--color-timeline-react-passive-effects": "#611b94",
-                "--color-timeline-react-passive-effects-hover": "#51167a",
-                "--color-timeline-react-passive-effects-text": "#e5c1ff",
-                "--color-timeline-react-schedule": "#2683E2",
-                "--color-timeline-react-schedule-hover": "#1a76d4",
-                "--color-timeline-react-suspense-rejected": "#f1cc14",
-                "--color-timeline-react-suspense-rejected-hover": "#e4c00f",
-                "--color-timeline-react-suspense-resolved": "#a6e59f",
-                "--color-timeline-react-suspense-resolved-hover": "#89d281",
-                "--color-timeline-react-suspense-unresolved": "#c9cacd",
-                "--color-timeline-react-suspense-unresolved-hover": "#93959a",
-                "--color-timeline-thrown-error": "#fb3655",
-                "--color-timeline-thrown-error-hover": "#f82042",
-                "--color-timeline-text-color": "#282c34",
-                "--color-timeline-text-dim-color": "#555b66",
-                "--color-timeline-react-work-border": "#3d424a",
-                "--color-timebar-background": "#1d2129",
-                "--color-search-match": "yellow",
-                "--color-search-match-current": "#f7923b",
-                "--color-selected-tree-highlight-active": "rgba(23, 143, 185, 0.15)",
-                "--color-selected-tree-highlight-inactive": "rgba(255, 255, 255, 0.05)",
-                "--color-scroll-caret": "#4f5766",
-                "--color-shadow": "rgba(0, 0, 0, 0.5)",
-                "--color-tab-selected-border": "#178fb9",
-                "--color-text": "#ffffff",
-                "--color-text-invalid": "#ff8080",
-                "--color-text-selected": "#ffffff",
-                "--color-toggle-background-invalid": "#fc3a4b",
-                "--color-toggle-background-on": "#178fb9",
-                "--color-toggle-background-off": "#777d88",
-                "--color-toggle-text": "#ffffff",
-                "--color-warning-background": "#ee1638",
-                "--color-warning-background-hover": "#da1030",
-                "--color-warning-text-color": "#ffffff",
-                "--color-warning-text-color-inverted": "#ee1638",
-                "--color-suspense-default": "#61dafb",
-                "--color-transition-default": "#6a51b2",
-                "--color-suspense-server": "#62bc6a",
-                "--color-transition-server": "#3f7844",
-                "--color-suspense-other": "#f3ce49",
-                "--color-transition-other": "#917b2c",
-                "--color-suspense-errored": "#d57066",
-                "--color-scroll-thumb": "#afb3b9",
-                "--color-scroll-track": "#313640",
-                "--color-tooltip-background": "rgba(255, 255, 255, 0.95)",
-                "--color-tooltip-text": "#000000",
-                "--elevation-4": "0 2px 8px 0 rgba(0,0,0,0.32),0 4px 12px 0 rgba(0,0,0,0.24),0 1px 10px 0 rgba(0,0,0,0.18)"
-              },
-              compact: {
-                "--font-size-monospace-small": "9px",
-                "--font-size-monospace-normal": "11px",
-                "--font-size-monospace-large": "15px",
-                "--font-size-sans-small": "10px",
-                "--font-size-sans-normal": "12px",
-                "--font-size-sans-large": "14px",
-                "--line-height-data": "18px"
-              },
-              comfortable: {
-                "--font-size-monospace-small": "10px",
-                "--font-size-monospace-normal": "13px",
-                "--font-size-monospace-large": "17px",
-                "--font-size-sans-small": "12px",
-                "--font-size-sans-normal": "14px",
-                "--font-size-sans-large": "16px",
-                "--line-height-data": "22px"
-              }
-            };
-            var COMFORTABLE_LINE_HEIGHT = parseInt(THEME_STYLES.comfortable["--line-height-data"], 10);
-            var COMPACT_LINE_HEIGHT = parseInt(THEME_STYLES.compact["--line-height-data"], 10);
-            ;
-            var REACT_TOTAL_NUM_LANES = 31;
-            var SCHEDULING_PROFILER_VERSION = 1;
-            var SNAPSHOT_MAX_HEIGHT = 60;
-            ;
-            function profilingHooks_slicedToArray(arr, i) {
-              return profilingHooks_arrayWithHoles(arr) || profilingHooks_iterableToArrayLimit(arr, i) || profilingHooks_unsupportedIterableToArray(arr, i) || profilingHooks_nonIterableRest();
-            }
-            function profilingHooks_nonIterableRest() {
-              throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
-            }
-            function profilingHooks_unsupportedIterableToArray(o, minLen) {
-              if (!o) return;
-              if (typeof o === "string") return profilingHooks_arrayLikeToArray(o, minLen);
-              var n = Object.prototype.toString.call(o).slice(8, -1);
-              if (n === "Object" && o.constructor) n = o.constructor.name;
-              if (n === "Map" || n === "Set") return Array.from(o);
-              if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return profilingHooks_arrayLikeToArray(o, minLen);
-            }
-            function profilingHooks_arrayLikeToArray(arr, len) {
-              if (len == null || len > arr.length) len = arr.length;
-              for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
-              return arr2;
-            }
-            function profilingHooks_iterableToArrayLimit(r, l) {
-              var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
-              if (null != t) {
-                var e, n, i, u, a = [], f = true, o = false;
-                try {
-                  if (i = (t = t.call(r)).next, 0 === l) {
-                    if (Object(t) !== t) return;
-                    f = false;
-                  } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = true) ;
-                } catch (r2) {
-                  o = true, n = r2;
-                } finally {
-                  try {
-                    if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return;
-                  } finally {
-                    if (o) throw n;
-                  }
-                }
-                return a;
-              }
-            }
-            function profilingHooks_arrayWithHoles(arr) {
-              if (Array.isArray(arr)) return arr;
-            }
-            function profilingHooks_typeof(o) {
+            function DevToolsNativeHost_typeof(o) {
               "@babel/helpers - typeof";
-              return profilingHooks_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
+              return DevToolsNativeHost_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
                 return typeof o2;
               } : function(o2) {
                 return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
-              }, profilingHooks_typeof(o);
+              }, DevToolsNativeHost_typeof(o);
             }
-            var TIME_OFFSET = 10;
-            var performanceTarget = null;
-            var supportsUserTiming = typeof performance !== "undefined" && typeof performance.mark === "function" && typeof performance.clearMarks === "function";
-            var supportsUserTimingV3 = false;
-            if (supportsUserTiming) {
-              var CHECK_V3_MARK = "__v3";
-              var markOptions = {};
-              Object.defineProperty(markOptions, "startTime", {
-                get: function get() {
-                  supportsUserTimingV3 = true;
-                  return 0;
-                },
-                set: function set() {
-                }
-              });
-              try {
-                performance.mark(CHECK_V3_MARK, markOptions);
-              } catch (error2) {
-              } finally {
-                performance.clearMarks(CHECK_V3_MARK);
-              }
-            }
-            if (supportsUserTimingV3) {
-              performanceTarget = performance;
-            }
-            var profilingHooks_getCurrentTime = (typeof performance === "undefined" ? "undefined" : profilingHooks_typeof(performance)) === "object" && typeof performance.now === "function" ? function() {
+            var DevToolsNativeHost_getCurrentTime = (typeof performance === "undefined" ? "undefined" : DevToolsNativeHost_typeof(performance)) === "object" && typeof performance.now === "function" ? function() {
               return performance.now();
             } : function() {
               return Date.now();
             };
-            function setPerformanceMock_ONLY_FOR_TESTING(performanceMock) {
-              performanceTarget = performanceMock;
-              supportsUserTiming = performanceMock !== null;
-              supportsUserTimingV3 = performanceMock !== null;
-            }
-            function createProfilingHooks(_ref) {
-              var getDisplayNameForFiber = _ref.getDisplayNameForFiber, getIsProfiling = _ref.getIsProfiling, getLaneLabelMap = _ref.getLaneLabelMap, workTagMap = _ref.workTagMap, currentDispatcherRef = _ref.currentDispatcherRef, reactVersion2 = _ref.reactVersion;
-              var currentBatchUID = 0;
-              var currentReactComponentMeasure = null;
-              var currentReactMeasuresStack = [];
-              var currentTimelineData = null;
-              var currentFiberStacks = /* @__PURE__ */ new Map();
-              var isProfiling = false;
-              var nextRenderShouldStartNewBatch = false;
-              function getRelativeTime() {
-                var currentTime = profilingHooks_getCurrentTime();
-                if (currentTimelineData) {
-                  if (currentTimelineData.startTime === 0) {
-                    currentTimelineData.startTime = currentTime - TIME_OFFSET;
+            function getPublicInstance(instance) {
+              if (DevToolsNativeHost_typeof(instance) === "object" && instance !== null) {
+                if (DevToolsNativeHost_typeof(instance.canonical) === "object" && instance.canonical !== null) {
+                  if (DevToolsNativeHost_typeof(instance.canonical.publicInstance) === "object" && instance.canonical.publicInstance !== null) {
+                    return instance.canonical.publicInstance;
                   }
-                  return currentTime - currentTimelineData.startTime;
                 }
-                return 0;
+                if (typeof instance._nativeTag === "number") {
+                  return instance._nativeTag;
+                }
               }
-              function getInternalModuleRanges() {
-                if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ !== "undefined" && typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.getInternalModuleRanges === "function") {
-                  var ranges = __REACT_DEVTOOLS_GLOBAL_HOOK__.getInternalModuleRanges();
-                  if (shared_isArray(ranges)) {
-                    return ranges;
-                  }
-                }
+              return instance;
+            }
+            function getNativeTag(instance) {
+              if (DevToolsNativeHost_typeof(instance) !== "object" || instance === null) {
                 return null;
               }
-              function getTimelineData() {
-                return currentTimelineData;
+              if (instance.canonical != null && typeof instance.canonical.nativeTag === "number") {
+                return instance.canonical.nativeTag;
               }
-              function laneToLanesArray(lanes) {
-                var lanesArray = [];
-                var lane = 1;
-                for (var index = 0; index < REACT_TOTAL_NUM_LANES; index++) {
-                  if (lane & lanes) {
-                    lanesArray.push(lane);
-                  }
-                  lane *= 2;
-                }
-                return lanesArray;
+              if (typeof instance._nativeTag === "number") {
+                return instance._nativeTag;
               }
-              var laneToLabelMap = typeof getLaneLabelMap === "function" ? getLaneLabelMap() : null;
-              function markMetadata() {
-                markAndClear("--react-version-".concat(reactVersion2));
-                markAndClear("--profiler-version-".concat(SCHEDULING_PROFILER_VERSION));
-                var ranges = getInternalModuleRanges();
-                if (ranges) {
-                  for (var i = 0; i < ranges.length; i++) {
-                    var range = ranges[i];
-                    if (shared_isArray(range) && range.length === 2) {
-                      var _ranges$i = profilingHooks_slicedToArray(ranges[i], 2), startStackFrame = _ranges$i[0], stopStackFrame = _ranges$i[1];
-                      markAndClear("--react-internal-module-start-".concat(startStackFrame));
-                      markAndClear("--react-internal-module-stop-".concat(stopStackFrame));
-                    }
-                  }
-                }
-                if (laneToLabelMap != null) {
-                  var labels = Array.from(laneToLabelMap.values()).join(",");
-                  markAndClear("--react-lane-labels-".concat(labels));
-                }
-              }
-              function markAndClear(markName) {
-                performanceTarget.mark(markName);
-                performanceTarget.clearMarks(markName);
-              }
-              function recordReactMeasureStarted(type, lanes) {
-                var depth = 0;
-                if (currentReactMeasuresStack.length > 0) {
-                  var top = currentReactMeasuresStack[currentReactMeasuresStack.length - 1];
-                  depth = top.type === "render-idle" ? top.depth : top.depth + 1;
-                }
-                var lanesArray = laneToLanesArray(lanes);
-                var reactMeasure = {
-                  type,
-                  batchUID: currentBatchUID,
-                  depth,
-                  lanes: lanesArray,
-                  timestamp: getRelativeTime(),
-                  duration: 0
-                };
-                currentReactMeasuresStack.push(reactMeasure);
-                if (currentTimelineData) {
-                  var _currentTimelineData = currentTimelineData, batchUIDToMeasuresMap = _currentTimelineData.batchUIDToMeasuresMap, laneToReactMeasureMap = _currentTimelineData.laneToReactMeasureMap;
-                  var reactMeasures = batchUIDToMeasuresMap.get(currentBatchUID);
-                  if (reactMeasures != null) {
-                    reactMeasures.push(reactMeasure);
-                  } else {
-                    batchUIDToMeasuresMap.set(currentBatchUID, [reactMeasure]);
-                  }
-                  lanesArray.forEach(function(lane) {
-                    reactMeasures = laneToReactMeasureMap.get(lane);
-                    if (reactMeasures) {
-                      reactMeasures.push(reactMeasure);
-                    }
-                  });
-                }
-              }
-              function recordReactMeasureCompleted(type) {
-                var currentTime = getRelativeTime();
-                if (currentReactMeasuresStack.length === 0) {
-                  console.error('Unexpected type "%s" completed at %sms while currentReactMeasuresStack is empty.', type, currentTime);
-                  return;
-                }
-                var top = currentReactMeasuresStack.pop();
-                if (top.type !== type) {
-                  console.error('Unexpected type "%s" completed at %sms before "%s" completed.', type, currentTime, top.type);
-                }
-                top.duration = currentTime - top.timestamp;
-                if (currentTimelineData) {
-                  currentTimelineData.duration = getRelativeTime() + TIME_OFFSET;
-                }
-              }
-              function markCommitStarted(lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureStarted("commit", lanes);
-                nextRenderShouldStartNewBatch = true;
-                if (supportsUserTimingV3) {
-                  markAndClear("--commit-start-".concat(lanes));
-                  markMetadata();
-                }
-              }
-              function markCommitStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureCompleted("commit");
-                recordReactMeasureCompleted("render-idle");
-                if (supportsUserTimingV3) {
-                  markAndClear("--commit-stop");
-                }
-              }
-              function markComponentRenderStarted(fiber) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                currentReactComponentMeasure = {
-                  componentName,
-                  duration: 0,
-                  timestamp: getRelativeTime(),
-                  type: "render",
-                  warning: null
-                };
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-render-start-".concat(componentName));
-                }
-              }
-              function markComponentRenderStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentReactComponentMeasure) {
-                  if (currentTimelineData) {
-                    currentTimelineData.componentMeasures.push(currentReactComponentMeasure);
-                  }
-                  currentReactComponentMeasure.duration = getRelativeTime() - currentReactComponentMeasure.timestamp;
-                  currentReactComponentMeasure = null;
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-render-stop");
-                }
-              }
-              function markComponentLayoutEffectMountStarted(fiber) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                currentReactComponentMeasure = {
-                  componentName,
-                  duration: 0,
-                  timestamp: getRelativeTime(),
-                  type: "layout-effect-mount",
-                  warning: null
-                };
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-layout-effect-mount-start-".concat(componentName));
-                }
-              }
-              function markComponentLayoutEffectMountStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentReactComponentMeasure) {
-                  if (currentTimelineData) {
-                    currentTimelineData.componentMeasures.push(currentReactComponentMeasure);
-                  }
-                  currentReactComponentMeasure.duration = getRelativeTime() - currentReactComponentMeasure.timestamp;
-                  currentReactComponentMeasure = null;
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-layout-effect-mount-stop");
-                }
-              }
-              function markComponentLayoutEffectUnmountStarted(fiber) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                currentReactComponentMeasure = {
-                  componentName,
-                  duration: 0,
-                  timestamp: getRelativeTime(),
-                  type: "layout-effect-unmount",
-                  warning: null
-                };
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-layout-effect-unmount-start-".concat(componentName));
-                }
-              }
-              function markComponentLayoutEffectUnmountStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentReactComponentMeasure) {
-                  if (currentTimelineData) {
-                    currentTimelineData.componentMeasures.push(currentReactComponentMeasure);
-                  }
-                  currentReactComponentMeasure.duration = getRelativeTime() - currentReactComponentMeasure.timestamp;
-                  currentReactComponentMeasure = null;
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-layout-effect-unmount-stop");
-                }
-              }
-              function markComponentPassiveEffectMountStarted(fiber) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                currentReactComponentMeasure = {
-                  componentName,
-                  duration: 0,
-                  timestamp: getRelativeTime(),
-                  type: "passive-effect-mount",
-                  warning: null
-                };
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-passive-effect-mount-start-".concat(componentName));
-                }
-              }
-              function markComponentPassiveEffectMountStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentReactComponentMeasure) {
-                  if (currentTimelineData) {
-                    currentTimelineData.componentMeasures.push(currentReactComponentMeasure);
-                  }
-                  currentReactComponentMeasure.duration = getRelativeTime() - currentReactComponentMeasure.timestamp;
-                  currentReactComponentMeasure = null;
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-passive-effect-mount-stop");
-                }
-              }
-              function markComponentPassiveEffectUnmountStarted(fiber) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                currentReactComponentMeasure = {
-                  componentName,
-                  duration: 0,
-                  timestamp: getRelativeTime(),
-                  type: "passive-effect-unmount",
-                  warning: null
-                };
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-passive-effect-unmount-start-".concat(componentName));
-                }
-              }
-              function markComponentPassiveEffectUnmountStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentReactComponentMeasure) {
-                  if (currentTimelineData) {
-                    currentTimelineData.componentMeasures.push(currentReactComponentMeasure);
-                  }
-                  currentReactComponentMeasure.duration = getRelativeTime() - currentReactComponentMeasure.timestamp;
-                  currentReactComponentMeasure = null;
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--component-passive-effect-unmount-stop");
-                }
-              }
-              function markComponentErrored(fiber, thrownValue, lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                var phase = fiber.alternate === null ? "mount" : "update";
-                var message = "";
-                if (thrownValue !== null && profilingHooks_typeof(thrownValue) === "object" && typeof thrownValue.message === "string") {
-                  message = thrownValue.message;
-                } else if (typeof thrownValue === "string") {
-                  message = thrownValue;
-                }
-                if (currentTimelineData) {
-                  currentTimelineData.thrownErrors.push({
-                    componentName,
-                    message,
-                    phase,
-                    timestamp: getRelativeTime(),
-                    type: "thrown-error"
-                  });
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--error-".concat(componentName, "-").concat(phase, "-").concat(message));
-                }
-              }
-              var PossiblyWeakMap2 = typeof WeakMap === "function" ? WeakMap : Map;
-              var wakeableIDs = new PossiblyWeakMap2();
-              var wakeableID = 0;
-              function getWakeableID(wakeable) {
-                if (!wakeableIDs.has(wakeable)) {
-                  wakeableIDs.set(wakeable, wakeableID++);
-                }
-                return wakeableIDs.get(wakeable);
-              }
-              function markComponentSuspended(fiber, wakeable, lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                var eventType = wakeableIDs.has(wakeable) ? "resuspend" : "suspend";
-                var id = getWakeableID(wakeable);
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                var phase = fiber.alternate === null ? "mount" : "update";
-                var displayName = wakeable.displayName || "";
-                var suspenseEvent = null;
-                suspenseEvent = {
-                  componentName,
-                  depth: 0,
-                  duration: 0,
-                  id: "".concat(id),
-                  phase,
-                  promiseName: displayName,
-                  resolution: "unresolved",
-                  timestamp: getRelativeTime(),
-                  type: "suspense",
-                  warning: null
-                };
-                if (currentTimelineData) {
-                  currentTimelineData.suspenseEvents.push(suspenseEvent);
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--suspense-".concat(eventType, "-").concat(id, "-").concat(componentName, "-").concat(phase, "-").concat(lanes, "-").concat(displayName));
-                  wakeable.then(function() {
-                    if (suspenseEvent) {
-                      suspenseEvent.duration = getRelativeTime() - suspenseEvent.timestamp;
-                      suspenseEvent.resolution = "resolved";
-                    }
-                    if (supportsUserTimingV3) {
-                      markAndClear("--suspense-resolved-".concat(id, "-").concat(componentName));
-                    }
-                  }, function() {
-                    if (suspenseEvent) {
-                      suspenseEvent.duration = getRelativeTime() - suspenseEvent.timestamp;
-                      suspenseEvent.resolution = "rejected";
-                    }
-                    if (supportsUserTimingV3) {
-                      markAndClear("--suspense-rejected-".concat(id, "-").concat(componentName));
-                    }
-                  });
-                }
-              }
-              function markLayoutEffectsStarted(lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureStarted("layout-effects", lanes);
-                if (supportsUserTimingV3) {
-                  markAndClear("--layout-effects-start-".concat(lanes));
-                }
-              }
-              function markLayoutEffectsStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureCompleted("layout-effects");
-                if (supportsUserTimingV3) {
-                  markAndClear("--layout-effects-stop");
-                }
-              }
-              function markPassiveEffectsStarted(lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureStarted("passive-effects", lanes);
-                if (supportsUserTimingV3) {
-                  markAndClear("--passive-effects-start-".concat(lanes));
-                }
-              }
-              function markPassiveEffectsStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureCompleted("passive-effects");
-                if (supportsUserTimingV3) {
-                  markAndClear("--passive-effects-stop");
-                }
-              }
-              function markRenderStarted(lanes) {
-                if (!isProfiling) {
-                  return;
-                }
-                if (nextRenderShouldStartNewBatch) {
-                  nextRenderShouldStartNewBatch = false;
-                  currentBatchUID++;
-                }
-                if (currentReactMeasuresStack.length === 0 || currentReactMeasuresStack[currentReactMeasuresStack.length - 1].type !== "render-idle") {
-                  recordReactMeasureStarted("render-idle", lanes);
-                }
-                recordReactMeasureStarted("render", lanes);
-                if (supportsUserTimingV3) {
-                  markAndClear("--render-start-".concat(lanes));
-                }
-              }
-              function markRenderYielded() {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureCompleted("render");
-                if (supportsUserTimingV3) {
-                  markAndClear("--render-yield");
-                }
-              }
-              function markRenderStopped() {
-                if (!isProfiling) {
-                  return;
-                }
-                recordReactMeasureCompleted("render");
-                if (supportsUserTimingV3) {
-                  markAndClear("--render-stop");
-                }
-              }
-              function markRenderScheduled(lane) {
-                if (!isProfiling) {
-                  return;
-                }
-                if (currentTimelineData) {
-                  currentTimelineData.schedulingEvents.push({
-                    lanes: laneToLanesArray(lane),
-                    timestamp: getRelativeTime(),
-                    type: "schedule-render",
-                    warning: null
-                  });
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--schedule-render-".concat(lane));
-                }
-              }
-              function markForceUpdateScheduled(fiber, lane) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                if (currentTimelineData) {
-                  currentTimelineData.schedulingEvents.push({
-                    componentName,
-                    lanes: laneToLanesArray(lane),
-                    timestamp: getRelativeTime(),
-                    type: "schedule-force-update",
-                    warning: null
-                  });
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--schedule-forced-update-".concat(lane, "-").concat(componentName));
-                }
-              }
-              function getParentFibers(fiber) {
-                var parents = [];
-                var parent = fiber;
-                while (parent !== null) {
-                  parents.push(parent);
-                  parent = parent.return;
-                }
-                return parents;
-              }
-              function markStateUpdateScheduled(fiber, lane) {
-                if (!isProfiling) {
-                  return;
-                }
-                var componentName = getDisplayNameForFiber(fiber) || "Unknown";
-                if (currentTimelineData) {
-                  var event = {
-                    componentName,
-                    lanes: laneToLanesArray(lane),
-                    timestamp: getRelativeTime(),
-                    type: "schedule-state-update",
-                    warning: null
-                  };
-                  currentFiberStacks.set(event, getParentFibers(fiber));
-                  currentTimelineData.schedulingEvents.push(event);
-                }
-                if (supportsUserTimingV3) {
-                  markAndClear("--schedule-state-update-".concat(lane, "-").concat(componentName));
-                }
-              }
-              function toggleProfilingStatus(value) {
-                var recordTimeline = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : false;
-                if (isProfiling !== value) {
-                  isProfiling = value;
-                  if (isProfiling) {
-                    var internalModuleSourceToRanges = /* @__PURE__ */ new Map();
-                    if (supportsUserTimingV3) {
-                      var ranges = getInternalModuleRanges();
-                      if (ranges) {
-                        for (var i = 0; i < ranges.length; i++) {
-                          var range = ranges[i];
-                          if (shared_isArray(range) && range.length === 2) {
-                            var _ranges$i2 = profilingHooks_slicedToArray(ranges[i], 2), startStackFrame = _ranges$i2[0], stopStackFrame = _ranges$i2[1];
-                            markAndClear("--react-internal-module-start-".concat(startStackFrame));
-                            markAndClear("--react-internal-module-stop-".concat(stopStackFrame));
-                          }
-                        }
-                      }
-                    }
-                    var laneToReactMeasureMap = /* @__PURE__ */ new Map();
-                    var lane = 1;
-                    for (var index = 0; index < REACT_TOTAL_NUM_LANES; index++) {
-                      laneToReactMeasureMap.set(lane, []);
-                      lane *= 2;
-                    }
-                    currentBatchUID = 0;
-                    currentReactComponentMeasure = null;
-                    currentReactMeasuresStack = [];
-                    currentFiberStacks = /* @__PURE__ */ new Map();
-                    if (recordTimeline) {
-                      currentTimelineData = {
-                        internalModuleSourceToRanges,
-                        laneToLabelMap: laneToLabelMap || /* @__PURE__ */ new Map(),
-                        reactVersion: reactVersion2,
-                        componentMeasures: [],
-                        schedulingEvents: [],
-                        suspenseEvents: [],
-                        thrownErrors: [],
-                        batchUIDToMeasuresMap: /* @__PURE__ */ new Map(),
-                        duration: 0,
-                        laneToReactMeasureMap,
-                        startTime: 0,
-                        flamechart: [],
-                        nativeEvents: [],
-                        networkMeasures: [],
-                        otherUserTimingMarks: [],
-                        snapshots: [],
-                        snapshotHeight: 0
-                      };
-                    }
-                    nextRenderShouldStartNewBatch = true;
-                  } else {
-                    if (currentTimelineData !== null) {
-                      currentTimelineData.schedulingEvents.forEach(function(event) {
-                        if (event.type === "schedule-state-update") {
-                          var fiberStack = currentFiberStacks.get(event);
-                          if (fiberStack && currentDispatcherRef != null) {
-                            event.componentStack = fiberStack.reduce(function(trace, fiber) {
-                              return trace + describeFiber(workTagMap, fiber, currentDispatcherRef);
-                            }, "");
-                          }
-                        }
-                      });
-                    }
-                    currentFiberStacks.clear();
-                  }
-                }
-              }
-              return {
-                getTimelineData,
-                profilingHooks: {
-                  markCommitStarted,
-                  markCommitStopped,
-                  markComponentRenderStarted,
-                  markComponentRenderStopped,
-                  markComponentPassiveEffectMountStarted,
-                  markComponentPassiveEffectMountStopped,
-                  markComponentPassiveEffectUnmountStarted,
-                  markComponentPassiveEffectUnmountStopped,
-                  markComponentLayoutEffectMountStarted,
-                  markComponentLayoutEffectMountStopped,
-                  markComponentLayoutEffectUnmountStarted,
-                  markComponentLayoutEffectUnmountStopped,
-                  markComponentErrored,
-                  markComponentSuspended,
-                  markLayoutEffectsStarted,
-                  markLayoutEffectsStopped,
-                  markPassiveEffectsStarted,
-                  markPassiveEffectsStopped,
-                  markRenderStarted,
-                  markRenderYielded,
-                  markRenderStopped,
-                  markRenderScheduled,
-                  markForceUpdateScheduled,
-                  markStateUpdateScheduled
-                },
-                toggleProfilingStatus
-              };
+              return null;
             }
             ;
-            var _excluded = ["batchUIDToMeasuresMap", "internalModuleSourceToRanges", "laneToLabelMap", "laneToReactMeasureMap"];
-            function _objectWithoutProperties(source, excluded) {
-              if (source == null) return {};
-              var target = _objectWithoutPropertiesLoose(source, excluded);
-              var key, i;
-              if (Object.getOwnPropertySymbols) {
-                var sourceSymbolKeys = Object.getOwnPropertySymbols(source);
-                for (i = 0; i < sourceSymbolKeys.length; i++) {
-                  key = sourceSymbolKeys[i];
-                  if (excluded.indexOf(key) >= 0) continue;
-                  if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
-                  target[key] = source[key];
-                }
-              }
-              return target;
+            var DevToolsFiberInspection_toString = Object.prototype.toString;
+            function DevToolsFiberInspection_isError(object) {
+              return DevToolsFiberInspection_toString.call(object) === "[object Error]";
             }
-            function _objectWithoutPropertiesLoose(source, excluded) {
-              if (source == null) return {};
-              var target = {};
-              for (var key in source) {
-                if (Object.prototype.hasOwnProperty.call(source, key)) {
-                  if (excluded.indexOf(key) >= 0) continue;
-                  target[key] = source[key];
-                }
-              }
-              return target;
+            function getFiberFlags(fiber) {
+              return fiber.flags !== void 0 ? fiber.flags : fiber.effectTag;
             }
-            function renderer_ownKeys(e, r) {
-              var t = Object.keys(e);
-              if (Object.getOwnPropertySymbols) {
-                var o = Object.getOwnPropertySymbols(e);
-                r && (o = o.filter(function(r2) {
-                  return Object.getOwnPropertyDescriptor(e, r2).enumerable;
-                })), t.push.apply(t, o);
-              }
-              return t;
-            }
-            function renderer_objectSpread(e) {
-              for (var r = 1; r < arguments.length; r++) {
-                var t = null != arguments[r] ? arguments[r] : {};
-                r % 2 ? renderer_ownKeys(Object(t), true).forEach(function(r2) {
-                  renderer_defineProperty(e, r2, t[r2]);
-                }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : renderer_ownKeys(Object(t)).forEach(function(r2) {
-                  Object.defineProperty(e, r2, Object.getOwnPropertyDescriptor(t, r2));
-                });
-              }
-              return e;
-            }
-            function renderer_defineProperty(obj, key, value) {
-              key = renderer_toPropertyKey(key);
-              if (key in obj) {
-                Object.defineProperty(obj, key, { value, enumerable: true, configurable: true, writable: true });
+            function rootSupportsProfiling(root) {
+              if (root.memoizedInteractions != null) {
+                return true;
+              } else if (root.current != null && root.current.hasOwnProperty("treeBaseDuration")) {
+                return true;
               } else {
-                obj[key] = value;
+                return false;
               }
-              return obj;
             }
-            function renderer_toPropertyKey(t) {
-              var i = renderer_toPrimitive(t, "string");
-              return "symbol" == renderer_typeof(i) ? i : i + "";
-            }
-            function renderer_toPrimitive(t, r) {
-              if ("object" != renderer_typeof(t) || !t) return t;
-              var e = t[Symbol.toPrimitive];
-              if (void 0 !== e) {
-                var i = e.call(t, r || "default");
-                if ("object" != renderer_typeof(i)) return i;
-                throw new TypeError("@@toPrimitive must return a primitive value.");
+            function isErrorBoundary(workTagMap, fiber) {
+              var tag = fiber.tag, type = fiber.type;
+              switch (tag) {
+                case workTagMap.ClassComponent:
+                case workTagMap.IncompleteClassComponent:
+                  var instance = fiber.stateNode;
+                  return typeof type.getDerivedStateFromError === "function" || instance !== null && typeof instance.componentDidCatch === "function";
+                default:
+                  return false;
               }
-              return ("string" === r ? String : Number)(t);
             }
-            function fiber_renderer_toConsumableArray(arr) {
-              return fiber_renderer_arrayWithoutHoles(arr) || fiber_renderer_iterableToArray(arr) || fiber_renderer_unsupportedIterableToArray(arr) || fiber_renderer_nonIterableSpread();
+            function getSecondaryEnvironmentName(debugInfo, index) {
+              if (debugInfo != null) {
+                var componentInfo = debugInfo[index];
+                for (var i = index + 1; i < debugInfo.length; i++) {
+                  var debugEntry = debugInfo[i];
+                  if (typeof debugEntry.env === "string") {
+                    return componentInfo.env !== debugEntry.env ? debugEntry.env : null;
+                  }
+                }
+              }
+              return null;
             }
-            function fiber_renderer_nonIterableSpread() {
-              throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+            function areEqualRects(a, b) {
+              if (a === null) {
+                return b === null;
+              }
+              if (b === null) {
+                return false;
+              }
+              if (a.length !== b.length) {
+                return false;
+              }
+              for (var i = 0; i < a.length; i++) {
+                var aRect = a[i];
+                var bRect = b[i];
+                if (aRect.x !== bRect.x || aRect.y !== bRect.y || aRect.width !== bRect.width || aRect.height !== bRect.height) {
+                  return false;
+                }
+              }
+              return true;
             }
-            function fiber_renderer_iterableToArray(iter) {
-              if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter);
+            ;
+            function is(x, y) {
+              return x === y && (x !== 0 || 1 / x === 1 / y) || x !== x && y !== y;
             }
-            function fiber_renderer_arrayWithoutHoles(arr) {
-              if (Array.isArray(arr)) return fiber_renderer_arrayLikeToArray(arr);
-            }
+            var objectIs = typeof Object.is === "function" ? Object.is : is;
+            const shared_objectIs = objectIs;
+            ;
             function _createForOfIteratorHelper(o, allowArrayLike) {
               var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"];
               if (!it) {
-                if (Array.isArray(o) || (it = fiber_renderer_unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") {
+                if (Array.isArray(o) || (it = DevToolsFiberChangeDetection_unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") {
                   if (it) o = it;
                   var i = 0;
                   var F = function F2() {
@@ -60379,121 +59352,120 @@ var require_backend = __commonJS({
                 }
               } };
             }
-            function fiber_renderer_unsupportedIterableToArray(o, minLen) {
+            function DevToolsFiberChangeDetection_toConsumableArray(arr) {
+              return DevToolsFiberChangeDetection_arrayWithoutHoles(arr) || DevToolsFiberChangeDetection_iterableToArray(arr) || DevToolsFiberChangeDetection_unsupportedIterableToArray(arr) || DevToolsFiberChangeDetection_nonIterableSpread();
+            }
+            function DevToolsFiberChangeDetection_nonIterableSpread() {
+              throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+            }
+            function DevToolsFiberChangeDetection_unsupportedIterableToArray(o, minLen) {
               if (!o) return;
-              if (typeof o === "string") return fiber_renderer_arrayLikeToArray(o, minLen);
+              if (typeof o === "string") return DevToolsFiberChangeDetection_arrayLikeToArray(o, minLen);
               var n = Object.prototype.toString.call(o).slice(8, -1);
               if (n === "Object" && o.constructor) n = o.constructor.name;
               if (n === "Map" || n === "Set") return Array.from(o);
-              if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return fiber_renderer_arrayLikeToArray(o, minLen);
+              if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return DevToolsFiberChangeDetection_arrayLikeToArray(o, minLen);
             }
-            function fiber_renderer_arrayLikeToArray(arr, len) {
+            function DevToolsFiberChangeDetection_iterableToArray(iter) {
+              if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter);
+            }
+            function DevToolsFiberChangeDetection_arrayWithoutHoles(arr) {
+              if (Array.isArray(arr)) return DevToolsFiberChangeDetection_arrayLikeToArray(arr);
+            }
+            function DevToolsFiberChangeDetection_arrayLikeToArray(arr, len) {
               if (len == null || len > arr.length) len = arr.length;
               for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
               return arr2;
             }
-            function renderer_typeof(o) {
+            function getContextChanged(prevFiber, nextFiber) {
+              var prevContext = prevFiber.dependencies && prevFiber.dependencies.firstContext;
+              var nextContext = nextFiber.dependencies && nextFiber.dependencies.firstContext;
+              while (prevContext && nextContext) {
+                if (prevContext.context !== nextContext.context) {
+                  return false;
+                }
+                if (!shared_objectIs(prevContext.memoizedValue, nextContext.memoizedValue)) {
+                  return true;
+                }
+                prevContext = prevContext.next;
+                nextContext = nextContext.next;
+              }
+              return false;
+            }
+            function didStatefulHookChange(prev, next) {
+              var isStatefulHook = prev.isStateEditable === true || prev.name === "SyncExternalStore" || prev.name === "Transition" || prev.name === "ActionState" || prev.name === "FormState";
+              if (isStatefulHook) {
+                return prev.value !== next.value;
+              }
+              return false;
+            }
+            function getChangedHooksIndices(prevHooks, nextHooks) {
+              if (prevHooks == null || nextHooks == null) {
+                return null;
+              }
+              var indices = [];
+              var index = 0;
+              function traverse(prevTree, nextTree) {
+                for (var i = 0; i < prevTree.length; i++) {
+                  var prevHook = prevTree[i];
+                  var nextHook = nextTree[i];
+                  if (prevHook.subHooks.length > 0 && nextHook.subHooks.length > 0) {
+                    traverse(prevHook.subHooks, nextHook.subHooks);
+                    continue;
+                  }
+                  if (didStatefulHookChange(prevHook, nextHook)) {
+                    indices.push(index);
+                  }
+                  index++;
+                }
+              }
+              traverse(prevHooks, nextHooks);
+              return indices;
+            }
+            function getChangedKeys(prev, next) {
+              if (prev == null || next == null) {
+                return null;
+              }
+              var keys = new Set([].concat(DevToolsFiberChangeDetection_toConsumableArray(Object.keys(prev)), DevToolsFiberChangeDetection_toConsumableArray(Object.keys(next))));
+              var changedKeys = [];
+              var _iterator = _createForOfIteratorHelper(keys), _step;
+              try {
+                for (_iterator.s(); !(_step = _iterator.n()).done; ) {
+                  var key = _step.value;
+                  if (prev[key] !== next[key]) {
+                    changedKeys.push(key);
+                  }
+                }
+              } catch (err) {
+                _iterator.e(err);
+              } finally {
+                _iterator.f();
+              }
+              return changedKeys;
+            }
+            function didFiberRender(workTagMap, prevFiber, nextFiber) {
+              switch (nextFiber.tag) {
+                case workTagMap.ClassComponent:
+                case workTagMap.FunctionComponent:
+                case workTagMap.ContextConsumer:
+                case workTagMap.MemoComponent:
+                case workTagMap.SimpleMemoComponent:
+                case workTagMap.ForwardRef:
+                  var PerformedWork = 1;
+                  return (getFiberFlags(nextFiber) & PerformedWork) === PerformedWork;
+                default:
+                  return prevFiber.memoizedProps !== nextFiber.memoizedProps || prevFiber.memoizedState !== nextFiber.memoizedState || prevFiber.ref !== nextFiber.ref;
+              }
+            }
+            ;
+            function DevToolsFiberInternalReactConstants_typeof(o) {
               "@babel/helpers - typeof";
-              return renderer_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
+              return DevToolsFiberInternalReactConstants_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
                 return typeof o2;
               } : function(o2) {
                 return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
-              }, renderer_typeof(o);
+              }, DevToolsFiberInternalReactConstants_typeof(o);
             }
-            var renderer_toString = Object.prototype.toString;
-            function renderer_isError(object) {
-              return renderer_toString.call(object) === "[object Error]";
-            }
-            var FIBER_INSTANCE = 0;
-            var VIRTUAL_INSTANCE = 1;
-            var FILTERED_FIBER_INSTANCE = 2;
-            function createFiberInstance(fiber) {
-              return {
-                kind: FIBER_INSTANCE,
-                id: getUID(),
-                parent: null,
-                firstChild: null,
-                nextSibling: null,
-                source: null,
-                logCount: 0,
-                treeBaseDuration: 0,
-                suspendedBy: null,
-                suspenseNode: null,
-                data: fiber
-              };
-            }
-            function createFilteredFiberInstance(fiber) {
-              return {
-                kind: FILTERED_FIBER_INSTANCE,
-                id: 0,
-                parent: null,
-                firstChild: null,
-                nextSibling: null,
-                source: null,
-                logCount: 0,
-                treeBaseDuration: 0,
-                suspendedBy: null,
-                suspenseNode: null,
-                data: fiber
-              };
-            }
-            function createVirtualInstance(debugEntry) {
-              return {
-                kind: VIRTUAL_INSTANCE,
-                id: getUID(),
-                parent: null,
-                firstChild: null,
-                nextSibling: null,
-                source: null,
-                logCount: 0,
-                treeBaseDuration: 0,
-                suspendedBy: null,
-                suspenseNode: null,
-                data: debugEntry
-              };
-            }
-            var NoUpdate = 0;
-            var ShouldResetChildren = 1;
-            var ShouldResetSuspenseChildren = 2;
-            var ShouldResetParentSuspenseChildren = 4;
-            function createSuspenseNode(instance) {
-              return instance.suspenseNode = {
-                instance,
-                parent: null,
-                firstChild: null,
-                nextSibling: null,
-                rects: null,
-                suspendedBy: /* @__PURE__ */ new Map(),
-                environments: /* @__PURE__ */ new Map(),
-                hasUniqueSuspenders: false,
-                hasUnknownSuspenders: false
-              };
-            }
-            function getDispatcherRef(renderer2) {
-              if (renderer2.currentDispatcherRef === void 0) {
-                return void 0;
-              }
-              var injectedRef = renderer2.currentDispatcherRef;
-              if (typeof injectedRef.H === "undefined" && typeof injectedRef.current !== "undefined") {
-                return {
-                  get H() {
-                    return injectedRef.current;
-                  },
-                  set H(value) {
-                    injectedRef.current = value;
-                  }
-                };
-              }
-              return injectedRef;
-            }
-            function getFiberFlags(fiber) {
-              return fiber.flags !== void 0 ? fiber.flags : fiber.effectTag;
-            }
-            var renderer_getCurrentTime = (typeof performance === "undefined" ? "undefined" : renderer_typeof(performance)) === "object" && typeof performance.now === "function" ? function() {
-              return performance.now();
-            } : function() {
-              return Date.now();
-            };
             function getInternalReactConstants(version) {
               var ReactPriorityLevels = {
                 ImmediatePriority: 99,
@@ -60710,8 +59682,8 @@ var require_backend = __commonJS({
                 };
               }
               function getTypeSymbol(type) {
-                var symbolOrNumber = renderer_typeof(type) === "object" && type !== null ? type.$$typeof : type;
-                return renderer_typeof(symbolOrNumber) === "symbol" ? symbolOrNumber.toString() : symbolOrNumber;
+                var symbolOrNumber = DevToolsFiberInternalReactConstants_typeof(type) === "object" && type !== null ? type.$$typeof : type;
+                return DevToolsFiberInternalReactConstants_typeof(symbolOrNumber) === "symbol" ? symbolOrNumber.toString() : symbolOrNumber;
               }
               var _ReactTypeOfWork = ReactTypeOfWork, CacheComponent = _ReactTypeOfWork.CacheComponent, ClassComponent = _ReactTypeOfWork.ClassComponent, IncompleteClassComponent = _ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = _ReactTypeOfWork.IncompleteFunctionComponent, FunctionComponent = _ReactTypeOfWork.FunctionComponent, IndeterminateComponent = _ReactTypeOfWork.IndeterminateComponent, ForwardRef = _ReactTypeOfWork.ForwardRef, HostRoot = _ReactTypeOfWork.HostRoot, HostHoistable = _ReactTypeOfWork.HostHoistable, HostSingleton = _ReactTypeOfWork.HostSingleton, HostComponent = _ReactTypeOfWork.HostComponent, HostPortal = _ReactTypeOfWork.HostPortal, HostText = _ReactTypeOfWork.HostText, Fragment3 = _ReactTypeOfWork.Fragment, LazyComponent = _ReactTypeOfWork.LazyComponent, LegacyHiddenComponent = _ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = _ReactTypeOfWork.MemoComponent, OffscreenComponent = _ReactTypeOfWork.OffscreenComponent, Profiler = _ReactTypeOfWork.Profiler, ScopeComponent = _ReactTypeOfWork.ScopeComponent, SimpleMemoComponent = _ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = _ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = _ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = _ReactTypeOfWork.TracingMarkerComponent, Throw = _ReactTypeOfWork.Throw, ViewTransitionComponent = _ReactTypeOfWork.ViewTransitionComponent, ActivityComponent = _ReactTypeOfWork.ActivityComponent;
               function resolveFiberType(type) {
@@ -60732,7 +59704,7 @@ var require_backend = __commonJS({
                 var shouldSkipForgetCheck = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : false;
                 var elementType = fiber.elementType, type = fiber.type, tag = fiber.tag;
                 var resolvedType = type;
-                if (renderer_typeof(type) === "object" && type !== null) {
+                if (DevToolsFiberInternalReactConstants_typeof(type) === "object" && type !== null) {
                   resolvedType = resolveFiberType(type);
                 }
                 var resolvedContext = null;
@@ -60840,37 +59812,478 @@ var require_backend = __commonJS({
                 SuspenseyImagesMode
               };
             }
-            var knownEnvironmentNames = /* @__PURE__ */ new Set();
-            var rootToFiberInstanceMap = /* @__PURE__ */ new Map();
-            var idToDevToolsInstanceMap = /* @__PURE__ */ new Map();
-            var idToSuspenseNodeMap = /* @__PURE__ */ new Map();
-            var publicInstanceToDevToolsInstanceMap = /* @__PURE__ */ new Map();
-            var hostResourceToDevToolsInstanceMap = /* @__PURE__ */ new Map();
-            function getPublicInstance(instance) {
-              if (renderer_typeof(instance) === "object" && instance !== null) {
-                if (renderer_typeof(instance.canonical) === "object" && instance.canonical !== null) {
-                  if (renderer_typeof(instance.canonical.publicInstance) === "object" && instance.canonical.publicInstance !== null) {
-                    return instance.canonical.publicInstance;
-                  }
+            ;
+            function ioExistsInSuspenseAncestor(suspenseNode, ioInfo) {
+              var ancestor = suspenseNode.parent;
+              while (ancestor !== null) {
+                if (ancestor.suspendedBy.has(ioInfo)) {
+                  return true;
                 }
-                if (typeof instance._nativeTag === "number") {
-                  return instance._nativeTag;
-                }
+                ancestor = ancestor.parent;
               }
-              return instance;
+              return false;
             }
-            function getNativeTag(instance) {
-              if (renderer_typeof(instance) !== "object" || instance === null) {
-                return null;
-              }
-              if (instance.canonical != null && typeof instance.canonical.nativeTag === "number") {
-                return instance.canonical.nativeTag;
-              }
-              if (typeof instance._nativeTag === "number") {
-                return instance._nativeTag;
+            function getAwaitInSuspendedByFromIO(suspensedBy, ioInfo) {
+              for (var i = 0; i < suspensedBy.length; i++) {
+                var asyncInfo = suspensedBy[i];
+                if (asyncInfo.awaited === ioInfo) {
+                  return asyncInfo;
+                }
               }
               return null;
             }
+            function getVirtualEndTime(ioInfo) {
+              if (ioInfo.env != null) {
+                return ioInfo.end + 1e6;
+              }
+              return ioInfo.end;
+            }
+            ;
+            function describeFiber(workTagMap, workInProgress, currentDispatcherRef) {
+              var HostHoistable = workTagMap.HostHoistable, HostSingleton = workTagMap.HostSingleton, HostComponent = workTagMap.HostComponent, LazyComponent = workTagMap.LazyComponent, SuspenseComponent = workTagMap.SuspenseComponent, SuspenseListComponent = workTagMap.SuspenseListComponent, FunctionComponent = workTagMap.FunctionComponent, IndeterminateComponent = workTagMap.IndeterminateComponent, SimpleMemoComponent = workTagMap.SimpleMemoComponent, ForwardRef = workTagMap.ForwardRef, ClassComponent = workTagMap.ClassComponent, ViewTransitionComponent = workTagMap.ViewTransitionComponent, ActivityComponent = workTagMap.ActivityComponent;
+              switch (workInProgress.tag) {
+                case HostHoistable:
+                case HostSingleton:
+                case HostComponent:
+                  return describeBuiltInComponentFrame(workInProgress.type);
+                case LazyComponent:
+                  return describeBuiltInComponentFrame("Lazy");
+                case SuspenseComponent:
+                  return describeBuiltInComponentFrame("Suspense");
+                case SuspenseListComponent:
+                  return describeBuiltInComponentFrame("SuspenseList");
+                case ViewTransitionComponent:
+                  return describeBuiltInComponentFrame("ViewTransition");
+                case ActivityComponent:
+                  return describeBuiltInComponentFrame("Activity");
+                case FunctionComponent:
+                case IndeterminateComponent:
+                case SimpleMemoComponent:
+                  return describeFunctionComponentFrame(workInProgress.type, currentDispatcherRef);
+                case ForwardRef:
+                  return describeFunctionComponentFrame(workInProgress.type.render, currentDispatcherRef);
+                case ClassComponent:
+                  return describeClassComponentFrame(workInProgress.type, currentDispatcherRef);
+                default:
+                  return "";
+              }
+            }
+            function getStackByFiberInDevAndProd(workTagMap, workInProgress, currentDispatcherRef) {
+              try {
+                var info2 = "";
+                var node = workInProgress;
+                do {
+                  info2 += describeFiber(workTagMap, node, currentDispatcherRef);
+                  var debugInfo = node._debugInfo;
+                  if (debugInfo) {
+                    for (var i = debugInfo.length - 1; i >= 0; i--) {
+                      var entry = debugInfo[i];
+                      if (typeof entry.name === "string") {
+                        info2 += describeDebugInfoFrame(entry.name, entry.env);
+                      }
+                    }
+                  }
+                  node = node.return;
+                } while (node);
+                return info2;
+              } catch (x) {
+                return "\nError generating stack: " + x.message + "\n" + x.stack;
+              }
+            }
+            function getSourceLocationByFiber(workTagMap, fiber, currentDispatcherRef) {
+              try {
+                var info2 = describeFiber(workTagMap, fiber, currentDispatcherRef);
+                if (info2 !== "") {
+                  return info2.slice(1);
+                }
+              } catch (x) {
+                console.error(x);
+              }
+              return null;
+            }
+            function DevToolsFiberComponentStack_supportsConsoleTasks(fiber) {
+              return !!fiber._debugTask;
+            }
+            function supportsOwnerStacks(fiber) {
+              return fiber._debugStack !== void 0;
+            }
+            function getOwnerStackByFiberInDev(workTagMap, workInProgress, currentDispatcherRef) {
+              var HostHoistable = workTagMap.HostHoistable, HostSingleton = workTagMap.HostSingleton, HostText = workTagMap.HostText, HostComponent = workTagMap.HostComponent, SuspenseComponent = workTagMap.SuspenseComponent, SuspenseListComponent = workTagMap.SuspenseListComponent, ViewTransitionComponent = workTagMap.ViewTransitionComponent, ActivityComponent = workTagMap.ActivityComponent;
+              try {
+                var info2 = "";
+                if (workInProgress.tag === HostText) {
+                  workInProgress = workInProgress.return;
+                }
+                switch (workInProgress.tag) {
+                  case HostHoistable:
+                  case HostSingleton:
+                  case HostComponent:
+                    info2 += describeBuiltInComponentFrame(workInProgress.type);
+                    break;
+                  case SuspenseComponent:
+                    info2 += describeBuiltInComponentFrame("Suspense");
+                    break;
+                  case SuspenseListComponent:
+                    info2 += describeBuiltInComponentFrame("SuspenseList");
+                    break;
+                  case ViewTransitionComponent:
+                    info2 += describeBuiltInComponentFrame("ViewTransition");
+                    break;
+                  case ActivityComponent:
+                    info2 += describeBuiltInComponentFrame("Activity");
+                    break;
+                }
+                var owner = workInProgress;
+                while (owner) {
+                  if (typeof owner.tag === "number") {
+                    var fiber = owner;
+                    owner = fiber._debugOwner;
+                    var debugStack = fiber._debugStack;
+                    if (owner && debugStack) {
+                      if (typeof debugStack !== "string") {
+                        debugStack = formatOwnerStack(debugStack);
+                      }
+                      if (debugStack !== "") {
+                        info2 += "\n" + debugStack;
+                      }
+                    }
+                  } else if (owner.debugStack != null) {
+                    var ownerStack = owner.debugStack;
+                    owner = owner.owner;
+                    if (owner && ownerStack) {
+                      info2 += "\n" + formatOwnerStack(ownerStack);
+                    }
+                  } else {
+                    break;
+                  }
+                }
+                return info2;
+              } catch (x) {
+                return "\nError generating stack: " + x.message + "\n" + x.stack;
+              }
+            }
+            ;
+            var cachedStyleNameToValueMap = /* @__PURE__ */ new Map();
+            function getStyleXData(data) {
+              var sources = /* @__PURE__ */ new Set();
+              var resolvedStyles = {};
+              crawlData(data, sources, resolvedStyles);
+              return {
+                sources: Array.from(sources).sort(),
+                resolvedStyles
+              };
+            }
+            function crawlData(data, sources, resolvedStyles) {
+              if (data == null) {
+                return;
+              }
+              if (src_isArray(data)) {
+                data.forEach(function(entry) {
+                  if (entry == null) {
+                    return;
+                  }
+                  if (src_isArray(entry)) {
+                    crawlData(entry, sources, resolvedStyles);
+                  } else {
+                    crawlObjectProperties(entry, sources, resolvedStyles);
+                  }
+                });
+              } else {
+                crawlObjectProperties(data, sources, resolvedStyles);
+              }
+              resolvedStyles = Object.fromEntries(Object.entries(resolvedStyles).sort());
+            }
+            function crawlObjectProperties(entry, sources, resolvedStyles) {
+              var keys = Object.keys(entry);
+              keys.forEach(function(key) {
+                var value = entry[key];
+                if (typeof value === "string") {
+                  if (key === value) {
+                    sources.add(key);
+                  } else {
+                    var propertyValue = getPropertyValueForStyleName(value);
+                    if (propertyValue != null) {
+                      resolvedStyles[key] = propertyValue;
+                    }
+                  }
+                } else {
+                  var nestedStyle = {};
+                  resolvedStyles[key] = nestedStyle;
+                  crawlData([value], sources, nestedStyle);
+                }
+              });
+            }
+            function getPropertyValueForStyleName(styleName) {
+              if (cachedStyleNameToValueMap.has(styleName)) {
+                return cachedStyleNameToValueMap.get(styleName);
+              }
+              for (var styleSheetIndex = 0; styleSheetIndex < document.styleSheets.length; styleSheetIndex++) {
+                var styleSheet = document.styleSheets[styleSheetIndex];
+                var rules = null;
+                try {
+                  rules = styleSheet.cssRules;
+                } catch (_e) {
+                  continue;
+                }
+                for (var ruleIndex = 0; ruleIndex < rules.length; ruleIndex++) {
+                  if (!(rules[ruleIndex] instanceof CSSStyleRule)) {
+                    continue;
+                  }
+                  var rule = rules[ruleIndex];
+                  var cssText = rule.cssText, selectorText = rule.selectorText, style = rule.style;
+                  if (selectorText != null) {
+                    if (selectorText.startsWith(".".concat(styleName))) {
+                      var match = cssText.match(/{ *([a-z\-]+):/);
+                      if (match !== null) {
+                        var property = match[1];
+                        var value = style.getPropertyValue(property);
+                        cachedStyleNameToValueMap.set(styleName, value);
+                        return value;
+                      } else {
+                        return null;
+                      }
+                    }
+                  }
+                }
+              }
+              return null;
+            }
+            ;
+            var FIBER_INSTANCE = 0;
+            var VIRTUAL_INSTANCE = 1;
+            var FILTERED_FIBER_INSTANCE = 2;
+            ;
+            function getDispatcherRef(renderer2) {
+              if (renderer2.currentDispatcherRef === void 0) {
+                return void 0;
+              }
+              var injectedRef = renderer2.currentDispatcherRef;
+              if (typeof injectedRef.H === "undefined" && typeof injectedRef.current !== "undefined") {
+                return {
+                  get H() {
+                    return injectedRef.current;
+                  },
+                  set H(value) {
+                    injectedRef.current = value;
+                  }
+                };
+              }
+              return injectedRef;
+            }
+            ;
+            function renderer_ownKeys(e, r) {
+              var t = Object.keys(e);
+              if (Object.getOwnPropertySymbols) {
+                var o = Object.getOwnPropertySymbols(e);
+                r && (o = o.filter(function(r2) {
+                  return Object.getOwnPropertyDescriptor(e, r2).enumerable;
+                })), t.push.apply(t, o);
+              }
+              return t;
+            }
+            function renderer_objectSpread(e) {
+              for (var r = 1; r < arguments.length; r++) {
+                var t = null != arguments[r] ? arguments[r] : {};
+                r % 2 ? renderer_ownKeys(Object(t), true).forEach(function(r2) {
+                  renderer_defineProperty(e, r2, t[r2]);
+                }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : renderer_ownKeys(Object(t)).forEach(function(r2) {
+                  Object.defineProperty(e, r2, Object.getOwnPropertyDescriptor(t, r2));
+                });
+              }
+              return e;
+            }
+            function renderer_defineProperty(obj, key, value) {
+              key = renderer_toPropertyKey(key);
+              if (key in obj) {
+                Object.defineProperty(obj, key, { value, enumerable: true, configurable: true, writable: true });
+              } else {
+                obj[key] = value;
+              }
+              return obj;
+            }
+            function renderer_toPropertyKey(t) {
+              var i = renderer_toPrimitive(t, "string");
+              return "symbol" == renderer_typeof(i) ? i : i + "";
+            }
+            function renderer_toPrimitive(t, r) {
+              if ("object" != renderer_typeof(t) || !t) return t;
+              var e = t[Symbol.toPrimitive];
+              if (void 0 !== e) {
+                var i = e.call(t, r || "default");
+                if ("object" != renderer_typeof(i)) return i;
+                throw new TypeError("@@toPrimitive must return a primitive value.");
+              }
+              return ("string" === r ? String : Number)(t);
+            }
+            function renderer_typeof(o) {
+              "@babel/helpers - typeof";
+              return renderer_typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function(o2) {
+                return typeof o2;
+              } : function(o2) {
+                return o2 && "function" == typeof Symbol && o2.constructor === Symbol && o2 !== Symbol.prototype ? "symbol" : typeof o2;
+              }, renderer_typeof(o);
+            }
+            function renderer_slicedToArray(arr, i) {
+              return renderer_arrayWithHoles(arr) || renderer_iterableToArrayLimit(arr, i) || fiber_renderer_unsupportedIterableToArray(arr, i) || renderer_nonIterableRest();
+            }
+            function renderer_nonIterableRest() {
+              throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+            }
+            function renderer_iterableToArrayLimit(r, l) {
+              var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+              if (null != t) {
+                var e, n, i, u, a = [], f = true, o = false;
+                try {
+                  if (i = (t = t.call(r)).next, 0 === l) {
+                    if (Object(t) !== t) return;
+                    f = false;
+                  } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = true) ;
+                } catch (r2) {
+                  o = true, n = r2;
+                } finally {
+                  try {
+                    if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return;
+                  } finally {
+                    if (o) throw n;
+                  }
+                }
+                return a;
+              }
+            }
+            function renderer_arrayWithHoles(arr) {
+              if (Array.isArray(arr)) return arr;
+            }
+            function fiber_renderer_toConsumableArray(arr) {
+              return fiber_renderer_arrayWithoutHoles(arr) || fiber_renderer_iterableToArray(arr) || fiber_renderer_unsupportedIterableToArray(arr) || fiber_renderer_nonIterableSpread();
+            }
+            function fiber_renderer_nonIterableSpread() {
+              throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+            }
+            function fiber_renderer_iterableToArray(iter) {
+              if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter);
+            }
+            function fiber_renderer_arrayWithoutHoles(arr) {
+              if (Array.isArray(arr)) return fiber_renderer_arrayLikeToArray(arr);
+            }
+            function renderer_createForOfIteratorHelper(o, allowArrayLike) {
+              var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"];
+              if (!it) {
+                if (Array.isArray(o) || (it = fiber_renderer_unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") {
+                  if (it) o = it;
+                  var i = 0;
+                  var F = function F2() {
+                  };
+                  return { s: F, n: function n() {
+                    if (i >= o.length) return { done: true };
+                    return { done: false, value: o[i++] };
+                  }, e: function e(_e) {
+                    throw _e;
+                  }, f: F };
+                }
+                throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+              }
+              var normalCompletion = true, didErr = false, err;
+              return { s: function s() {
+                it = it.call(o);
+              }, n: function n() {
+                var step = it.next();
+                normalCompletion = step.done;
+                return step;
+              }, e: function e(_e2) {
+                didErr = true;
+                err = _e2;
+              }, f: function f() {
+                try {
+                  if (!normalCompletion && it.return != null) it.return();
+                } finally {
+                  if (didErr) throw err;
+                }
+              } };
+            }
+            function fiber_renderer_unsupportedIterableToArray(o, minLen) {
+              if (!o) return;
+              if (typeof o === "string") return fiber_renderer_arrayLikeToArray(o, minLen);
+              var n = Object.prototype.toString.call(o).slice(8, -1);
+              if (n === "Object" && o.constructor) n = o.constructor.name;
+              if (n === "Map" || n === "Set") return Array.from(o);
+              if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return fiber_renderer_arrayLikeToArray(o, minLen);
+            }
+            function fiber_renderer_arrayLikeToArray(arr, len) {
+              if (len == null || len > arr.length) len = arr.length;
+              for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
+              return arr2;
+            }
+            function createFiberInstance(fiber) {
+              return {
+                kind: FIBER_INSTANCE,
+                id: getUID(),
+                parent: null,
+                firstChild: null,
+                nextSibling: null,
+                source: null,
+                logCount: 0,
+                treeBaseDuration: 0,
+                suspendedBy: null,
+                suspenseNode: null,
+                data: fiber
+              };
+            }
+            function createFilteredFiberInstance(fiber) {
+              return {
+                kind: FILTERED_FIBER_INSTANCE,
+                id: 0,
+                parent: null,
+                firstChild: null,
+                nextSibling: null,
+                source: null,
+                logCount: 0,
+                treeBaseDuration: 0,
+                suspendedBy: null,
+                suspenseNode: null,
+                data: fiber
+              };
+            }
+            function createVirtualInstance(debugEntry) {
+              return {
+                kind: VIRTUAL_INSTANCE,
+                id: getUID(),
+                parent: null,
+                firstChild: null,
+                nextSibling: null,
+                source: null,
+                logCount: 0,
+                treeBaseDuration: 0,
+                suspendedBy: null,
+                suspenseNode: null,
+                data: debugEntry
+              };
+            }
+            var NoUpdate = 0;
+            var ShouldResetChildren = 1;
+            var ShouldResetSuspenseChildren = 2;
+            var ShouldResetParentSuspenseChildren = 4;
+            function createSuspenseNode(instance) {
+              return instance.suspenseNode = {
+                instance,
+                parent: null,
+                firstChild: null,
+                nextSibling: null,
+                rects: null,
+                suspendedBy: /* @__PURE__ */ new Map(),
+                environments: /* @__PURE__ */ new Map(),
+                endTime: 0,
+                hasUniqueSuspenders: false,
+                hasUnknownSuspenders: false
+              };
+            }
+            var knownEnvironmentNames = /* @__PURE__ */ new Set();
+            var rootToFiberInstanceMap = /* @__PURE__ */ new Map();
+            var idToDevToolsInstanceMap = /* @__PURE__ */ new Map();
+            var focusedActivityID = null;
+            var focusedActivity = null;
+            var idToSuspenseNodeMap = /* @__PURE__ */ new Map();
+            var publicInstanceToDevToolsInstanceMap = /* @__PURE__ */ new Map();
+            var hostResourceToDevToolsInstanceMap = /* @__PURE__ */ new Map();
             function aquireHostInstance(nearestInstance, hostInstance) {
               var publicInstance = getPublicInstance(hostInstance);
               publicInstanceToDevToolsInstanceMap.set(publicInstance, nearestInstance);
@@ -60905,11 +60318,11 @@ var require_backend = __commonJS({
                     hostResourceToDevToolsInstanceMap.delete(publicInstance);
                     publicInstanceToDevToolsInstanceMap.delete(publicInstance);
                   } else if (publicInstanceToDevToolsInstanceMap.get(publicInstance) === nearestInstance) {
-                    var _iterator = _createForOfIteratorHelper(resourceInstances), _step;
+                    var _iterator = renderer_createForOfIteratorHelper(resourceInstances), _step;
                     try {
                       for (_iterator.s(); !(_step = _iterator.n()).done; ) {
                         var firstInstance = _step.value;
-                        publicInstanceToDevToolsInstanceMap.set(firstInstance, nearestInstance);
+                        publicInstanceToDevToolsInstanceMap.set(publicInstance, firstInstance);
                         break;
                       }
                     } catch (err) {
@@ -60921,12 +60334,12 @@ var require_backend = __commonJS({
                 }
               }
             }
-            function renderer_attach(hook, rendererID, renderer2, global3, shouldStartProfilingNow, profilingSettings) {
+            function renderer_attach(hook, rendererID, renderer2, global3, shouldStartProfilingNow, profilingSettings, componentFiltersOrComponentFiltersPromise) {
               var version = renderer2.reconcilerVersion || renderer2.version;
               var _getInternalReactCons = getInternalReactConstants(version), getDisplayNameForFiber = _getInternalReactCons.getDisplayNameForFiber, getTypeSymbol = _getInternalReactCons.getTypeSymbol, ReactPriorityLevels = _getInternalReactCons.ReactPriorityLevels, ReactTypeOfWork = _getInternalReactCons.ReactTypeOfWork, StrictModeBits = _getInternalReactCons.StrictModeBits, SuspenseyImagesMode = _getInternalReactCons.SuspenseyImagesMode;
-              var ActivityComponent = ReactTypeOfWork.ActivityComponent, ClassComponent = ReactTypeOfWork.ClassComponent, ContextConsumer = ReactTypeOfWork.ContextConsumer, DehydratedSuspenseComponent = ReactTypeOfWork.DehydratedSuspenseComponent, ForwardRef = ReactTypeOfWork.ForwardRef, Fragment3 = ReactTypeOfWork.Fragment, FunctionComponent = ReactTypeOfWork.FunctionComponent, HostRoot = ReactTypeOfWork.HostRoot, HostHoistable = ReactTypeOfWork.HostHoistable, HostSingleton = ReactTypeOfWork.HostSingleton, HostPortal = ReactTypeOfWork.HostPortal, HostComponent = ReactTypeOfWork.HostComponent, HostText = ReactTypeOfWork.HostText, IncompleteClassComponent = ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = ReactTypeOfWork.IncompleteFunctionComponent, IndeterminateComponent = ReactTypeOfWork.IndeterminateComponent, LegacyHiddenComponent = ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = ReactTypeOfWork.MemoComponent, OffscreenComponent = ReactTypeOfWork.OffscreenComponent, SimpleMemoComponent = ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = ReactTypeOfWork.TracingMarkerComponent, Throw = ReactTypeOfWork.Throw, ViewTransitionComponent = ReactTypeOfWork.ViewTransitionComponent;
+              var ActivityComponent = ReactTypeOfWork.ActivityComponent, ClassComponent = ReactTypeOfWork.ClassComponent, DehydratedSuspenseComponent = ReactTypeOfWork.DehydratedSuspenseComponent, ForwardRef = ReactTypeOfWork.ForwardRef, Fragment3 = ReactTypeOfWork.Fragment, FunctionComponent = ReactTypeOfWork.FunctionComponent, HostRoot = ReactTypeOfWork.HostRoot, HostHoistable = ReactTypeOfWork.HostHoistable, HostSingleton = ReactTypeOfWork.HostSingleton, HostPortal = ReactTypeOfWork.HostPortal, HostComponent = ReactTypeOfWork.HostComponent, HostText = ReactTypeOfWork.HostText, IncompleteClassComponent = ReactTypeOfWork.IncompleteClassComponent, IncompleteFunctionComponent = ReactTypeOfWork.IncompleteFunctionComponent, IndeterminateComponent = ReactTypeOfWork.IndeterminateComponent, LegacyHiddenComponent = ReactTypeOfWork.LegacyHiddenComponent, MemoComponent = ReactTypeOfWork.MemoComponent, OffscreenComponent = ReactTypeOfWork.OffscreenComponent, SimpleMemoComponent = ReactTypeOfWork.SimpleMemoComponent, SuspenseComponent = ReactTypeOfWork.SuspenseComponent, SuspenseListComponent = ReactTypeOfWork.SuspenseListComponent, TracingMarkerComponent = ReactTypeOfWork.TracingMarkerComponent, Throw = ReactTypeOfWork.Throw, ViewTransitionComponent = ReactTypeOfWork.ViewTransitionComponent;
               var ImmediatePriority = ReactPriorityLevels.ImmediatePriority, UserBlockingPriority = ReactPriorityLevels.UserBlockingPriority, NormalPriority = ReactPriorityLevels.NormalPriority, LowPriority = ReactPriorityLevels.LowPriority, IdlePriority = ReactPriorityLevels.IdlePriority, NoPriority = ReactPriorityLevels.NoPriority;
-              var getLaneLabelMap = renderer2.getLaneLabelMap, injectProfilingHooks = renderer2.injectProfilingHooks, overrideHookState = renderer2.overrideHookState, overrideHookStateDeletePath = renderer2.overrideHookStateDeletePath, overrideHookStateRenamePath = renderer2.overrideHookStateRenamePath, overrideProps = renderer2.overrideProps, overridePropsDeletePath = renderer2.overridePropsDeletePath, overridePropsRenamePath = renderer2.overridePropsRenamePath, scheduleRefresh2 = renderer2.scheduleRefresh, setErrorHandler = renderer2.setErrorHandler, setSuspenseHandler = renderer2.setSuspenseHandler, scheduleUpdate = renderer2.scheduleUpdate, scheduleRetry = renderer2.scheduleRetry, getCurrentFiber = renderer2.getCurrentFiber;
+              var overrideHookState = renderer2.overrideHookState, overrideHookStateDeletePath = renderer2.overrideHookStateDeletePath, overrideHookStateRenamePath = renderer2.overrideHookStateRenamePath, overrideProps = renderer2.overrideProps, overridePropsDeletePath = renderer2.overridePropsDeletePath, overridePropsRenamePath = renderer2.overridePropsRenamePath, scheduleRefresh2 = renderer2.scheduleRefresh, setErrorHandler = renderer2.setErrorHandler, setSuspenseHandler = renderer2.setSuspenseHandler, scheduleUpdate = renderer2.scheduleUpdate, scheduleRetry = renderer2.scheduleRetry, getCurrentFiber = renderer2.getCurrentFiber;
               var supportsTogglingError = typeof setErrorHandler === "function" && typeof scheduleUpdate === "function";
               var supportsTogglingSuspense = typeof setSuspenseHandler === "function" && typeof scheduleUpdate === "function";
               var supportsPerformanceTracks = gte(version, "19.2.0");
@@ -60939,34 +60352,17 @@ var require_backend = __commonJS({
                   }
                 };
               }
-              var getTimelineData = null;
-              var toggleProfilingStatus = null;
-              if (typeof injectProfilingHooks === "function") {
-                var response = createProfilingHooks({
-                  getDisplayNameForFiber,
-                  getIsProfiling: function getIsProfiling() {
-                    return isProfiling;
-                  },
-                  getLaneLabelMap,
-                  currentDispatcherRef: getDispatcherRef(renderer2),
-                  workTagMap: ReactTypeOfWork,
-                  reactVersion: version
-                });
-                injectProfilingHooks(response.profilingHooks);
-                getTimelineData = response.getTimelineData;
-                toggleProfilingStatus = response.toggleProfilingStatus;
-              }
               var fiberToComponentLogsMap = /* @__PURE__ */ new WeakMap();
               var needsToFlushComponentLogs = false;
-              function bruteForceFlushErrorsAndWarnings() {
+              function bruteForceFlushErrorsAndWarnings(root) {
                 var hasChanges = false;
-                var _iterator2 = _createForOfIteratorHelper(idToDevToolsInstanceMap.values()), _step2;
+                var _iterator2 = renderer_createForOfIteratorHelper(idToDevToolsInstanceMap.values()), _step2;
                 try {
                   for (_iterator2.s(); !(_step2 = _iterator2.n()).done; ) {
                     var devtoolsInstance = _step2.value;
                     if (devtoolsInstance.kind === FIBER_INSTANCE) {
-                      var _fiber = devtoolsInstance.data;
-                      var componentLogsEntry = fiberToComponentLogsMap.get(_fiber);
+                      var fiber = devtoolsInstance.data;
+                      var componentLogsEntry = fiberToComponentLogsMap.get(fiber);
                       var changed = recordConsoleLogs(devtoolsInstance, componentLogsEntry);
                       if (changed) {
                         hasChanges = true;
@@ -60981,19 +60377,19 @@ var require_backend = __commonJS({
                   _iterator2.f();
                 }
                 if (hasChanges) {
-                  flushPendingEvents();
+                  flushPendingEvents(root);
                 }
               }
               function clearErrorsAndWarnings() {
-                var _iterator3 = _createForOfIteratorHelper(idToDevToolsInstanceMap.values()), _step3;
+                var _iterator3 = renderer_createForOfIteratorHelper(idToDevToolsInstanceMap.values()), _step3;
                 try {
                   for (_iterator3.s(); !(_step3 = _iterator3.n()).done; ) {
                     var devtoolsInstance = _step3.value;
                     if (devtoolsInstance.kind === FIBER_INSTANCE) {
-                      var _fiber2 = devtoolsInstance.data;
-                      fiberToComponentLogsMap.delete(_fiber2);
-                      if (_fiber2.alternate) {
-                        fiberToComponentLogsMap.delete(_fiber2.alternate);
+                      var fiber = devtoolsInstance.data;
+                      fiberToComponentLogsMap.delete(fiber);
+                      if (fiber.alternate) {
+                        fiberToComponentLogsMap.delete(fiber.alternate);
                       }
                     } else {
                       componentInfoToComponentLogsMap["delete"](devtoolsInstance.data);
@@ -61008,17 +60404,17 @@ var require_backend = __commonJS({
                 } finally {
                   _iterator3.f();
                 }
-                flushPendingEvents();
+                flushPendingEvents(null);
               }
               function clearConsoleLogsHelper(instanceID, type) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(instanceID);
                 if (devtoolsInstance !== void 0) {
                   var componentLogsEntry;
                   if (devtoolsInstance.kind === FIBER_INSTANCE) {
-                    var _fiber3 = devtoolsInstance.data;
-                    componentLogsEntry = fiberToComponentLogsMap.get(_fiber3);
-                    if (componentLogsEntry === void 0 && _fiber3.alternate !== null) {
-                      componentLogsEntry = fiberToComponentLogsMap.get(_fiber3.alternate);
+                    var fiber = devtoolsInstance.data;
+                    componentLogsEntry = fiberToComponentLogsMap.get(fiber);
+                    if (componentLogsEntry === void 0 && fiber.alternate !== null) {
+                      componentLogsEntry = fiberToComponentLogsMap.get(fiber.alternate);
                     }
                   } else {
                     var componentInfo = devtoolsInstance.data;
@@ -61034,7 +60430,7 @@ var require_backend = __commonJS({
                     }
                     var changed = recordConsoleLogs(devtoolsInstance, componentLogsEntry);
                     if (changed) {
-                      flushPendingEvents();
+                      flushPendingEvents(null);
                       updateMostRecentlyInspectedElementIfNecessary(devtoolsInstance.id);
                     }
                   }
@@ -61150,13 +60546,18 @@ var require_backend = __commonJS({
               var hideElementsWithPaths = /* @__PURE__ */ new Set();
               var hideElementsWithTypes = /* @__PURE__ */ new Set();
               var hideElementsWithEnvs = /* @__PURE__ */ new Set();
+              var isInFocusedActivity = true;
               var traceUpdatesEnabled = false;
               var traceUpdatesForNodes = /* @__PURE__ */ new Set();
-              function applyComponentFilters(componentFilters) {
+              function applyComponentFilters(componentFilters, nextActivitySlice) {
                 hideElementsWithTypes.clear();
                 hideElementsWithDisplayNames.clear();
                 hideElementsWithPaths.clear();
                 hideElementsWithEnvs.clear();
+                var previousFocusedActivityID = focusedActivityID;
+                focusedActivityID = null;
+                focusedActivity = null;
+                isInFocusedActivity = true;
                 componentFilters.forEach(function(componentFilter) {
                   if (!componentFilter.isEnabled) {
                     return;
@@ -61170,7 +60571,7 @@ var require_backend = __commonJS({
                     case ComponentFilterElementType:
                       hideElementsWithTypes.add(componentFilter.value);
                       break;
-                    case ComponentFilterLocation:
+                    case types_ComponentFilterLocation:
                       if (componentFilter.isValid && componentFilter.value !== "") {
                         hideElementsWithPaths.add(new RegExp(componentFilter.value, "i"));
                       }
@@ -61181,21 +60582,46 @@ var require_backend = __commonJS({
                     case ComponentFilterEnvironmentName:
                       hideElementsWithEnvs.add(componentFilter.value);
                       break;
+                    case types_ComponentFilterActivitySlice:
+                      if (nextActivitySlice !== null && nextActivitySlice.tag === ActivityComponent) {
+                        focusedActivity = nextActivitySlice;
+                        isInFocusedActivity = false;
+                        if (componentFilter.rendererID !== rendererID) {
+                          focusedActivityID = previousFocusedActivityID;
+                        }
+                      } else {
+                      }
+                      break;
                     default:
                       console.warn('Invalid component filter type "'.concat(componentFilter.type, '"'));
                       break;
                   }
                 });
               }
-              if (window.__REACT_DEVTOOLS_COMPONENT_FILTERS__ != null) {
-                var componentFiltersWithoutLocationBasedOnes = filterOutLocationComponentFilters(window.__REACT_DEVTOOLS_COMPONENT_FILTERS__);
-                applyComponentFilters(componentFiltersWithoutLocationBasedOnes);
+              if (Array.isArray(componentFiltersOrComponentFiltersPromise)) {
+                applyComponentFilters(componentFiltersOrComponentFiltersPromise, null);
               } else {
-                applyComponentFilters(getDefaultComponentFilters());
+                componentFiltersOrComponentFiltersPromise.then(function(componentFilters) {
+                  applyComponentFilters(componentFilters, null);
+                });
               }
               function updateComponentFilters(componentFilters) {
                 if (isProfiling) {
                   throw Error("Cannot modify filter preferences while profiling");
+                }
+                var previousForcedFallbacks = forceFallbackForFibers.size > 0 ? new Set(forceFallbackForFibers) : null;
+                var previousForcedErrors = forceErrorForFibers.size > 0 ? new Map(forceErrorForFibers) : null;
+                var nextFocusedActivity = null;
+                var focusedActivityFilter = null;
+                for (var i = 0; i < componentFilters.length; i++) {
+                  var filter = componentFilters[i];
+                  if (filter.type === types_ComponentFilterActivitySlice && filter.isEnabled) {
+                    focusedActivityFilter = filter;
+                    var instance = idToDevToolsInstanceMap.get(filter.activityID);
+                    if (instance !== void 0 && instance.kind === FIBER_INSTANCE) {
+                      nextFocusedActivity = instance.data;
+                    }
+                  }
                 }
                 hook.getFiberRoots(rendererID).forEach(function(root) {
                   var rootInstance = rootToFiberInstanceMap.get(root);
@@ -61205,11 +60631,54 @@ var require_backend = __commonJS({
                   currentRoot = rootInstance;
                   unmountInstanceRecursively(rootInstance);
                   rootToFiberInstanceMap.delete(root);
-                  flushPendingEvents();
                   currentRoot = null;
                 });
-                applyComponentFilters(componentFilters);
+                if (nextFocusedActivity !== focusedActivity && (focusedActivityFilter === null || focusedActivityFilter.rendererID === rendererID)) {
+                  pushOperation(TREE_OPERATION_APPLIED_ACTIVITY_SLICE_CHANGE);
+                  pushOperation(0);
+                }
+                applyComponentFilters(componentFilters, nextFocusedActivity);
                 rootDisplayNameCounter.clear();
+                if (typeof scheduleUpdate === "function") {
+                  if (previousForcedFallbacks !== null) {
+                    var _iterator4 = renderer_createForOfIteratorHelper(previousForcedFallbacks), _step4;
+                    try {
+                      for (_iterator4.s(); !(_step4 = _iterator4.n()).done; ) {
+                        var fiber = _step4.value;
+                        if (typeof scheduleRetry === "function") {
+                          scheduleRetry(fiber);
+                        } else {
+                          scheduleUpdate(fiber);
+                        }
+                      }
+                    } catch (err) {
+                      _iterator4.e(err);
+                    } finally {
+                      _iterator4.f();
+                    }
+                  }
+                  if (previousForcedErrors !== null && typeof setErrorHandler === "function") {
+                    setErrorHandler(shouldErrorFiberAccordingToMap);
+                    var _iterator5 = renderer_createForOfIteratorHelper(previousForcedErrors), _step5;
+                    try {
+                      for (_iterator5.s(); !(_step5 = _iterator5.n()).done; ) {
+                        var _step5$value = renderer_slicedToArray(_step5.value, 2), _fiber = _step5$value[0], shouldError = _step5$value[1];
+                        forceErrorForFibers.set(_fiber, false);
+                        if (shouldError) {
+                          if (typeof scheduleRetry === "function") {
+                            scheduleRetry(_fiber);
+                          } else {
+                            scheduleUpdate(_fiber);
+                          }
+                        }
+                      }
+                    } catch (err) {
+                      _iterator5.e(err);
+                    } finally {
+                      _iterator5.f();
+                    }
+                  }
+                }
                 hook.getFiberRoots(rendererID).forEach(function(root) {
                   var current = root.current;
                   var newRoot = createFiberInstance(current);
@@ -61221,10 +60690,12 @@ var require_backend = __commonJS({
                   currentRoot = newRoot;
                   setRootPseudoKey(currentRoot.id, root.current);
                   mountFiberRecursively(root.current, false);
-                  flushPendingEvents();
                   currentRoot = null;
                 });
-                flushPendingEvents();
+                if (focusedActivityFilter !== null && focusedActivityID !== null) {
+                  focusedActivityFilter.activityID = focusedActivityID;
+                }
+                flushPendingEvents(null);
                 needsToFlushComponentLogs = false;
               }
               function getEnvironmentNames() {
@@ -61246,24 +60717,27 @@ var require_backend = __commonJS({
                 }
               }
               function shouldFilterVirtual(data, secondaryEnv) {
+                if (!isInFocusedActivity) {
+                  return true;
+                }
                 if (hideElementsWithTypes.has(types_ElementTypeFunction)) {
                   return true;
                 }
                 if (hideElementsWithDisplayNames.size > 0) {
                   var displayName = data.name;
                   if (displayName != null) {
-                    var _iterator4 = _createForOfIteratorHelper(hideElementsWithDisplayNames), _step4;
+                    var _iterator6 = renderer_createForOfIteratorHelper(hideElementsWithDisplayNames), _step6;
                     try {
-                      for (_iterator4.s(); !(_step4 = _iterator4.n()).done; ) {
-                        var displayNameRegExp = _step4.value;
+                      for (_iterator6.s(); !(_step6 = _iterator6.n()).done; ) {
+                        var displayNameRegExp = _step6.value;
                         if (displayNameRegExp.test(displayName)) {
                           return true;
                         }
                       }
                     } catch (err) {
-                      _iterator4.e(err);
+                      _iterator6.e(err);
                     } finally {
-                      _iterator4.f();
+                      _iterator6.f();
                     }
                   }
                 }
@@ -61274,6 +60748,9 @@ var require_backend = __commonJS({
               }
               function shouldFilterFiber(fiber) {
                 var tag = fiber.tag, type = fiber.type, key = fiber.key;
+                if (tag !== HostRoot && !isInFocusedActivity) {
+                  return true;
+                }
                 switch (tag) {
                   case DehydratedSuspenseComponent:
                     return true;
@@ -61307,18 +60784,18 @@ var require_backend = __commonJS({
                 if (hideElementsWithDisplayNames.size > 0) {
                   var displayName = getDisplayNameForFiber(fiber);
                   if (displayName != null) {
-                    var _iterator5 = _createForOfIteratorHelper(hideElementsWithDisplayNames), _step5;
+                    var _iterator7 = renderer_createForOfIteratorHelper(hideElementsWithDisplayNames), _step7;
                     try {
-                      for (_iterator5.s(); !(_step5 = _iterator5.n()).done; ) {
-                        var displayNameRegExp = _step5.value;
+                      for (_iterator7.s(); !(_step7 = _iterator7.n()).done; ) {
+                        var displayNameRegExp = _step7.value;
                         if (displayNameRegExp.test(displayName)) {
                           return true;
                         }
                       }
                     } catch (err) {
-                      _iterator5.e(err);
+                      _iterator7.e(err);
                     } finally {
-                      _iterator5.f();
+                      _iterator7.f();
                     }
                   }
                 }
@@ -61463,7 +60940,9 @@ var require_backend = __commonJS({
                         state: null
                       };
                     } else {
-                      var indices = getChangedHooksIndices(prevFiber.memoizedState, nextFiber.memoizedState);
+                      var prevHooks = inspectHooks(prevFiber);
+                      var nextHooks = inspectHooks(nextFiber);
+                      var indices = getChangedHooksIndices(prevHooks, nextHooks);
                       var _data = {
                         context: getContextChanged(prevFiber, nextFiber),
                         didHooksChange: indices !== null && indices.length > 0,
@@ -61478,91 +60957,6 @@ var require_backend = __commonJS({
                     return null;
                 }
               }
-              function getContextChanged(prevFiber, nextFiber) {
-                var prevContext = prevFiber.dependencies && prevFiber.dependencies.firstContext;
-                var nextContext = nextFiber.dependencies && nextFiber.dependencies.firstContext;
-                while (prevContext && nextContext) {
-                  if (prevContext.context !== nextContext.context) {
-                    return false;
-                  }
-                  if (!shared_objectIs(prevContext.memoizedValue, nextContext.memoizedValue)) {
-                    return true;
-                  }
-                  prevContext = prevContext.next;
-                  nextContext = nextContext.next;
-                }
-                return false;
-              }
-              function isHookThatCanScheduleUpdate(hookObject) {
-                var queue = hookObject.queue;
-                if (!queue) {
-                  return false;
-                }
-                var boundHasOwnProperty = shared_hasOwnProperty.bind(queue);
-                if (boundHasOwnProperty("pending")) {
-                  return true;
-                }
-                return boundHasOwnProperty("value") && boundHasOwnProperty("getSnapshot") && typeof queue.getSnapshot === "function";
-              }
-              function didStatefulHookChange(prev, next) {
-                var prevMemoizedState = prev.memoizedState;
-                var nextMemoizedState = next.memoizedState;
-                if (isHookThatCanScheduleUpdate(prev)) {
-                  return prevMemoizedState !== nextMemoizedState;
-                }
-                return false;
-              }
-              function getChangedHooksIndices(prev, next) {
-                if (prev == null || next == null) {
-                  return null;
-                }
-                var indices = [];
-                var index = 0;
-                while (next !== null) {
-                  if (didStatefulHookChange(prev, next)) {
-                    indices.push(index);
-                  }
-                  next = next.next;
-                  prev = prev.next;
-                  index++;
-                }
-                return indices;
-              }
-              function getChangedKeys(prev, next) {
-                if (prev == null || next == null) {
-                  return null;
-                }
-                var keys = new Set([].concat(fiber_renderer_toConsumableArray(Object.keys(prev)), fiber_renderer_toConsumableArray(Object.keys(next))));
-                var changedKeys = [];
-                var _iterator6 = _createForOfIteratorHelper(keys), _step6;
-                try {
-                  for (_iterator6.s(); !(_step6 = _iterator6.n()).done; ) {
-                    var key = _step6.value;
-                    if (prev[key] !== next[key]) {
-                      changedKeys.push(key);
-                    }
-                  }
-                } catch (err) {
-                  _iterator6.e(err);
-                } finally {
-                  _iterator6.f();
-                }
-                return changedKeys;
-              }
-              function didFiberRender(prevFiber, nextFiber) {
-                switch (nextFiber.tag) {
-                  case ClassComponent:
-                  case FunctionComponent:
-                  case ContextConsumer:
-                  case MemoComponent:
-                  case SimpleMemoComponent:
-                  case ForwardRef:
-                    var PerformedWork = 1;
-                    return (getFiberFlags(nextFiber) & PerformedWork) === PerformedWork;
-                  default:
-                    return prevFiber.memoizedProps !== nextFiber.memoizedProps || prevFiber.memoizedState !== nextFiber.memoizedState || prevFiber.ref !== nextFiber.ref;
-                }
-              }
               var pendingOperations = [];
               var pendingRealUnmountedIDs = [];
               var pendingRealUnmountedSuspenseIDs = [];
@@ -61570,7 +60964,6 @@ var require_backend = __commonJS({
               var pendingOperationsQueue = [];
               var pendingStringTable = /* @__PURE__ */ new Map();
               var pendingStringTableLength = 0;
-              var pendingUnmountedRootID = null;
               function pushOperation(op) {
                 if (false) {
                 }
@@ -61582,7 +60975,7 @@ var require_backend = __commonJS({
                     return false;
                   }
                 }
-                return pendingOperations.length === 0 && pendingRealUnmountedIDs.length === 0 && pendingRealUnmountedSuspenseIDs.length === 0 && pendingSuspenderChanges.size === 0 && pendingUnmountedRootID === null;
+                return pendingOperations.length === 0 && pendingRealUnmountedIDs.length === 0 && pendingRealUnmountedSuspenseIDs.length === 0 && pendingSuspenderChanges.size === 0;
               }
               function flushOrQueueOperations(operations) {
                 if (shouldBailoutWithPendingOperations()) {
@@ -61618,20 +61011,20 @@ var require_backend = __commonJS({
                   return true;
                 }
               }
-              function flushPendingEvents() {
+              function flushPendingEvents(root) {
                 if (shouldBailoutWithPendingOperations()) {
                   return;
                 }
-                var numUnmountIDs = pendingRealUnmountedIDs.length + (pendingUnmountedRootID === null ? 0 : 1);
+                var numUnmountIDs = pendingRealUnmountedIDs.length;
                 var numUnmountSuspenseIDs = pendingRealUnmountedSuspenseIDs.length;
                 var numSuspenderChanges = pendingSuspenderChanges.size;
-                var operations = new Array(2 + 1 + pendingStringTableLength + (numUnmountSuspenseIDs > 0 ? 2 + numUnmountSuspenseIDs : 0) + (numUnmountIDs > 0 ? 2 + numUnmountIDs : 0) + pendingOperations.length + (numSuspenderChanges > 0 ? 2 + numSuspenderChanges * 3 : 0));
+                var operations = new Array(2 + 1 + pendingStringTableLength + (numUnmountSuspenseIDs > 0 ? 2 + numUnmountSuspenseIDs : 0) + (numUnmountIDs > 0 ? 2 + numUnmountIDs : 0) + pendingOperations.length + (numSuspenderChanges > 0 ? 2 + numSuspenderChanges * 4 : 0));
                 var i = 0;
                 operations[i++] = rendererID;
-                if (currentRoot === null) {
+                if (root === null) {
                   operations[i++] = -1;
                 } else {
-                  operations[i++] = currentRoot.id;
+                  operations[i++] = root.id;
                 }
                 operations[i++] = pendingStringTableLength;
                 pendingStringTable.forEach(function(entry, stringKey) {
@@ -61656,10 +61049,6 @@ var require_backend = __commonJS({
                   for (var _j = 0; _j < pendingRealUnmountedIDs.length; _j++) {
                     operations[i++] = pendingRealUnmountedIDs[_j];
                   }
-                  if (pendingUnmountedRootID !== null) {
-                    operations[i] = pendingUnmountedRootID;
-                    i++;
-                  }
                 }
                 for (var _j2 = 0; _j2 < pendingOperations.length; _j2++) {
                   operations[i + _j2] = pendingOperations[_j2];
@@ -61675,6 +61064,7 @@ var require_backend = __commonJS({
                     }
                     operations[i++] = fiberIdWithChanges;
                     operations[i++] = suspense.hasUniqueSuspenders ? 1 : 0;
+                    operations[i++] = Math.round(suspense.endTime * 1e3);
                     var instance = suspense.instance;
                     var isSuspended = (instance.kind === FIBER_INSTANCE || instance.kind === FILTERED_FIBER_INSTANCE) && instance.data.tag === SuspenseComponent && instance.data.memoizedState !== null;
                     operations[i++] = isSuspended ? 1 : 0;
@@ -61689,7 +61079,6 @@ var require_backend = __commonJS({
                 pendingRealUnmountedIDs.length = 0;
                 pendingRealUnmountedSuspenseIDs.length = 0;
                 pendingSuspenderChanges.clear();
-                pendingUnmountedRootID = null;
                 pendingStringTable.clear();
                 pendingStringTableLength = 0;
               }
@@ -61815,9 +61204,6 @@ var require_backend = __commonJS({
                   var profilingFlags = 0;
                   if (isProfilingSupported) {
                     profilingFlags = PROFILING_FLAG_BASIC_SUPPORT;
-                    if (typeof injectProfilingHooks === "function") {
-                      profilingFlags |= PROFILING_FLAG_TIMELINE_SUPPORT;
-                    }
                     if (supportsPerformanceTracks) {
                       profilingFlags |= PROFILING_FLAG_PERFORMANCE_TRACKS_SUPPORT;
                     }
@@ -61836,6 +61222,15 @@ var require_backend = __commonJS({
                     }
                   }
                 } else {
+                  var suspenseNode = fiberInstance.suspenseNode;
+                  if (suspenseNode !== null && fiber.memoizedState === null) {
+                    var prevRects = suspenseNode.rects;
+                    var nextRects = measureInstance(fiberInstance);
+                    if (!areEqualRects(prevRects, nextRects)) {
+                      suspenseNode.rects = nextRects;
+                      recordSuspenseResize(suspenseNode);
+                    }
+                  }
                   var key = fiber.key;
                   var displayName = getDisplayNameForFiber(fiber);
                   var elementType = getElementTypeForFiber(fiber);
@@ -61851,7 +61246,7 @@ var require_backend = __commonJS({
                   var ownerID = ownerInstance === null ? 0 : ownerInstance.id;
                   var parentID = unfilteredParent === null ? 0 : unfilteredParent.id;
                   var displayNameStringID = getStringID(displayName);
-                  var keyString = key === null ? null : String(key);
+                  var keyString = key === null ? null : key === ReactSymbols_REACT_OPTIMISTIC_KEY ? "React.optimisticKey" : String(key);
                   var keyStringID = getStringID(keyString);
                   var nameProp = fiber.tag === SuspenseComponent ? fiber.memoizedProps.name : fiber.tag === ActivityComponent ? fiber.memoizedProps.name : null;
                   var namePropString = nameProp == null ? null : String(nameProp);
@@ -61878,6 +61273,14 @@ var require_backend = __commonJS({
                       pushOperation(TREE_OPERATION_SET_SUBTREE_MODE);
                       pushOperation(id);
                       pushOperation(StrictMode);
+                    }
+                  }
+                  if (fiber.tag === ActivityComponent) {
+                    var offscreenChild = fiber.child;
+                    if (offscreenChild !== null && offscreenChild.tag === OffscreenComponent && offscreenChild.memoizedState !== null) {
+                      pushOperation(TREE_OPERATION_SET_SUBTREE_MODE);
+                      pushOperation(id);
+                      pushOperation(ActivityHiddenMode);
                     }
                   }
                 }
@@ -61996,17 +61399,11 @@ var require_backend = __commonJS({
                 if (isInDisconnectedSubtree) {
                   return;
                 }
-                var fiber = fiberInstance.data;
                 if (trackedPathMatchInstance === fiberInstance) {
                   setTrackedPath(null);
                 }
                 var id = fiberInstance.id;
-                var isRoot = fiber.tag === HostRoot;
-                if (isRoot) {
-                  pendingUnmountedRootID = id;
-                } else {
-                  pendingRealUnmountedIDs.push(id);
-                }
+                pendingRealUnmountedIDs.push(id);
               }
               function recordSuspenseResize(suspenseNode) {
                 if (__DEBUG__) {
@@ -62065,16 +61462,6 @@ var require_backend = __commonJS({
               var remainingReconcilingChildrenSuspenseNodes = null;
               var previouslyReconciledSiblingSuspenseNode = null;
               var reconcilingParentSuspenseNode = null;
-              function ioExistsInSuspenseAncestor(suspenseNode, ioInfo) {
-                var ancestor = suspenseNode.parent;
-                while (ancestor !== null) {
-                  if (ancestor.suspendedBy.has(ioInfo)) {
-                    return true;
-                  }
-                  ancestor = ancestor.parent;
-                }
-                return false;
-              }
               function insertSuspendedBy(asyncInfo) {
                 if (reconcilingParent === null || reconcilingParentSuspenseNode === null) {
                   throw new Error("It should not be possible to have suspended data outside the root. Even suspending at the first position is still a child of the root.");
@@ -62083,6 +61470,16 @@ var require_backend = __commonJS({
                 var parentInstance = reconcilingParent;
                 while (parentInstance.kind === FILTERED_FIBER_INSTANCE && parentInstance.parent !== null && parentInstance !== parentSuspenseNode.instance) {
                   parentInstance = parentInstance.parent;
+                }
+                if (parentInstance.kind === FIBER_INSTANCE) {
+                  var fiber = parentInstance.data;
+                  if (fiber.tag === SuspenseComponent && parentInstance !== parentSuspenseNode.instance) {
+                    var parent = parentInstance.parent;
+                    if (parent === null) {
+                      throw new Error("Did not find a suitable instance for this async info. This is a bug in React.");
+                    }
+                    parentInstance = parent;
+                  }
                 }
                 var suspenseNodeSuspendedBy = parentSuspenseNode.suspendedBy;
                 var ioInfo = asyncInfo.awaited;
@@ -62104,8 +61501,15 @@ var require_backend = __commonJS({
                 }
                 if (!suspendedBySet.has(parentInstance)) {
                   suspendedBySet.add(parentInstance);
+                  var virtualEndTime = getVirtualEndTime(ioInfo);
                   if (!parentSuspenseNode.hasUniqueSuspenders && !ioExistsInSuspenseAncestor(parentSuspenseNode, ioInfo)) {
                     parentSuspenseNode.hasUniqueSuspenders = true;
+                    if (parentSuspenseNode.endTime < virtualEndTime) {
+                      parentSuspenseNode.endTime = virtualEndTime;
+                    }
+                    recordSuspenseSuspenders(parentSuspenseNode);
+                  } else if (parentSuspenseNode.endTime < virtualEndTime) {
+                    parentSuspenseNode.endTime = virtualEndTime;
                     recordSuspenseSuspenders(parentSuspenseNode);
                   }
                 }
@@ -62116,15 +61520,6 @@ var require_backend = __commonJS({
                 } else if (suspendedBy.indexOf(asyncInfo) === -1) {
                   suspendedBy.push(asyncInfo);
                 }
-              }
-              function getAwaitInSuspendedByFromIO(suspensedBy, ioInfo) {
-                for (var i = 0; i < suspensedBy.length; i++) {
-                  var asyncInfo = suspensedBy[i];
-                  if (asyncInfo.awaited === ioInfo) {
-                    return asyncInfo;
-                  }
-                }
-                return null;
               }
               function unblockSuspendedBy(parentSuspenseNode, ioInfo) {
                 var firstChild = parentSuspenseNode.firstChild;
@@ -62152,16 +61547,30 @@ var require_backend = __commonJS({
                   node = node.nextSibling;
                 }
               }
+              function computeEndTime(suspenseNode) {
+                var maxEndTime = 0;
+                suspenseNode.suspendedBy.forEach(function(set, ioInfo) {
+                  var virtualEndTime = getVirtualEndTime(ioInfo);
+                  if (virtualEndTime > maxEndTime) {
+                    maxEndTime = virtualEndTime;
+                  }
+                });
+                return maxEndTime;
+              }
               function removePreviousSuspendedBy(instance, previousSuspendedBy, parentSuspenseNode) {
                 var suspenseNode = instance.suspenseNode === null ? parentSuspenseNode : instance.suspenseNode;
                 if (previousSuspendedBy !== null && suspenseNode !== null) {
                   var nextSuspendedBy = instance.suspendedBy;
                   var changedEnvironment = false;
+                  var mayHaveChangedEndTime = false;
                   for (var i = 0; i < previousSuspendedBy.length; i++) {
                     var asyncInfo = previousSuspendedBy[i];
                     if (nextSuspendedBy === null || nextSuspendedBy.indexOf(asyncInfo) === -1 && getAwaitInSuspendedByFromIO(nextSuspendedBy, asyncInfo.awaited) === null) {
                       var ioInfo = asyncInfo.awaited;
                       var suspendedBySet = suspenseNode.suspendedBy.get(ioInfo);
+                      if (suspenseNode.endTime === getVirtualEndTime(ioInfo)) {
+                        mayHaveChangedEndTime = true;
+                      }
                       if (suspendedBySet === void 0 || !suspendedBySet.delete(instance)) {
                         var alreadyRemovedIO = false;
                         for (var j = 0; j < i; j++) {
@@ -62191,13 +61600,15 @@ var require_backend = __commonJS({
                             environmentCounts.set(env5, count - 1);
                           }
                         }
-                      }
-                      if (suspenseNode.hasUniqueSuspenders && !ioExistsInSuspenseAncestor(suspenseNode, ioInfo)) {
-                        unblockSuspendedBy(suspenseNode, ioInfo);
+                        if (suspenseNode.hasUniqueSuspenders && !ioExistsInSuspenseAncestor(suspenseNode, ioInfo)) {
+                          unblockSuspendedBy(suspenseNode, ioInfo);
+                        }
                       }
                     }
                   }
-                  if (changedEnvironment) {
+                  var newEndTime = mayHaveChangedEndTime ? computeEndTime(suspenseNode) : suspenseNode.endTime;
+                  if (changedEnvironment || newEndTime !== suspenseNode.endTime) {
+                    suspenseNode.endTime = newEndTime;
                     recordSuspenseSuspenders(suspenseNode);
                   }
                 }
@@ -62296,6 +61707,9 @@ var require_backend = __commonJS({
                     return false;
                 }
               }
+              function isActivityHiddenOffscreen(fiber) {
+                return isHiddenOffscreen(fiber) && fiber.return !== null && fiber.return.tag === ActivityComponent;
+              }
               function isSuspendedOffscreen(fiber) {
                 switch (fiber.tag) {
                   case LegacyHiddenComponent:
@@ -62344,25 +61758,6 @@ var require_backend = __commonJS({
                   instance = instance.parent;
                 }
                 return false;
-              }
-              function areEqualRects(a, b) {
-                if (a === null) {
-                  return b === null;
-                }
-                if (b === null) {
-                  return false;
-                }
-                if (a.length !== b.length) {
-                  return false;
-                }
-                for (var i = 0; i < a.length; i++) {
-                  var aRect = a[i];
-                  var bRect = b[i];
-                  if (aRect.x !== bRect.x || aRect.y !== bRect.y || aRect.width !== bRect.width || aRect.height !== bRect.height) {
-                    return false;
-                  }
-                }
-                return true;
               }
               function measureUnchangedSuspenseNodesRecursively(suspenseNode) {
                 if (isInDisconnectedSubtree) {
@@ -62462,18 +61857,6 @@ var require_backend = __commonJS({
                 }
                 var id = instance.id;
                 pendingRealUnmountedIDs.push(id);
-              }
-              function getSecondaryEnvironmentName(debugInfo, index) {
-                if (debugInfo != null) {
-                  var componentInfo = debugInfo[index];
-                  for (var i = index + 1; i < debugInfo.length; i++) {
-                    var debugEntry = debugInfo[i];
-                    if (typeof debugEntry.env === "string") {
-                      return componentInfo.env !== debugEntry.env ? debugEntry.env : null;
-                    }
-                  }
-                }
-                return null;
               }
               function trackDebugInfoFromLazyType(fiber) {
                 var type = fiber.elementType;
@@ -62730,11 +62113,20 @@ var require_backend = __commonJS({
                 }
               }
               function mountFiberRecursively(fiber, traceNearestHostComponentUpdate) {
+                var isFocusedActivityEntry = focusedActivity !== null && (fiber === focusedActivity || fiber.alternate === focusedActivity);
+                if (isFocusedActivityEntry) {
+                  isInFocusedActivity = true;
+                }
                 var shouldIncludeInTree = !shouldFilterFiber(fiber);
                 var newInstance = null;
                 var newSuspenseNode = null;
                 if (shouldIncludeInTree) {
                   newInstance = recordMount(fiber, reconcilingParent);
+                  if (isFocusedActivityEntry) {
+                    focusedActivityID = newInstance.id;
+                    pushOperation(TREE_OPERATION_APPLIED_ACTIVITY_SLICE_CHANGE);
+                    pushOperation(newInstance.id);
+                  }
                   if (fiber.tag === SuspenseComponent || fiber.tag === HostRoot) {
                     newSuspenseNode = createSuspenseNode(newInstance);
                     if (fiber.tag === SuspenseComponent) {
@@ -62806,6 +62198,7 @@ var require_backend = __commonJS({
                 var stashedSuspenseParent = reconcilingParentSuspenseNode;
                 var stashedSuspensePrevious = previouslyReconciledSiblingSuspenseNode;
                 var stashedSuspenseRemaining = remainingReconcilingChildrenSuspenseNodes;
+                var stashedIsInActivitySlice = isInFocusedActivity;
                 if (newInstance !== null) {
                   reconcilingParent = newInstance;
                   previouslyReconciledSibling = null;
@@ -62817,6 +62210,8 @@ var require_backend = __commonJS({
                   previouslyReconciledSiblingSuspenseNode = null;
                   remainingReconcilingChildrenSuspenseNodes = null;
                   shouldPopSuspenseNode = true;
+                }
+                if (!isFocusedActivityEntry && focusedActivity !== null && fiber.tag === ActivityComponent) {
                 }
                 try {
                   if (traceUpdatesEnabled) {
@@ -62856,6 +62251,11 @@ var require_backend = __commonJS({
                       isInDisconnectedSubtree = stashedDisconnected;
                     }
                   } else if (isHiddenOffscreen(fiber)) {
+                    if (isActivityHiddenOffscreen(fiber)) {
+                      if (fiber.child !== null) {
+                        mountChildrenRecursively(fiber.child, traceNearestHostComponentUpdate);
+                      }
+                    }
                   } else if (fiber.tag === SuspenseComponent && OffscreenComponent === -1) {
                     if (newSuspenseNode !== null) {
                       trackThrownPromisesFromRetryCache(newSuspenseNode, fiber.stateNode);
@@ -62895,6 +62295,7 @@ var require_backend = __commonJS({
                     }
                   }
                 } finally {
+                  isInFocusedActivity = stashedIsInActivitySlice;
                   if (newInstance !== null) {
                     reconcilingParent = stashedParent;
                     previouslyReconciledSibling = stashedPrevious;
@@ -62919,6 +62320,7 @@ var require_backend = __commonJS({
                 var stashedSuspenseParent = reconcilingParentSuspenseNode;
                 var stashedSuspensePrevious = previouslyReconciledSiblingSuspenseNode;
                 var stashedSuspenseRemaining = remainingReconcilingChildrenSuspenseNodes;
+                var stashedIsInActivitySlice = isInFocusedActivity;
                 var previousSuspendedBy = instance.suspendedBy;
                 reconcilingParent = instance;
                 previouslyReconciledSibling = null;
@@ -62931,11 +62333,17 @@ var require_backend = __commonJS({
                   remainingReconcilingChildrenSuspenseNodes = instance.suspenseNode.firstChild;
                   shouldPopSuspenseNode = true;
                 }
+                if (focusedActivity !== null) {
+                  if (instance.id === focusedActivityID) {
+                    isInFocusedActivity = true;
+                  } else if (instance.kind === FIBER_INSTANCE && instance.data !== null && instance.data.tag === ActivityComponent) {
+                  }
+                }
                 try {
                   if ((instance.kind === FIBER_INSTANCE || instance.kind === FILTERED_FIBER_INSTANCE) && instance.data.tag === SuspenseComponent && OffscreenComponent !== -1) {
-                    var _fiber4 = instance.data;
+                    var fiber = instance.data;
                     var contentFiberInstance = remainingReconcilingChildren;
-                    var hydrated = isFiberHydrated(_fiber4);
+                    var hydrated = isFiberHydrated(fiber);
                     if (hydrated) {
                       if (contentFiberInstance === null) {
                         throw new Error("There should always be an Offscreen Fiber child in a hydrated Suspense boundary.");
@@ -62960,6 +62368,7 @@ var require_backend = __commonJS({
                     previouslyReconciledSiblingSuspenseNode = stashedSuspensePrevious;
                     remainingReconcilingChildrenSuspenseNodes = stashedSuspenseRemaining;
                   }
+                  isInFocusedActivity = stashedIsInActivitySlice;
                 }
                 if (instance.kind === FIBER_INSTANCE) {
                   recordUnmount(instance);
@@ -62982,7 +62391,7 @@ var require_backend = __commonJS({
                     pushOperation(id);
                     pushOperation(convertedTreeBaseDuration);
                   }
-                  if (prevFiber == null || didFiberRender(prevFiber, fiber)) {
+                  if (prevFiber == null || prevFiber !== fiber && didFiberRender(ReactTypeOfWork, prevFiber, fiber)) {
                     if (actualDuration != null) {
                       var selfDuration = actualDuration;
                       var child = fiber.child;
@@ -63035,8 +62444,8 @@ var require_backend = __commonJS({
                 var child = parentInstance.firstChild;
                 while (child !== null) {
                   if (child.kind === FILTERED_FIBER_INSTANCE) {
-                    var _fiber5 = child.data;
-                    if (isHiddenOffscreen(_fiber5)) {
+                    var fiber = child.data;
+                    if (isHiddenOffscreen(fiber) && !isActivityHiddenOffscreen(fiber)) {
                     } else {
                       addUnfilteredChildrenIDs(child, nextChildren);
                     }
@@ -63106,7 +62515,7 @@ var require_backend = __commonJS({
                 virtualInstance.firstChild = null;
                 virtualInstance.suspendedBy = null;
                 try {
-                  var updateFlags = updateVirtualChildrenRecursively(nextFirstChild, nextLastChild, prevFirstChild, traceNearestHostComponentUpdate, virtualLevel + 1);
+                  var updateFlags = updateVirtualChildrenRecursively(nextFirstChild, nextLastChild, prevFirstChild, null, traceNearestHostComponentUpdate, virtualLevel + 1);
                   if ((updateFlags & ShouldResetChildren) !== NoUpdate) {
                     if (!isInDisconnectedSubtree) {
                       recordResetChildren(virtualInstance);
@@ -63125,7 +62534,7 @@ var require_backend = __commonJS({
                   remainingReconcilingChildren = stashedRemaining;
                 }
               }
-              function updateVirtualChildrenRecursively(nextFirstChild, nextLastChild, prevFirstChild, traceNearestHostComponentUpdate, virtualLevel) {
+              function updateVirtualChildrenRecursively(nextFirstChild, nextLastChild, prevFirstChild, prevLastChild, traceNearestHostComponentUpdate, virtualLevel) {
                 var updateFlags = NoUpdate;
                 var nextChild = nextFirstChild;
                 var prevChildAtSameIndex = prevFirstChild;
@@ -63171,7 +62580,7 @@ var require_backend = __commonJS({
                           }
                           var previousSiblingOfBestMatch = null;
                           var bestMatch = remainingReconcilingChildren;
-                          if (componentInfo.key != null) {
+                          if (componentInfo.key != null && componentInfo.key !== ReactSymbols_REACT_OPTIMISTIC_KEY) {
                             bestMatch = remainingReconcilingChildren;
                             while (bestMatch !== null) {
                               if (bestMatch.kind === VIRTUAL_INSTANCE && bestMatch.data.key === componentInfo.key) {
@@ -63262,7 +62671,7 @@ var require_backend = __commonJS({
                     updateFlags |= updateVirtualInstanceRecursively(previousVirtualInstance, previousVirtualInstanceNextFirstFiber, null, previousVirtualInstancePrevFirstFiber, traceNearestHostComponentUpdate, virtualLevel);
                   }
                 }
-                if (prevChildAtSameIndex !== null) {
+                if (prevChildAtSameIndex !== null && prevChildAtSameIndex !== prevLastChild) {
                   updateFlags |= ShouldResetChildren | ShouldResetSuspenseChildren;
                 }
                 return updateFlags;
@@ -63271,13 +62680,13 @@ var require_backend = __commonJS({
                 if (nextFirstChild === null) {
                   return prevFirstChild !== null ? ShouldResetChildren : NoUpdate;
                 }
-                return updateVirtualChildrenRecursively(nextFirstChild, null, prevFirstChild, traceNearestHostComponentUpdate, 0);
+                return updateVirtualChildrenRecursively(nextFirstChild, null, prevFirstChild, null, traceNearestHostComponentUpdate, 0);
               }
               function updateSuspenseChildrenRecursively(nextContentFiber, prevContentFiber, traceNearestHostComponentUpdate, stashedSuspenseParent, stashedSuspensePrevious, stashedSuspenseRemaining) {
                 var updateFlags = NoUpdate;
                 var prevFallbackFiber = prevContentFiber.sibling;
                 var nextFallbackFiber = nextContentFiber.sibling;
-                updateFlags |= updateVirtualChildrenRecursively(nextContentFiber, nextFallbackFiber, prevContentFiber, traceNearestHostComponentUpdate, 0);
+                updateFlags |= updateVirtualChildrenRecursively(nextContentFiber, nextFallbackFiber, prevContentFiber, prevFallbackFiber, traceNearestHostComponentUpdate, 0);
                 reconcilingParentSuspenseNode = stashedSuspenseParent;
                 previouslyReconciledSiblingSuspenseNode = stashedSuspensePrevious;
                 remainingReconcilingChildrenSuspenseNodes = stashedSuspenseRemaining;
@@ -63285,7 +62694,7 @@ var require_backend = __commonJS({
                   if (nextFallbackFiber === null) {
                     unmountRemainingChildren();
                   } else {
-                    updateFlags |= updateVirtualChildrenRecursively(nextFallbackFiber, null, prevFallbackFiber, traceNearestHostComponentUpdate, 0);
+                    updateFlags |= updateVirtualChildrenRecursively(nextFallbackFiber, null, prevFallbackFiber, null, traceNearestHostComponentUpdate, 0);
                     if ((updateFlags & ShouldResetSuspenseChildren) !== NoUpdate) {
                       updateFlags |= ShouldResetParentSuspenseChildren;
                       updateFlags &= ~ShouldResetSuspenseChildren;
@@ -63309,7 +62718,9 @@ var require_backend = __commonJS({
                     }
                   } else {
                     if (elementType === types_ElementTypeFunction || elementType === types_ElementTypeClass || elementType === ElementTypeContext || elementType === types_ElementTypeMemo || elementType === types_ElementTypeForwardRef) {
-                      traceNearestHostComponentUpdate = didFiberRender(prevFiber, nextFiber);
+                      if (prevFiber !== nextFiber) {
+                        traceNearestHostComponentUpdate = didFiberRender(ReactTypeOfWork, prevFiber, nextFiber);
+                      }
                     }
                   }
                 }
@@ -63319,6 +62730,7 @@ var require_backend = __commonJS({
                 var stashedSuspenseParent = reconcilingParentSuspenseNode;
                 var stashedSuspensePrevious = previouslyReconciledSiblingSuspenseNode;
                 var stashedSuspenseRemaining = remainingReconcilingChildrenSuspenseNodes;
+                var stashedIsInActivitySlice = isInFocusedActivity;
                 var updateFlags = NoUpdate;
                 var shouldMeasureSuspenseNode = false;
                 var shouldPopSuspenseNode = false;
@@ -63326,8 +62738,10 @@ var require_backend = __commonJS({
                 if (fiberInstance !== null) {
                   previousSuspendedBy = fiberInstance.suspendedBy;
                   fiberInstance.data = nextFiber;
-                  if (mostRecentlyInspectedElement !== null && (mostRecentlyInspectedElement.id === fiberInstance.id || mostRecentlyInspectedElement.type === ElementTypeRoot && nextFiber.tag === HostRoot) && didFiberRender(prevFiber, nextFiber)) {
-                    hasElementUpdatedSinceLastInspected = true;
+                  if (prevFiber !== nextFiber) {
+                    if (mostRecentlyInspectedElement !== null && (mostRecentlyInspectedElement.id === fiberInstance.id || mostRecentlyInspectedElement.type === ElementTypeRoot && nextFiber.tag === HostRoot) && didFiberRender(ReactTypeOfWork, prevFiber, nextFiber)) {
+                      hasElementUpdatedSinceLastInspected = true;
+                    }
                   }
                   reconcilingParent = fiberInstance;
                   previouslyReconciledSibling = null;
@@ -63342,6 +62756,12 @@ var require_backend = __commonJS({
                     suspenseNode.firstChild = null;
                     shouldMeasureSuspenseNode = true;
                     shouldPopSuspenseNode = true;
+                  }
+                  if (focusedActivity !== null) {
+                    if (fiberInstance.id === focusedActivityID) {
+                      isInFocusedActivity = true;
+                    } else if (nextFiber.tag === ActivityComponent) {
+                    }
                   }
                 }
                 try {
@@ -63440,9 +62860,21 @@ var require_backend = __commonJS({
                       updateFlags |= ShouldResetChildren | ShouldResetSuspenseChildren;
                     }
                   } else if (nextIsHidden) {
-                    if (prevWasHidden) {
+                    if (isActivityHiddenOffscreen(nextFiber)) {
+                      updateFlags |= updateChildrenRecursively(nextFiber.child, prevFiber.child, traceNearestHostComponentUpdate);
+                    } else if (prevWasHidden) {
                     } else {
                       unmountRemainingChildren();
+                    }
+                  } else if (prevWasHidden && !nextIsHidden) {
+                    if (nextFiber.return !== null && nextFiber.return.tag === ActivityComponent) {
+                      updateFlags |= updateChildrenRecursively(nextFiber.child, prevFiber.child, traceNearestHostComponentUpdate);
+                    } else {
+                      var nextChildSet = nextFiber.child;
+                      if (nextChildSet !== null) {
+                        mountChildrenRecursively(nextChildSet, traceNearestHostComponentUpdate);
+                        updateFlags |= ShouldResetChildren | ShouldResetSuspenseChildren;
+                      }
                     }
                   } else if (nextFiber.tag === SuspenseComponent && OffscreenComponent !== -1 && fiberInstance !== null && fiberInstance.suspenseNode !== null) {
                     var _suspenseNode2 = fiberInstance.suspenseNode;
@@ -63504,6 +62936,19 @@ var require_backend = __commonJS({
                     }
                   }
                   if (fiberInstance !== null) {
+                    if (prevFiber.tag === ActivityComponent && nextFiber.tag === ActivityComponent && fiberInstance.kind === FIBER_INSTANCE) {
+                      var prevOffscreen = prevFiber.child;
+                      var nextOffscreen = nextFiber.child;
+                      if (prevOffscreen !== null && nextOffscreen !== null) {
+                        var prevHidden = isHiddenOffscreen(prevOffscreen);
+                        var nextHidden = isHiddenOffscreen(nextOffscreen);
+                        if (prevHidden !== nextHidden) {
+                          pushOperation(TREE_OPERATION_SET_SUBTREE_MODE);
+                          pushOperation(fiberInstance.id);
+                          pushOperation(nextHidden ? ActivityHiddenMode : ActivityVisibleMode);
+                        }
+                      }
+                    }
                     removePreviousSuspendedBy(fiberInstance, previousSuspendedBy, shouldPopSuspenseNode ? reconcilingParentSuspenseNode : stashedSuspenseParent);
                     if (fiberInstance.kind === FIBER_INSTANCE) {
                       var componentLogsEntry = fiberToComponentLogsMap.get(fiberInstance.data);
@@ -63511,9 +62956,11 @@ var require_backend = __commonJS({
                         componentLogsEntry = fiberToComponentLogsMap.get(fiberInstance.data.alternate);
                       }
                       recordConsoleLogs(fiberInstance, componentLogsEntry);
-                      var isProfilingSupported = nextFiber.hasOwnProperty("treeBaseDuration");
-                      if (isProfilingSupported) {
-                        recordProfilingDurations(fiberInstance, prevFiber);
+                      if (!isInDisconnectedSubtree) {
+                        var isProfilingSupported = nextFiber.hasOwnProperty("treeBaseDuration");
+                        if (isProfilingSupported) {
+                          recordProfilingDurations(fiberInstance, prevFiber);
+                        }
                       }
                     }
                   }
@@ -63573,6 +63020,7 @@ var require_backend = __commonJS({
                       previouslyReconciledSiblingSuspenseNode = stashedSuspensePrevious;
                       remainingReconcilingChildrenSuspenseNodes = stashedSuspenseRemaining;
                     }
+                    isInFocusedActivity = stashedIsInActivitySlice;
                   }
                 }
               }
@@ -63597,7 +63045,7 @@ var require_backend = __commonJS({
                     var secondaryEnv = null;
                     recordVirtualReconnect(child, parentInstance, secondaryEnv);
                   }
-                  if ((child.kind === FIBER_INSTANCE || child.kind === FILTERED_FIBER_INSTANCE) && isHiddenOffscreen(child.data)) {
+                  if ((child.kind === FIBER_INSTANCE || child.kind === FILTERED_FIBER_INSTANCE) && isHiddenOffscreen(child.data) && !isActivityHiddenOffscreen(child.data)) {
                   } else {
                     reconnectChildrenRecursively(child);
                   }
@@ -63605,15 +63053,6 @@ var require_backend = __commonJS({
               }
               function cleanup() {
                 isProfiling = false;
-              }
-              function rootSupportsProfiling(root) {
-                if (root.memoizedInteractions != null) {
-                  return true;
-                } else if (root.current != null && root.current.hasOwnProperty("treeBaseDuration")) {
-                  return true;
-                } else {
-                  return false;
-                }
               }
               function flushInitialOperations() {
                 var localPendingOperationsQueue = pendingOperationsQueue;
@@ -63637,7 +63076,7 @@ var require_backend = __commonJS({
                       currentCommitProfilingMetadata = {
                         changeDescriptions: recordChangeDescriptions ? /* @__PURE__ */ new Map() : null,
                         durations: [],
-                        commitTime: renderer_getCurrentTime() - profilingStartTime,
+                        commitTime: DevToolsNativeHost_getCurrentTime() - profilingStartTime,
                         maxActualDuration: 0,
                         priorityLevel: null,
                         updaters: null,
@@ -63646,10 +63085,10 @@ var require_backend = __commonJS({
                       };
                     }
                     mountFiberRecursively(root.current, false);
-                    flushPendingEvents();
-                    needsToFlushComponentLogs = false;
+                    flushPendingEvents(currentRoot);
                     currentRoot = null;
                   });
+                  needsToFlushComponentLogs = false;
                 }
               }
               function handleCommitFiberUnmount(fiber) {
@@ -63663,7 +63102,11 @@ var require_backend = __commonJS({
                   }
                 }
                 if (needsToFlushComponentLogs) {
-                  bruteForceFlushErrorsAndWarnings();
+                  var rootInstance = rootToFiberInstanceMap.get(root);
+                  if (rootInstance === void 0) {
+                    throw new Error("Should have a root instance for a committed root. This is a bug in React DevTools.");
+                  }
+                  bruteForceFlushErrorsAndWarnings(rootInstance);
                 }
               }
               function handleCommitFiberRoot(root, priorityLevel) {
@@ -63689,7 +63132,7 @@ var require_backend = __commonJS({
                   currentCommitProfilingMetadata = {
                     changeDescriptions: recordChangeDescriptions ? /* @__PURE__ */ new Map() : null,
                     durations: [],
-                    commitTime: renderer_getCurrentTime() - profilingStartTime,
+                    commitTime: DevToolsNativeHost_getCurrentTime() - profilingStartTime,
                     maxActualDuration: 0,
                     priorityLevel: priorityLevel == null ? null : formatPriorityLevel(priorityLevel),
                     updaters: null,
@@ -63724,7 +63167,7 @@ var require_backend = __commonJS({
                     }
                   }
                 }
-                flushPendingEvents();
+                flushPendingEvents(currentRoot);
                 needsToFlushComponentLogs = false;
                 if (traceUpdatesEnabled) {
                   hook.emit("traceUpdates", traceUpdatesForNodes);
@@ -63742,8 +63185,8 @@ var require_backend = __commonJS({
               }
               function appendHostInstancesByDevToolsInstance(devtoolsInstance, hostInstances) {
                 if (devtoolsInstance.kind !== VIRTUAL_INSTANCE) {
-                  var _fiber6 = devtoolsInstance.data;
-                  appendHostInstancesByFiber(_fiber6, hostInstances);
+                  var fiber = devtoolsInstance.data;
+                  appendHostInstancesByFiber(fiber, hostInstances);
                   return;
                 }
                 for (var child = devtoolsInstance.firstChild; child !== null; child = child.nextSibling) {
@@ -63814,16 +63257,16 @@ var require_backend = __commonJS({
                   return null;
                 }
                 if (devtoolsInstance.kind === FIBER_INSTANCE) {
-                  var _fiber7 = devtoolsInstance.data;
-                  if (_fiber7.tag === HostRoot) {
+                  var fiber = devtoolsInstance.data;
+                  if (fiber.tag === HostRoot) {
                     return "Initial Paint";
                   }
-                  if (_fiber7.tag === SuspenseComponent || _fiber7.tag === ActivityComponent) {
-                    var props = _fiber7.memoizedProps;
+                  if (fiber.tag === SuspenseComponent || fiber.tag === ActivityComponent) {
+                    var props = fiber.memoizedProps;
                     if (props.name != null) {
                       return props.name;
                     }
-                    var owner = getUnfilteredOwner(_fiber7);
+                    var owner = getUnfilteredOwner(fiber);
                     if (owner != null) {
                       if (typeof owner.tag === "number") {
                         return getDisplayNameForFiber(owner);
@@ -63832,7 +63275,7 @@ var require_backend = __commonJS({
                       }
                     }
                   }
-                  return getDisplayNameForFiber(_fiber7);
+                  return getDisplayNameForFiber(fiber);
                 } else {
                   return devtoolsInstance.data.name || "";
                 }
@@ -63912,21 +63355,21 @@ var require_backend = __commonJS({
               }
               function instanceToSerializedElement(instance) {
                 if (instance.kind === FIBER_INSTANCE) {
-                  var _fiber8 = instance.data;
+                  var fiber = instance.data;
                   return {
-                    displayName: getDisplayNameForFiber(_fiber8) || "Anonymous",
+                    displayName: getDisplayNameForFiber(fiber) || "Anonymous",
                     id: instance.id,
-                    key: _fiber8.key,
+                    key: fiber.key === ReactSymbols_REACT_OPTIMISTIC_KEY ? "React.optimisticKey" : fiber.key,
                     env: null,
-                    stack: _fiber8._debugOwner == null || _fiber8._debugStack == null ? null : parseStackTrace(_fiber8._debugStack, 1),
-                    type: getElementTypeForFiber(_fiber8)
+                    stack: fiber._debugOwner == null || fiber._debugStack == null ? null : parseStackTrace(fiber._debugStack, 1),
+                    type: getElementTypeForFiber(fiber)
                   };
                 } else {
                   var componentInfo = instance.data;
                   return {
                     displayName: componentInfo.name || "Anonymous",
                     id: instance.id,
-                    key: componentInfo.key == null ? null : componentInfo.key,
+                    key: componentInfo.key == null || componentInfo.key === ReactSymbols_REACT_OPTIMISTIC_KEY ? "React.optimisticKey" : componentInfo.key,
                     env: componentInfo.env == null ? null : componentInfo.env,
                     stack: componentInfo.owner == null || componentInfo.debugStack == null ? null : parseStackTrace(componentInfo.debugStack, 1),
                     type: types_ElementTypeVirtual
@@ -64054,10 +63497,10 @@ var require_backend = __commonJS({
                   if (filterByChildInstance === null) {
                     firstInstance = set.values().next().value;
                   } else {
-                    var _iterator7 = _createForOfIteratorHelper(set.values()), _step7;
+                    var _iterator8 = renderer_createForOfIteratorHelper(set.values()), _step8;
                     try {
-                      for (_iterator7.s(); !(_step7 = _iterator7.n()).done; ) {
-                        var childInstance = _step7.value;
+                      for (_iterator8.s(); !(_step8 = _iterator8.n()).done; ) {
+                        var childInstance = _step8.value;
                         if (firstInstance === null) {
                           firstInstance = childInstance;
                         }
@@ -64066,9 +63509,9 @@ var require_backend = __commonJS({
                         }
                       }
                     } catch (err) {
-                      _iterator7.e(err);
+                      _iterator8.e(err);
                     } finally {
-                      _iterator7.f();
+                      _iterator8.f();
                     }
                   }
                   if (firstInstance !== null && firstInstance.suspendedBy !== null) {
@@ -64079,10 +63522,10 @@ var require_backend = __commonJS({
                         if (hooksCacheKey === firstInstance) {
                           hooks = hooksCache;
                         } else if (firstInstance.kind !== VIRTUAL_INSTANCE) {
-                          var _fiber9 = firstInstance.data;
-                          if (_fiber9.dependencies && _fiber9.dependencies._debugThenableState) {
+                          var fiber = firstInstance.data;
+                          if (fiber.dependencies && fiber.dependencies._debugThenableState) {
                             hooksCacheKey = firstInstance;
-                            hooksCache = hooks = inspectHooks(_fiber9);
+                            hooksCache = hooks = inspectHooks(fiber);
                           }
                         }
                       }
@@ -64233,8 +63676,8 @@ var require_backend = __commonJS({
                   awaitStack = null;
                   awaitOwnerInstance = parentInstance.kind === FILTERED_FIBER_INSTANCE ? null : parentInstance;
                   if (parentInstance.kind === FIBER_INSTANCE || parentInstance.kind === FILTERED_FIBER_INSTANCE) {
-                    var _fiber10 = parentInstance.data;
-                    switch (_fiber10.tag) {
+                    var fiber = parentInstance.data;
+                    switch (fiber.tag) {
                       case ClassComponent:
                       case FunctionComponent:
                       case IncompleteClassComponent:
@@ -64247,9 +63690,9 @@ var require_backend = __commonJS({
                         }
                         break;
                       default:
-                        if (_fiber10._debugOwner != null && _fiber10._debugStack != null && typeof _fiber10._debugStack !== "string") {
-                          awaitStack = parseStackTrace(_fiber10._debugStack, 1);
-                          awaitOwnerInstance = findNearestOwnerInstance(parentInstance, _fiber10._debugOwner);
+                        if (fiber._debugOwner != null && fiber._debugStack != null && typeof fiber._debugStack !== "string") {
+                          awaitStack = parseStackTrace(fiber._debugStack, 1);
+                          awaitOwnerInstance = findNearestOwnerInstance(parentInstance, fiber._debugOwner);
                         }
                     }
                   }
@@ -64313,17 +63756,6 @@ var require_backend = __commonJS({
                   instance,
                   style
                 };
-              }
-              function isErrorBoundary(fiber) {
-                var tag = fiber.tag, type = fiber.type;
-                switch (tag) {
-                  case ClassComponent:
-                  case IncompleteClassComponent:
-                    var instance = fiber.stateNode;
-                    return typeof type.getDerivedStateFromError === "function" || instance !== null && typeof instance.componentDidCatch === "function";
-                  default:
-                    return false;
-                }
               }
               function inspectElementRaw(id) {
                 var devtoolsInstance = idToDevToolsInstanceMap.get(id);
@@ -64415,7 +63847,7 @@ var require_backend = __commonJS({
                   current = current.return;
                   if (temp.tag === SuspenseComponent) {
                     hasSuspenseBoundary = true;
-                  } else if (isErrorBoundary(temp)) {
+                  } else if (isErrorBoundary(ReactTypeOfWork, temp)) {
                     hasErrorBoundary = true;
                   }
                 }
@@ -64424,7 +63856,7 @@ var require_backend = __commonJS({
                   rootType = fiberRoot._debugRootType;
                 }
                 var isErrored = false;
-                if (isErrorBoundary(fiber)) {
+                if (isErrorBoundary(ReactTypeOfWork, fiber)) {
                   var DidCapture = 128;
                   isErrored = (fiber.flags & DidCapture) !== 0 || forceErrorForFibers.get(fiber) === true || fiber.alternate !== null && forceErrorForFibers.get(fiber.alternate) === true;
                 }
@@ -64479,7 +63911,7 @@ var require_backend = __commonJS({
                   source,
                   stack: fiber._debugOwner == null || fiber._debugStack == null ? null : parseStackTrace(fiber._debugStack, 1),
                   hasLegacyContext,
-                  key: key != null ? key : null,
+                  key: key != null ? key === ReactSymbols_REACT_OPTIMISTIC_KEY ? "React.optimisticKey" : key : null,
                   type: elementType,
                   context,
                   hooks,
@@ -64516,7 +63948,7 @@ var require_backend = __commonJS({
                     current = current.return;
                     if (temp.tag === SuspenseComponent) {
                       hasSuspenseBoundary = true;
-                    } else if (isErrorBoundary(temp)) {
+                    } else if (isErrorBoundary(ReactTypeOfWork, temp)) {
                       hasErrorBoundary = true;
                     }
                   }
@@ -64939,8 +64371,13 @@ var require_backend = __commonJS({
                       }
                       break;
                     case "state":
-                      deletePathInObject(instance.state, path4);
-                      instance.forceUpdate();
+                      switch (fiber.tag) {
+                        case ClassComponent:
+                        case IncompleteClassComponent:
+                          deletePathInObject(instance.state, path4);
+                          instance.forceUpdate();
+                          break;
+                      }
                       break;
                   }
                 }
@@ -64979,18 +64416,26 @@ var require_backend = __commonJS({
                       }
                       break;
                     case "props":
-                      if (instance === null) {
-                        if (typeof overridePropsRenamePath === "function") {
-                          overridePropsRenamePath(fiber, oldPath, newPath);
-                        }
-                      } else {
-                        fiber.pendingProps = copyWithRename(instance.props, oldPath, newPath);
-                        instance.forceUpdate();
+                      switch (fiber.tag) {
+                        case ClassComponent:
+                          fiber.pendingProps = copyWithRename(instance.props, oldPath, newPath);
+                          instance.forceUpdate();
+                          break;
+                        default:
+                          if (typeof overridePropsRenamePath === "function") {
+                            overridePropsRenamePath(fiber, oldPath, newPath);
+                          }
+                          break;
                       }
                       break;
                     case "state":
-                      renamePathInObject(instance.state, oldPath, newPath);
-                      instance.forceUpdate();
+                      switch (fiber.tag) {
+                        case ClassComponent:
+                        case IncompleteClassComponent:
+                          renamePathInObject(instance.state, oldPath, newPath);
+                          instance.forceUpdate();
+                          break;
+                      }
                       break;
                   }
                 }
@@ -65044,6 +64489,7 @@ var require_backend = __commonJS({
                     case "state":
                       switch (fiber.tag) {
                         case ClassComponent:
+                        case IncompleteClassComponent:
                           utils_setInObject(instance.state, path4, value);
                           instance.forceUpdate();
                           break;
@@ -65058,7 +64504,6 @@ var require_backend = __commonJS({
               var isProfiling = false;
               var profilingStartTime = 0;
               var recordChangeDescriptions = false;
-              var recordTimeline = false;
               var rootToCommitProfilingMetadataMap = null;
               function getProfilingData() {
                 var dataForRoots = [];
@@ -65097,23 +64542,9 @@ var require_backend = __commonJS({
                     rootID
                   });
                 });
-                var timelineData = null;
-                if (typeof getTimelineData === "function") {
-                  var currentTimelineData = getTimelineData();
-                  if (currentTimelineData) {
-                    var batchUIDToMeasuresMap = currentTimelineData.batchUIDToMeasuresMap, internalModuleSourceToRanges = currentTimelineData.internalModuleSourceToRanges, laneToLabelMap = currentTimelineData.laneToLabelMap, laneToReactMeasureMap = currentTimelineData.laneToReactMeasureMap, rest = _objectWithoutProperties(currentTimelineData, _excluded);
-                    timelineData = renderer_objectSpread(renderer_objectSpread({}, rest), {}, {
-                      batchUIDToMeasuresKeyValueArray: Array.from(batchUIDToMeasuresMap.entries()),
-                      internalModuleSourceToRanges: Array.from(internalModuleSourceToRanges.entries()),
-                      laneToLabelKeyValueArray: Array.from(laneToLabelMap.entries()),
-                      laneToReactMeasureKeyValueArray: Array.from(laneToReactMeasureMap.entries())
-                    });
-                  }
-                }
                 return {
                   dataForRoots,
-                  rendererID,
-                  timelineData
+                  rendererID
                 };
               }
               function snapshotTreeBaseDurations(instance, target) {
@@ -65124,12 +64555,11 @@ var require_backend = __commonJS({
                   snapshotTreeBaseDurations(child, target);
                 }
               }
-              function startProfiling(shouldRecordChangeDescriptions, shouldRecordTimeline) {
+              function startProfiling(shouldRecordChangeDescriptions) {
                 if (isProfiling) {
                   return;
                 }
                 recordChangeDescriptions = shouldRecordChangeDescriptions;
-                recordTimeline = shouldRecordTimeline;
                 displayNamesByRootID = /* @__PURE__ */ new Map();
                 initialTreeBaseDurationsMap = /* @__PURE__ */ new Map();
                 hook.getFiberRoots(rendererID).forEach(function(root) {
@@ -65144,22 +64574,15 @@ var require_backend = __commonJS({
                   initialTreeBaseDurationsMap.set(rootID, initialTreeBaseDurations);
                 });
                 isProfiling = true;
-                profilingStartTime = renderer_getCurrentTime();
+                profilingStartTime = DevToolsNativeHost_getCurrentTime();
                 rootToCommitProfilingMetadataMap = /* @__PURE__ */ new Map();
-                if (toggleProfilingStatus !== null) {
-                  toggleProfilingStatus(true, recordTimeline);
-                }
               }
               function stopProfiling() {
                 isProfiling = false;
                 recordChangeDescriptions = false;
-                if (toggleProfilingStatus !== null) {
-                  toggleProfilingStatus(false, recordTimeline);
-                }
-                recordTimeline = false;
               }
               if (shouldStartProfilingNow) {
-                startProfiling(profilingSettings.recordChangeDescriptions, profilingSettings.recordTimeline);
+                startProfiling(profilingSettings.recordChangeDescriptions);
               }
               function getNearestFiber(devtoolsInstance) {
                 if (devtoolsInstance.kind === VIRTUAL_INSTANCE) {
@@ -65201,7 +64624,7 @@ var require_backend = __commonJS({
                   }
                 }
                 if (status === void 0) {
-                  return false;
+                  return null;
                 }
                 return status;
               }
@@ -65218,7 +64641,7 @@ var require_backend = __commonJS({
                   return;
                 }
                 var fiber = nearestFiber;
-                while (!isErrorBoundary(fiber)) {
+                while (!isErrorBoundary(ReactTypeOfWork, fiber)) {
                   if (fiber.return === null) {
                     return;
                   }
@@ -65296,27 +64719,27 @@ var require_backend = __commonJS({
                     continue;
                   }
                   if (instance.kind === FIBER_INSTANCE) {
-                    var _fiber11 = instance.data;
-                    if (forceFallbackForFibers.has(_fiber11) || _fiber11.alternate !== null && forceFallbackForFibers.has(_fiber11.alternate)) {
-                      unsuspendedSet.delete(_fiber11);
-                      if (_fiber11.alternate !== null) {
-                        unsuspendedSet.delete(_fiber11.alternate);
+                    var fiber = instance.data;
+                    if (forceFallbackForFibers.has(fiber) || fiber.alternate !== null && forceFallbackForFibers.has(fiber.alternate)) {
+                      unsuspendedSet.delete(fiber);
+                      if (fiber.alternate !== null) {
+                        unsuspendedSet.delete(fiber.alternate);
                       }
                     } else {
-                      forceFallbackForFibers.add(_fiber11);
-                      scheduleUpdate(_fiber11);
+                      forceFallbackForFibers.add(fiber);
+                      scheduleUpdate(fiber);
                       resuspended = true;
                     }
                   } else {
                     console.warn("Cannot not suspend ID '".concat(suspendedSet[i], "'."));
                   }
                 }
-                unsuspendedSet.forEach(function(fiber) {
-                  forceFallbackForFibers.delete(fiber);
+                unsuspendedSet.forEach(function(fiber2) {
+                  forceFallbackForFibers.delete(fiber2);
                   if (!resuspended && typeof scheduleRetry === "function") {
-                    scheduleRetry(fiber);
+                    scheduleRetry(fiber2);
                   } else {
-                    scheduleUpdate(fiber);
+                    scheduleUpdate(fiber2);
                   }
                 });
                 if (forceFallbackForFibers.size > 0) {
@@ -65475,14 +64898,14 @@ var require_backend = __commonJS({
                 }
                 return {
                   displayName,
-                  key,
+                  key: key === ReactSymbols_REACT_OPTIMISTIC_KEY ? null : key,
                   index
                 };
               }
               function getVirtualPathFrame(virtualInstance) {
                 return {
                   displayName: virtualInstance.data.name || "",
-                  key: virtualInstance.data.key == null ? null : virtualInstance.data.key,
+                  key: virtualInstance.data.key == null || virtualInstance.data.key === ReactSymbols_REACT_OPTIMISTIC_KEY ? null : virtualInstance.data.key,
                   index: -1
                 };
               }
@@ -65571,7 +64994,7 @@ var require_backend = __commonJS({
                     unresolvedSource = debugLocation;
                   }
                 }
-                if (renderer_isError(unresolvedSource)) {
+                if (DevToolsFiberInspection_isError(unresolvedSource)) {
                   return instance.source = extractLocationFromOwnerStack(unresolvedSource);
                 }
                 if (typeof unresolvedSource === "string") {
@@ -65581,10 +65004,7 @@ var require_backend = __commonJS({
                 }
                 return unresolvedSource;
               }
-              var internalMcpFunctions = {};
-              if (false) {
-              }
-              return renderer_objectSpread({
+              return {
                 cleanup,
                 clearErrorsAndWarnings,
                 clearErrorsForElementID,
@@ -65627,7 +65047,7 @@ var require_backend = __commonJS({
                 supportsTogglingSuspense,
                 updateComponentFilters,
                 getEnvironmentNames
-              }, internalMcpFunctions);
+              };
             }
             ;
             function decorate(object, attr, fn) {
@@ -66612,7 +66032,7 @@ var require_backend = __commonJS({
             function isMatchingRender(version) {
               return !hasAssignedBackend(version);
             }
-            function attachRenderer(hook, id, renderer2, global3, shouldStartProfilingNow, profilingSettings) {
+            function attachRenderer(hook, id, renderer2, global3, shouldStartProfilingNow, profilingSettings, componentFiltersOrComponentFiltersPromise) {
               if (!isMatchingRender(renderer2.reconcilerVersion || renderer2.version)) {
                 return;
               }
@@ -66621,7 +66041,7 @@ var require_backend = __commonJS({
                 if (typeof renderer2.getCurrentComponentInfo === "function") {
                   rendererInterface = attach(hook, id, renderer2, global3);
                 } else if (typeof renderer2.findFiberByHostInstance === "function" || renderer2.currentDispatcherRef != null) {
-                  rendererInterface = renderer_attach(hook, id, renderer2, global3, shouldStartProfilingNow, profilingSettings);
+                  rendererInterface = renderer_attach(hook, id, renderer2, global3, shouldStartProfilingNow, profilingSettings, componentFiltersOrComponentFiltersPromise);
                 } else if (renderer2.ComponentTree) {
                   rendererInterface = legacy_renderer_attach(hook, id, renderer2, global3);
                 } else {
@@ -66713,22 +66133,38 @@ var require_backend = __commonJS({
                   }
                   case "d":
                   case "i": {
+                    if (argumentsPointer >= args.length) {
+                      template += "%".concat(nextChar);
+                      break;
+                    }
                     var _args$splice = args.splice(argumentsPointer, 1), _args$splice2 = formatConsoleArguments_slicedToArray(_args$splice, 1), arg = _args$splice2[0];
                     template += parseInt(arg, 10).toString();
                     break;
                   }
                   case "f": {
+                    if (argumentsPointer >= args.length) {
+                      template += "%".concat(nextChar);
+                      break;
+                    }
                     var _args$splice3 = args.splice(argumentsPointer, 1), _args$splice4 = formatConsoleArguments_slicedToArray(_args$splice3, 1), _arg = _args$splice4[0];
                     template += parseFloat(_arg).toString();
                     break;
                   }
                   case "s": {
+                    if (argumentsPointer >= args.length) {
+                      template += "%".concat(nextChar);
+                      break;
+                    }
                     var _args$splice5 = args.splice(argumentsPointer, 1), _args$splice6 = formatConsoleArguments_slicedToArray(_args$splice5, 1), _arg2 = _args$splice6[0];
                     template += String(_arg2);
                     break;
                   }
                   default:
-                    template += "%".concat(nextChar);
+                    if (nextChar === void 0) {
+                      template += "%";
+                    } else {
+                      template += "%".concat(nextChar);
+                    }
                 }
               }
               return [template].concat(formatConsoleArguments_toConsumableArray(args));
@@ -66805,12 +66241,11 @@ var require_backend = __commonJS({
             }
             var targetConsole = console;
             var defaultProfilingSettings = {
-              recordChangeDescriptions: false,
-              recordTimeline: false
+              recordChangeDescriptions: false
             };
-            function installHook(target, maybeSettingsOrSettingsPromise) {
-              var shouldStartProfilingNow = arguments.length > 2 && arguments[2] !== void 0 ? arguments[2] : false;
-              var profilingSettings = arguments.length > 3 && arguments[3] !== void 0 ? arguments[3] : defaultProfilingSettings;
+            function installHook(target, componentFiltersOrComponentFiltersPromise, maybeSettingsOrSettingsPromise) {
+              var shouldStartProfilingNow = arguments.length > 3 && arguments[3] !== void 0 ? arguments[3] : false;
+              var profilingSettings = arguments.length > 4 && arguments[4] !== void 0 ? arguments[4] : defaultProfilingSettings;
               if (target.hasOwnProperty("__REACT_DEVTOOLS_GLOBAL_HOOK__")) {
                 return null;
               }
@@ -66880,7 +66315,7 @@ var require_backend = __commonJS({
                   renderer: renderer2,
                   reactBuildType
                 });
-                var rendererInterface = attachRenderer(hook, id, renderer2, target, isProfiling, profilingSettings);
+                var rendererInterface = attachRenderer(hook, id, renderer2, target, isProfiling, profilingSettings, componentFiltersOrComponentFiltersPromise);
                 if (rendererInterface != null) {
                   hook.rendererInterfaces.set(id, rendererInterface);
                   hook.emit("renderer-attached", {
@@ -66992,9 +66427,13 @@ var require_backend = __commonJS({
                     if (settings.hideConsoleLogsInStrictMode) {
                       return;
                     }
-                    if (false) {
+                    if (settings.disableSecondConsoleLogDimmingInStrictMode) {
+                      originalMethod.apply(void 0, args);
                     } else {
-                      originalMethod.apply(void 0, [ANSI_STYLE_DIMMING_TEMPLATE].concat(hook_toConsumableArray(formatConsoleArguments.apply(void 0, args))));
+                      if (false) {
+                      } else {
+                        originalMethod.apply(void 0, [ANSI_STYLE_DIMMING_TEMPLATE].concat(hook_toConsumableArray(formatConsoleArguments.apply(void 0, args))));
+                      }
                     }
                   };
                   targetConsole[method] = overrideMethod;
@@ -67011,31 +66450,6 @@ var require_backend = __commonJS({
                   return callback();
                 });
                 unpatchConsoleCallbacks.length = 0;
-              }
-              var openModuleRangesStack = [];
-              var moduleRanges = [];
-              function getTopStackFrameString(error2) {
-                var frames = error2.stack.split("\n");
-                var frame = frames.length > 1 ? frames[1] : null;
-                return frame;
-              }
-              function getInternalModuleRanges() {
-                return moduleRanges;
-              }
-              function registerInternalModuleStart(error2) {
-                var startStackFrame = getTopStackFrameString(error2);
-                if (startStackFrame !== null) {
-                  openModuleRangesStack.push(startStackFrame);
-                }
-              }
-              function registerInternalModuleStop(error2) {
-                if (openModuleRangesStack.length > 0) {
-                  var startStackFrame = openModuleRangesStack.pop();
-                  var stopStackFrame = getTopStackFrameString(error2);
-                  if (stopStackFrame !== null) {
-                    moduleRanges.push([startStackFrame, stopStackFrame]);
-                  }
-                }
               }
               function patchConsoleForErrorsAndWarnings() {
                 if (!hook.settings) {
@@ -67127,7 +66541,7 @@ var require_backend = __commonJS({
                     if (settings.breakOnConsoleErrors) {
                       debugger;
                     }
-                    if (isRunningDuringStrictModeInvocation) {
+                    if (isRunningDuringStrictModeInvocation && !settings.disableSecondConsoleLogDimmingInStrictMode) {
                       if (false) {
                         var argsWithCSSStyles;
                       } else {
@@ -67166,17 +66580,15 @@ var require_backend = __commonJS({
                 onCommitFiberUnmount,
                 onCommitFiberRoot,
                 onPostCommitFiberRoot,
-                setStrictMode,
-                getInternalModuleRanges,
-                registerInternalModuleStart,
-                registerInternalModuleStop
+                setStrictMode
               };
               if (maybeSettingsOrSettingsPromise == null) {
                 hook.settings = {
                   appendComponentStack: true,
                   breakOnConsoleErrors: false,
                   showInlineWarningsAndErrors: true,
-                  hideConsoleLogsInStrictMode: false
+                  hideConsoleLogsInStrictMode: false,
+                  disableSecondConsoleLogDimmingInStrictMode: false
                 };
                 patchConsoleForErrorsAndWarnings();
               } else {
@@ -67574,17 +66986,20 @@ var require_backend = __commonJS({
             function backend_initialize(maybeSettingsOrSettingsPromise) {
               var shouldStartProfilingNow = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : false;
               var profilingSettings = arguments.length > 2 ? arguments[2] : void 0;
-              installHook(window, maybeSettingsOrSettingsPromise, shouldStartProfilingNow, profilingSettings);
+              var maybeComponentFiltersOrComponentFiltersPromise = arguments.length > 3 ? arguments[3] : void 0;
+              var componentFiltersOrComponentFiltersPromise = maybeComponentFiltersOrComponentFiltersPromise ? maybeComponentFiltersOrComponentFiltersPromise : savedComponentFilters;
+              installHook(window, componentFiltersOrComponentFiltersPromise, maybeSettingsOrSettingsPromise, shouldStartProfilingNow, profilingSettings);
             }
             function connectToDevTools(options) {
               var hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
               if (hook == null) {
                 return;
               }
-              var _ref = options || {}, _ref$host = _ref.host, host = _ref$host === void 0 ? "localhost" : _ref$host, nativeStyleEditorValidAttributes = _ref.nativeStyleEditorValidAttributes, _ref$useHttps = _ref.useHttps, useHttps = _ref$useHttps === void 0 ? false : _ref$useHttps, _ref$port = _ref.port, port = _ref$port === void 0 ? 8097 : _ref$port, websocket = _ref.websocket, _ref$resolveRNStyle = _ref.resolveRNStyle, resolveRNStyle = _ref$resolveRNStyle === void 0 ? null : _ref$resolveRNStyle, _ref$retryConnectionD = _ref.retryConnectionDelay, retryConnectionDelay = _ref$retryConnectionD === void 0 ? 2e3 : _ref$retryConnectionD, _ref$isAppActive = _ref.isAppActive, isAppActive = _ref$isAppActive === void 0 ? function() {
+              var _ref = options || {}, _ref$host = _ref.host, host = _ref$host === void 0 ? "localhost" : _ref$host, nativeStyleEditorValidAttributes = _ref.nativeStyleEditorValidAttributes, _ref$path = _ref.path, path4 = _ref$path === void 0 ? "" : _ref$path, _ref$useHttps = _ref.useHttps, useHttps = _ref$useHttps === void 0 ? false : _ref$useHttps, _ref$port = _ref.port, port = _ref$port === void 0 ? 8097 : _ref$port, websocket = _ref.websocket, _ref$resolveRNStyle = _ref.resolveRNStyle, resolveRNStyle = _ref$resolveRNStyle === void 0 ? null : _ref$resolveRNStyle, _ref$retryConnectionD = _ref.retryConnectionDelay, retryConnectionDelay = _ref$retryConnectionD === void 0 ? 2e3 : _ref$retryConnectionD, _ref$isAppActive = _ref.isAppActive, isAppActive = _ref$isAppActive === void 0 ? function() {
                 return true;
               } : _ref$isAppActive, onSettingsUpdated = _ref.onSettingsUpdated, _ref$isReloadAndProfi = _ref.isReloadAndProfileSupported, isReloadAndProfileSupported = _ref$isReloadAndProfi === void 0 ? getIsReloadAndProfileSupported() : _ref$isReloadAndProfi, isProfiling = _ref.isProfiling, onReloadAndProfile2 = _ref.onReloadAndProfile, onReloadAndProfileFlagsReset2 = _ref.onReloadAndProfileFlagsReset;
               var protocol = useHttps ? "wss" : "ws";
+              var prefixedPath = path4 !== "" && !path4.startsWith("/") ? "/" + path4 : path4;
               var retryTimeoutID = null;
               function scheduleRetry() {
                 if (retryTimeoutID === null) {
@@ -67598,8 +67013,15 @@ var require_backend = __commonJS({
                 return;
               }
               var bridge = null;
+              function shutdownBridge() {
+                var bridgeToShutdown = bridge;
+                if (bridgeToShutdown !== null) {
+                  bridge = null;
+                  bridgeToShutdown.shutdown();
+                }
+              }
               var messageListeners = [];
-              var uri = protocol + "://" + host + ":" + port;
+              var uri = protocol + "://" + host + ":" + port + prefixedPath;
               var ws = websocket ? websocket : new window.WebSocket(uri);
               ws.onclose = handleClose;
               ws.onerror = handleFailed;
@@ -67628,9 +67050,7 @@ var require_backend = __commonJS({
                       if (__DEBUG__) {
                         backend_debug("wall.send()", "Shutting down bridge because of closed WebSocket connection");
                       }
-                      if (bridge !== null) {
-                        bridge.shutdown();
-                      }
+                      shutdownBridge();
                       scheduleRetry();
                     }
                   }
@@ -67638,9 +67058,6 @@ var require_backend = __commonJS({
                 bridge.addListener("updateComponentFilters", function(componentFilters) {
                   savedComponentFilters = componentFilters;
                 });
-                if (window.__REACT_DEVTOOLS_COMPONENT_FILTERS__ == null) {
-                  bridge.send("overrideComponentFilters", savedComponentFilters);
-                }
                 var agent2 = new Agent(bridge, isProfiling, onReloadAndProfile2);
                 if (typeof onReloadAndProfileFlagsReset2 === "function") {
                   onReloadAndProfileFlagsReset2();
@@ -67695,9 +67112,7 @@ var require_backend = __commonJS({
                 if (__DEBUG__) {
                   backend_debug("WebSocket.onclose");
                 }
-                if (bridge !== null) {
-                  bridge.emit("shutdown");
-                }
+                shutdownBridge();
                 scheduleRetry();
               }
               function handleFailed() {
@@ -67753,9 +67168,6 @@ var require_backend = __commonJS({
               bridge.addListener("updateComponentFilters", function(componentFilters) {
                 savedComponentFilters = componentFilters;
               });
-              if (window.__REACT_DEVTOOLS_COMPONENT_FILTERS__ == null) {
-                bridge.send("overrideComponentFilters", savedComponentFilters);
-              }
               var agent2 = new Agent(bridge, isProfiling, onReloadAndProfile2);
               if (typeof onReloadAndProfileFlagsReset2 === "function") {
                 onReloadAndProfileFlagsReset2();
@@ -85653,7 +85065,7 @@ var createBuilder2 = (self2, _styler, _isEmpty) => {
       return applyStyle2(builder, "" + arguments_[0]);
     }
     if (arguments_.length === 2) {
-      return applyStyle2(builder, arguments_[0] + " " + arguments_[1]);
+      return applyStyle2(builder, `${arguments_[0] ?? ""} ${arguments_[1] ?? ""}`);
     }
     return applyStyle2(builder, arguments_.join(" "));
   };
@@ -88160,11 +87572,11 @@ run(process.argv.slice(2)).then(
 );
 /*! Bundled license information:
 
-smol-toml/dist/date.js:
 smol-toml/dist/error.js:
-smol-toml/dist/util.js:
 smol-toml/dist/primitive.js:
+smol-toml/dist/date.js:
 smol-toml/dist/extract.js:
+smol-toml/dist/util.js:
 smol-toml/dist/struct.js:
 smol-toml/dist/parse.js:
 smol-toml/dist/stringify.js:
