@@ -1,7 +1,7 @@
 {
   "name": "paf-tasks",
   "displayName": "Phone a Friend panel",
-  "version": "4.13.3",
+  "version": "4.13.4",
   "description": "phone-a-friend, made legible: every review as a thread of rounds with its verdict and findings, live progress while a reviewer works, and the agent sessions that need you",
   "author": {
     "name": "Bruno Freiberger"
