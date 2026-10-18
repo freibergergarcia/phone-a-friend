@@ -1,6 +1,6 @@
 ---
 name: phone-a-friend
-description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
+description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, pi, Grok, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
 argument-hint: "[optional review focus]"
 ---
 
@@ -11,7 +11,7 @@ Use this command after an assistant reply you want reviewed by another AI.
 ## Goal
 
 Send compact task context + the latest assistant reply to a backend
-(Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama) using
+(Antigravity, Codex, Gemini, Claude, OpenCode, pi, Grok, or Ollama) using
 `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Execution rules
@@ -31,7 +31,13 @@ Send compact task context + the latest assistant reply to a backend
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. The `/phone-a-team` slash command
-  orchestrates that for you in Claude Code.
+  orchestrates that for you in Claude Code. From Grok, run separate
+  invocations yourself; `/phone-a-team` is not installed there.
+- From Grok, do not select `grok`. Set `PHONE_A_FRIEND_HOST=grok` and
+  `PHONE_A_FRIEND_INCLUDE_DIFF=false` on every relay. PaF also refuses
+  `--to grok` when `GROK_AGENT=1`. Choose `antigravity`, `codex`,
+  `gemini`, `claude`, `opencode`, `pi`, or `ollama`. Do not pass
+  `--session` or `--fast` from Grok.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
   applies to any other slash command: never invoke them as PaF
@@ -70,10 +76,13 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
+
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop` or `length`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok.
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -92,7 +101,7 @@ Additional Context:
 ```
 
 In direct mode, also verify the backend CLI is available (`command -v agy`,
-`command -v codex`, or `command -v gemini`) before calling it. If not
+`command -v codex`, `command -v gemini`, or `command -v grok`) before calling it. If not
 found, tell the user how to install it and stop. If Gemini CLI reports that
 individual Google sign-in is no longer supported, switch to
 `phone-a-friend --to antigravity` in binary mode or use Gemini CLI with an
@@ -107,7 +116,7 @@ binary; the underlying backend CLIs do not accept them.
 Do not generate `--context-file` or `--context-text` from repository files,
 `git show`, `git diff`, `git status`, or other local file/git output. Do
 not create temp files just to pass repo content. For repo-aware backends
-(antigravity, codex, gemini, claude, opencode, pi), pass `--repo "$PWD"` and let the
+(antigravity, codex, gemini, claude, opencode, pi, grok), pass `--repo "$PWD"` and let the
 backend inspect files with its own tools.
 
 `--context-file` and `--context-text` are reserved for **narrative
@@ -216,6 +225,8 @@ PAF_CONTEXT_EOF
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
    "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   # Grok refuses --schema, --verdict-json, and --session. --fast adds no Grok flag.
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -238,6 +249,8 @@ PAF_CONTEXT_EOF
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
    gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
+   # Grok (read `text` when stopReason is stop or length; do not print the envelope):
+   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
    ```
 
    In direct mode, build `PROMPT_FILE` from the template in the "Direct call
@@ -246,7 +259,7 @@ PAF_CONTEXT_EOF
 
    Note: `--fast`, `--session`, and `--no-include-diff` are PaF CLI flags
    only available in binary mode. Do not append them to direct-mode
-   invocations of `agy`, `codex`, or `gemini`.
+   invocations of `agy`, `codex`, `gemini`, or `grok`.
 
 5. Return backend feedback in concise review format:
    - Critical issues
@@ -267,13 +280,15 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
 2.x has no `--pure`, so `--fast` has no effect there. It maps to
 `-nc -ns` for pi (no AGENTS.md/CLAUDE.md context files, no pi skills), which
 makes the prompt far smaller; that matters for small local models. It is a
-no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not
+no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok. Claude intentionally does not
 use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.
 
 Most `/phone-a-friend` relay calls are self-contained reviews where the
 context is already in the prompt. Default to including `--fast`; it is
 harmless for Claude/Codex/Gemini/Ollama and meaningful for OpenCode and pi.
+Leave `--fast` off for Grok: it adds no Grok flag, and a relay still loads
+project instructions through `--cwd`.
 With pi, leave it off when the task depends on the project's AGENTS.md/CLAUDE.md.
 
 ## Claude cross-session messaging
@@ -433,6 +448,8 @@ Use `doctor --json` to diagnose PATH/version mismatches before retrying.
   prompts can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt
   size grows with each turn. Keep follow-ups concise.
+- **Grok**: no session resume. `--session` and `--backend-session` fail
+  before Grok starts. Omit both.
 
 On the FIRST relay under a new session label, PaF prints an informational
 stderr line: `[phone-a-friend] Session label "..." not found in store.

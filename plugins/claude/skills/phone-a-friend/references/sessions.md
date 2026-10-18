@@ -34,6 +34,8 @@ Use `doctor --json` to diagnose PATH/version mismatches before retrying.
   can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt
   size grows with each turn. Keep follow-ups concise.
+- **Grok**: no session resume. `--session` and `--backend-session` fail
+  before Grok starts. Omit both.
 - **Gemini**: native session resume (same as Codex/Claude/OpenCode).
   PaF generates the session UUID client-side, pins it with `--session-id`
   on the first call, and resumes with `--resume` later. Follow-up prompts

@@ -4,7 +4,7 @@ Guidance for AI coding agents working in `phone-a-friend`.
 
 ## What This Is
 
-`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Antigravity, Codex, Gemini, Ollama, OpenCode, pi). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
+`phone-a-friend` is a TypeScript CLI for relaying prompts + repository context to coding backends (Claude, Antigravity, Codex, Gemini, Ollama, OpenCode, pi, Grok). Available via `npm install -g @freibergergarcia/phone-a-friend` or from source. All backend `run()` methods are async (`Promise<string>`). Backends may also implement `runStream()` returning `AsyncIterable<string>` for token-level streaming.
 
 ## Project Structure
 
@@ -21,7 +21,7 @@ src/
   doctor.ts          Health check command
   diagnostics.ts     PATH/executable identity and bounded version probes for doctor
   setup.ts           Interactive setup wizard
-  installer.ts       Claude/OpenCode/Codex/pi host integration installer (symlink/copy)
+  installer.ts       Claude/OpenCode/Codex/pi/Grok host integration installer (symlink/copy)
   theme.ts           Shared semantic theme (chalk) for CLI styling + banner
   display.ts         Display helpers (mark, formatBackendLine)
   jobs.ts            Background job manager (JSON persistence at ~/.config/phone-a-friend/jobs.json)
@@ -39,6 +39,7 @@ src/
     ollama.ts        Ollama HTTP API backend (native fetch)
     opencode.ts      OpenCode CLI subprocess backend (`opencode run`, agentic with tool calling)
     pi.ts            pi CLI subprocess backend (`pi --mode json`, tool allowlist per sandbox, PaF-owned sessions)
+    grok.ts          Grok Build CLI subprocess backend (`grok --prompt-file`, allow list per sandbox, no resume)
     schema-prompt.ts Shared schema-in-prompt helper for backends without a structured-output flag
   agentic/
     index.ts         Public API — Orchestrator, TranscriptBus exports
@@ -81,11 +82,11 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode, pi) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. `killGraceMs` is an opt-in SIGKILL escalation after the timeout's SIGTERM (only pi passes it today). Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode, pi, Grok) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. `killGraceMs` is an opt-in SIGKILL escalation after the timeout's SIGTERM (only pi passes it today). Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - `Backend.preparePrompt?(prompt, { mode })` — optional last-step rewrite of the fully built prompt, applied by `finalizePrompt()` in `src/relay.ts` on every path (relay, raw and managed sessions, stream, generic review) before the prompt size limit. Only Antigravity implements it today; every other backend's prompt is byte-identical to before the hook existed.
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
-- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode/pi (PaF passes `--repo`/`--dir`/equivalent, or spawns in the repo, and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
+- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode/pi/grok (PaF passes `--repo`/`--dir`/equivalent, or spawns in the repo, and the backend reads files itself). `false` for ollama (HTTP API, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
 - Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume, native `--json-schema` with the value read from the envelope's `structured_output`). Headless `agy` auto-denies shell commands, so the backend implements `preparePrompt()` to prefix every relay and review prompt with a one-line notice; without it the model reaches for `git` and returns nothing.
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback)
@@ -102,6 +103,10 @@ dist/                Built bundle (committed, self-contained)
   - **Progress.** Tool calls (`Running: read src/x.ts`), pi's automatic retries and context compaction (`Compacting context (threshold)`, from `compaction_start`; the `compaction_end` summary is never surfaced) are reported as `activity` events on both `run()` and `runStream()`. The detail is an allowlist of named fields per built-in tool (path, pattern, command), never file contents; a tool PaF does not know is reported by name only.
   - **Cleanup.** On timeout or SIGINT (and, when streaming, a broken stdout or an early `return()`) pi gets SIGTERM, then SIGKILL after 2 s (`PI_KILL_GRACE_MS`) if it has not exited. The batch path gets this through `spawnCli()`'s opt-in `killGraceMs`; backends that do not pass it keep the old SIGTERM-only wait. pi is not started in its own process group, so a killed pi can leave a `bash` tool child behind under `danger-full-access`.
   - Provider: `[backends.pi] provider` is read through `loadConfig(repoPath)`, so a repo `.phone-a-friend.toml` applies. Model IDs with a slash (`mlx-community/...`) are why provider and model are passed as separate flags.
+- Grok backend in `src/backends/grok.ts` (`grok --no-auto-update --output-format json --cwd <canonical repo> --prompt-file <temp>`; `run()` via `spawnCli()`; no `review()`, no `runStream()`, no `preparePrompt()`). `--fast` adds no flag. Resume is `unsupported`, so `--session` and `--backend-session` fail before spawn. `--schema` and `--verdict-json` fail before spawn with `GROK_SCHEMA_UNSUPPORTED`. The answer is the envelope's `text` only when it is a non-empty string and `stopReason` is `stop` or `length`; anything else throws `GrokBackendError`. Raw stdout is never returned.
+  - **Sandbox is an allow list plus a permission mode.** `read-only` sends `--sandbox read-only --permission-mode dontAsk --allow Read --allow Grep`. `workspace-write` sends `--sandbox workspace --permission-mode acceptEdits` and adds `--allow Edit --allow Write` (no Bash, no `--always-approve`). `danger-full-access` sends `--sandbox off --permission-mode bypassPermissions`.
+  - **Recursion guard.** `--to grok` is refused when `GROK_AGENT=1` (Grok sets it on every child) or `PHONE_A_FRIEND_HOST=grok`, before a second grok process starts.
+  - A missing `grok` binary is optional in doctor, same as pi and OpenCode. When the binary is present, doctor prints an advisory: `--fast` has no effect, and `--cwd` still loads project instructions.
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
@@ -228,6 +233,7 @@ phone-a-friend --to codex --prompt "..." --session adopt --backend-session 019dd
 phone-a-friend --to opencode --prompt "..." --fast                     # Fast mode (--pure for OpenCode 1.x; no effect on 2.x)
 phone-a-friend --to pi --repo <path> --prompt "..." --fast             # Local model through pi (provider from [backends.pi]; --fast = -nc -ns)
 phone-a-friend --to pi --prompt "..." --session local-review           # pi session kept in PaF's own pi session directory
+phone-a-friend --to grok --repo <path> --prompt "..."              # Grok Build; no --session, --schema, or --fast effect
 
 # Setup & diagnostics
 phone-a-friend setup                        # Interactive setup wizard
@@ -248,6 +254,7 @@ phone-a-friend plugin install --opencode    # Install OpenCode commands and skil
 phone-a-friend plugin install --codex       # Install Codex plugin (skills + marketplace registration)
 phone-a-friend plugin install --codex --no-codex-cli-sync  # Skip the codex plugin marketplace shell-out (loose-file install only)
 phone-a-friend plugin install --pi          # Install pi skills (loose files under pi's agent directory; used as /skill:<name>)
+phone-a-friend plugin install --grok        # Install Grok skills into ~/.grok/skills
 phone-a-friend plugin install --all         # Install all host integrations
 phone-a-friend plugin install --github      # Switch to GitHub marketplace (npm source, replaces local symlink)
 phone-a-friend plugin update --claude       # Update Claude plugin (repoints a stale marketplace registration PaF made)
@@ -255,10 +262,12 @@ phone-a-friend plugin update --claude --force-marketplace-sync  # Repoint any ot
 phone-a-friend plugin update --opencode     # Update OpenCode commands and skills
 phone-a-friend plugin update --codex        # Update Codex plugin
 phone-a-friend plugin update --pi           # Update pi skills
+phone-a-friend plugin update --grok         # Update Grok skills
 phone-a-friend plugin uninstall --claude    # Uninstall Claude plugin
 phone-a-friend plugin uninstall --opencode  # Uninstall OpenCode commands and skills
 phone-a-friend plugin uninstall --codex     # Uninstall Codex plugin (removes plugin registration + skills, plus any stale paf-* subagent symlinks)
 phone-a-friend plugin uninstall --pi        # Uninstall pi skills
+phone-a-friend plugin uninstall --grok      # Uninstall Grok skills (PaF-owned copies only)
 
 # Job management
 phone-a-friend job status                  # List all tracked jobs
@@ -302,7 +311,7 @@ No-args in a TTY launches a full-screen Ink (React) dashboard with 5 tabs:
 - **Agentic** — session browser with list view
 
 A persistent plugin status bar sits between the tab bar and panel content,
-showing Claude, OpenCode, Codex and pi host integration state. It updates instantly after
+showing Claude, OpenCode, Codex, pi, and Grok host integration state. It updates instantly after
 install/uninstall actions complete.
 
 TTY guard: non-interactive terminals fall back to help/setup nudge.
@@ -382,6 +391,8 @@ For pi, doctor also prints the configured `[backends.pi] provider` (JSON:
 installed pi is older than 0.79.0. It probes no model endpoint: that would couple
 PaF to pi's `models.json`, and doctor promises no inference.
 
+For Grok, doctor treats a missing binary as optional, with no version floor. When `grok` is on `PATH`, it adds an advisory that `--fast` has no effect for `--to grok` and that a relay still loads project instructions through `--cwd`. It probes no model endpoint.
+
 ## Configuration
 
 Config files (TOML format):
@@ -393,7 +404,7 @@ Precedence: CLI flags > env vars > repo config > user config > defaults
 Environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` — overrides `defaults.include_diff = true` from config without needing `--no-include-diff` on every call. The OpenCode shims in `skills/<name>/COMMAND.opencode.md` use this env var instead of the `--no-include-diff` flag because the flag was added in v2.2.0+ but the env var works on every shipped binary (v1.7.2+). Rich content (`commands/<name>.md` and `skills/<name>/SKILL.md`) uses a probe-and-gate pattern that prefers the explicit flag when available and falls back to this env var on stale CLIs.
 - `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` — overrides `backends.claude.peer_messaging`. `native` exposes `ListAgents`/`SendMessage` while respecting Claude's inbound rules; `accept` enables unattended inbound delivery; `refuse` disables both directions.
-- `PHONE_A_FRIEND_HOST=opencode|codex|pi` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi` (pi has no shim; as a host it needs no marker, because pi sets `PI_CODING_AGENT=true` for the commands its `bash` tool runs and PaF honours that). Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
+- `PHONE_A_FRIEND_HOST=opencode|codex|pi|grok` — recursion guard marker. Install shims set this so that `--to <host>` from inside that host's session is blocked deterministically. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi` (pi has no shim; as a host it needs no marker, because pi sets `PI_CODING_AGENT=true` for the commands its `bash` tool runs and PaF honours that); `grok` blocks `--to grok`. Grok also sets `GROK_AGENT=1` on every child, and PaF treats that as the Grok host even when the skill marker is missing. Skills still set `PHONE_A_FRIEND_HOST=grok`. Only relevant when invoking PaF programmatically; the slash-command shims handle it automatically.
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
 - `PHONE_A_FRIEND_TASK_HISTORY=results|metadata|off` — overrides `defaults.task_history` (see "Task tracking"). `--no-task-history` skips the record for one run and wins over both.
@@ -538,6 +549,8 @@ pi is a host as well as a backend. `phone-a-friend plugin install --pi` copies o
 - **Uninstall is ownership-checked**, unlike the OpenCode and Codex uninstallers: users explicitly run `plugin uninstall --pi` or `plugin uninstall --all` before removing the CLI, and may keep a skill of their own under the same name. Removed: a copy carrying the `.phone-a-friend-install` marker (written on copy installs only, never into the source), a symlink to exactly `<this install>/skills/<name>`, or a symlink to `<dir>/skills/<name>` where `<dir>/package.json` names PaF's npm package (another checkout or an older global install). Anything else is reported as `kept`, including a dangling symlink from another location: the path's shape alone proves nothing. A symlink to some other place inside the repository is the user's too. Install relinks a PaF-owned symlink without `--force` (a new install location after a Node upgrade); anything else in the way needs the flag. `--force` on install still replaces whatever is there, as for every host.
 - `--all` includes pi. There are no npm uninstall lifecycle hooks: package removal preserves configuration and history but does not remove host integrations. Symlink installs (the default) are left pointing at the removed package, so run `plugin uninstall --all` (or `pi remove` for a pi package install) before `npm uninstall -g`.
 
+Grok is a host as well as a backend. `phone-a-friend plugin install --grok` copies or symlinks the host-neutral `phone-a-friend` and `curiosity-engine` skills into `~/.grok/skills/` (`grokConfigRoot()`, overridable with `grokHome` in tests). There is no command shim, no Grok shell-out, and no marketplace package. `/phone-a-team` is not installed. `isGrokInstalled()` is true only when both skills are PaF-owned: a copy carrying the `.phone-a-friend-install` marker, a symlink into this install's `skills/<name>`, or a symlink whose parent `package.json` names `@freibergergarcia/phone-a-friend`. A directory that merely contains `SKILL.md` does not count, and a Claude plugin Grok can see does not count. Uninstall removes only a PaF-owned copy and reports anything else as `kept`. `--all` includes grok. `--github` rejects `--grok`. The skill text tells a Grok host to set `PHONE_A_FRIEND_HOST=grok` and never pass `--to grok`.
+
 Codex is shipped as a real Codex plugin (the marketplace + manifest live in the repo) AND via loose-file install for content delivery.
 
 `phone-a-friend plugin install --codex` does two things:
@@ -639,6 +652,7 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 - Ollama: native enforcement via JSON Schema object in the HTTP `format` field, with the schema also injected into the prompt for grounding
 - OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
 - pi: schema injected into prompt (best-effort, not validated; pi has no structured-output flag). A small local model may answer with reasoning only, which fails closed with a hint to try `--fast` or a larger model
+- Grok: `--schema` and `--verdict-json` are refused before spawn. The schema is not injected and `grok` is not started.
 - Streaming is disabled when `--schema` is active (structured output requires batch mode)
 - When a `--schema` is set in review mode, native `review()` is bypassed and the generic `run()` path is used so the schema is honored uniformly across backends.
 
@@ -696,6 +710,7 @@ Implementation notes:
 - Codex: thread ID captured from `thread.started` JSONL event, `codex exec resume <thread-id>`. Resume accepts neither `-C` nor `--sandbox`, so PaF passes `-c sandbox_mode="<sandbox>"` and spawns the resume with `cwd` set to the repo; without both, a thread started read-only resumes under Codex's config default and works in PaF's own cwd (verified on 0.157.1).
 - pi: `--session-dir <PaF config dir>/pi-sessions --session-id <uuid>` on start and on resume, UUID generated client-side. pi silently creates a session that is missing, so a resume is checked **before spawning**: PaF scans the directory's `*.jsonl` headers the way pi does (`id` plus `cwd`) and requires exactly one match; zero or several fail without a model call. After the run, the header pi emitted must equal the one that was checked. A plain relay passes `--no-session`, so nothing is written to pi's store.
 - Ollama: stateless replay (full history prepended to each request)
+- Grok: `resumeStrategy: 'unsupported'`. `--session` and `--backend-session` error before spawn. There is no native resume in this version.
 - `--backend-session` is only valid for backends with `resumeStrategy: 'native-session'` (Antigravity, Codex, Claude, Gemini, OpenCode, pi). For pi it attaches only a session that lives in PaF's pi session directory; a session started directly in pi cannot be attached in this version.
 - `--session` errors out for backends with `resumeStrategy: 'unsupported'` instead of silently fresh-spawning each call
 - An unknown `--session <label>` no longer silently fresh-spawns; PaF prints a stderr warning before starting a new session under that label
@@ -733,8 +748,8 @@ phone-a-friend session prune --all             # drop everything
 
 ## Fast spawn
 
-The `--fast` flag maps to `--pure` for the OpenCode 1.x backend, skipping external plugins. OpenCode 2.x removed `--pure`, so on that line `--fast` and `backends.opencode.pure` have no effect (doctor says so). For pi it maps to `-nc -ns` (no AGENTS.md/CLAUDE.md context files, no skills); measured in this repository on a 9B local model, that cut the prompt from 22,004 to 1,527 input tokens, so it is the recommended setting for small local models unless the task depends on project conventions. It is a no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode 1.x, this is useful for self-contained tasks where external plugins are not needed.
+The `--fast` flag maps to `--pure` for the OpenCode 1.x backend, skipping external plugins. OpenCode 2.x removed `--pure`, so on that line `--fast` and `backends.opencode.pure` have no effect (doctor says so). For pi it maps to `-nc -ns` (no AGENTS.md/CLAUDE.md context files, no skills); measured in this repository on a 9B local model, that cut the prompt from 22,004 to 1,527 input tokens, so it is the recommended setting for small local models unless the task depends on project conventions. It is a no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok. Claude intentionally does not use `--bare` because bare mode skips OAuth/keychain reads and breaks subscription auth. For OpenCode 1.x, this is useful for self-contained tasks where external plugins are not needed.
 
 ## Scope
 
-This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode/Codex/pi host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.
+This repository contains relay functionality, backend detection, configuration system, Claude/OpenCode/Codex/pi/Grok host integration installers, interactive TUI dashboard, agentic multi-agent orchestration, background job tracking, structured output, session continuity, and fast spawn. Policy engines, hooks, approvals, and trusted scripts are intentionally out of scope.

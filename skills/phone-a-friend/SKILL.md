@@ -1,6 +1,6 @@
 ---
 name: phone-a-friend
-description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
+description: Ask Antigravity, Codex, Gemini, Claude, OpenCode, pi, Grok, or Ollama for a second opinion through the phone-a-friend CLI while preserving the user's request in --prompt.
 argument-hint: "[optional review focus]"
 ---
 
@@ -10,7 +10,7 @@ Use this skill after an assistant reply you want reviewed by another AI.
 
 ## Goal
 
-Send compact task context + the latest assistant reply to a backend (Antigravity, Codex, Gemini, Claude, OpenCode, pi, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
+Send compact task context + the latest assistant reply to a backend (Antigravity, Codex, Gemini, Claude, OpenCode, pi, Grok, or Ollama) using `phone-a-friend`, then bring the feedback back into the current conversation.
 
 ## Execution rules
 
@@ -24,21 +24,25 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   or general second opinion, use normal prompt mode with `--repo "$PWD"`.
 - If the user says not to edit files, keep that instruction in `--prompt`.
 - From OpenCode, do not select `opencode` as the friend backend. Choose
-  `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
+  `antigravity`, `codex`, `gemini`, `claude`, `grok`, or `ollama`.
 - From Codex, do not select `codex` as the friend backend. Choose `claude`,
-  `antigravity`, `gemini`, `opencode`, or `ollama`. PaF enforces this with the same
+  `antigravity`, `gemini`, `opencode`, `grok`, or `ollama`. PaF enforces this with the same
   `PHONE_A_FRIEND_HOST` recursion guard used for OpenCode.
 - From pi, do not select `pi` as the friend backend. Choose `claude`, `codex`,
-  `antigravity`, `gemini`, `opencode`, or `ollama`. PaF refuses `--to pi` from
+  `antigravity`, `gemini`, `opencode`, `grok`, or `ollama`. PaF refuses `--to pi` from
   inside pi on its own: pi marks every shell command it runs with
   `PI_CODING_AGENT=true`, so no host prefix is needed.
+- From Grok, do not select `grok` as the friend backend. Set
+  `PHONE_A_FRIEND_HOST=grok` on every relay. PaF also refuses `--to grok`
+  when `GROK_AGENT=1`. Choose `antigravity`, `codex`, `gemini`, `claude`,
+  `opencode`, `pi`, or `ollama`.
 - Suppress the working-tree diff by default (see "Diff suppression" below);
   only include the diff when the user explicitly asked for a
   diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. In Claude Code and Codex, `/phone-a-team`
-  orchestrates those calls using the host-specific skill. In OpenCode and pi, run
+  orchestrates those calls using the host-specific skill. In OpenCode, pi, and Grok, run
   separate invocations yourself; `/phone-a-team` is not installed there.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
@@ -62,6 +66,9 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   `PHONE_A_FRIEND_INCLUDE_DIFF=false` (diff suppression, for the same
   reason as OpenCode: a local host model tends to skip the probe). Run the
   relay through pi's `bash` tool.
+- When running inside Grok, prefix relay invocations with
+  `PHONE_A_FRIEND_HOST=grok` AND `PHONE_A_FRIEND_INCLUDE_DIFF=false`.
+  Do not pass `--to grok`, `--session`, or `--fast`.
 - When materializing relay commands, write dynamic prompt/context text into
   temp files using single-quoted heredocs. Do not splice user text, prior
   model output, or conversation context into double-quoted shell arguments.
@@ -87,6 +94,15 @@ PHONE_A_FRIEND_INCLUDE_DIFF=false \
   --timeout 300 --no-stream
 ```
 
+From Grok:
+
+```bash
+PHONE_A_FRIEND_HOST=grok PHONE_A_FRIEND_INCLUDE_DIFF=false \
+  phone-a-friend --to claude --repo "$PWD" \
+  --prompt "Give a short sanity review of this repo. Do not edit files." \
+  --timeout 300 --no-stream
+```
+
 ## Inputs
 
 - Review focus (optional): `$ARGUMENTS`
@@ -96,24 +112,32 @@ PHONE_A_FRIEND_INCLUDE_DIFF=false \
 
 PaF blocks accidental host recursion (e.g.
 `OpenCode -> phone-a-friend --to opencode -> OpenCode`,
-`Codex -> phone-a-friend --to codex -> Codex`) using the
-`PHONE_A_FRIEND_HOST` environment marker.
+`Codex -> phone-a-friend --to codex -> Codex`,
+`Grok -> phone-a-friend --to grok -> Grok`) using the
+`PHONE_A_FRIEND_HOST` environment marker. Grok also sets `GROK_AGENT=1`
+on every child it launches, and PaF treats that as the Grok host.
 
 When running from OpenCode, always set `PHONE_A_FRIEND_HOST=opencode` on
-every relay invocation. From Codex, set `PHONE_A_FRIEND_HOST=codex`. The
-install shims set the marker automatically; be explicit when constructing
+every relay invocation. From Codex, set `PHONE_A_FRIEND_HOST=codex`. From
+Grok, set `PHONE_A_FRIEND_HOST=grok`. The install shims set the marker
+automatically for OpenCode and Codex; be explicit when constructing
 commands by hand. From Claude Code, the marker is not needed.
 
 When running from OpenCode, do not select `opencode` as the friend backend.
-Choose `antigravity`, `codex`, `gemini`, `claude`, or `ollama`.
+Choose `antigravity`, `codex`, `gemini`, `claude`, `grok`, or `ollama`.
 
 When running from Codex, do not select `codex` as the friend backend. Choose
-`claude`, `antigravity`, `gemini`, `opencode`, or `ollama`.
+`claude`, `antigravity`, `gemini`, `opencode`, `grok`, or `ollama`.
 
 When running from pi, no marker is needed: pi sets `PI_CODING_AGENT=true` for
 the commands its `bash` tool runs, and PaF treats that as the pi host. Do not
 select `pi` as the friend backend. Choose `claude`, `codex`, `antigravity`,
-`gemini`, `opencode`, or `ollama`.
+`gemini`, `opencode`, `grok`, or `ollama`.
+
+When running from Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay. Do not
+select `grok` as the friend backend. Choose `antigravity`, `codex`, `gemini`,
+`claude`, `opencode`, `pi`, or `ollama`. PaF also refuses `--to grok` when
+`GROK_AGENT=1`. Do not run `/phone-a-team` from Grok.
 
 ## Relay mode
 
@@ -165,10 +189,13 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
+
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop` or `length`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok: `--fast` adds no Grok flag, and `--session`, `--schema`, and `--verdict-json` are refused before Grok starts.
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -187,7 +214,7 @@ Additional Context:
 ```
 
 In direct mode, also verify the backend CLI is available (`command -v agy`,
-`command -v codex`, or `command -v gemini`) before calling it. If not found,
+`command -v codex`, `command -v gemini`, or `command -v grok`) before calling it. If not found,
 tell the user how to install it and stop. If Gemini CLI reports that
 individual Google sign-in is no longer supported, switch to
 `phone-a-friend --to antigravity` in binary mode or use Gemini CLI with an
@@ -202,7 +229,7 @@ binary; the underlying backend CLIs do not accept them.
 Do not generate `--context-file` or `--context-text` from repository files,
 `git show`, `git diff`, `git status`, or other local file/git output. Do
 not create temp files just to pass repo content. For repo-aware backends
-(antigravity, codex, gemini, claude, opencode, pi), pass `--repo "$PWD"` and let the
+(antigravity, codex, gemini, claude, opencode, pi, grok), pass `--repo "$PWD"` and let the
 backend inspect files with its own tools.
 
 `--context-file` and `--context-text` are reserved for **narrative
@@ -309,6 +336,8 @@ PAF_CONTEXT_EOF
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
    "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   # Grok refuses --schema, --verdict-json, and --session. --fast adds no Grok flag.
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -330,6 +359,8 @@ PAF_CONTEXT_EOF
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
    gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
+   # Grok (read `text` when stopReason is stop or length; do not print the envelope):
+   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
    ```
 
    In direct mode, build `PROMPT_FILE` from the template in the "Direct call
@@ -338,7 +369,7 @@ PAF_CONTEXT_EOF
 
    Note: `--fast`, `--session`, and `--no-include-diff` are PaF CLI flags
    only available in binary mode. Do not append them to direct-mode
-   invocations of `agy`, `codex`, or `gemini`.
+   invocations of `agy`, `codex`, `gemini`, or `grok`.
 
 5. Return backend feedback in concise review format:
    - Critical issues
@@ -359,14 +390,16 @@ When building binary-mode relay commands, add `--fast` if ALL of these are true:
 2.x has no `--pure`, so `--fast` has no effect there. It maps to
 `-nc -ns` for pi (no AGENTS.md/CLAUDE.md context files, no pi skills), which
 makes the prompt far smaller; that matters for small local models. It is a
-no-op for Antigravity, Claude, Codex, Gemini, and Ollama. Claude intentionally does not
+no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok. Claude intentionally does not
 use `--bare` because bare mode skips OAuth/keychain reads and can break
 subscription auth.
 
 Most `/phone-a-friend` relay calls are self-contained reviews where the
 context is already in the prompt. Default to including `--fast` when the
 backend may be OpenCode or pi; it is a no-op elsewhere. With pi, leave it off
-when the task depends on the project's AGENTS.md/CLAUDE.md.
+when the task depends on the project's AGENTS.md/CLAUDE.md. Leave `--fast`
+off for Grok: it adds no Grok flag, and a relay still loads project
+instructions through `--cwd`.
 
 ## Claude cross-session messaging
 
@@ -429,6 +462,8 @@ done
 wait
 ```
 
+Grok is a legal friend from another host, but leave it out of this default loop. `--cwd` loads the repository's instructions, so a casual parallel ask is expensive. Add `grok` only when the user asked for Grok.
+
 After `wait` returns, every backend has either produced output or timed out at 60s. Read each `$OUT_DIR/<backend>.out` (or `.err` if the backend exited non-zero) and **present the results as a compact markdown table**:
 
 ```
@@ -443,8 +478,9 @@ If a backend failed or timed out, surface the error in the table cell so the use
 **Host-specific notes**:
 - From Codex: set `PHONE_A_FRIEND_HOST=codex` on every backgrounded call.
 - From OpenCode: same with `opencode`.
+- From Grok: set `PHONE_A_FRIEND_HOST=grok` on every backgrounded call. Do not select `--to grok`. Do not run `/phone-a-team`.
 - From Claude: no host marker required, but the parallel-then-table pattern is the same.
-- Never select `--to codex` from Codex or `--to opencode` from OpenCode (the recursion guard refuses).
+- Never select `--to codex` from Codex, `--to opencode` from OpenCode, or `--to grok` from Grok (the recursion guard refuses).
 
 When waiting on another local Claude session, the main conversation can use
 `SendMessage` with `notify_when_idle` if both sessions support it (2.1.236+).

@@ -13,7 +13,7 @@ phone-a-friend doctor
 ```
 
 Install and authenticate at least one supported backend: Antigravity, Claude
-Code, Codex, Gemini CLI, OpenCode, pi, or an Ollama server. Provider subscriptions,
+Code, Codex, Gemini CLI, OpenCode, pi, Grok, or an Ollama server. Provider subscriptions,
 API charges and local-model requirements are separate. Use a backend different
 from the current host where its recursion guard applies.
 
@@ -36,9 +36,12 @@ testing for these workflows.
 Claude Code exposes namespaced commands such as
 `/phone-a-friend:phone-a-friend`; Codex exposes installed skills through its
 skill picker. The PaF CLI is required for the Codex team workflow, PaF-managed
-sessions, task history, and relays to the pi backend. Claude's team command has
+sessions, task history, and relays to the pi and Grok backends. Claude's team command has
 a limited direct-backend fallback when PaF is missing. The single-relay skill
-also has direct-CLI fallbacks for Antigravity, Codex and Gemini.
+also has direct-CLI fallbacks for Antigravity, Codex, Gemini, and Grok. Grok as a
+host loads `phone-a-friend` and `curiosity-engine` from `~/.grok/skills` after
+`phone-a-friend plugin install --grok`. `/phone-a-team` is not installed there.
+From Grok, set `PHONE_A_FRIEND_HOST=grok` and do not pass `--to grok`.
 
 Keep the default read-only relay policy. Diagnose authentication or connectivity
 failures with `doctor` and the backend CLI before changing permissions. Host
@@ -47,7 +50,7 @@ sandbox restrictions and provider credentials are separate concerns.
 ## Credentials
 
 This plugin reads no API keys, tokens or credential files, and asks for none.
-Each backend CLI (Codex, Gemini CLI, Antigravity, Claude Code, OpenCode, pi)
+Each backend CLI (Codex, Gemini CLI, Antigravity, Claude Code, OpenCode, pi, Grok)
 signs in with its own login or key, which you set up with that tool. The
 plugin runs the `phone-a-friend` CLI or, as a fallback, a backend CLI directly;
 the only network address it names itself is a local Ollama server
