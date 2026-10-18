@@ -9,10 +9,8 @@ shape and a sanitized error. `phone-a-friend doctor --json` helps identify
 executable/version mismatches; inspect and redact its paths and configuration
 before sharing it. Do not post credentials, private prompts or repository data.
 
-Report security vulnerabilities privately through
-[GitHub private vulnerability reporting](https://github.com/freibergergarcia/phone-a-friend/security/advisories/new)
-when available. If that form is unavailable, open an issue asking for a private
-contact without including exploit details or sensitive material.
+Report security vulnerabilities privately, as described in
+[SECURITY.md](SECURITY.md). Do not include exploit details in public issues.
 
 Backend account access, provider billing and model availability are handled by
 the respective provider. This project is independently maintained and is not

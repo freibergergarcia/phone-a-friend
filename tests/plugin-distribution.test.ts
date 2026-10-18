@@ -10,7 +10,7 @@ const fixtures: string[] = [];
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'paf-distribution-test-'));
   fixtures.push(dir);
-  for (const path of ['package.json', '.codex-plugin', '.claude-plugin', 'scripts', 'skills', 'commands', 'agents', 'assets', 'docs/distribution', 'mods', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SUPPORT.md']) {
+  for (const path of ['package.json', '.codex-plugin', '.claude-plugin', 'scripts', 'skills', 'commands', 'agents', 'assets', 'docs/distribution', 'mods', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SECURITY.md', 'SUPPORT.md']) {
     cpSync(join(repo, path), join(dir, path), { recursive: true });
   }
   sync(dir);

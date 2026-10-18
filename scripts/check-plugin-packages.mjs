@@ -19,7 +19,7 @@ for (const [folder, manifestFile] of [
   const files = filesIn(dir);
   const manifest = json(`${folder}/${manifestFile}`);
   assert.equal(manifest.version, pkg.version, `${folder}: version drift`);
-  for (const required of ['README.md', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SUPPORT.md']) assert(files.includes(required), `${folder}: missing ${required}`);
+  for (const required of ['README.md', 'LICENSE', 'NOTICE', 'PRIVACY.md', 'SECURITY.md', 'SUPPORT.md']) assert(files.includes(required), `${folder}: missing ${required}`);
   assert(!files.some((file) => /(^|\/)(node_modules|dist)(\/|$)|(^|\/)(package(-lock)?\.json|CLAUDE\.md)$/.test(file)), `${folder}: unneeded runtime/dependency file`);
   for (const file of files) {
     const bytes = readFileSync(join(dir, file));

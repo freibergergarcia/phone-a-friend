@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[auto-bump]')"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.AUTO_BUMP_TOKEN }}
           fetch-depth: 0
@@ -52,7 +52,7 @@ jobs:
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "Found label: $label (PR #$pr_number)"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.pr.outputs.skip != 'true'
         with:
           node-version: "22"
