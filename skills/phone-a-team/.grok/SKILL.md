@@ -8,7 +8,8 @@ argument-hint: '<task description> [--backend <name>[,<name>,...]] [--max-rounds
 
 Orchestrate a Bash round loop in the current conversation. Grok reads the
 friends' replies and synthesizes between rounds. Do not spawn subagents or
-use Agent Teams. For a single parallel consultation, use `/phone-a-friend`.
+use Agent Teams. `/phone-a-friend` also handles a single parallel consultation;
+when the user explicitly invokes this skill for one, run one round here.
 
 ## Inputs and preflight
 
@@ -29,10 +30,34 @@ report how to install it and stop. Do not substitute `./phone-a-friend`.
 Resolve `REPO` with `git rev-parse --show-toplevel` or the current directory.
 Keep PaF's read-only sandbox and do not escalate permissions on failure.
 
+Keep preflight proportional to the request. For named friends, resolve the
+binary and repository, check their executables once, then dispatch. For
+"all available backends", use one `doctor --json` result to select detected
+backends other than Grok. An installed CLI is **detected**, not proven ready:
+doctor does not establish authentication, remaining quota, or model access.
+Say "six backends detected; attempting six relays", and report readiness
+from the actual results. Skip known unavailable endpoints or missing models
+with their specific reason. Do not make extra inference calls merely to
+probe readiness, repeat discovery, or inspect repository files for a
+self-contained question. Diagnose a backend further only after it fails.
+
 Set `BACKENDS` to the validated comma-separated list. Set `TASK_DESCRIPTION`
 as data through a safely quoted assignment or file, never as shell code.
 Do the same for later synthesis text. Do not use `eval` or interpolate user
 content into an executable command string.
+
+Match the relay instructions to the task. Set `TASK_INSTRUCTIONS` to a short
+instruction appropriate to the user's requested output:
+
+- For a self-contained question such as arithmetic: "Answer the question directly
+  and concisely. Do not use tools or read repository files." Preserve any
+  requested explanation or output format instead of adding a review rubric.
+- For a requested critique or code review: ask for concrete findings and
+  unresolved concerns within the stated scope.
+
+Keep orchestration requirements (which friends, concurrency, timing, session
+labels) with the host. Include all substantive task details and constraints
+in the friend prompt, without asking friends to dispatch another team.
 
 ## Run a round
 
@@ -45,7 +70,7 @@ TEAM_ID="paf-team-$(basename "$ROUND_DIR")"
 ROUND=1
 ROUND_PROMPT="$ROUND_DIR/r${ROUND}-prompt.txt"
 printf '%s\n\n%s\n' \
-  'Review this task as a panel member. Be specific; challenge assumptions and name unresolved risks. Do not edit files.' \
+  "$TASK_INSTRUCTIONS" \
   "$TASK_DESCRIPTION" > "$ROUND_PROMPT"
 ```
 
@@ -89,10 +114,15 @@ Read each status file and answer. Stderr includes normal progress and
 receipts; non-empty stderr alone does not mean failure. For a nonzero exit,
 report the backend and relevant error with credentials redacted. Never
 treat partial failed output as a successful vote. Do not retry auth errors.
-If needed, use `"$RELAY_BIN" doctor --json` to check executable identity.
+Reuse preflight diagnostics when available; otherwise use
+`"$RELAY_BIN" doctor --json` if executable identity needs checking. A quota,
+authentication, or provider failure is a failed attempt, not an answer.
 
-Grok produces a short synthesis naming agreement, disagreements with their
-authors, and concrete unresolved issues. Choose:
+For a simple question, report the answers and failures in a compact table
+and stop when the answers agree. Do not invent risks, require a review-style
+verdict, or run another round just to fill the round budget. For a requested
+critique, Grok summarizes agreement, attributed disagreements, and concrete
+unresolved issues, then chooses:
 
 - **SHIP**: sufficient agreement, no unresolved blockers. Stop.
 - **ITERATE**: another round could resolve specific questions. Continue only
@@ -106,8 +136,12 @@ and repeat the parallel block with the same session labels. Retain the
 original constraints in the follow-up. Continue with working friends only
 when doing so still meets the user's request, and disclose any omissions.
 
-Finish with the verdict, round count, final synthesis, a compact per-backend
-status table, and `TEAM_ID` for inspecting the sessions later. Temporary
-round files can be removed after the results have been read and presented.
+Finish with the result (or review verdict), round count, a compact per-backend
+status table, and `TEAM_ID` for inspecting the sessions later. When timing is
+requested, measure each relay around its invocation and the whole parallel
+round separately; do not report the sum of relay times as wall time. Call
+sessions "created" or "saved" after the first success; call resume verified
+only after a successful follow-up in the same session. Temporary round files
+can be removed after the results have been read and presented.
 
 Every relay must carry `PHONE_A_FRIEND_HOST=grok`. Never call `--to grok`.
