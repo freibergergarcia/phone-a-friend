@@ -41,14 +41,14 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   diff/branch/staged review.
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
-  separate `phone-a-friend` calls. In Claude Code and Codex, `/phone-a-team`
-  orchestrates those calls using the host-specific skill. In OpenCode, pi, and Grok, run
+  separate `phone-a-friend` calls. In Claude Code, Codex, and Grok, `/phone-a-team`
+  orchestrates those calls using the host-specific skill. In OpenCode and pi, run
   separate invocations yourself; `/phone-a-team` is not installed there.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
   applies to any other slash command: never invoke them as PaF
   subcommands (e.g. `phone-a-friend phone-a-team`).
-- `--backend` is a `/phone-a-team` skill argument (Claude Code and Codex), not a PaF
+- `--backend` is a `/phone-a-team` skill argument (Claude Code, Codex, and Grok), not a PaF
   CLI flag. Do not pass `--backend` to `phone-a-friend`.
 - When running inside OpenCode, always prefix relay invocations with
   `PHONE_A_FRIEND_HOST=opencode` (recursion guard) AND
@@ -68,9 +68,7 @@ Send compact task context + the latest assistant reply to a backend (Antigravity
   relay through pi's `bash` tool.
 - When running inside Grok, prefix relay invocations with
   `PHONE_A_FRIEND_HOST=grok` AND `PHONE_A_FRIEND_INCLUDE_DIFF=false`.
-  Do not pass `--to grok`. `--session` and `--fast` stay valid for other
-  friends. With `--to grok`, omit both: `--session` is refused and `--fast`
-  adds no flag.
+  Do not pass `--to grok`. `--session` works with Grok as a friend from another host; `--fast` adds no Grok flag.
 - When materializing relay commands, write dynamic prompt/context text into
   temp files using single-quoted heredocs. Do not splice user text, prior
   model output, or conversation context into double-quoted shell arguments.
@@ -139,7 +137,7 @@ select `pi` as the friend backend. Choose `claude`, `codex`, `antigravity`,
 When running from Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay. Do not
 select `grok` as the friend backend. Choose `antigravity`, `codex`, `gemini`,
 `claude`, `opencode`, `pi`, or `ollama`. PaF also refuses `--to grok` when
-`GROK_AGENT=1`. Do not run `/phone-a-team` from Grok.
+`GROK_AGENT=1`. Use the Grok-specific `/phone-a-team` skill for iterative rounds.
 
 ## Relay mode
 
@@ -197,7 +195,7 @@ Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only res
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok: `--fast` adds no Grok flag, and `--session`, `--schema`, and `--verdict-json` are refused before Grok starts. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` adds no Grok flag. Binary mode supports `--session`, `--schema`, `--verdict-json`, and streaming (schemas and sessions select batch mode). In direct mode, use `--session-id <uuid>` for a new conversation and `--resume <uuid>` for follow-ups. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -338,8 +336,8 @@ PAF_CONTEXT_EOF
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
    "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
-   # Grok refuses --schema, --verdict-json, and --session. --fast adds no Grok flag.
-   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF
+   # Grok supports --session, --schema, --verdict-json, and streaming. --fast adds no flag.
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -480,7 +478,7 @@ If a backend failed or timed out, surface the error in the table cell so the use
 **Host-specific notes**:
 - From Codex: set `PHONE_A_FRIEND_HOST=codex` on every backgrounded call.
 - From OpenCode: same with `opencode`.
-- From Grok: set `PHONE_A_FRIEND_HOST=grok` on every backgrounded call. Do not select `--to grok`. Do not run `/phone-a-team`.
+- From Grok: set `PHONE_A_FRIEND_HOST=grok` on every backgrounded call. Do not select `--to grok`. Use the Grok-specific `/phone-a-team` skill for iterative rounds.
 - From Claude: no host marker required, but the parallel-then-table pattern is the same.
 - Never select `--to codex` from Codex, `--to opencode` from OpenCode, or `--to grok` from Grok (the recursion guard refuses).
 

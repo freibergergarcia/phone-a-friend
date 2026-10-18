@@ -4227,7 +4227,7 @@ function prepareRelay(opts) {
     observer: opts.observer
   };
 }
-async function relay(opts) {
+async function executeSessionRun(req) {
   const {
     selectedBackend,
     fullPrompt,
@@ -4243,7 +4243,8 @@ async function relay(opts) {
     peerMessaging,
     sessionStore,
     observer
-  } = prepareRelay(opts);
+  } = req;
+  const sessionLabel = req.sessionLabel ?? session;
   const bridge = observerBridge(observer);
   try {
     if (backendSession) {
@@ -4280,7 +4281,7 @@ async function relay(opts) {
         resumeSession: true,
         fast,
         peerMessaging,
-        sessionLabel: session,
+        sessionLabel,
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId2 = newSessionId;
@@ -4340,7 +4341,7 @@ async function relay(opts) {
       resumeSession: Boolean(session && storedSession),
       fast,
       peerMessaging,
-      sessionLabel: session,
+      sessionLabel,
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
@@ -4367,6 +4368,9 @@ async function relay(opts) {
     }
     throw err;
   }
+}
+async function relay(opts) {
+  return executeSessionRun(prepareRelay(opts));
 }
 function persistRelaySession(store, id, backend, repoPath, prompt, output, backendSessionId) {
   const replaysHistory = backend.capabilities.resumeStrategy === "transcript-replay";
@@ -4482,6 +4486,9 @@ async function reviewRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
+  const session = opts.session ?? null;
+  const backendSession = opts.backendSession ?? null;
+  refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env5 = nextRelayEnv();
   const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
@@ -4491,7 +4498,7 @@ async function reviewRelay(opts) {
   const scopeInfo = describeDiff(collectedDiff, scope, base);
   safeObserve(() => observer?.onScope?.(scopeInfo));
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? /* @__PURE__ */ new Set(["branch"]);
-  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema) {
+  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema && !session && !backendSession) {
     try {
       const nativeResult = await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -4522,29 +4529,25 @@ async function reviewRelay(opts) {
     diffText,
     localFileAccess: selectedBackend.localFileAccess
   }), "review");
-  try {
-    const result = await selectedBackend.run({
-      prompt: fullPrompt,
-      repoPath: resolvedRepo,
-      timeoutSeconds,
-      sandbox,
-      model,
-      env: env5,
-      schema,
-      fast,
-      peerMessaging,
-      sessionLabel: "review",
-      onEvent: bridge.onEvent
-    });
-    reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
-    return result;
-  } catch (err) {
-    if (err instanceof RelayError) throw err;
-    if (err instanceof BackendError) {
-      throw backendErrorToRelayError(err);
-    }
-    throw err;
-  }
+  const result = await executeSessionRun({
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env: env5,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    backendSession,
+    fast,
+    peerMessaging,
+    sessionStore: opts.sessionStore,
+    observer,
+    sessionLabel: session ?? "review"
+  });
+  reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+  return result;
 }
 function relayBackground(opts) {
   const manager = opts.jobManager ?? new JobManager();
@@ -4607,7 +4610,7 @@ import {
   unlinkSync as unlinkSync2,
   writeFileSync as writeFileSync6
 } from "fs";
-import { resolve as resolve3, join as join10, dirname as dirname8, isAbsolute, sep } from "path";
+import { resolve as resolve3, join as join10, dirname as dirname8, basename as basename2, isAbsolute, sep } from "path";
 import { homedir as homedir7 } from "os";
 function ensureParent(filePath) {
   mkdirSync7(dirname8(filePath), { recursive: true });
@@ -4827,6 +4830,11 @@ function grokConfigRoot(grokHome) {
 }
 function grokSkillTarget(name, grokHome) {
   return join10(grokConfigRoot(grokHome), "skills", name);
+}
+function grokSkillSource(repoRoot, name) {
+  const overlay = join10(repoRoot, "skills", name, ".grok");
+  if (existsSync7(join10(overlay, "SKILL.md"))) return overlay;
+  return join10(repoRoot, "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
@@ -5127,7 +5135,7 @@ function installPi(repoRoot, mode, force, piHome) {
 function installGrok(repoRoot, mode, force, grokHome) {
   const lines = [];
   for (const name of GROK_SKILLS) {
-    const skillSource = join10(repoRoot, "skills", name);
+    const skillSource = grokSkillSource(repoRoot, name);
     if (!existsSync7(join10(skillSource, "SKILL.md"))) {
       throw new InstallerError(`Missing Grok skill source: ${join10(skillSource, "SKILL.md")}`);
     }
@@ -5161,9 +5169,17 @@ function isPafOwnedPiSkill(target, name, repoRoot) {
   try {
     const link2 = readlinkSync(target);
     const absolute = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
-    if (repoRoot && canonicalPath(absolute) === canonicalPath(join10(repoRoot, "skills", name))) return true;
-    const skillsDir = dirname8(absolute);
-    if (absolute !== join10(skillsDir, name) || skillsDir !== join10(dirname8(skillsDir), "skills")) return false;
+    if (repoRoot) {
+      const owned = [
+        join10(repoRoot, "skills", name),
+        join10(repoRoot, "skills", name, ".grok"),
+        join10(repoRoot, "skills", name, ".codex")
+      ];
+      if (owned.some((candidate) => canonicalPath(absolute) === canonicalPath(candidate))) return true;
+    }
+    const skillDir = [".grok", ".codex"].includes(basename2(absolute)) ? dirname8(absolute) : absolute;
+    const skillsDir = dirname8(skillDir);
+    if (skillDir !== join10(skillsDir, name) || skillsDir !== join10(dirname8(skillsDir), "skills")) return false;
     return isPafPackageDir(dirname8(skillsDir));
   } catch {
     return false;
@@ -5637,7 +5653,7 @@ var init_installer = __esm({
     OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
     CODEX_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
     PI_SKILLS = ["phone-a-friend", "curiosity-engine"];
-    GROK_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    GROK_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
     PAF_NPM_NAME = "@freibergergarcia/phone-a-friend";
     PI_INSTALL_MARKER = ".phone-a-friend-install";
     CODEX_MARKETPLACE_NAME = "phone-a-friend-marketplace";
@@ -17409,7 +17425,7 @@ var init_parse_editor_command = __esm({
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
-import { spawn as spawn4, spawnSync } from "child_process";
+import { spawn as spawn5, spawnSync } from "child_process";
 import { mkdtempSync as mkdtempSync3, readFileSync as readFileSync10, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "fs";
 import path3 from "path";
 import os3 from "os";
@@ -17469,7 +17485,7 @@ var init_dist8 = __esm({
         this.createTempFile();
         const promise = new Promise((resolve5, reject) => {
           try {
-            const editorProcess = spawn4(this.editor.bin, this.editorArgs(), {
+            const editorProcess = spawn5(this.editor.bin, this.editorArgs(), {
               shell: false,
               stdio: "inherit"
             });
@@ -73818,7 +73834,7 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn6 } from "child_process";
+import { spawn as spawn7 } from "child_process";
 import { mkdirSync as mkdirSync9, existsSync as existsSync12 } from "fs";
 import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
@@ -73855,7 +73871,7 @@ function formatBackendSummary(report) {
 }
 function spawnPaf(args, processRef, fallbackMessage) {
   return new Promise((resolve5, reject) => {
-    const proc = spawn6(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
+    const proc = spawn7(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     processRef.current = proc;
@@ -73911,7 +73927,7 @@ function buildActionGroups(report, onRefresh, processRef) {
             const editor = parts[0];
             const editorArgs = [...parts.slice(1), paths.user];
             return new Promise((resolve5, reject) => {
-              const proc = spawn6(editor, editorArgs, { stdio: "inherit" });
+              const proc = spawn7(editor, editorArgs, { stdio: "inherit" });
               processRef.current = proc;
               proc.on("close", () => {
                 processRef.current = null;
@@ -75022,7 +75038,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn7 } from "child_process";
+import { spawn as spawn8 } from "child_process";
 import { randomUUID as randomUUID5 } from "crypto";
 function assertAgenticBackendSupported(backendName) {
   if (backendName === AGENTIC_NATIVE_BACKEND) return;
@@ -75183,7 +75199,7 @@ ${prompt}`,
         if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
         return new Promise((resolve5, reject) => {
           const grouped = process.platform !== "win32";
-          const child = spawn7("claude", args, {
+          const child = spawn8("claude", args, {
             env: this.cleanEnv(),
             cwd: repoPath,
             detached: grouped,
@@ -78380,6 +78396,7 @@ init_pi();
 
 // src/backends/grok.ts
 init_backends();
+import { spawn as spawn4 } from "child_process";
 import { mkdtempSync as mkdtempSync2, realpathSync as realpathSync3, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
 import { join as join7, resolve as resolvePath4 } from "path";
@@ -78390,7 +78407,6 @@ var GrokBackendError = class extends BackendError {
   }
 };
 var FINISHED_STOP_REASONS = /* @__PURE__ */ new Set(["stop", "length", "end_turn"]);
-var GROK_SCHEMA_UNSUPPORTED = "Grok structured output is not supported yet. phone-a-friend --to grok cannot be combined with --schema or --verdict-json.";
 function isGrokHostEnv(env5) {
   return env5.GROK_AGENT === "1" || env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "grok";
 }
@@ -78400,17 +78416,25 @@ function assertNotGrokHost(env5) {
     "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama."
   );
 }
+function isFinishedGrokStop(reason) {
+  if (typeof reason !== "string") return false;
+  return FINISHED_STOP_REASONS.has(reason);
+}
 function buildGrokArgs(opts) {
   const args = [
     "--no-auto-update",
     "--output-format",
-    "json",
+    opts.outputFormat ?? "json",
     "--cwd",
     opts.repoPath,
     "--prompt-file",
     opts.promptFile
   ];
   if (opts.model) args.push("-m", opts.model);
+  if (opts.schema) args.push("--json-schema", opts.schema);
+  if (opts.sessionId) {
+    args.push(opts.resumeSession ? "--resume" : "--session-id", opts.sessionId);
+  }
   switch (opts.sandbox) {
     case "read-only":
       args.push(
@@ -78450,7 +78474,13 @@ function buildGrokArgs(opts) {
   }
   return args;
 }
-function parseGrokResult(stdout) {
+function structuredText(record) {
+  const key = Object.hasOwn(record, "structured_output") ? "structured_output" : "structuredOutput";
+  if (!Object.hasOwn(record, key)) return null;
+  const value = record[key];
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+function parseGrokEnvelope(stdout, opts = {}) {
   let parsed;
   try {
     parsed = JSON.parse(stdout);
@@ -78465,13 +78495,69 @@ function parseGrokResult(stdout) {
     const message = typeof record.message === "string" && record.message.trim() !== "" ? record.message.trim() : "Grok returned an error envelope.";
     throw new GrokBackendError(`Grok returned an error: ${message}`);
   }
-  const stopReason = record.stopReason;
-  const text = record.text;
-  if (typeof stopReason === "string" && FINISHED_STOP_REASONS.has(stopReason) && typeof text === "string" && text.trim() !== "") {
-    return text;
+  const sessionId = typeof record.sessionId === "string" && record.sessionId.trim() !== "" ? record.sessionId : null;
+  const structured = opts.schema ? structuredText(record) : null;
+  const text = structured ?? record.text;
+  if (isFinishedGrokStop(record.stopReason) && typeof text === "string" && text.trim() !== "") {
+    return { text, sessionId };
   }
-  const reason = typeof stopReason === "string" ? stopReason : "missing";
+  const reason = typeof record.stopReason === "string" ? record.stopReason : "missing";
   throw new GrokBackendError(`Grok did not return a finished answer (stopReason: ${reason}).`);
+}
+function textFromAcpUpdate(record) {
+  const params = record.params;
+  if (!params || typeof params !== "object") return "";
+  const update = params.update;
+  if (!update || typeof update !== "object") return "";
+  const body = update;
+  if (body.sessionUpdate !== "agent_message_chunk") return "";
+  const content = body.content;
+  if (!content || typeof content !== "object") return "";
+  const chunk = content;
+  return chunk.type === "text" && typeof chunk.text === "string" ? chunk.text : "";
+}
+function interpretGrokStreamLine(line) {
+  const empty = {
+    text: "",
+    activity: null,
+    sessionId: null,
+    finished: false,
+    stopReason: null,
+    error: null
+  };
+  const trimmed = line.trim();
+  if (!trimmed) return empty;
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return empty;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
+  const record = parsed;
+  if (typeof record.type !== "string") {
+    return { ...empty, text: textFromAcpUpdate(record) };
+  }
+  if (record.type === "error") {
+    const message = typeof record.message === "string" && record.message.trim() !== "" ? record.message.trim() : "Grok returned an error envelope.";
+    return { ...empty, error: `Grok returned an error: ${message}` };
+  }
+  if (record.type === "text" && typeof record.data === "string") {
+    return { ...empty, text: record.data };
+  }
+  if (record.type === "tool_call") {
+    const name = typeof record.toolName === "string" && record.toolName.trim() !== "" ? record.toolName.trim() : "tool";
+    return { ...empty, activity: `Running: ${name}` };
+  }
+  if (record.type === "end") {
+    return {
+      ...empty,
+      finished: true,
+      stopReason: typeof record.stopReason === "string" ? record.stopReason : null,
+      sessionId: typeof record.sessionId === "string" && record.sessionId.trim() !== "" ? record.sessionId : null
+    };
+  }
+  return empty;
 }
 function canonicalRepoPath2(repoPath) {
   try {
@@ -78520,6 +78606,18 @@ function toGrokError(err, timeoutSeconds) {
   if (err instanceof BackendError) return new GrokBackendError(err.message);
   return new GrokBackendError(err instanceof Error ? err.message : String(err));
 }
+function grokRunArgs(opts, promptFile, repoCwd, outputFormat) {
+  return buildGrokArgs({
+    promptFile,
+    repoPath: repoCwd,
+    sandbox: opts.sandbox,
+    model: opts.model,
+    outputFormat,
+    schema: outputFormat === "json" ? opts.schema : null,
+    sessionId: opts.sessionId,
+    resumeSession: opts.resumeSession
+  });
+}
 var GrokBackend = class {
   name = "grok";
   localFileAccess = true;
@@ -78529,32 +78627,159 @@ var GrokBackend = class {
     "danger-full-access"
   ]);
   capabilities = {
-    resumeStrategy: "unsupported",
-    requiresClientSessionId: false
+    resumeStrategy: "native-session",
+    requiresClientSessionId: true
   };
   async run(opts) {
     assertNotGrokHost(opts.env);
-    if (opts.schema) throw new GrokBackendError(GROK_SCHEMA_UNSUPPORTED);
     const repoCwd = canonicalRepoPath2(opts.repoPath);
     const promptFile = writePromptFile(opts.prompt);
     try {
-      const args = buildGrokArgs({
-        promptFile: promptFile.file,
-        repoPath: repoCwd,
-        sandbox: opts.sandbox,
-        model: opts.model
-      });
-      const result = await spawnCli("grok", args, {
+      const result = await spawnCli("grok", grokRunArgs(opts, promptFile.file, repoCwd, "json"), {
         timeoutMs: opts.timeoutSeconds * 1e3,
         env: opts.env,
         cwd: repoCwd,
         label: "grok",
         killGraceMs: GROK_KILL_GRACE_MS
       });
-      return parseGrokResult(result.stdout);
+      const parsed = parseGrokEnvelope(result.stdout, { schema: Boolean(opts.schema) });
+      const sessionId = parsed.sessionId ?? opts.sessionId ?? null;
+      if (sessionId) opts.onSessionCreated?.(sessionId);
+      return parsed.text;
     } catch (err) {
       throw toGrokError(err, opts.timeoutSeconds);
     } finally {
+      rmSync2(promptFile.dir, { recursive: true, force: true });
+    }
+  }
+  async *runStream(opts) {
+    assertNotGrokHost(opts.env);
+    if (opts.schema) {
+      throw new GrokBackendError(
+        "Grok structured output uses batch JSON. Do not combine --schema or --verdict-json with streaming."
+      );
+    }
+    const repoCwd = canonicalRepoPath2(opts.repoPath);
+    const promptFile = writePromptFile(opts.prompt);
+    let child;
+    try {
+      child = spawn4("grok", grokRunArgs(opts, promptFile.file, repoCwd, "streaming-json"), {
+        stdio: ["ignore", "pipe", "pipe"],
+        cwd: repoCwd,
+        env: opts.env
+      });
+    } catch (err) {
+      rmSync2(promptFile.dir, { recursive: true, force: true });
+      throw toGrokError(err, opts.timeoutSeconds);
+    }
+    child.stdout?.setEncoding("utf8");
+    let ended = false;
+    let spawnError = null;
+    let killTimer = null;
+    const exit = new Promise((resolve5) => {
+      const finish = (code, signal) => {
+        ended = true;
+        if (killTimer) clearTimeout(killTimer);
+        resolve5({ code, signal });
+      };
+      child.once("error", (err) => {
+        spawnError = err;
+      });
+      child.once("close", (code, signal) => finish(code, signal));
+    });
+    const terminate = () => {
+      if (ended) return;
+      child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => {
+        if (!ended) child.kill("SIGKILL");
+      }, GROK_KILL_GRACE_MS);
+    };
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, opts.timeoutSeconds * 1e3);
+    let interrupted = false;
+    const onSigint = () => {
+      interrupted = true;
+      terminate();
+    };
+    const onStdoutError = () => {
+      terminate();
+    };
+    process.on("SIGINT", onSigint);
+    process.stdout.on("error", onStdoutError);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    let buffer = "";
+    let hasText = false;
+    let finished = false;
+    let sessionId = opts.sessionId ?? null;
+    let streamError = null;
+    const take = (piece) => {
+      if (piece.error) throw new GrokBackendError(piece.error);
+      if (piece.activity && opts.onEvent) {
+        const event = { type: "activity", message: piece.activity };
+        opts.onEvent(event);
+      }
+      if (piece.sessionId) sessionId = piece.sessionId;
+      if (piece.finished) {
+        finished = true;
+        if (!isFinishedGrokStop(piece.stopReason)) {
+          const reason = piece.stopReason ?? "missing";
+          throw new GrokBackendError(`Grok did not return a finished answer (stopReason: ${reason}).`);
+        }
+      }
+      return piece.text;
+    };
+    try {
+      try {
+        for await (const chunk of child.stdout) {
+          buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const text = take(interpretGrokStreamLine(line));
+            if (text) {
+              hasText ||= text.trim() !== "";
+              yield text;
+            }
+          }
+        }
+        if (buffer.trim()) {
+          const text = take(interpretGrokStreamLine(buffer));
+          if (text) {
+            hasText ||= text.trim() !== "";
+            yield text;
+          }
+        }
+      } catch (err) {
+        streamError = err;
+        terminate();
+      }
+      const { code, signal } = await exit;
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      if (timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
+      if (spawnError) throw spawnError;
+      if (interrupted) throw new GrokBackendError("Grok interrupted by SIGINT");
+      if (streamError) throw streamError;
+      if (signal) throw new GrokBackendError(`Grok killed by signal ${signal}`);
+      if (code !== 0) {
+        throw new GrokBackendError(`Grok exited with code ${code}${stderr ? `: ${stderr}` : ""}`);
+      }
+      if (!finished) throw new GrokBackendError("Grok did not return a finished answer (stopReason: missing).");
+      if (!hasText) throw new GrokBackendError("Grok did not return a finished answer (stopReason: missing).");
+      if (sessionId) opts.onSessionCreated?.(sessionId);
+    } catch (err) {
+      throw toGrokError(err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      process.stdout.removeListener("error", onStdoutError);
+      if (!ended) {
+        terminate();
+        await exit;
+      }
       rmSync2(promptFile.dir, { recursive: true, force: true });
     }
   }
@@ -85784,7 +86009,7 @@ init_version();
 init_installer();
 
 // src/updates.ts
-import { spawn as spawn5 } from "child_process";
+import { spawn as spawn6 } from "child_process";
 import {
   closeSync as closeSync3,
   existsSync as existsSync8,
@@ -86017,7 +86242,7 @@ function kickoffBackgroundRefresh(args) {
   if (!isPafEntryScript(entryScript)) return;
   if (isTestRuntimeEnv(process.env)) return;
   try {
-    const child = spawn5(
+    const child = spawn6(
       process.execPath,
       [entryScript, "__update-check", "refresh"],
       {
@@ -87147,6 +87372,8 @@ ${banner("AI coding agent relay")}
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
+            session: opts.session ?? null,
+            backendSession: opts.backendSession ?? null,
             observer: mergeObservers(tracked2.observer, progress.observer)
           });
           if (isVerdictJson) {

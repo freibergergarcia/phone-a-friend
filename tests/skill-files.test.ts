@@ -839,9 +839,9 @@ describe('grok as a host', () => {
     expect(friend).toMatch(/From Grok, do not select `grok` as the friend backend/);
     expect(friend).toContain('PHONE_A_FRIEND_HOST=grok');
     expect(friend).toContain('GROK_AGENT=1');
-    expect(friend).toMatch(/\/phone-a-team` is not installed there/);
+    expect(friend).toContain('In Claude Code, Codex, and Grok');
     expect(command).toContain('PHONE_A_FRIEND_HOST=grok');
-    expect(command).toMatch(/\/phone-a-team` is not installed there/);
+    expect(command).toContain('Claude Code, Codex, and Grok');
   });
 
   it('keeps grok out of the default parallel loop', () => {
@@ -855,9 +855,9 @@ describe('grok as a host', () => {
     expect(friend).toContain('--sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit');
     expect(friend).toMatch(/stopReason` is `stop`, `length`, or `end_turn`/);
     expect(friend).not.toMatch(/Do not pass `--to grok`, `--session`, or `--fast`/);
-    expect(friend).toMatch(/With `--to grok`, omit both/);
+    expect(friend).toContain('`--session` works with Grok');
     expect(command).not.toMatch(/Do not pass\s+`--session` or `--fast` from Grok/);
-    expect(command).toMatch(/With `--to grok`, omit both/);
+    expect(command).toContain('`--session` works with Grok');
     expect(curiosity).toContain('--backend antigravity|codex|gemini|ollama|grok');
     expect(curiosity).toContain('command -v grok');
     expect(curiosity).toContain('PHONE_A_FRIEND_HOST=grok');
@@ -889,7 +889,7 @@ describe('pi as a host', () => {
   });
 
   it('phone-a-friend says /phone-a-team is not installed in pi', () => {
-    expect(friend).toMatch(/In OpenCode, pi, and Grok, run\s+separate invocations yourself/);
+    expect(friend).toMatch(/In OpenCode and pi, run\s+separate invocations yourself/);
   });
 
   it('curiosity-engine covers the pi host', () => {

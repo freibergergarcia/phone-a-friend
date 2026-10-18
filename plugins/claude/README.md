@@ -39,8 +39,11 @@ skill picker. The PaF CLI is required for the Codex team workflow, PaF-managed
 sessions, task history, and relays to the pi and Grok backends. Claude's team command has
 a limited direct-backend fallback when PaF is missing. The single-relay skill
 also has direct-CLI fallbacks for Antigravity, Codex, Gemini, and Grok. Grok as a
-host loads `phone-a-friend` and `curiosity-engine` from `~/.grok/skills` after
-`phone-a-friend plugin install --grok`. `/phone-a-team` is not installed there.
+host loads `phone-a-friend`, `curiosity-engine`, and a Bash-based `phone-a-team`
+from `~/.grok/skills` after `phone-a-friend plugin install --grok`. The team
+skill defaults to Claude and Gemini friends, with Grok synthesizing each round.
+The Grok backend supports native sessions (including reviews), streaming, and
+batch structured output through `--schema` or `--verdict-json`; `--fast` is a no-op.
 From Grok, set `PHONE_A_FRIEND_HOST=grok` and do not pass `--to grok`.
 
 Keep the default read-only relay policy. Diagnose authentication or connectivity

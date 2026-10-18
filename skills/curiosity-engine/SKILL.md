@@ -40,7 +40,6 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   `GROK_AGENT=1`. This skill's `--backend` accepts only `antigravity`,
   `codex`, `gemini`, or `ollama` from Grok. If the host is Grok and
   `--backend` is `grok`, report an error and stop, including in direct mode.
-  Do not run `/phone-a-team` from Grok.
 - Suppress the working-tree diff on every binary-mode relay (see "Diff
   suppression" below). Curiosity rounds are seeded with self-contained
   prompts; the diff would be noise.
@@ -86,7 +85,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. `--fast` adds no Grok flag. Do not pass `--session`. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. `--fast` adds no Grok flag. In binary mode, reuse `--session <label>` across rounds. In direct mode, use `--session-id <uuid>` for a new conversation and `--resume <uuid>` for follow-ups. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 
 pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
 
@@ -143,7 +142,7 @@ Extract `--topic`, `--rounds`, and `--backend` from `$ARGUMENTS`.
 - `--rounds N` — optional, default 3, clamp to [1, 6].
 - `--backend antigravity|codex|gemini|ollama|grok` — optional, default `codex`.
 
-If `--backend` value is not `antigravity`, `codex`, `gemini`, `ollama`, or `grok`: report error and stop. When the host is Grok (`PHONE_A_FRIEND_HOST=grok` or `GROK_AGENT=1`) and BACKEND is `grok`, report an error and stop. Do not run the direct `grok` command. When BACKEND is `grok` from another host, omit `--fast` and `--session` on that call only. Other backends keep both.
+If `--backend` value is not `antigravity`, `codex`, `gemini`, `ollama`, or `grok`: report error and stop. When the host is Grok (`PHONE_A_FRIEND_HOST=grok` or `GROK_AGENT=1`) and BACKEND is `grok`, report an error and stop. Do not run the direct `grok` command. When BACKEND is `grok` from another host, reuse `--session` across rounds; `--fast` adds no Grok flag.
 
 Set:
 - TOPIC = parsed topic string

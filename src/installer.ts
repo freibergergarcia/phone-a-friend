@@ -19,7 +19,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { resolve, join, dirname, isAbsolute, sep } from 'node:path';
+import { resolve, join, dirname, basename, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 import { resolvePiStoredPath } from './backends/pi.js';
@@ -73,9 +73,11 @@ const PI_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
 /**
  * Skills installed for Grok Build. Grok discovers a user skill at
  * `~/.grok/skills/<name>/SKILL.md`. The host-neutral folder is used as is.
- * `phone-a-team` is left out: Grok has no Agent Teams mechanic for it.
+ * `phone-a-team` ships from `skills/phone-a-team/.grok/SKILL.md`: a Bash
+ * round loop, the same shape as Codex, because Grok has no Agent Teams
+ * mechanic to spawn.
  */
-const GROK_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+const GROK_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
 
 const PAF_NPM_NAME = '@freibergergarcia/phone-a-friend';
 
@@ -465,6 +467,17 @@ export function grokConfigRoot(grokHome?: string): string {
 
 export function grokSkillTarget(name: string, grokHome?: string): string {
   return join(grokConfigRoot(grokHome), 'skills', name);
+}
+
+/**
+ * Grok skill source. `skills/<name>/.grok/SKILL.md` wins when a skill needs
+ * host-specific text (phone-a-team). Otherwise the host-neutral folder is
+ * installed as is.
+ */
+export function grokSkillSource(repoRoot: string, name: string): string {
+  const overlay = join(repoRoot, 'skills', name, '.grok');
+  if (existsSync(join(overlay, 'SKILL.md'))) return overlay;
+  return join(repoRoot, 'skills', name);
 }
 
 /**
@@ -946,7 +959,7 @@ function installGrok(
 ): string[] {
   const lines: string[] = [];
   for (const name of GROK_SKILLS) {
-    const skillSource = join(repoRoot, 'skills', name);
+    const skillSource = grokSkillSource(repoRoot, name);
     if (!existsSync(join(skillSource, 'SKILL.md'))) {
       throw new InstallerError(`Missing Grok skill source: ${join(skillSource, 'SKILL.md')}`);
     }
@@ -980,7 +993,8 @@ function canonicalPath(filePath: string): string {
 /**
  * True when the pi skill at `target` was put there by PaF: a copy carrying
  * the install marker, a symlink to exactly `<this install>/skills/<name>`,
- * or a symlink to `<dir>/skills/<name>` where `<dir>` is a PaF package by
+ * or a symlink to `<dir>/skills/<name>` (including `.grok` / `.codex`
+ * overlays) where `<dir>` is a PaF package by
  * its package.json. A symlink to some other place inside the repository is
  * the user's, the path's shape alone proves nothing, and a dangling symlink
  * into another location has nothing left to check.
@@ -990,9 +1004,17 @@ function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boo
   try {
     const link = readlinkSync(target);
     const absolute = isAbsolute(link) ? link : resolve(dirname(target), link);
-    if (repoRoot && canonicalPath(absolute) === canonicalPath(join(repoRoot, 'skills', name))) return true;
-    const skillsDir = dirname(absolute);
-    if (absolute !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
+    if (repoRoot) {
+      const owned = [
+        join(repoRoot, 'skills', name),
+        join(repoRoot, 'skills', name, '.grok'),
+        join(repoRoot, 'skills', name, '.codex'),
+      ];
+      if (owned.some((candidate) => canonicalPath(absolute) === canonicalPath(candidate))) return true;
+    }
+    const skillDir = ['.grok', '.codex'].includes(basename(absolute)) ? dirname(absolute) : absolute;
+    const skillsDir = dirname(skillDir);
+    if (skillDir !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
     return isPafPackageDir(dirname(skillsDir));
   } catch {
     return false;

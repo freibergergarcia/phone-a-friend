@@ -19,14 +19,16 @@ vi.mock('node:child_process', async (importOriginal) => {
 import { BACKEND_COMMANDS, INSTALL_HINTS, getBackend } from '../../src/backends/index.js';
 import {
   GROK_BACKEND,
-  GROK_SCHEMA_UNSUPPORTED,
   GrokBackendError,
   buildGrokArgs,
+  interpretGrokStreamLine,
   isGrokHostEnv,
   parseGrokResult,
+  parseGrokEnvelope,
 } from '../../src/backends/grok.js';
-import { RelayError, relay } from '../../src/relay.js';
+import { relay } from '../../src/relay.js';
 import { run } from '../../src/cli.js';
+import { SessionStore } from '../../src/sessions.js';
 
 function envelope(text: string, stopReason = 'stop', extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ text, stopReason, sessionId: '01a14fbf-0000-7000-8000-000000000001', ...extra });
@@ -100,14 +102,16 @@ describe('grok backend', () => {
     mkdirSync(bin);
     writeFileSync(join(bin, 'grok'), '#!/bin/sh\n', { mode: 0o755 });
     mockSpawn.mockReset();
+    vi.stubEnv('XDG_CONFIG_HOME', join(root, 'xdg'));
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
 
   describe('registration', () => {
-    it('registers as "grok" with local file access, every sandbox, and no resume', () => {
+    it('registers as "grok" with local file access, every sandbox, and native resume', () => {
       const backend = getBackend('grok');
       expect(backend).toBe(GROK_BACKEND);
       expect(backend.localFileAccess).toBe(true);
@@ -117,11 +121,11 @@ describe('grok backend', () => {
         'workspace-write',
       ]);
       expect(backend.capabilities).toEqual({
-        resumeStrategy: 'unsupported',
-        requiresClientSessionId: false,
+        resumeStrategy: 'native-session',
+        requiresClientSessionId: true,
       });
       expect(backend.review).toBeUndefined();
-      expect(backend.runStream).toBeUndefined();
+      expect(backend.runStream).toBeTypeOf('function');
     });
 
     it('declares its executable and install hint', () => {
@@ -217,11 +221,11 @@ describe('grok backend', () => {
       await expect(GROK_BACKEND.run(makeOpts())).resolves.toBe('2');
     });
 
-    it('returns text for stopReason length and does not surface the session id', async () => {
+    it('returns text for stopReason length and reports the envelope session id', async () => {
       const onSessionCreated = vi.fn();
       mockSpawn.mockReturnValue(mockChild(envelope('partial', 'length')));
       await expect(GROK_BACKEND.run(makeOpts({ onSessionCreated }))).resolves.toBe('partial');
-      expect(onSessionCreated).not.toHaveBeenCalled();
+      expect(onSessionCreated).toHaveBeenCalledWith('01a14fbf-0000-7000-8000-000000000001');
     });
 
     it.each([
@@ -289,9 +293,34 @@ describe('grok backend', () => {
       }
     });
 
-    it('refuses --schema before spawn', async () => {
-      await expect(GROK_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }))).rejects.toThrow(GROK_SCHEMA_UNSUPPORTED);
-      expect(mockSpawn).not.toHaveBeenCalled();
+    it('passes --json-schema and prefers structured_output over prose text', async () => {
+      mockSpawn.mockReturnValue(mockChild(JSON.stringify({
+        text: 'here is the object',
+        stopReason: 'end_turn',
+        sessionId: '01a14fbf-0000-7000-8000-000000000001',
+        structured_output: { n: 2 },
+      })));
+      await expect(GROK_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }))).resolves.toBe('{"n":2}');
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
+      expect(args).toContain('--output-format');
+      expect(args[args.indexOf('--output-format') + 1]).toBe('json');
+    });
+
+    it('creates a session with --session-id and resumes it with --resume', async () => {
+      spawnOk();
+      await GROK_BACKEND.run(makeOpts({ sessionId: '11111111-1111-4111-8111-111111111111', resumeSession: false }));
+      const created = mockSpawn.mock.calls[0][1] as string[];
+      expect(created[created.indexOf('--session-id') + 1]).toBe('11111111-1111-4111-8111-111111111111');
+      expect(created).not.toContain('--resume');
+
+      mockSpawn.mockReset();
+      spawnOk();
+      await GROK_BACKEND.run(makeOpts({ sessionId: '11111111-1111-4111-8111-111111111111', resumeSession: true }));
+      const resumed = mockSpawn.mock.calls[0][1] as string[];
+      expect(resumed[resumed.indexOf('--resume') + 1]).toBe('11111111-1111-4111-8111-111111111111');
+      expect(resumed).not.toContain('--session-id');
+      expect(flagValues(resumed, '--deny')).toEqual(['Bash', 'Edit']);
     });
 
     it.each([
@@ -319,6 +348,10 @@ describe('grok backend', () => {
     });
   });
 
+  it.each([false, 0, null, { n: 2 }])('serializes structured output %j instead of prose', (value) => {
+    expect(parseGrokEnvelope(envelope('prose', 'end_turn', { structured_output: value }), { schema: true }).text).toBe(JSON.stringify(value));
+  });
+
   describe('isGrokHostEnv()', () => {
     it('matches the Grok child marker and the explicit host marker only', () => {
       expect(isGrokHostEnv({ GROK_AGENT: '1' })).toBe(true);
@@ -331,30 +364,174 @@ describe('grok backend', () => {
   });
 
   describe('relay session gates', () => {
-    it('rejects --session and --backend-session without starting grok', async () => {
+    it('starts a new label with --session-id and resumes a raw id with --resume', async () => {
+      spawnOk('2');
       await expect(relay({
         prompt: 'hi',
         repoPath: repo,
         backend: 'grok',
         session: 'label',
+        sessionStore: new SessionStore(join(root, 'sessions.json')),
         includeDiff: false,
-      })).rejects.toThrow(RelayError);
-      await expect(relay({
-        prompt: 'hi',
-        repoPath: repo,
-        backend: 'grok',
-        session: 'label',
-        includeDiff: false,
-      })).rejects.toThrow(/--session is not supported by the grok backend/);
+      })).resolves.toBe('2');
+      const created = mockSpawn.mock.calls[0][1] as string[];
+      expect(created).toContain('--session-id');
+      expect(created).not.toContain('--resume');
 
+      mockSpawn.mockReset();
+      spawnOk('2');
       await expect(relay({
-        prompt: 'hi',
+        prompt: 'again',
         repoPath: repo,
         backend: 'grok',
         backendSession: '01a14fbf-0000-7000-8000-000000000001',
         includeDiff: false,
-      })).rejects.toThrow(/--backend-session is not supported by the grok backend/);
+      })).resolves.toBe('2');
+      const resumed = mockSpawn.mock.calls[0][1] as string[];
+      expect(resumed[resumed.indexOf('--resume') + 1]).toBe('01a14fbf-0000-7000-8000-000000000001');
+    });
+  });
+
+  describe('streaming', () => {
+    it('yields text chunks, reports a tool by name, and ignores thoughts', async () => {
+      const events: string[] = [];
+      const stdout = [
+        '{"type":"thought","data":"hmm"}',
+        '{"type":"tool_call","toolName":"grep","toolCallId":"c1","status":"in_progress"}',
+        '{"type":"text","data":"2"}',
+        '{"type":"end","stopReason":"end_turn","sessionId":"01a14fbf-0000-7000-8000-000000000001"}',
+      ].join('\n');
+      mockSpawn.mockReturnValue(mockChild(stdout));
+      const chunks: string[] = [];
+      for await (const chunk of GROK_BACKEND.runStream(makeOpts({
+        onEvent: (event) => events.push(event.message),
+      }))) {
+        chunks.push(chunk);
+      }
+      expect(chunks.join('')).toBe('2');
+      expect(events).toEqual(['Running: grep']);
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('--output-format') + 1]).toBe('streaming-json');
+    });
+
+    it('fails when the stream ends without an end event', async () => {
+      mockSpawn.mockReturnValue(mockChild('{"type":"text","data":"2"}'));
+      const chunks: string[] = [];
+      await expect((async () => {
+        for await (const chunk of GROK_BACKEND.runStream(makeOpts())) chunks.push(chunk);
+      })()).rejects.toThrow(/finished answer/);
+    });
+
+    it('refuses a schema on the stream path before spawn', async () => {
+      await expect((async () => {
+        for await (const _chunk of GROK_BACKEND.runStream(makeOpts({ schema: '{"type":"object"}' }))) {
+          // drain
+        }
+      })()).rejects.toThrow(/batch JSON/);
       expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('preserves UTF-8 characters split across chunks and removes the prompt file', async () => {
+      const payload = Buffer.from('齊🙂');
+      const child = mockChild('');
+      child.stdout = Readable.from([
+        Buffer.from('{"type":"text","data":"'),
+        payload.subarray(0, 1), payload.subarray(1, 5), payload.subarray(5),
+        Buffer.from('"}\n{"type":"end","stopReason":"end_turn"}'),
+      ]);
+      child.stdout.on('end', () => process.nextTick(() => child.emit('close', 0, null)));
+      mockSpawn.mockReturnValue(child);
+      const chunks: string[] = [];
+      for await (const chunk of GROK_BACKEND.runStream(makeOpts())) chunks.push(chunk);
+      expect(chunks.join('')).toBe('齊🙂');
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(existsSync(args[args.indexOf('--prompt-file') + 1])).toBe(false);
+    });
+
+    it.each([
+      ['{"type":"error","message":"auth required"}', 0, /auth required/],
+      ['{"type":"text","data":"partial"}\n{"type":"end","stopReason":"error"}', 0, /stopReason: error/],
+      ['{"type":"end","stopReason":"end_turn"}', 0, /finished answer/],
+      ['{"type":"text","data":"2"}\n{"type":"end","stopReason":"end_turn"}', 1, /exited with code 1/],
+    ])('rejects unsuccessful stream %s', async (stdout, code, message) => {
+      const child = mockChild(stdout, code);
+      child.kill.mockImplementation(() => {
+        process.nextTick(() => child.emit('close', code, null));
+        return true;
+      });
+      mockSpawn.mockReturnValue(child);
+      await expect((async () => {
+        for await (const _chunk of GROK_BACKEND.runStream(makeOpts())) { /* drain */ }
+      })()).rejects.toThrow(message);
+    });
+
+    it('reports spawn errors and cleans up the prompt file', async () => {
+      const child = mockChild('');
+      mockSpawn.mockImplementation(() => {
+        process.nextTick(() => child.emit('error', new Error('spawn grok ENOENT')));
+        return child;
+      });
+      await expect((async () => {
+        for await (const _chunk of GROK_BACKEND.runStream(makeOpts())) { /* drain */ }
+      })()).rejects.toThrow('spawn grok ENOENT');
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(existsSync(args[args.indexOf('--prompt-file') + 1])).toBe(false);
+    });
+
+    it.each(['timeout', 'return', 'SIGINT', 'stdout error'])('terminates and reaps an unresponsive stream on %s', async (reason) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const sigintListeners = process.listenerCount('SIGINT');
+      const stdoutListeners = process.stdout.listenerCount('error');
+      try {
+        const child = mockChild('');
+        child.stdout = new Readable({ read() {} });
+        child.kill.mockImplementation((signal?: string) => {
+          if (signal === 'SIGKILL') {
+            child.stdout.push(null);
+            process.nextTick(() => child.emit('close', null, 'SIGKILL'));
+          }
+          return true;
+        });
+        mockSpawn.mockReturnValue(child);
+        const iterator = GROK_BACKEND.runStream(makeOpts({ timeoutSeconds: 1 }));
+        let settled: Promise<unknown>;
+        if (reason === 'return') {
+          child.stdout.push('{"type":"text","data":"partial"}\n');
+          await iterator.next();
+          settled = iterator.return(undefined).catch((err: unknown) => err);
+        } else {
+          settled = iterator.next().catch((err: unknown) => err);
+          if (reason === 'timeout') await vi.advanceTimersByTimeAsync(1000);
+          if (reason === 'SIGINT') process.emit('SIGINT');
+          if (reason === 'stdout error') process.stdout.emit('error', new Error('EPIPE'));
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+        const result = await settled;
+        if (reason === 'timeout') expect(String(result)).toContain('timed out');
+        if (reason === 'return') expect(result).toEqual({ done: true, value: undefined });
+        const args = mockSpawn.mock.calls[0][1] as string[];
+        expect(existsSync(args[args.indexOf('--prompt-file') + 1])).toBe(false);
+        expect(process.listenerCount('SIGINT')).toBe(sigintListeners);
+        expect(process.stdout.listenerCount('error')).toBe(stdoutListeners);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('reads an ACP agent_message_chunk when the line has no type', () => {
+      const piece = interpretGrokStreamLine(JSON.stringify({
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: '2' },
+          },
+        },
+      }));
+      expect(piece.text).toBe('2');
     });
   });
 
@@ -374,7 +551,7 @@ describe('grok backend', () => {
       writeFileSync(join(repo, 'tracked.txt'), 'changed\n');
     }
 
-    async function reviewWith(flag: string, value: string): Promise<{ code: number; stderr: string }> {
+    async function reviewWith(flag: string, value?: string): Promise<{ code: number; stderr: string }> {
       const saved = {
         GROK_AGENT: process.env.GROK_AGENT,
         PHONE_A_FRIEND_HOST: process.env.PHONE_A_FRIEND_HOST,
@@ -401,14 +578,13 @@ describe('grok backend', () => {
       process.env.CI = 'true';
       process.env.TERM = 'dumb';
       process.env.XDG_CONFIG_HOME = join(root, 'xdg');
-      mockSpawn.mockImplementation(() => mockChild(envelope('should-not-run')));
       try {
         const code = await run([
           '--to', 'grok',
           '--repo', repo,
           '--review',
           '--review-scope', 'working-tree',
-          flag, value,
+          flag, ...(value === undefined ? [] : [value]),
         ]);
         return { code, stderr: stderrChunks.join('') };
       } finally {
@@ -421,16 +597,48 @@ describe('grok backend', () => {
       }
     }
 
-    it.each([
-      ['--session', 'kept-review', '--session is not supported by the grok backend (resume strategy: unsupported)'],
-      ['--backend-session', '01a14fbf-0000-7000-8000-000000000001', '--backend-session is not supported by the grok backend (resume strategy: unsupported)'],
-    ])('refuses %s on a dirty review without starting grok', async (flag, value, message) => {
+    it('starts a review session with --session-id on a dirty tree', async () => {
       dirtyWorkingTree();
-      const { code, stderr } = await reviewWith(flag, value);
-      expect(code).toBe(1);
-      expect(stderr).toContain(message);
-      expect(stderr).not.toMatch(/Task [0-9a-f]{8} started/);
-      expect(mockSpawn).not.toHaveBeenCalled();
+      mockSpawn.mockImplementation(() => mockChild(envelope('looks fine', 'end_turn')));
+      const { code, stderr } = await reviewWith('--session', 'kept-review');
+      expect(code).toBe(0);
+      expect(stderr).toMatch(/Task [0-9a-f]{8} started/);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args).toContain('--session-id');
+      expect(args).not.toContain('--resume');
+      expect(flagValues(args, '--deny')).toEqual(['Bash', 'Edit']);
+      expect((await reviewWith('--session', 'kept-review')).code).toBe(0);
+      const resumed = mockSpawn.mock.calls[1][1] as string[];
+      expect(resumed[resumed.indexOf('--resume') + 1]).toBe('01a14fbf-0000-7000-8000-000000000001');
+      expect(new SessionStore().get('kept-review')?.backendSessionId).toBe('01a14fbf-0000-7000-8000-000000000001');
+    });
+
+    it('returns a validated verdict through --json-schema on a dirty review', async () => {
+      dirtyWorkingTree();
+      const verdict = { schema_version: 1, verdict: 'ship', summary: 'Looks fine.', findings: [] };
+      mockSpawn.mockImplementation(() => mockChild(envelope('prose', 'end_turn', { structured_output: verdict })));
+      const output: string[] = [];
+      const log = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { output.push(String(chunk)); return true; });
+      try {
+        expect((await reviewWith('--verdict-json')).code).toBe(0);
+        expect(JSON.parse(output.join(''))).toEqual(verdict);
+        const args = mockSpawn.mock.calls[0][1] as string[];
+        expect(JSON.parse(args[args.indexOf('--json-schema') + 1]).required).toContain('verdict');
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('resumes a review with --backend-session on a dirty tree', async () => {
+      dirtyWorkingTree();
+      mockSpawn.mockImplementation(() => mockChild(envelope('looks fine', 'end_turn')));
+      const { code } = await reviewWith('--backend-session', '01a14fbf-0000-7000-8000-000000000001');
+      expect(code).toBe(0);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('--resume') + 1]).toBe('01a14fbf-0000-7000-8000-000000000001');
+      expect(args).not.toContain('--session-id');
     });
   });
 });

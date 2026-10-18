@@ -605,6 +605,11 @@ export interface ReviewRelayOptions {
   verdictJson?: boolean;
   /** Scope, drift, and progress hooks used by task tracking. */
   observer?: RelayObserver;
+  /** PaF session label. Attached on the generic review path. */
+  session?: string | null;
+  /** Raw backend session id. Resumes that thread for this review. */
+  backendSession?: string | null;
+  sessionStore?: SessionStore;
 }
 
 export interface RelayOptions {
@@ -653,9 +658,9 @@ interface PreparedRelay {
 }
 
 /**
- * Relay and review share this check. `reviewRelay` has no session fields, so
- * the CLI must call it before that function or the flags are dropped and the
- * backend starts a fresh process.
+ * Relay and review share this check. The CLI also calls it before task
+ * tracking, so an unsupported session does not open a task. A backend that
+ * can resume is allowed through, and review then attaches the session.
  */
 export function refuseUnsupportedRelaySession(
   backendName: string,
@@ -763,7 +768,31 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
   };
 }
 
-export async function relay(opts: RelayOptions): Promise<string> {
+interface SessionRunRequest {
+  selectedBackend: Backend;
+  fullPrompt: string;
+  resolvedRepo: string;
+  env: Record<string, string>;
+  timeoutSeconds: number;
+  sandbox: SandboxMode;
+  model: string | null;
+  schema: string | null;
+  session: string | null;
+  backendSession: string | null;
+  fast: boolean;
+  peerMessaging: ClaudePeerMessagingMode;
+  sessionStore?: SessionStore;
+  observer?: RelayObserver;
+  /** Peer-visible name. A review with no PaF label stays "review". */
+  sessionLabel?: string | null;
+}
+
+/**
+ * Run a prepared prompt and, when a label or raw id was requested, resume or
+ * record the backend session. Relay and review both use this so a session
+ * flag cannot be dropped on one of the paths.
+ */
+async function executeSessionRun(req: SessionRunRequest): Promise<string> {
   const {
     selectedBackend,
     fullPrompt,
@@ -779,7 +808,8 @@ export async function relay(opts: RelayOptions): Promise<string> {
     peerMessaging,
     sessionStore,
     observer,
-  } = prepareRelay(opts);
+  } = req;
+  const sessionLabel = req.sessionLabel ?? session;
   const bridge = observerBridge(observer);
 
   try {
@@ -821,7 +851,7 @@ export async function relay(opts: RelayOptions): Promise<string> {
         resumeSession: true,
         fast,
         peerMessaging,
-        sessionLabel: session,
+        sessionLabel,
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId = newSessionId;
@@ -893,7 +923,7 @@ export async function relay(opts: RelayOptions): Promise<string> {
       resumeSession: Boolean(session && storedSession),
       fast,
       peerMessaging,
-      sessionLabel: session,
+      sessionLabel,
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
@@ -922,6 +952,10 @@ export async function relay(opts: RelayOptions): Promise<string> {
     }
     throw err;
   }
+}
+
+export async function relay(opts: RelayOptions): Promise<string> {
+  return executeSessionRun(prepareRelay(opts));
 }
 
 function persistRelaySession(
@@ -1081,6 +1115,10 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
 
+  const session = opts.session ?? null;
+  const backendSession = opts.backendSession ?? null;
+  refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
+
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env = nextRelayEnv();
 
@@ -1105,11 +1143,15 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   //     backend's structured output enforcement, so the schema would be
   //     silently dropped. Use the generic run() path which honors schema.
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? new Set<ReviewScope>(['branch']);
+  // Native review() has no session fields. A requested session takes the
+  // generic path, which resumes the same way a normal relay does.
   if (
     typeof selectedBackend.review === 'function'
     && nativeReviewScopes.has(scope)
     && !prompt
     && !schema
+    && !session
+    && !backendSession
   ) {
     try {
       const nativeResult = await selectedBackend.review({
@@ -1147,29 +1189,25 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     localFileAccess: selectedBackend.localFileAccess,
   }), 'review');
 
-  try {
-    const result = await selectedBackend.run({
-      prompt: fullPrompt,
-      repoPath: resolvedRepo,
-      timeoutSeconds,
-      sandbox,
-      model,
-      env,
-      schema,
-      fast,
-      peerMessaging,
-      sessionLabel: 'review',
-      onEvent: bridge.onEvent,
-    });
-    reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
-    return result;
-  } catch (err) {
-    if (err instanceof RelayError) throw err;
-    if (err instanceof BackendError) {
-      throw backendErrorToRelayError(err);
-    }
-    throw err;
-  }
+  const result = await executeSessionRun({
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    backendSession,
+    fast,
+    peerMessaging,
+    sessionStore: opts.sessionStore,
+    observer,
+    sessionLabel: session ?? 'review',
+  });
+  reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+  return result;
 }
 
 // ---------------------------------------------------------------------------

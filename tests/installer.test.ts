@@ -87,6 +87,10 @@ function makeRepo(prefix = 'phone-a-friend-repo-'): string {
     path.join(phoneATeamCodexDir, 'SKILL.md'),
     '---\nname: phone-a-team\ndescription: test codex overlay\n---\n',
   );
+  const phoneATeamGrokDir = path.join(repo, 'skills', 'phone-a-team', '.grok');
+  fs.mkdirSync(phoneATeamGrokDir, { recursive: true });
+  fs.writeFileSync(path.join(phoneATeamGrokDir, 'SKILL.md'),
+    '---\nname: phone-a-team\ndescription: test grok overlay\n---\n');
   // Codex subagent personas (Codex installer reads agents/codex/paf-*.toml).
   const codexAgentsDir = path.join(repo, 'agents', 'codex');
   fs.mkdirSync(codexAgentsDir, { recursive: true });
@@ -1307,7 +1311,7 @@ describe('Codex host integration', () => {
 
       expect(lines.some(l => l.includes('codex_skill:phone-a-team'))).toBe(true);
       expect(fs.existsSync(grokSkillTarget('phone-a-friend', grokHome))).toBe(true);
-      expect(fs.existsSync(grokSkillTarget('phone-a-team', grokHome))).toBe(false);
+      expect(fs.realpathSync(grokSkillTarget('phone-a-team', grokHome))).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-team', '.grok')));
     } finally {
       try { fs.rmSync(claudeHome, { recursive: true, force: true }); } catch {}
       try { fs.rmSync(opencodeHome, { recursive: true, force: true }); } catch {}
@@ -2395,7 +2399,7 @@ describe('grok host integration', () => {
     expect(grokSkillTarget('phone-a-friend', grokHome)).toBe(path.join(grokHome, 'skills', 'phone-a-friend'));
   });
 
-  it('symlinks the two shared skills and not phone-a-team', () => {
+  it('symlinks the two shared skills and the Grok phone-a-team overlay', () => {
     const lines = install();
 
     for (const name of ['phone-a-friend', 'curiosity-engine']) {
@@ -2404,7 +2408,7 @@ describe('grok host integration', () => {
       expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', name)));
       expect(lines).toContain(`- grok_skill:${name}: installed -> ${target}`);
     }
-    expect(fs.existsSync(grokSkillTarget('phone-a-team', grokHome))).toBe(false);
+    expect(fs.realpathSync(grokSkillTarget('phone-a-team', grokHome))).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-team', '.grok')));
     expect(isGrokInstalled(grokHome)).toBe(true);
   });
 
@@ -2445,6 +2449,41 @@ describe('grok host integration', () => {
     const kept = uninstallHosts({ target: 'grok', grokHome, repoRoot: repo });
     expect(kept).toContain('- grok_skill:phone-a-friend: kept (not PaF-owned; remove manually if desired)');
     expect(fs.existsSync(path.join(user, 'SKILL.md'))).toBe(true);
+  });
+
+  it.each(['.grok', '.codex'])('recognizes and relinks a %s overlay from another PaF checkout', (overlay) => {
+    const previous = makeRepo();
+    fs.writeFileSync(path.join(previous, 'package.json'), JSON.stringify({ name: '@freibergergarcia/phone-a-friend' }));
+    try {
+      install();
+      const target = grokSkillTarget('phone-a-team', grokHome);
+      fs.unlinkSync(target);
+      fs.symlinkSync(path.join(previous, 'skills', 'phone-a-team', overlay), target);
+      expect(isGrokInstalled(grokHome)).toBe(true);
+      install();
+      expect(fs.realpathSync(target)).toBe(fs.realpathSync(path.join(repo, 'skills', 'phone-a-team', '.grok')));
+      fs.unlinkSync(target);
+      fs.symlinkSync(path.join(previous, 'skills', 'phone-a-team', overlay), target);
+      expect(uninstallHosts({ target: 'grok', grokHome, repoRoot: repo })).toContain('- grok_skill:phone-a-team: removed');
+      expect(fs.existsSync(path.join(previous, 'skills', 'phone-a-team', overlay, 'SKILL.md'))).toBe(true);
+    } finally {
+      fs.rmSync(previous, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps an overlay link in a non-PaF package', () => {
+    const other = makeRepo();
+    try {
+      install();
+      const target = grokSkillTarget('phone-a-team', grokHome);
+      fs.unlinkSync(target);
+      fs.symlinkSync(path.join(other, 'skills', 'phone-a-team', '.grok'), target);
+      expect(isGrokInstalled(grokHome)).toBe(false);
+      expect(uninstallHosts({ target: 'grok', grokHome, repoRoot: repo })).toContain('- grok_skill:phone-a-team: kept (not PaF-owned; remove manually if desired)');
+      expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
   });
 
   it('keeps a dangling symlink', () => {

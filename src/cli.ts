@@ -671,6 +671,8 @@ export async function run(argv: string[]): Promise<number> {
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
+            session: opts.session ?? null,
+            backendSession: opts.backendSession ?? null,
             observer: mergeObservers(tracked.observer, progress.observer),
           });
           if (isVerdictJson) {

@@ -30,14 +30,14 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 |---|:---:|:---:|:---:|:---:|:---:|
 | `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ | `/skill:phone-a-friend` | ✓ |
 | `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ | `/skill:curiosity-engine` | ✓ |
-| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — | — |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — | ✓ |
 | Plugin marketplace install | ✓ | — | ✓ | `pi install` | — |
 | CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Skill auto-discovery | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic | ✓ |
 | Review panel in the session ([`paf-tasks` mod](mods/paf-tasks/README.md), optional) | ✓ | — | — | — | — |
 
-Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
+Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex and Grok `/phone-a-team` use Bash orchestration from their host-specific skills, with the host model synthesizing between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
 > [!IMPORTANT]
 > **Codex users:** A host sandbox can restrict backend network or keychain access,
@@ -167,13 +167,13 @@ The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude
 
 **Grok skills:**
 
-If you use Grok Build as the host, install the `phone-a-friend` and `curiosity-engine` skills into `~/.grok/skills/`:
+If you use Grok Build as the host, install `phone-a-friend`, `curiosity-engine`, and the Grok-specific `phone-a-team` skill into `~/.grok/skills/`:
 
 ```bash
 phone-a-friend plugin install --grok
 ```
 
-`/phone-a-team` is not installed there. From Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay and do not pass `--to grok`. PaF also refuses that call when `GROK_AGENT=1`, which Grok sets on its own child processes. Ask another friend (`claude`, `codex`, `gemini`, `opencode`, `pi`, `ollama`, or `antigravity`) instead.
+`/phone-a-team` runs parallel Bash relays with Grok synthesizing each round; its default friends are `claude,gemini`. From Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay and do not pass `--to grok`. PaF also refuses that call when `GROK_AGENT=1`, which Grok sets on its own child processes. Ask another friend (`claude`, `codex`, `gemini`, `opencode`, `pi`, `ollama`, or `antigravity`) instead.
 
 - **Uninstall** (`phone-a-friend plugin uninstall --grok`) removes only a PaF-owned copy. A skill of your own under the same name is kept.
 
@@ -482,7 +482,7 @@ state.
 | **Claude** | CLI subprocess | Yes (JSON) |
 | **OpenCode** | CLI subprocess | Yes (NDJSON) |
 | **pi** | CLI subprocess (`pi --mode json`) | Yes (JSONL) |
-| **Grok** | CLI subprocess (`grok --prompt-file`) | No |
+| **Grok** | CLI subprocess (`grok --prompt-file`) | Yes (NDJSON) |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
@@ -569,9 +569,9 @@ pi notes:
 Grok notes:
 - `--to grok` runs `grok --no-auto-update --output-format json --cwd <repo> --prompt-file <temp>`. Stdout is the answer text. The JSON envelope stays inside PaF.
 - `read-only` allows Read and Grep and denies Bash and Edit. `workspace-write` adds Edit, which creates and changes files, and still denies Bash. Both limited modes use `--permission-mode dontAsk`. `danger-full-access` uses `--permission-mode bypassPermissions`.
-- `--fast` adds no Grok flag. `--schema`, `--verdict-json`, `--session`, and `--backend-session` fail before Grok starts.
+- `--fast` adds no Grok flag. `--session` and `--backend-session` support native resume on relays and reviews. `--schema` and `--verdict-json` use Grok's `--json-schema` in batch mode. `--stream` uses `streaming-json`; schemas and sessions select batch mode in the CLI.
 - `--to grok` is refused when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
-- As a host it gets two skills, see [Grok skills](#quick-start) above. `/phone-a-team` is not available in Grok. Grok is a legal friend from another host; the default "ask everyone" example leaves it out because `--cwd` loads project instructions.
+- As a host it gets three skills, including `/phone-a-team`; see [Grok skills](#quick-start) above. Grok is a legal friend from another host; the default "ask everyone" example leaves it out because `--cwd` loads project instructions.
 
 ## Streaming
 

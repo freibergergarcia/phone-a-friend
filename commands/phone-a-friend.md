@@ -31,14 +31,11 @@ Send compact task context + the latest assistant reply to a backend
 - One backend per call. Never pass comma-separated values to `--to` (e.g.
   `phone-a-friend --to codex,gemini`). To consult multiple models, run
   separate `phone-a-friend` calls. The `/phone-a-team` slash command
-  orchestrates that for you in Claude Code. From Grok, run separate
-  invocations yourself; `/phone-a-team` is not installed there.
+  orchestrates that for you in Claude Code, Codex, and Grok through host-specific workflows.
 - From Grok, do not select `grok`. Set `PHONE_A_FRIEND_HOST=grok` and
   `PHONE_A_FRIEND_INCLUDE_DIFF=false` on every relay. PaF also refuses
   `--to grok` when `GROK_AGENT=1`. Choose `antigravity`, `codex`,
-  `gemini`, `claude`, `opencode`, `pi`, or `ollama`. `--session` and
-  `--fast` stay valid for other friends. With `--to grok`, omit both:
-  `--session` is refused and `--fast` adds no flag.
+  `gemini`, `claude`, `opencode`, `pi`, or `ollama`. `--session` works with Grok as a friend from another host; `--fast` adds no Grok flag.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
   applies to any other slash command: never invoke them as PaF
@@ -83,7 +80,7 @@ Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only res
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` adds no Grok flag. In direct mode, create a UUID with `--session-id` and continue it with `--resume <uuid>`; PaF `--session <label>` handles this in binary mode. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -226,8 +223,8 @@ PAF_CONTEXT_EOF
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
    "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
-   # Grok refuses --schema, --verdict-json, and --session. --fast adds no Grok flag.
-   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF
+   # Grok supports --session, --schema, --verdict-json, and streaming. --fast adds no flag.
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -449,8 +446,8 @@ Use `doctor --json` to diagnose PATH/version mismatches before retrying.
   prompts can send deltas only.
 - **Ollama**: replays full history each call. Sessions work but prompt
   size grows with each turn. Keep follow-ups concise.
-- **Grok**: no session resume. `--session` and `--backend-session` fail
-  before Grok starts. Omit both.
+- **Grok**: native resume. PaF creates a UUID with `--session-id`, then
+  continues it with `--resume`. Both session flags work for relays and reviews.
 
 On the FIRST relay under a new session label, PaF prints an informational
 stderr line: `[phone-a-friend] Session label "..." not found in store.

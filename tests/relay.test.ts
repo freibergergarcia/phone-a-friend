@@ -993,6 +993,27 @@ describe('reviewRelay', () => {
     ).rejects.toThrow('Timeout must be greater than zero');
   });
 
+  it.each(['managed', 'raw'])('routes a %s review session through run() and resumes it', async (mode) => {
+    const backend = makeMockBackendWithReview('codex');
+    backend.capabilities = { resumeStrategy: 'native-session', requiresClientSessionId: true };
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => args.includes('diff') ? 'branch diff' : '');
+    const store = new SessionStore(path.join(repo, 'sessions.json'));
+    const options = {
+      repoPath: repo, backend: 'codex', base: 'main', sessionStore: store,
+      ...(mode === 'managed' ? { session: 'review-label' } : { backendSession: 'raw-id' }),
+    };
+    await reviewRelay(options);
+    const first = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    await reviewRelay(options);
+    const second = (backend.run as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    expect(backend.review).not.toHaveBeenCalled();
+    expect(first.sessionId).toBeTruthy();
+    expect(first.resumeSession).toBe(mode === 'raw');
+    expect(second).toMatchObject({ sessionId: first.sessionId, resumeSession: true });
+    expect(store.list()).toHaveLength(mode === 'managed' ? 1 : 0);
+  });
+
   it('skips native review() when schema is set (so schema is honored)', async () => {
     const backend = makeMockBackendWithReview('codex');
     registerBackend(backend);
