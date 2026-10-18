@@ -52,6 +52,10 @@ describe('paf-tasks mod packaging', () => {
     expect(readJson<{ files: string[] }>('package.json').files).toContain('mods/');
   });
 
+  it('ships the project license, since it installs as its own plugin', () => {
+    expect(readText(`${MOD}/LICENSE`)).toBe(readText('LICENSE'));
+  });
+
   it('declares its hooks module and state contract', () => {
     expect(readJson<{ modules: string[] }>(`${MOD}/hooks/hooks.json`).modules).toEqual(['./register.tsx']);
     expect(manifest.types).toBe('./types/index.d.ts');

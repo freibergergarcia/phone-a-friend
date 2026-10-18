@@ -38,7 +38,7 @@ export function addSkill(expected, name, host) {
 }
 
 export function addCommon(expected) {
-  for (const file of ['LICENSE', 'NOTICE', 'PRIVACY.md', 'SUPPORT.md', 'assets/plugin-icon.svg']) addFile(expected, file, file);
+  for (const file of ['LICENSE', 'NOTICE', 'PRIVACY.md', 'SECURITY.md', 'SUPPORT.md', 'assets/plugin-icon.svg']) addFile(expected, file, file);
   addFile(expected, 'README.md', 'docs/distribution/plugin-readme.md');
 }
 
