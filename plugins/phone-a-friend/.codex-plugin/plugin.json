@@ -5,8 +5,22 @@
   "author": {
     "name": "Bruno Freiberger"
   },
-  "license": "Apache-2.0",
+  "homepage": "https://github.com/freibergergarcia/phone-a-friend#readme",
   "repository": "https://github.com/freibergergarcia/phone-a-friend",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai-agent",
+    "claude-code",
+    "antigravity",
+    "codex",
+    "gemini",
+    "ollama",
+    "opencode",
+    "code-review",
+    "multi-agent",
+    "cli",
+    "pi"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Phone a Friend",
