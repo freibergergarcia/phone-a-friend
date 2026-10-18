@@ -30,7 +30,9 @@ export class GrokBackendError extends BackendError {
   }
 }
 
-const FINISHED_STOP_REASONS = new Set(['stop', 'length']);
+// grok 1.0.62 reports end_turn for a normal completion. stop and length stay
+// accepted so a build that uses those names still returns the answer text.
+const FINISHED_STOP_REASONS = new Set(['stop', 'length', 'end_turn']);
 
 export const GROK_SCHEMA_UNSUPPORTED =
   'Grok structured output is not supported yet. phone-a-friend --to grok cannot be combined with --schema or --verdict-json.';

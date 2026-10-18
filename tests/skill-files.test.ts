@@ -853,7 +853,7 @@ describe('grok as a host', () => {
   it('shows the read-only direct call and reads text from the envelope', () => {
     expect(friend).toContain('grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE"');
     expect(friend).toContain('--sandbox read-only --permission-mode dontAsk --allow Read --allow Grep');
-    expect(friend).toMatch(/stopReason` is `stop` or `length`/);
+    expect(friend).toMatch(/stopReason` is `stop`, `length`, or `end_turn`/);
     expect(curiosity).toContain('--backend antigravity|codex|gemini|ollama|grok');
     expect(curiosity).toContain('command -v grok');
     expect(curiosity).toContain('PHONE_A_FRIEND_HOST=grok');

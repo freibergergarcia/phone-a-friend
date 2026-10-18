@@ -84,7 +84,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop` or `length`. `--fast` adds no Grok flag. Do not pass `--session`.
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. `--fast` adds no Grok flag. Do not pass `--session`.
 
 pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
 
@@ -250,7 +250,7 @@ PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
-# Grok (read text when stopReason is stop or length):
+# Grok (read text when stopReason is stop, length, or end_turn):
 grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
 ```
 
@@ -308,7 +308,7 @@ REPROMPT_JSON="$(jq -Rs . < "$REPROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${REPROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
-# Grok (read text when stopReason is stop or length):
+# Grok (read text when stopReason is stop, length, or end_turn):
 grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$REPROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
 ```
 

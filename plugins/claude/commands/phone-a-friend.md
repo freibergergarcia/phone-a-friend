@@ -82,7 +82,7 @@ Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only res
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop` or `length`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok.
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok.
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:
@@ -249,7 +249,7 @@ PAF_CONTEXT_EOF
    codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
    gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
-   # Grok (read `text` when stopReason is stop or length; do not print the envelope):
+   # Grok (read `text` when stopReason is stop, length, or end_turn; do not print the envelope):
    grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
    ```
 

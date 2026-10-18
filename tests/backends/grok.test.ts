@@ -198,6 +198,11 @@ describe('grok backend', () => {
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
+    it('returns text for stopReason end_turn, which grok 1.0.62 emits for a normal answer', async () => {
+      mockSpawn.mockReturnValue(mockChild(envelope('2', 'end_turn')));
+      await expect(GROK_BACKEND.run(makeOpts())).resolves.toBe('2');
+    });
+
     it('returns text for stopReason length and does not surface the session id', async () => {
       const onSessionCreated = vi.fn();
       mockSpawn.mockReturnValue(mockChild(envelope('partial', 'length')));

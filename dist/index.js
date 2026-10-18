@@ -78378,7 +78378,7 @@ var GrokBackendError = class extends BackendError {
     this.name = "GrokBackendError";
   }
 };
-var FINISHED_STOP_REASONS = /* @__PURE__ */ new Set(["stop", "length"]);
+var FINISHED_STOP_REASONS = /* @__PURE__ */ new Set(["stop", "length", "end_turn"]);
 var GROK_SCHEMA_UNSUPPORTED = "Grok structured output is not supported yet. phone-a-friend --to grok cannot be combined with --schema or --verdict-json.";
 function isGrokHostEnv(env5) {
   return env5.GROK_AGENT === "1" || env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "grok";
