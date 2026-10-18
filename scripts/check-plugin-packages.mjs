@@ -48,6 +48,13 @@ for (const [folder, manifestFile] of [
     assert(png.subarray(1, 4).toString() === 'PNG', 'icon.png: not a PNG');
     const [width, height] = [png.readUInt32BE(16), png.readUInt32BE(20)];
     assert(width === height && width >= 512 && width <= 2048 && png.length < 2 * 1024 * 1024, 'icon.png: expected a square 512-2048 px PNG under 2 MB');
+    // Directory listing links, read once per submission: keep them public and pointing at shipped files.
+    for (const field of ['documentationUrl', 'supportUrl', 'privacyPolicyUrl', 'termsOfServiceUrl']) {
+      const url = new URL(manifest[field]);
+      assert(url.protocol === 'https:' && !url.username && !url.password, `${field}: invalid public URL`);
+      const file = /\/blob\/main\/(.+)$/.exec(url.pathname)?.[1];
+      if (file) assert(files.includes(file), `${field}: ${file} is not in ${folder}`);
+    }
   }
   if (manifest.interface) {
     const ui = manifest.interface;
