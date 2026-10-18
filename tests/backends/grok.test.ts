@@ -30,6 +30,15 @@ function envelope(text: string, stopReason = 'stop', extra: Record<string, unkno
   return JSON.stringify({ text, stopReason, sessionId: '01a14fbf-0000-7000-8000-000000000001', ...extra });
 }
 
+/** Values that follow one flag, in order. `--allow Bash` and `--deny Bash` are different. */
+function flagValues(args: string[], flag: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === flag) values.push(args[i + 1]);
+  }
+  return values;
+}
+
 function mockChild(stdout: string, exitCode = 0, opts: { stderr?: string } = {}) {
   const stdoutStream = Readable.from(stdout ? [Buffer.from(stdout)] : []);
   const stderrStream = Readable.from(opts.stderr ? [Buffer.from(opts.stderr)] : []);
@@ -136,7 +145,8 @@ describe('grok backend', () => {
         model: null,
       }));
       expect(args).toContain('--no-auto-update');
-      expect(args).not.toContain('Bash');
+      expect(flagValues(args, '--allow')).toEqual(['Read', 'Grep']);
+      expect(flagValues(args, '--deny')).toEqual(['Bash']);
       expect(args).not.toContain('--always-approve');
       expect(spawnOpts.cwd).toBe(repo);
       expect(spawnOpts.env).toBe(opts.env);
@@ -150,11 +160,12 @@ describe('grok backend', () => {
       const writeArgs = mockSpawn.mock.calls[0][1] as string[];
       expect(writeArgs).toEqual(expect.arrayContaining([
         '--sandbox', 'workspace',
-        '--permission-mode', 'acceptEdits',
+        '--permission-mode', 'dontAsk',
         '--allow', 'Edit',
         '--allow', 'Write',
       ]));
-      expect(writeArgs).not.toContain('Bash');
+      expect(flagValues(writeArgs, '--allow')).toEqual(['Read', 'Grep', 'Edit', 'Write']);
+      expect(flagValues(writeArgs, '--deny')).toEqual(['Bash']);
       expect(writeArgs).not.toContain('--always-approve');
 
       mockSpawn.mockReset();
@@ -166,6 +177,7 @@ describe('grok backend', () => {
         '--permission-mode', 'bypassPermissions',
       ]));
       expect(dangerArgs).not.toContain('--allow');
+      expect(dangerArgs).not.toContain('--deny');
     });
 
     it('passes -m only when a model is set, and --fast adds no flag', async () => {
@@ -229,6 +241,52 @@ describe('grok backend', () => {
       expect(existsSync(promptPath)).toBe(false);
     });
 
+    it('rejects an exit-0 error envelope instead of returning its text', async () => {
+      mockSpawn.mockReturnValue(mockChild(JSON.stringify({
+        type: 'error',
+        message: 'auth required',
+        text: 'ignore me',
+        stopReason: 'stop',
+      })));
+      await expect(GROK_BACKEND.run(makeOpts())).rejects.toThrow('Grok returned an error: auth required');
+    });
+
+    it('reads a JSON message from stdout when a non-zero exit has empty stderr', async () => {
+      mockSpawn.mockReturnValue(mockChild(JSON.stringify({ message: 'not logged in' }), 1));
+      await expect(GROK_BACKEND.run(makeOpts())).rejects.toThrow('Grok exited with code 1: not logged in');
+    });
+
+    it('sends SIGKILL 2s after a timed-out grok ignores SIGTERM', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const child = new EventEmitter() as EventEmitter & {
+          stdout: Readable;
+          stderr: Readable;
+          kill: ReturnType<typeof vi.fn>;
+        };
+        child.stdout = new Readable({ read() {} });
+        child.stderr = new Readable({ read() {} });
+        child.kill = vi.fn((signal?: string) => {
+          if (signal === 'SIGKILL') process.nextTick(() => child.emit('close', null, 'SIGKILL'));
+          return true;
+        });
+        mockSpawn.mockReturnValue(child);
+
+        const settled = GROK_BACKEND.run(makeOpts({ timeoutSeconds: 1 })).catch((err: unknown) => err);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+
+        const err = await settled;
+        expect(err).toBeInstanceOf(GrokBackendError);
+        expect((err as GrokBackendError).message).toMatch(/timed out after 1s/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('refuses --schema before spawn', async () => {
       await expect(GROK_BACKEND.run(makeOpts({ schema: '{"type":"object"}' }))).rejects.toThrow(GROK_SCHEMA_UNSUPPORTED);
       expect(mockSpawn).not.toHaveBeenCalled();
@@ -250,6 +308,12 @@ describe('grok backend', () => {
 
     it('rejects a JSON array', () => {
       expect(() => parseGrokResult('[]')).toThrow(/not a result object/);
+    });
+
+    it('names an error envelope that has no message', () => {
+      expect(() => parseGrokResult(JSON.stringify({ type: 'error' }))).toThrow(
+        'Grok returned an error: Grok returned an error envelope.',
+      );
     });
   });
 

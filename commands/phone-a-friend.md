@@ -36,8 +36,9 @@ Send compact task context + the latest assistant reply to a backend
 - From Grok, do not select `grok`. Set `PHONE_A_FRIEND_HOST=grok` and
   `PHONE_A_FRIEND_INCLUDE_DIFF=false` on every relay. PaF also refuses
   `--to grok` when `GROK_AGENT=1`. Choose `antigravity`, `codex`,
-  `gemini`, `claude`, `opencode`, `pi`, or `ollama`. Do not pass
-  `--session` or `--fast` from Grok.
+  `gemini`, `claude`, `opencode`, `pi`, or `ollama`. `--session` and
+  `--fast` stay valid for other friends. With `--to grok`, omit both:
+  `--session` is refused and `--fast` adds no flag.
 - `curiosity-engine` is a host slash command / Agent Skill, not a PaF CLI
   subcommand. Never run `phone-a-friend curiosity-engine`. Same shape rule
   applies to any other slash command: never invoke them as PaF
@@ -76,7 +77,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
-| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
@@ -250,7 +251,7 @@ PAF_CONTEXT_EOF
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
    gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
    # Grok (read `text` when stopReason is stop, length, or end_turn; do not print the envelope):
-   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
+   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash
    ```
 
    In direct mode, build `PROMPT_FILE` from the template in the "Direct call

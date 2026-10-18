@@ -80,7 +80,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
-| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
@@ -141,7 +141,7 @@ Extract `--topic`, `--rounds`, and `--backend` from `$ARGUMENTS`.
 - `--rounds N` — optional, default 3, clamp to [1, 6].
 - `--backend antigravity|codex|gemini|ollama|grok` — optional, default `codex`.
 
-If `--backend` value is not `antigravity`, `codex`, `gemini`, `ollama`, or `grok`: report error and stop. When BACKEND is `grok`, omit `--fast` and do not pass `--session`.
+If `--backend` value is not `antigravity`, `codex`, `gemini`, `ollama`, or `grok`: report error and stop. When BACKEND is `grok`, omit `--fast` and `--session` on that call only. Other backends keep both.
 
 Set:
 - TOPIC = parsed topic string
@@ -251,7 +251,7 @@ curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
 # Grok (read text when stopReason is stop, length, or end_turn):
-grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
+grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash
 ```
 
 ## Step 4 — Parse Backend Response
@@ -309,7 +309,7 @@ curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${REPROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
 # Grok (read text when stopReason is stop, length, or end_turn):
-grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$REPROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep
+grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$REPROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash
 ```
 
 Parse again. If still missing `QUESTION:` → end game early. Display:

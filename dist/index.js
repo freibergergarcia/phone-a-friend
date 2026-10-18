@@ -78410,7 +78410,9 @@ function buildGrokArgs(opts) {
         "--allow",
         "Read",
         "--allow",
-        "Grep"
+        "Grep",
+        "--deny",
+        "Bash"
       );
       break;
     case "workspace-write":
@@ -78418,7 +78420,7 @@ function buildGrokArgs(opts) {
         "--sandbox",
         "workspace",
         "--permission-mode",
-        "acceptEdits",
+        "dontAsk",
         "--allow",
         "Read",
         "--allow",
@@ -78426,7 +78428,9 @@ function buildGrokArgs(opts) {
         "--allow",
         "Edit",
         "--allow",
-        "Write"
+        "Write",
+        "--deny",
+        "Bash"
       );
       break;
     case "danger-full-access":
@@ -78446,6 +78450,10 @@ function parseGrokResult(stdout) {
     throw new GrokBackendError("Grok returned JSON that is not a result object.");
   }
   const record = parsed;
+  if (record.type === "error") {
+    const message = typeof record.message === "string" && record.message.trim() !== "" ? record.message.trim() : "Grok returned an error envelope.";
+    throw new GrokBackendError(`Grok returned an error: ${message}`);
+  }
   const stopReason = record.stopReason;
   const text = record.text;
   if (typeof stopReason === "string" && FINISHED_STOP_REASONS.has(stopReason) && typeof text === "string" && text.trim() !== "") {
@@ -78466,17 +78474,34 @@ function canonicalRepoPath2(repoPath) {
 function writePromptFile(prompt) {
   const dir = mkdtempSync2(join7(tmpdir2(), "paf-grok-"));
   const file = join7(dir, "prompt.txt");
-  writeFileSync4(file, prompt, "utf8");
+  try {
+    writeFileSync4(file, prompt, "utf8");
+  } catch (err) {
+    rmSync2(dir, { recursive: true, force: true });
+    throw err;
+  }
   return { dir, file };
 }
+function grokFailureText(stdout) {
+  const trimmed = stdout.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string") {
+      return parsed.message.trim().slice(0, 500);
+    }
+  } catch {
+  }
+  return trimmed.slice(0, 500);
+}
+var GROK_KILL_GRACE_MS = 2e3;
 function toGrokError(err, timeoutSeconds) {
   if (err instanceof GrokBackendError) return err;
   if (err instanceof SpawnCliTimeoutError) {
     return new GrokBackendError(`Grok timed out after ${timeoutSeconds}s`);
   }
   if (err instanceof SpawnCliError) {
-    const tail = err.stderr.trim();
-    const detail = tail || err.message;
+    const detail = err.stderr.trim() || grokFailureText(err.stdout) || err.message;
     return new GrokBackendError(
       `Grok exited with code ${err.exitCode ?? "unknown"}${detail ? `: ${detail}` : ""}`
     );
@@ -78512,7 +78537,8 @@ var GrokBackend = class {
         timeoutMs: opts.timeoutSeconds * 1e3,
         env: opts.env,
         cwd: repoCwd,
-        label: "grok"
+        label: "grok",
+        killGraceMs: GROK_KILL_GRACE_MS
       });
       return parseGrokResult(result.stdout);
     } catch (err) {

@@ -3,9 +3,11 @@
  *
  * Headless `grok --prompt-file` with `--output-format json`. Sandbox and
  * permission mode are separate: the sandbox limits an approved call, and
- * `dontAsk` / `acceptEdits` / `bypassPermissions` keep the relay from sitting
- * on an approval prompt until timeout. There is no native review and no
- * resume yet (a returned sessionId is not a session PaF can continue).
+ * `dontAsk` (limited modes) or `bypassPermissions` (full access) keeps the
+ * relay from sitting on an approval prompt until timeout. `acceptEdits` is
+ * not used: an unmatched Bash call still prompts, which hangs the relay.
+ * There is no native review and no resume yet (a returned sessionId is not
+ * a session PaF can continue).
  */
 
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -74,8 +76,9 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
   ];
   if (opts.model) args.push('-m', opts.model);
 
-  // workspace-write allows Edit and Write only. Shell stays off: acceptEdits
-  // still prompts for Bash, and a prompt hangs the relay until timeout.
+  // dontAsk denies any tool that is not allowed, so a Bash call cannot sit
+  // on an approval prompt until timeout. --deny Bash also wins over a
+  // project allow rule. acceptEdits would still prompt for Bash.
   switch (opts.sandbox) {
     case 'read-only':
       args.push(
@@ -83,16 +86,18 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
         '--permission-mode', 'dontAsk',
         '--allow', 'Read',
         '--allow', 'Grep',
+        '--deny', 'Bash',
       );
       break;
     case 'workspace-write':
       args.push(
         '--sandbox', 'workspace',
-        '--permission-mode', 'acceptEdits',
+        '--permission-mode', 'dontAsk',
         '--allow', 'Read',
         '--allow', 'Grep',
         '--allow', 'Edit',
         '--allow', 'Write',
+        '--deny', 'Bash',
       );
       break;
     case 'danger-full-access':
@@ -117,6 +122,12 @@ export function parseGrokResult(stdout: string): string {
     throw new GrokBackendError('Grok returned JSON that is not a result object.');
   }
   const record = parsed as Record<string, unknown>;
+  if (record.type === 'error') {
+    const message = typeof record.message === 'string' && record.message.trim() !== ''
+      ? record.message.trim()
+      : 'Grok returned an error envelope.';
+    throw new GrokBackendError(`Grok returned an error: ${message}`);
+  }
   const stopReason = record.stopReason;
   const text = record.text;
   if (
@@ -144,9 +155,30 @@ function canonicalRepoPath(repoPath: string): string {
 function writePromptFile(prompt: string): { dir: string; file: string } {
   const dir = mkdtempSync(join(tmpdir(), 'paf-grok-'));
   const file = join(dir, 'prompt.txt');
-  writeFileSync(file, prompt, 'utf8');
+  try {
+    writeFileSync(file, prompt, 'utf8');
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
+  }
   return { dir, file };
 }
+
+function grokFailureText(stdout: string): string {
+  const trimmed = stdout.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (parsed && typeof parsed === 'object' && typeof parsed.message === 'string') {
+      return parsed.message.trim().slice(0, 500);
+    }
+  } catch {
+    // Non-JSON stdout is still the best failure detail Grok left us.
+  }
+  return trimmed.slice(0, 500);
+}
+
+const GROK_KILL_GRACE_MS = 2_000;
 
 function toGrokError(err: unknown, timeoutSeconds: number): GrokBackendError {
   if (err instanceof GrokBackendError) return err;
@@ -154,8 +186,7 @@ function toGrokError(err: unknown, timeoutSeconds: number): GrokBackendError {
     return new GrokBackendError(`Grok timed out after ${timeoutSeconds}s`);
   }
   if (err instanceof SpawnCliError) {
-    const tail = err.stderr.trim();
-    const detail = tail || err.message;
+    const detail = err.stderr.trim() || grokFailureText(err.stdout) || err.message;
     return new GrokBackendError(
       `Grok exited with code ${err.exitCode ?? 'unknown'}${detail ? `: ${detail}` : ''}`,
     );
@@ -195,6 +226,7 @@ export class GrokBackend implements Backend {
         env: opts.env,
         cwd: repoCwd,
         label: 'grok',
+        killGraceMs: GROK_KILL_GRACE_MS,
       });
       return parseGrokResult(result.stdout);
     } catch (err: unknown) {
