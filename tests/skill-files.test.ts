@@ -861,6 +861,9 @@ describe('grok as a host', () => {
     expect(curiosity).toContain('--backend antigravity|codex|gemini|ollama|grok');
     expect(curiosity).toContain('command -v grok');
     expect(curiosity).toContain('PHONE_A_FRIEND_HOST=grok');
+    expect(curiosity).toMatch(/`--backend` accepts only `antigravity`,\s+`codex`, `gemini`, or `ollama` from Grok/);
+    expect(curiosity).toMatch(/If the host is Grok and\s+`--backend` is `grok`, report an error and stop/);
+    expect(curiosity).not.toMatch(/Choose `antigravity`, `codex`, `gemini`, `claude`/);
   });
 });
 

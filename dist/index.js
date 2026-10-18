@@ -78427,8 +78427,6 @@ function buildGrokArgs(opts) {
         "Grep",
         "--allow",
         "Edit",
-        "--allow",
-        "Write",
         "--deny",
         "Bash"
       );

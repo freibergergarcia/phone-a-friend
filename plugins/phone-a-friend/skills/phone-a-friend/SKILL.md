@@ -197,7 +197,7 @@ Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only res
 
 pi has no direct-call row: reach it in binary mode only (`phone-a-friend --to pi`). A direct `pi` call would skip the read-only tool list, the session check, schema validation and the recursion guard.
 
-Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok: `--fast` adds no Grok flag, and `--session`, `--schema`, and `--verdict-json` are refused before Grok starts.
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. Do not return the raw JSON. `--fast` and `--session` do not work for Grok: `--fast` adds no Grok flag, and `--session`, `--schema`, and `--verdict-json` are refused before Grok starts. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 
 In direct mode, build `PROMPT_FILE` from prompt + context using this
 template and the quoted-heredoc rule:

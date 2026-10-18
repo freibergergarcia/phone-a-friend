@@ -568,7 +568,7 @@ pi notes:
 
 Grok notes:
 - `--to grok` runs `grok --no-auto-update --output-format json --cwd <repo> --prompt-file <temp>`. Stdout is the answer text. The JSON envelope stays inside PaF.
-- `read-only` allows Read and Grep. `workspace-write` adds Edit and Write. Both limited modes use `--permission-mode dontAsk` and `--deny Bash`, so a shell is not allowed. `danger-full-access` uses `--permission-mode bypassPermissions`.
+- `read-only` allows Read and Grep. `workspace-write` adds Edit, which creates and changes files. Both limited modes use `--permission-mode dontAsk` and `--deny Bash`, so a shell is not allowed. `danger-full-access` uses `--permission-mode bypassPermissions`.
 - `--fast` adds no Grok flag. `--schema`, `--verdict-json`, `--session`, and `--backend-session` fail before Grok starts.
 - `--to grok` is refused when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 - As a host it gets two skills, see [Grok skills](#quick-start) above. `/phone-a-team` is not available in Grok. Grok is a legal friend from another host; the default "ask everyone" example leaves it out because `--cwd` loads project instructions.

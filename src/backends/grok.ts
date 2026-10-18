@@ -76,9 +76,12 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
   ];
   if (opts.model) args.push('-m', opts.model);
 
-  // dontAsk denies any tool that is not allowed, so a Bash call cannot sit
-  // on an approval prompt until timeout. --deny Bash also wins over a
-  // project allow rule. acceptEdits would still prompt for Bash.
+  // grok 1.0.62 lists dontAsk and bypassPermissions in `grok --help`.
+  // Documented allow filters are Bash, Edit, Read, Grep, MCPTool, WebFetch,
+  // and WebSearch. Edit creates files; there is no Write filter, and an
+  // unknown allow name is ignored. dontAsk denies a tool that is not
+  // allowed, so a Bash call cannot sit on an approval prompt. --deny Bash
+  // also wins over a project allow. acceptEdits would still prompt for Bash.
   switch (opts.sandbox) {
     case 'read-only':
       args.push(
@@ -96,7 +99,6 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
         '--allow', 'Read',
         '--allow', 'Grep',
         '--allow', 'Edit',
-        '--allow', 'Write',
         '--deny', 'Bash',
       );
       break;

@@ -162,9 +162,9 @@ describe('grok backend', () => {
         '--sandbox', 'workspace',
         '--permission-mode', 'dontAsk',
         '--allow', 'Edit',
-        '--allow', 'Write',
       ]));
-      expect(flagValues(writeArgs, '--allow')).toEqual(['Read', 'Grep', 'Edit', 'Write']);
+      expect(flagValues(writeArgs, '--allow')).toEqual(['Read', 'Grep', 'Edit']);
+      expect(flagValues(writeArgs, '--allow')).not.toContain('Write');
       expect(flagValues(writeArgs, '--deny')).toEqual(['Bash']);
       expect(writeArgs).not.toContain('--always-approve');
 
