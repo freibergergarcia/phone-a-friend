@@ -217,6 +217,30 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     }
   }
 
+  const grokAvailable = report.host.some(h => h.name === 'grok' && h.available);
+  if (grokAvailable) {
+    console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('Grok integration')}`);
+    const installGrok = await confirm({
+      message: 'Install Grok skills (phone-a-friend, curiosity-engine, phone-a-team)?',
+      default: true,
+    });
+    if (installGrok) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: 'grok',
+          mode: 'symlink',
+          force: true,
+          syncClaudeCli: false,
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  Grok install failed: ${(err as Error).message}`));
+      }
+    }
+  }
+
   // Save config — merge into existing to preserve user's backend settings
   const existing = loadConfig(opts?.repoRoot);
   const cfg: PafConfig = {

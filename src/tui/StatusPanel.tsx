@@ -68,6 +68,10 @@ function PluginSummary({ pluginInstalled, pluginHosts }: { pluginInstalled?: boo
         <Text color={pluginHosts.opencode ? 'green' : 'yellow'}>{pluginHosts.opencode ? '\u2713' : '!'} OpenCode</Text>
         <Text dimColor> · </Text>
         <Text color={pluginHosts.codex ? 'green' : 'yellow'}>{pluginHosts.codex ? '\u2713' : '!'} Codex</Text>
+        <Text dimColor> · </Text>
+        <Text color={pluginHosts.pi ? 'green' : 'yellow'}>{pluginHosts.pi ? '\u2713' : '!'} pi</Text>
+        <Text dimColor> · </Text>
+        <Text color={pluginHosts.grok ? 'green' : 'yellow'}>{pluginHosts.grok ? '\u2713' : '!'} Grok</Text>
       </>
     );
   }

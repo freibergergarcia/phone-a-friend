@@ -92,6 +92,7 @@ function inferHost(): string | null {
   const explicit = process.env.PHONE_A_FRIEND_HOST?.trim().toLowerCase();
   if (explicit) return explicit;
   if (process.env.CLAUDECODE === '1') return 'claude';
+  if (process.env.GROK_AGENT === '1') return 'grok';
   return null;
 }
 

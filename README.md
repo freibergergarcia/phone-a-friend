@@ -20,24 +20,24 @@ Relay tasks to any backend, spin up multi-model teams, or run persistent multi-a
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
-| **Relay** | One-shot delegation to Antigravity, Codex, Gemini, Ollama, Claude, OpenCode, or pi | Quick second opinions, code reviews, analysis |
+| **Relay** | One-shot delegation to Antigravity, Codex, Gemini, Ollama, Claude, OpenCode, pi, or Grok | Quick second opinions, code reviews, analysis |
 | **Team** | Iterative multi-backend refinement over N rounds | Collaborative review, converging on a solution |
 | **Agentic** | Persistent multi-agent sessions with @mention routing | Autonomous collaboration, adversarial review, deep analysis |
 
 ### Host parity
 
-| Feature | Claude Code | OpenCode | Codex | pi |
-|---|:---:|:---:|:---:|:---:|
-| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ | `/skill:phone-a-friend` |
-| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ | `/skill:curiosity-engine` |
-| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — |
-| Plugin marketplace install | ✓ | — | ✓ | `pi install` |
-| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ |
-| Skill auto-discovery | ✓ | ✓ | ✓ | ✓ |
-| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic |
-| Review panel in the session ([`paf-tasks` mod](mods/paf-tasks/README.md), optional) | ✓ | — | — | — |
+| Feature | Claude Code | OpenCode | Codex | pi | Grok |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `/phone-a-friend` (single + parallel multi-backend relay) | ✓ | ✓ | ✓ | `/skill:phone-a-friend` | ✓ |
+| `/curiosity-engine` (Q&A rally) | ✓ | ✓ | ✓ | `/skill:curiosity-engine` | ✓ |
+| `/phone-a-team` (iterative multi-model team) | ✓ | — | ✓ | — | ✓ |
+| Plugin marketplace install | ✓ | — | ✓ | `pi install` | — |
+| CLI plugin install (`phone-a-friend plugin install --<host>`) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Skill auto-discovery | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Recursion guard (`PHONE_A_FRIEND_HOST=<host>`) | n/a | ✓ | ✓ | automatic | ✓ |
+| Review panel in the session ([`paf-tasks` mod](mods/paf-tasks/README.md), optional) | ✓ | — | — | — | — |
 
-Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex `/phone-a-team` is pure Bash orchestration directly from the skill body, with Codex's own model handling the synthesis between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
+Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns named teammates through the Agent tool and coordinates them with SendMessage. It needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in your settings `env` (teams are off by default) and shows one split pane per teammate when `teammateMode` is `"tmux"`; otherwise it falls back to direct relays in the lead session. On Claude, `/phone-a-friend` reviews run in the background through the plugin's `paf-reviewer` subagent, so they show up in the agent panel and come back as a receipt plus verbatim findings. Codex and Grok `/phone-a-team` use Bash orchestration from their host-specific skills, with the host model synthesizing between rounds. OpenCode has no comparable primitive and replicates `/phone-a-team` by running repeated `/phone-a-friend` calls manually.
 
 > [!IMPORTANT]
 > **Codex users:** A host sandbox can restrict backend network or keychain access,
@@ -59,6 +59,7 @@ Claude `/phone-a-team` orchestrates rounds with Agent Teams: the lead spawns nam
 - [Ollama](https://ollama.com/download)
 - [OpenCode](https://opencode.ai/docs)
 - [pi](https://github.com/earendil-works/pi) 0.79.0 or newer (`npm install -g @earendil-works/pi-coding-agent`), for tool-using relays to local models
+- [Grok Build](https://docs.x.ai/build/overview) (`npm install -g @xai-official/grok`), optional. `--fast` adds no flag, and a relay loads project instructions through `--cwd`
 
 **Install:**
 
@@ -163,6 +164,18 @@ The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude
 - **No recursion marker is needed.** pi sets `PI_CODING_AGENT=true` for the commands it runs, and PaF refuses `--to pi` from there.
 - **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. It is listed in the [pi package catalog](https://pi.dev/packages/@freibergergarcia/phone-a-friend). Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. `doctor` and the TUI recognize the npm form; a package installed from a git URL works in pi but shows as not installed there. You still need the npm global install for the `phone-a-friend` command itself.
 - **Uninstall** (`phone-a-friend plugin uninstall --pi`) removes only what PaF installed. A skill of your own under the same name is kept.
+
+**Grok skills:**
+
+If you use Grok Build as the host, install `phone-a-friend`, `curiosity-engine`, and the Grok-specific `phone-a-team` skill into `~/.grok/skills/`:
+
+```bash
+phone-a-friend plugin install --grok
+```
+
+`/phone-a-team` runs parallel Bash relays with Grok synthesizing each round; its default friends are `claude,gemini`. From Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay and do not pass `--to grok`. PaF also refuses that call when `GROK_AGENT=1`, which Grok sets on its own child processes. Ask another friend (`claude`, `codex`, `gemini`, `opencode`, `pi`, `ollama`, or `antigravity`) instead.
+
+- **Uninstall** (`phone-a-friend plugin uninstall --grok`) removes only a PaF-owned copy. A skill of your own under the same name is kept.
 
 **From source:**
 
@@ -410,11 +423,12 @@ phone-a-friend plugin install --claude    # Install Claude Code plugin
 phone-a-friend plugin install --opencode  # Install OpenCode commands and skills
 phone-a-friend plugin install --codex     # Install Codex skills
 phone-a-friend plugin install --pi        # Install pi skills (/skill:phone-a-friend)
+phone-a-friend plugin install --grok      # Install Grok skills into ~/.grok/skills
 phone-a-friend config show     # Show resolved config
 phone-a-friend config edit     # Open in $EDITOR
 ```
 
-`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex / pi install state), and a summary count. Antigravity, OpenCode CLI, and pi are treated as optional: if you don't have `agy`, OpenCode, or pi installed, doctor will show them but will not flag that as a degraded state.
+`doctor` reports CLI backends, local backends (Ollama), host integration status (Claude / OpenCode / Codex / pi / Grok install state), and a summary count. Antigravity, OpenCode CLI, pi, and Grok are treated as optional: if you don't have `agy`, OpenCode, pi, or `grok` installed, doctor will show them but will not flag that as a degraded state.
 
 `doctor --json` also reports each CLI's selected executable, version, and other
 PATH candidates. It distinguishes the running PaF build from the PATH install,
@@ -468,6 +482,7 @@ state.
 | **Claude** | CLI subprocess | Yes (JSON) |
 | **OpenCode** | CLI subprocess | Yes (NDJSON) |
 | **pi** | CLI subprocess (`pi --mode json`) | Yes (JSONL) |
+| **Grok** | CLI subprocess (`grok --prompt-file`) | Yes (NDJSON) |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
@@ -483,7 +498,7 @@ peer_messaging = "native" # native (default), accept, or refuse
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
 - `PHONE_A_FRIEND_CLAUDE_PEER_MESSAGING=native|accept|refuse` -- override Claude peer messaging for the current process.
-- `PHONE_A_FRIEND_HOST=opencode|codex|pi` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi`. Set automatically by the install shims (pi has none; PaF also honours pi's own `PI_CODING_AGENT=true`).
+- `PHONE_A_FRIEND_HOST=opencode|codex|pi|grok` -- mark the calling process as a specific host for the recursion guard. `opencode` blocks `--to opencode`; `codex` blocks `--to codex`; `pi` blocks `--to pi`; `grok` blocks `--to grok`. Set automatically by the install shims (pi has none; PaF also honours pi's own `PI_CODING_AGENT=true`. Grok sets `GROK_AGENT=1` on its children, and PaF treats that as the Grok host too).
 - `CODEX_HOME` -- override the Codex config root (default: `~/.codex`). Honored by the Codex skill installer.
 - `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false` -- bypass the Gemini dead-model cache (debugging stale entries).
 
@@ -550,6 +565,13 @@ pi notes:
 - Both batch and streaming runs report tool activity, retries, and context
   compaction as progress. Compaction summaries are never included in progress.
 - pi is not an agentic backend. As a host it gets two skills, see [pi skills](#quick-start) above; `/phone-a-team` is not available in pi.
+
+Grok notes:
+- `--to grok` runs `grok --no-auto-update --output-format json --cwd <repo> --prompt-file <temp>`. Stdout is the answer text. The JSON envelope stays inside PaF.
+- `read-only` allows Read and Grep and denies Bash and Edit. `workspace-write` adds Edit, which creates and changes files, and still denies Bash. Both limited modes use `--permission-mode dontAsk`. `danger-full-access` uses `--permission-mode bypassPermissions`.
+- `--fast` adds no Grok flag. `--session` and `--backend-session` support native resume on relays and reviews. `--schema` and `--verdict-json` use Grok's `--json-schema` in batch mode. `--stream` uses `streaming-json`; schemas and sessions select batch mode in the CLI.
+- `--to grok` is refused when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
+- As a host it gets three skills, including `/phone-a-team`; see [Grok skills](#quick-start) above. Grok is a legal friend from another host; the default "ask everyone" example leaves it out because `--cwd` loads project instructions.
 
 ## Streaming
 

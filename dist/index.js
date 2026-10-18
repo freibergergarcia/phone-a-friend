@@ -182,7 +182,8 @@ var init_backends = __esm({
       ollama: "https://ollama.com/download",
       claude: "npm install -g @anthropic-ai/claude-code",
       opencode: "npm install -g opencode-ai",
-      pi: "npm install -g @earendil-works/pi-coding-agent"
+      pi: "npm install -g @earendil-works/pi-coding-agent",
+      grok: "npm install -g @xai-official/grok"
     };
     BACKEND_COMMANDS = {
       antigravity: "agy",
@@ -191,7 +192,8 @@ var init_backends = __esm({
       gemini: "gemini",
       ollama: "ollama",
       opencode: "opencode",
-      pi: "pi"
+      pi: "pi",
+      grok: "grok"
     };
     registry = /* @__PURE__ */ new Map();
   }
@@ -3280,8 +3282,8 @@ var jobs_exports = {};
 __export(jobs_exports, {
   JobManager: () => JobManager
 });
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync4, existsSync as existsSync4, mkdirSync as mkdirSync5 } from "fs";
-import { dirname as dirname6, join as join7 } from "path";
+import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, existsSync as existsSync4, mkdirSync as mkdirSync5 } from "fs";
+import { dirname as dirname6, join as join8 } from "path";
 import { homedir as homedir5 } from "os";
 import { randomUUID as randomUUID2 } from "crypto";
 var MAX_JOBS, JobManager;
@@ -3292,8 +3294,8 @@ var init_jobs = __esm({
     JobManager = class {
       filePath;
       constructor(filePath) {
-        this.filePath = filePath ?? join7(
-          process.env.XDG_CONFIG_HOME ?? join7(homedir5(), ".config"),
+        this.filePath = filePath ?? join8(
+          process.env.XDG_CONFIG_HOME ?? join8(homedir5(), ".config"),
           "phone-a-friend",
           "jobs.json"
         );
@@ -3308,7 +3310,7 @@ var init_jobs = __esm({
       }
       save(jobs) {
         mkdirSync5(dirname6(this.filePath), { recursive: true });
-        writeFileSync4(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
+        writeFileSync5(this.filePath, JSON.stringify(jobs, null, 2), "utf-8");
       }
       create(opts) {
         const jobs = this.load();
@@ -3362,7 +3364,7 @@ __export(sessions_exports, {
   SessionStore: () => SessionStore
 });
 import { readFileSync as readFileSync7, existsSync as existsSync5, mkdirSync as mkdirSync6, renameSync as renameSync2 } from "fs";
-import { dirname as dirname7, join as join8 } from "path";
+import { dirname as dirname7, join as join9 } from "path";
 import { homedir as homedir6 } from "os";
 var MAX_SESSIONS, SessionStore;
 var init_sessions = __esm({
@@ -3374,8 +3376,8 @@ var init_sessions = __esm({
       dbPath;
       db;
       constructor(filePath) {
-        this.filePath = filePath ?? join8(
-          process.env.XDG_CONFIG_HOME ?? join8(homedir6(), ".config"),
+        this.filePath = filePath ?? join9(
+          process.env.XDG_CONFIG_HOME ?? join9(homedir6(), ".config"),
           "phone-a-friend",
           "sessions.json"
         );
@@ -3747,6 +3749,7 @@ __export(relay_exports, {
   detectDefaultBranch: () => detectDefaultBranch,
   gitDiffBase: () => gitDiffBase,
   mergeObservers: () => mergeObservers,
+  refuseUnsupportedRelaySession: () => refuseUnsupportedRelaySession,
   relay: () => relay,
   relayBackground: () => relayBackground,
   relayStream: () => relayStream,
@@ -4138,6 +4141,25 @@ function nextRelayEnv() {
   env5.PHONE_A_FRIEND_DEPTH = String(depth + 1);
   return env5;
 }
+function refuseUnsupportedRelaySession(backendName, session, backendSession) {
+  if (!session && !backendSession) return;
+  let selectedBackend;
+  try {
+    selectedBackend = getBackend(backendName);
+  } catch (err) {
+    throw new RelayError(err instanceof Error ? err.message : String(err));
+  }
+  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
+    throw new RelayError(
+      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
+    );
+  }
+  if (session && selectedBackend.capabilities.resumeStrategy === "unsupported") {
+    throw new RelayError(
+      `--session is not supported by the ${selectedBackend.name} backend (resume strategy: unsupported). The backend cannot resume a prior conversation, so PaF refuses to persist a label that would silently fresh-spawn each call.`
+    );
+  }
+}
 function prepareRelay(opts) {
   const {
     prompt,
@@ -4177,16 +4199,7 @@ function prepareRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
-  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
-    throw new RelayError(
-      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
-    );
-  }
-  if (session && selectedBackend.capabilities.resumeStrategy === "unsupported") {
-    throw new RelayError(
-      `--session is not supported by the ${selectedBackend.name} backend (resume strategy: unsupported). The backend cannot resume a prior conversation, so PaF refuses to persist a label that would silently fresh-spawn each call.`
-    );
-  }
+  refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : "";
   const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
@@ -4214,7 +4227,7 @@ function prepareRelay(opts) {
     observer: opts.observer
   };
 }
-async function relay(opts) {
+async function executeSessionRun(req) {
   const {
     selectedBackend,
     fullPrompt,
@@ -4230,7 +4243,8 @@ async function relay(opts) {
     peerMessaging,
     sessionStore,
     observer
-  } = prepareRelay(opts);
+  } = req;
+  const sessionLabel = req.sessionLabel ?? session;
   const bridge = observerBridge(observer);
   try {
     if (backendSession) {
@@ -4267,7 +4281,7 @@ async function relay(opts) {
         resumeSession: true,
         fast,
         peerMessaging,
-        sessionLabel: session,
+        sessionLabel,
         sessionHistory: existing?.history ?? [],
         onSessionCreated: (newSessionId) => {
           createdSessionId2 = newSessionId;
@@ -4327,7 +4341,7 @@ async function relay(opts) {
       resumeSession: Boolean(session && storedSession),
       fast,
       peerMessaging,
-      sessionLabel: session,
+      sessionLabel,
       sessionHistory: storedSession?.history ?? [],
       onSessionCreated: (newSessionId) => {
         createdSessionId = newSessionId;
@@ -4354,6 +4368,9 @@ async function relay(opts) {
     }
     throw err;
   }
+}
+async function relay(opts) {
+  return executeSessionRun(prepareRelay(opts));
 }
 function persistRelaySession(store, id, backend, repoPath, prompt, output, backendSessionId) {
   const replaysHistory = backend.capabilities.resumeStrategy === "transcript-replay";
@@ -4469,6 +4486,9 @@ async function reviewRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
+  const session = opts.session ?? null;
+  const backendSession = opts.backendSession ?? null;
+  refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env5 = nextRelayEnv();
   const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
@@ -4478,7 +4498,7 @@ async function reviewRelay(opts) {
   const scopeInfo = describeDiff(collectedDiff, scope, base);
   safeObserve(() => observer?.onScope?.(scopeInfo));
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? /* @__PURE__ */ new Set(["branch"]);
-  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema) {
+  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema && !session && !backendSession) {
     try {
       const nativeResult = await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -4509,29 +4529,25 @@ async function reviewRelay(opts) {
     diffText,
     localFileAccess: selectedBackend.localFileAccess
   }), "review");
-  try {
-    const result = await selectedBackend.run({
-      prompt: fullPrompt,
-      repoPath: resolvedRepo,
-      timeoutSeconds,
-      sandbox,
-      model,
-      env: env5,
-      schema,
-      fast,
-      peerMessaging,
-      sessionLabel: "review",
-      onEvent: bridge.onEvent
-    });
-    reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
-    return result;
-  } catch (err) {
-    if (err instanceof RelayError) throw err;
-    if (err instanceof BackendError) {
-      throw backendErrorToRelayError(err);
-    }
-    throw err;
-  }
+  const result = await executeSessionRun({
+    selectedBackend,
+    fullPrompt,
+    resolvedRepo,
+    env: env5,
+    timeoutSeconds,
+    sandbox,
+    model,
+    schema,
+    session,
+    backendSession,
+    fast,
+    peerMessaging,
+    sessionStore: opts.sessionStore,
+    observer,
+    sessionLabel: session ?? "review"
+  });
+  reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
+  return result;
 }
 function relayBackground(opts) {
   const manager = opts.jobManager ?? new JobManager();
@@ -4587,14 +4603,14 @@ import {
   readdirSync as readdirSync2,
   readFileSync as readFileSync9,
   readlinkSync,
-  realpathSync as realpathSync3,
-  rmSync as rmSync2,
+  realpathSync as realpathSync4,
+  rmSync as rmSync3,
   symlinkSync,
   cpSync,
   unlinkSync as unlinkSync2,
-  writeFileSync as writeFileSync5
+  writeFileSync as writeFileSync6
 } from "fs";
-import { resolve as resolve3, join as join9, dirname as dirname8, isAbsolute, sep } from "path";
+import { resolve as resolve3, join as join10, dirname as dirname8, basename as basename2, isAbsolute, sep } from "path";
 import { homedir as homedir7 } from "os";
 function ensureParent(filePath) {
   mkdirSync7(dirname8(filePath), { recursive: true });
@@ -4610,7 +4626,7 @@ function removePath(filePath) {
   if (stat.isSymbolicLink() || stat.isFile()) {
     unlinkSync2(filePath);
   } else if (stat.isDirectory()) {
-    rmSync2(filePath, { recursive: true, force: true });
+    rmSync3(filePath, { recursive: true, force: true });
   }
 }
 function installPath(src, dst, mode, force) {
@@ -4618,7 +4634,7 @@ function installPath(src, dst, mode, force) {
   if (dstExists) {
     if (isSymlink(dst)) {
       try {
-        if (realpathSync3(dst) === realpathSync3(src)) {
+        if (realpathSync4(dst) === realpathSync4(src)) {
           return "already-installed";
         }
       } catch {
@@ -4765,59 +4781,71 @@ function unsyncClaudePluginRegistration(marketplaceName = MARKETPLACE_NAME, plug
   return lines;
 }
 function claudeConfigRoot(claudeHome) {
-  return claudeHome || process.env.CLAUDE_CONFIG_DIR || join9(homedir7(), ".claude");
+  return claudeHome || process.env.CLAUDE_CONFIG_DIR || join10(homedir7(), ".claude");
 }
 function claudeTarget(claudeHome) {
-  return join9(claudeConfigRoot(claudeHome), "plugins", PLUGIN_NAME);
+  return join10(claudeConfigRoot(claudeHome), "plugins", PLUGIN_NAME);
 }
 function opencodeConfigRoot(opencodeHome) {
   if (opencodeHome) return opencodeHome;
-  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join9(homedir7(), ".config");
-  return join9(xdgConfig, "opencode");
+  const xdgConfig = process.env.XDG_CONFIG_HOME ?? join10(homedir7(), ".config");
+  return join10(xdgConfig, "opencode");
 }
 function opencodeSkillTarget(name, opencodeHome) {
-  return join9(opencodeConfigRoot(opencodeHome), "skills", name);
+  return join10(opencodeConfigRoot(opencodeHome), "skills", name);
 }
 function opencodeCommandTarget(name, opencodeHome) {
-  return join9(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
+  return join10(opencodeConfigRoot(opencodeHome), "commands", `${name}.md`);
 }
 function opencodeCommandSource(repoRoot, name) {
-  const overlay = join9(repoRoot, "skills", name, "COMMAND.opencode.md");
+  const overlay = join10(repoRoot, "skills", name, "COMMAND.opencode.md");
   if (existsSync7(overlay)) return overlay;
-  return join9(repoRoot, "commands", `${name}.md`);
+  return join10(repoRoot, "commands", `${name}.md`);
 }
 function codexConfigRoot(codexHome) {
   if (codexHome) return codexHome;
   if (process.env.CODEX_HOME) return process.env.CODEX_HOME;
-  return join9(homedir7(), ".codex");
+  return join10(homedir7(), ".codex");
 }
 function codexSkillTarget(name, codexHome) {
-  return join9(codexConfigRoot(codexHome), "skills", name);
+  return join10(codexConfigRoot(codexHome), "skills", name);
 }
 function codexSkillSource(repoRoot, name) {
-  const overlay = join9(repoRoot, "skills", name, ".codex");
-  if (existsSync7(join9(overlay, "SKILL.md"))) return overlay;
-  return join9(repoRoot, "skills", name);
+  const overlay = join10(repoRoot, "skills", name, ".codex");
+  if (existsSync7(join10(overlay, "SKILL.md"))) return overlay;
+  return join10(repoRoot, "skills", name);
 }
 function piAgentDir(piHome, platform2 = process.platform) {
   if (piHome) return piHome;
   const fromEnv = process.env.PI_CODING_AGENT_DIR;
   if (fromEnv) return resolvePiStoredPath(fromEnv, process.cwd(), platform2);
-  return join9(homedir7(), ".pi", "agent");
+  return join10(homedir7(), ".pi", "agent");
 }
 function piSkillTarget(name, piHome) {
-  return join9(piAgentDir(piHome), "skills", name);
+  return join10(piAgentDir(piHome), "skills", name);
+}
+function grokConfigRoot(grokHome) {
+  if (grokHome) return grokHome;
+  return join10(homedir7(), ".grok");
+}
+function grokSkillTarget(name, grokHome) {
+  return join10(grokConfigRoot(grokHome), "skills", name);
+}
+function grokSkillSource(repoRoot, name) {
+  const overlay = join10(repoRoot, "skills", name, ".grok");
+  if (existsSync7(join10(overlay, "SKILL.md"))) return overlay;
+  return join10(repoRoot, "skills", name);
 }
 function isStalePafSymlink(target, repoRoot) {
   if (!isSymlink(target)) return false;
   let realRepo;
   try {
-    realRepo = realpathSync3(repoRoot);
+    realRepo = realpathSync4(repoRoot);
   } catch {
     return false;
   }
   try {
-    const realTarget = realpathSync3(target);
+    const realTarget = realpathSync4(target);
     return realTarget === realRepo || realTarget.startsWith(realRepo + sep);
   } catch {
     try {
@@ -4826,7 +4854,7 @@ function isStalePafSymlink(target, repoRoot) {
       let probe = absLink;
       while (probe !== dirname8(probe)) {
         if (existsSync7(probe)) {
-          const realProbe = realpathSync3(probe);
+          const realProbe = realpathSync4(probe);
           return realProbe === realRepo || realProbe.startsWith(realRepo + sep);
         }
         probe = dirname8(probe);
@@ -4840,13 +4868,13 @@ function isStalePafSymlink(target, repoRoot) {
 function isPluginInstalled(claudeHome) {
   const target = claudeTarget(claudeHome);
   try {
-    const resolved = realpathSync3(target);
+    const resolved = realpathSync4(target);
     if (existsSync7(resolved)) return true;
   } catch {
   }
   if (existsSync7(target)) return true;
   const home = claudeConfigRoot(claudeHome);
-  const cacheBase = join9(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
+  const cacheBase = join10(home, "plugins", "cache", MARKETPLACE_NAME, PLUGIN_NAME);
   try {
     return existsSync7(cacheBase);
   } catch {
@@ -4854,14 +4882,14 @@ function isPluginInstalled(claudeHome) {
   }
 }
 function isOpenCodeInstalled(opencodeHome) {
-  return OPENCODE_SKILLS.every((name) => existsSync7(join9(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
+  return OPENCODE_SKILLS.every((name) => existsSync7(join10(opencodeSkillTarget(name, opencodeHome), "SKILL.md")) && existsSync7(opencodeCommandTarget(name, opencodeHome)));
 }
 function isCodexInstalled(codexHome) {
   const looseFileOk = CODEX_SKILLS.every(
-    (name) => existsSync7(join9(codexSkillTarget(name, codexHome), "SKILL.md"))
+    (name) => existsSync7(join10(codexSkillTarget(name, codexHome), "SKILL.md"))
   );
   if (looseFileOk) return true;
-  const cacheRoot = join9(
+  const cacheRoot = join10(
     codexConfigRoot(codexHome),
     "plugins",
     "cache",
@@ -4873,7 +4901,7 @@ function isCodexInstalled(codexHome) {
     const versions = readdirSync2(cacheRoot);
     return versions.some(
       (ver) => CODEX_SKILLS.every(
-        (name) => existsSync7(join9(cacheRoot, ver, "skills", name, "SKILL.md"))
+        (name) => existsSync7(join10(cacheRoot, ver, "skills", name, "SKILL.md"))
       )
     );
   } catch {
@@ -4882,7 +4910,7 @@ function isCodexInstalled(codexHome) {
 }
 function isPafPackageDir(dir) {
   try {
-    const manifest = JSON.parse(readFileSync9(join9(dir, "package.json"), "utf-8"));
+    const manifest = JSON.parse(readFileSync9(join10(dir, "package.json"), "utf-8"));
     return manifest?.name === PAF_NPM_NAME;
   } catch {
     return false;
@@ -4906,7 +4934,7 @@ function isPiPackageDeclared(piHome) {
   const agentDir = piAgentDir(piHome);
   let settings;
   try {
-    settings = JSON.parse(readFileSync9(join9(agentDir, "settings.json"), "utf-8"));
+    settings = JSON.parse(readFileSync9(join10(agentDir, "settings.json"), "utf-8"));
   } catch {
     return false;
   }
@@ -4922,9 +4950,16 @@ function isPiPackageDeclared(piHome) {
 }
 function isPiInstalled(piHome) {
   const looseFileOk = PI_SKILLS.every(
-    (name) => existsSync7(join9(piSkillTarget(name, piHome), "SKILL.md"))
+    (name) => existsSync7(join10(piSkillTarget(name, piHome), "SKILL.md"))
   );
   return looseFileOk || isPiPackageDeclared(piHome);
+}
+function isGrokInstalled(grokHome) {
+  return GROK_SKILLS.every((name) => {
+    const target = grokSkillTarget(name, grokHome);
+    if (!existsSync7(target) && !isSymlink(target)) return false;
+    return isPafOwnedPiSkill(target, name);
+  });
 }
 function runCodexCommand(args) {
   try {
@@ -5029,10 +5064,10 @@ function installOpenCode(repoRoot, mode, force, opencodeHome) {
     }
   }
   for (const name of OPENCODE_SKILLS) {
-    const skillSource = join9(repoRoot, "skills", name);
+    const skillSource = join10(repoRoot, "skills", name);
     const commandSource = opencodeCommandSource(repoRoot, name);
-    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing OpenCode skill source: ${join9(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join10(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing OpenCode skill source: ${join10(skillSource, "SKILL.md")}`);
     }
     if (!existsSync7(commandSource)) {
       throw new InstallerError(`Missing OpenCode command source: ${commandSource}`);
@@ -5061,17 +5096,17 @@ function installCodex(repoRoot, mode, force, codexHome) {
   }
   for (const name of CODEX_SKILLS) {
     const skillSource = codexSkillSource(repoRoot, name);
-    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing Codex skill source: ${join9(skillSource, "SKILL.md")}`);
+    if (!existsSync7(join10(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Codex skill source: ${join10(skillSource, "SKILL.md")}`);
     }
     const skillTarget = codexSkillTarget(name, codexHome);
     const skillForce = force || isStalePafSymlink(skillTarget, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     lines.push(`- codex_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
-  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join10(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join10(legacyAgentsDir, `${legacy}.toml`);
     if (isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design, no longer shipped)`);
@@ -5082,18 +5117,36 @@ function installCodex(repoRoot, mode, force, codexHome) {
 function installPi(repoRoot, mode, force, piHome) {
   const lines = [];
   for (const name of PI_SKILLS) {
-    const skillSource = join9(repoRoot, "skills", name);
-    if (!existsSync7(join9(skillSource, "SKILL.md"))) {
-      throw new InstallerError(`Missing pi skill source: ${join9(skillSource, "SKILL.md")}`);
+    const skillSource = join10(repoRoot, "skills", name);
+    if (!existsSync7(join10(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing pi skill source: ${join10(skillSource, "SKILL.md")}`);
     }
     const skillTarget = piSkillTarget(name, piHome);
     const skillForce = force || isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot);
     const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
     if (skillStatus === "installed" && mode === "copy") {
-      writeFileSync5(join9(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}
+      writeFileSync6(join10(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}
 `);
     }
     lines.push(`- pi_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+  return lines;
+}
+function installGrok(repoRoot, mode, force, grokHome) {
+  const lines = [];
+  for (const name of GROK_SKILLS) {
+    const skillSource = grokSkillSource(repoRoot, name);
+    if (!existsSync7(join10(skillSource, "SKILL.md"))) {
+      throw new InstallerError(`Missing Grok skill source: ${join10(skillSource, "SKILL.md")}`);
+    }
+    const skillTarget = grokSkillTarget(name, grokHome);
+    const skillForce = force || isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot);
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    if (skillStatus === "installed" && mode === "copy") {
+      writeFileSync6(join10(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}
+`);
+    }
+    lines.push(`- grok_skill:${name}: ${skillStatus} -> ${skillTarget}`);
   }
   return lines;
 }
@@ -5102,7 +5155,7 @@ function canonicalPath(filePath) {
   const missing = [];
   for (; ; ) {
     try {
-      return join9(realpathSync3(existing), ...missing);
+      return join10(realpathSync4(existing), ...missing);
     } catch {
       const parent = dirname8(existing);
       if (parent === existing) return resolve3(filePath);
@@ -5112,13 +5165,21 @@ function canonicalPath(filePath) {
   }
 }
 function isPafOwnedPiSkill(target, name, repoRoot) {
-  if (!isSymlink(target)) return existsSync7(join9(target, PI_INSTALL_MARKER));
+  if (!isSymlink(target)) return existsSync7(join10(target, PI_INSTALL_MARKER));
   try {
     const link2 = readlinkSync(target);
     const absolute = isAbsolute(link2) ? link2 : resolve3(dirname8(target), link2);
-    if (repoRoot && canonicalPath(absolute) === canonicalPath(join9(repoRoot, "skills", name))) return true;
-    const skillsDir = dirname8(absolute);
-    if (absolute !== join9(skillsDir, name) || skillsDir !== join9(dirname8(skillsDir), "skills")) return false;
+    if (repoRoot) {
+      const owned = [
+        join10(repoRoot, "skills", name),
+        join10(repoRoot, "skills", name, ".grok"),
+        join10(repoRoot, "skills", name, ".codex")
+      ];
+      if (owned.some((candidate) => canonicalPath(absolute) === canonicalPath(candidate))) return true;
+    }
+    const skillDir = [".grok", ".codex"].includes(basename2(absolute)) ? dirname8(absolute) : absolute;
+    const skillsDir = dirname8(skillDir);
+    if (skillDir !== join10(skillsDir, name) || skillsDir !== join10(dirname8(skillsDir), "skills")) return false;
     return isPafPackageDir(dirname8(skillsDir));
   } catch {
     return false;
@@ -5133,6 +5194,17 @@ function uninstallPi(piHome, repoRoot) {
     }
     removePath(target);
     return `- pi_skill:${name}: removed`;
+  });
+}
+function uninstallGrok(grokHome, repoRoot) {
+  return GROK_SKILLS.map((name) => {
+    const target = grokSkillTarget(name, grokHome);
+    if (!existsSync7(target) && !isSymlink(target)) return `- grok_skill:${name}: not-installed`;
+    if (!isPafOwnedPiSkill(target, name, repoRoot)) {
+      return `- grok_skill:${name}: kept (not PaF-owned; remove manually if desired)`;
+    }
+    removePath(target);
+    return `- grok_skill:${name}: removed`;
   });
 }
 function uninstallCodex(codexHome, repoRoot) {
@@ -5152,9 +5224,9 @@ function uninstallCodex(codexHome, repoRoot) {
       lines.push(`- codex_skill:${name}: not-installed`);
     }
   }
-  const legacyAgentsDir = join9(codexConfigRoot(codexHome), "agents");
+  const legacyAgentsDir = join10(codexConfigRoot(codexHome), "agents");
   for (const legacy of ["paf-reviewer", "paf-critic", "paf-synthesizer"]) {
-    const legacyTarget = join9(legacyAgentsDir, `${legacy}.toml`);
+    const legacyTarget = join10(legacyAgentsDir, `${legacy}.toml`);
     if (repoRoot && isStalePafSymlink(legacyTarget, repoRoot)) {
       removePath(legacyTarget);
       lines.push(`- codex_agent:${legacy}: removed (legacy subagent design)`);
@@ -5206,7 +5278,7 @@ function uninstallOpenCode(opencodeHome, repoRoot) {
   return lines;
 }
 function isValidRepoRoot(repoRoot) {
-  return existsSync7(join9(repoRoot, ".claude-plugin", "plugin.json"));
+  return existsSync7(join10(repoRoot, ".claude-plugin", "plugin.json"));
 }
 function claudeMarketplaceSource(resolvedRepo) {
   return resolvedRepo.split(sep).includes("node_modules") ? { kind: "github", repo: GITHUB_REPO } : { kind: "directory", path: resolvedRepo };
@@ -5223,7 +5295,7 @@ function describeClaudeMarketplaceSource(source) {
 }
 function canonicalDir(path4) {
   try {
-    return realpathSync3(path4);
+    return realpathSync4(path4);
   } catch {
     return resolve3(path4);
   }
@@ -5234,7 +5306,7 @@ function sameClaudeMarketplaceSource(a, b) {
   return false;
 }
 function registeredClaudeMarketplace(marketplaceName = MARKETPLACE_NAME, claudeHome) {
-  const registryPath = join9(claudeConfigRoot(claudeHome), "plugins", "known_marketplaces.json");
+  const registryPath = join10(claudeConfigRoot(claudeHome), "plugins", "known_marketplaces.json");
   try {
     const source = JSON.parse(readFileSync9(registryPath, "utf-8"))?.[marketplaceName]?.source;
     if (!source || typeof source.source !== "string") return null;
@@ -5250,7 +5322,7 @@ function isPafOwnedRegistration(registered, resolvedRepo) {
   if (canonicalDir(registered.path) === canonicalDir(resolvedRepo)) return true;
   if (!registered.path.split(sep).includes("node_modules")) return false;
   try {
-    return JSON.parse(readFileSync9(join9(registered.path, "package.json"), "utf-8"))?.name === PAF_NPM_NAME;
+    return JSON.parse(readFileSync9(join10(registered.path, "package.json"), "utf-8"))?.name === PAF_NPM_NAME;
   } catch {
     return false;
   }
@@ -5269,7 +5341,7 @@ function claudeMarketplaceStatus(repoRoot, claudeHome) {
   };
 }
 function marketplaceRecordPath(pafHome) {
-  return join9(pafHome ?? pafConfigDir(), "claude-marketplace.json");
+  return join10(pafHome ?? pafConfigDir(), "claude-marketplace.json");
 }
 function readMarketplaceRecord(pafHome) {
   try {
@@ -5285,7 +5357,7 @@ function writeMarketplaceRecord(source, pafHome) {
   try {
     const path4 = marketplaceRecordPath(pafHome);
     ensureParent(path4);
-    writeFileSync5(path4, `${JSON.stringify({ source }, null, 2)}
+    writeFileSync6(path4, `${JSON.stringify({ source }, null, 2)}
 `);
   } catch {
   }
@@ -5297,7 +5369,7 @@ function clearMarketplaceRecord(pafHome) {
   }
 }
 function pafPluginInstalls(claudeHome) {
-  const path4 = join9(claudeConfigRoot(claudeHome), "plugins", "installed_plugins.json");
+  const path4 = join10(claudeConfigRoot(claudeHome), "plugins", "installed_plugins.json");
   let plugins;
   try {
     plugins = JSON.parse(readFileSync9(path4, "utf-8"))?.plugins ?? {};
@@ -5434,6 +5506,7 @@ function installHosts(opts) {
     opencodeHome,
     codexHome,
     piHome,
+    grokHome,
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false,
@@ -5458,6 +5531,7 @@ function installHosts(opts) {
   const shouldInstallOpenCode = target === "opencode" || target === "all";
   const shouldInstallCodex = target === "codex" || target === "all";
   const shouldInstallPi = target === "pi" || target === "all";
+  const shouldInstallGrok = target === "grok" || target === "all";
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
     lines.push(`- claude: ${status} -> ${targetPath}`);
@@ -5470,6 +5544,9 @@ function installHosts(opts) {
   }
   if (shouldInstallPi) {
     lines.push(...installPi(resolvedRepo, mode, force, piHome));
+  }
+  if (shouldInstallGrok) {
+    lines.push(...installGrok(resolvedRepo, mode, force, grokHome));
   }
   if (shouldInstallClaude && syncClaudeCli) {
     lines.push(...syncClaudeMarketplace({
@@ -5492,6 +5569,7 @@ function uninstallHosts(opts) {
     opencodeHome,
     codexHome,
     piHome,
+    grokHome,
     repoRoot,
     claudeCliUnsync = "auto",
     codexCliUnsync = "auto",
@@ -5505,6 +5583,7 @@ function uninstallHosts(opts) {
   const shouldUninstallOpenCode = target === "opencode" || target === "all";
   const shouldUninstallCodex = target === "codex" || target === "all";
   const shouldUninstallPi = target === "pi" || target === "all";
+  const shouldUninstallGrok = target === "grok" || target === "all";
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
     lines.push(`- claude: ${status}`);
@@ -5522,6 +5601,9 @@ function uninstallHosts(opts) {
   }
   if (shouldUninstallPi) {
     lines.push(...uninstallPi(piHome, repoRoot));
+  }
+  if (shouldUninstallGrok) {
+    lines.push(...uninstallGrok(grokHome, repoRoot));
   }
   if (!shouldUninstallClaude) {
     return lines;
@@ -5554,7 +5636,7 @@ function verifyBackends() {
     hint: INSTALL_HINTS[name] ?? ""
   }));
 }
-var PLUGIN_NAME, MARKETPLACE_NAME, MOD_PLUGIN_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
+var PLUGIN_NAME, MARKETPLACE_NAME, MOD_PLUGIN_NAME, LEGACY_MARKETPLACE_NAME, GITHUB_REPO, INSTALL_TARGETS, INSTALL_MODES, OPENCODE_SKILLS, CODEX_SKILLS, PI_SKILLS, GROK_SKILLS, PAF_NPM_NAME, PI_INSTALL_MARKER, CODEX_MARKETPLACE_NAME, OPENCODE_LEGACY_SKILLS, CODEX_LEGACY_SKILLS, InstallerError;
 var init_installer = __esm({
   "src/installer.ts"() {
     "use strict";
@@ -5566,11 +5648,12 @@ var init_installer = __esm({
     MOD_PLUGIN_NAME = "paf-tasks";
     LEGACY_MARKETPLACE_NAME = "phone-a-friend-dev";
     GITHUB_REPO = "freibergergarcia/phone-a-friend";
-    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "pi", "all"]);
+    INSTALL_TARGETS = /* @__PURE__ */ new Set(["claude", "opencode", "codex", "pi", "grok", "all"]);
     INSTALL_MODES = /* @__PURE__ */ new Set(["symlink", "copy"]);
     OPENCODE_SKILLS = ["phone-a-friend", "curiosity-engine"];
     CODEX_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
     PI_SKILLS = ["phone-a-friend", "curiosity-engine"];
+    GROK_SKILLS = ["phone-a-friend", "curiosity-engine", "phone-a-team"];
     PAF_NPM_NAME = "@freibergergarcia/phone-a-friend";
     PI_INSTALL_MARKER = ".phone-a-friend-install";
     CODEX_MARKETPLACE_NAME = "phone-a-friend-marketplace";
@@ -17342,8 +17425,8 @@ var init_parse_editor_command = __esm({
 });
 
 // node_modules/@inquirer/external-editor/dist/index.js
-import { spawn as spawn4, spawnSync } from "child_process";
-import { mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "fs";
+import { spawn as spawn5, spawnSync } from "child_process";
+import { mkdtempSync as mkdtempSync3, readFileSync as readFileSync10, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "fs";
 import path3 from "path";
 import os3 from "os";
 import { randomUUID as randomUUID4 } from "crypto";
@@ -17402,7 +17485,7 @@ var init_dist8 = __esm({
         this.createTempFile();
         const promise = new Promise((resolve5, reject) => {
           try {
-            const editorProcess = spawn4(this.editor.bin, this.editorArgs(), {
+            const editorProcess = spawn5(this.editor.bin, this.editorArgs(), {
               shell: false,
               stdio: "inherit"
             });
@@ -17431,7 +17514,7 @@ var init_dist8 = __esm({
         if (!this.tempDir)
           return;
         try {
-          rmSync3(this.tempDir, { force: true, recursive: true });
+          rmSync4(this.tempDir, { force: true, recursive: true });
           this.tempFile = "";
           this.tempDir = "";
         } catch (removeFileError) {
@@ -17441,7 +17524,7 @@ var init_dist8 = __esm({
       createTempFile() {
         try {
           const baseDir = path3.resolve(this.fileOptions.dir ?? os3.tmpdir());
-          this.tempDir = mkdtempSync2(path3.join(baseDir, "inquirer-editor-"));
+          this.tempDir = mkdtempSync3(path3.join(baseDir, "inquirer-editor-"));
           const id = randomUUID4();
           const prefix = sanitizeAffix(this.fileOptions.prefix);
           const postfix = sanitizeAffix(this.fileOptions.postfix);
@@ -17451,7 +17534,7 @@ var init_dist8 = __esm({
           if (Object.prototype.hasOwnProperty.call(this.fileOptions, "mode")) {
             opt.mode = this.fileOptions.mode;
           }
-          writeFileSync6(this.tempFile, this.text, opt);
+          writeFileSync7(this.tempFile, this.text, opt);
         } catch (createFileError) {
           throw new CreateFileError(createFileError);
         }
@@ -18717,7 +18800,9 @@ var init_detection = __esm({
       // doctor counts/exit-code only include OpenCode when it is present.
       { name: "opencode", installHint: "npm install -g opencode-ai", label: "OpenCode CLI", optional: true },
       // Optional for the same reason: most users do not have pi installed.
-      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent", optional: true }
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent", optional: true },
+      // Optional for the same reason: Grok Build is a separate install.
+      { name: "grok", installHint: INSTALL_HINTS.grok, label: "Grok Build", optional: true }
     ];
     OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
@@ -18725,7 +18810,8 @@ var init_detection = __esm({
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
       { name: "opencode", installHint: "npm install -g opencode-ai", label: "OpenCode CLI" },
       { name: "codex", installHint: "npm install -g @openai/codex", label: "OpenAI Codex CLI" },
-      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent CLI" }
+      { name: "pi", installHint: INSTALL_HINTS.pi, label: "Pi coding agent CLI" },
+      { name: "grok", installHint: INSTALL_HINTS.grok, label: "Grok Build CLI" }
     ];
   }
 });
@@ -73121,6 +73207,16 @@ function PluginSummary({ pluginInstalled, pluginHosts }) {
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: pluginHosts.codex ? "green" : "yellow", children: [
         pluginHosts.codex ? "\u2713" : "!",
         " Codex"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: " \xB7 " }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: pluginHosts.pi ? "green" : "yellow", children: [
+        pluginHosts.pi ? "\u2713" : "!",
+        " pi"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { dimColor: true, children: " \xB7 " }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Text, { color: pluginHosts.grok ? "green" : "yellow", children: [
+        pluginHosts.grok ? "\u2713" : "!",
+        " Grok"
       ] })
     ] });
   }
@@ -73738,7 +73834,7 @@ var init_ConfigPanel = __esm({
 });
 
 // src/tui/ActionsPanel.tsx
-import { spawn as spawn6 } from "child_process";
+import { spawn as spawn7 } from "child_process";
 import { mkdirSync as mkdirSync9, existsSync as existsSync12 } from "fs";
 import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
@@ -73765,15 +73861,17 @@ function formatBackendSummary(report) {
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
   const piInstalled = isPiInstalled();
+  const grokInstalled = isGrokInstalled();
   lines.push(`  ${claudeInstalled ? "\u2713" : "!"} claude     ${claudeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${opencodeInstalled ? "\u2713" : "!"} opencode   ${opencodeInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${codexInstalled ? "\u2713" : "!"} codex      ${codexInstalled ? "installed" : "not installed"}`);
   lines.push(`  ${piInstalled ? "\u2713" : "!"} pi         ${piInstalled ? "installed" : "not installed"}`);
+  lines.push(`  ${grokInstalled ? "\u2713" : "!"} grok       ${grokInstalled ? "installed" : "not installed"}`);
   return lines.join("\n");
 }
 function spawnPaf(args, processRef, fallbackMessage) {
   return new Promise((resolve5, reject) => {
-    const proc = spawn6(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
+    const proc = spawn7(process.execPath, [process.argv[1] ?? "phone-a-friend", ...args], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     processRef.current = proc;
@@ -73800,6 +73898,7 @@ function buildActionGroups(report, onRefresh, processRef) {
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
   const piInstalled = isPiInstalled();
+  const grokInstalled = isGrokInstalled();
   return [
     {
       title: "Diagnostics",
@@ -73828,7 +73927,7 @@ function buildActionGroups(report, onRefresh, processRef) {
             const editor = parts[0];
             const editorArgs = [...parts.slice(1), paths.user];
             return new Promise((resolve5, reject) => {
-              const proc = spawn6(editor, editorArgs, { stdio: "inherit" });
+              const proc = spawn7(editor, editorArgs, { stdio: "inherit" });
               processRef.current = proc;
               proc.on("close", () => {
                 processRef.current = null;
@@ -73933,6 +74032,27 @@ function buildActionGroups(report, onRefresh, processRef) {
           description: "Remove the skills from the pi agent directory",
           confirm: "Uninstall pi skills? (y/n)",
           run: () => spawnPaf(["plugin", "uninstall", "--pi"], processRef, "pi skills uninstalled")
+        }
+      ]
+    },
+    {
+      title: "Grok",
+      installed: grokInstalled,
+      actions: [
+        {
+          label: grokInstalled ? "Reinstall" : "Install",
+          description: grokInstalled ? "Refresh skills under ~/.grok/skills" : "Install skills under ~/.grok/skills",
+          run: () => spawnPaf(
+            ["plugin", "install", "--grok", "--force", "--no-claude-cli-sync"],
+            processRef,
+            "Grok skills installed"
+          )
+        },
+        {
+          label: "Uninstall",
+          description: "Remove PaF-owned skills from ~/.grok/skills",
+          confirm: "Uninstall Grok skills? (y/n)",
+          run: () => spawnPaf(["plugin", "uninstall", "--grok"], processRef, "Grok skills uninstalled")
         }
       ]
     }
@@ -74391,7 +74511,9 @@ function PluginStatusBar({ installed = false, hosts }) {
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Codex", installed: hosts.codex }),
       /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "pi", installed: hosts.pi })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "pi", installed: hosts.pi }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Text, { dimColor: true, children: "\xB7" }),
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(HostLabel, { label: "Grok", installed: hosts.grok })
     ] });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Box_default, { marginBottom: 1, children: installed ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(Text, { color: "green", children: [
@@ -74414,7 +74536,8 @@ function readStatus() {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
     codex: isCodexInstalled(),
-    pi: isPiInstalled()
+    pi: isPiInstalled(),
+    grok: isGrokInstalled()
   };
 }
 function usePluginStatus() {
@@ -74434,14 +74557,14 @@ var init_usePluginStatus = __esm({
 });
 
 // src/agentic/bus.ts
-import { join as join11 } from "path";
+import { join as join12 } from "path";
 import { mkdirSync as mkdirSync10 } from "fs";
 import { homedir as homedir9 } from "os";
 function defaultDbPath() {
-  const configBase = process.env.XDG_CONFIG_HOME ?? join11(homedir9(), ".config");
-  const dir = join11(configBase, "phone-a-friend");
+  const configBase = process.env.XDG_CONFIG_HOME ?? join12(homedir9(), ".config");
+  const dir = join12(configBase, "phone-a-friend");
   mkdirSync10(dir, { recursive: true });
-  return join11(dir, "agentic.db");
+  return join12(dir, "agentic.db");
 }
 function rowToMessage(row) {
   return {
@@ -74915,7 +75038,7 @@ var init_queue = __esm({
 });
 
 // src/agentic/session.ts
-import { spawn as spawn7 } from "child_process";
+import { spawn as spawn8 } from "child_process";
 import { randomUUID as randomUUID5 } from "crypto";
 function assertAgenticBackendSupported(backendName) {
   if (backendName === AGENTIC_NATIVE_BACKEND) return;
@@ -75076,7 +75199,7 @@ ${prompt}`,
         if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
         return new Promise((resolve5, reject) => {
           const grouped = process.platform !== "win32";
-          const child = spawn7("claude", args, {
+          const child = spawn8("claude", args, {
             env: this.cleanEnv(),
             cwd: repoPath,
             detached: grouped,
@@ -78270,6 +78393,399 @@ registerBackend(OPENCODE_BACKEND);
 
 // src/index.ts
 init_pi();
+
+// src/backends/grok.ts
+init_backends();
+import { spawn as spawn4 } from "child_process";
+import { mkdtempSync as mkdtempSync2, realpathSync as realpathSync3, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "fs";
+import { tmpdir as tmpdir2 } from "os";
+import { join as join7, resolve as resolvePath4 } from "path";
+var GrokBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "GrokBackendError";
+  }
+};
+var FINISHED_STOP_REASONS = /* @__PURE__ */ new Set(["stop", "length", "end_turn"]);
+function isGrokHostEnv(env5) {
+  return env5.GROK_AGENT === "1" || env5.PHONE_A_FRIEND_HOST?.toLowerCase() === "grok";
+}
+function assertNotGrokHost(env5) {
+  if (!isGrokHostEnv(env5)) return;
+  throw new GrokBackendError(
+    "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama."
+  );
+}
+function isFinishedGrokStop(reason) {
+  if (typeof reason !== "string") return false;
+  return FINISHED_STOP_REASONS.has(reason);
+}
+function buildGrokArgs(opts) {
+  const args = [
+    "--no-auto-update",
+    "--output-format",
+    opts.outputFormat ?? "json",
+    "--cwd",
+    opts.repoPath,
+    "--prompt-file",
+    opts.promptFile
+  ];
+  if (opts.model) args.push("-m", opts.model);
+  if (opts.schema) args.push("--json-schema", opts.schema);
+  if (opts.sessionId) {
+    args.push(opts.resumeSession ? "--resume" : "--session-id", opts.sessionId);
+  }
+  switch (opts.sandbox) {
+    case "read-only":
+      args.push(
+        "--sandbox",
+        "read-only",
+        "--permission-mode",
+        "dontAsk",
+        "--allow",
+        "Read",
+        "--allow",
+        "Grep",
+        "--deny",
+        "Bash",
+        "--deny",
+        "Edit"
+      );
+      break;
+    case "workspace-write":
+      args.push(
+        "--sandbox",
+        "workspace",
+        "--permission-mode",
+        "dontAsk",
+        "--allow",
+        "Read",
+        "--allow",
+        "Grep",
+        "--allow",
+        "Edit",
+        "--deny",
+        "Bash"
+      );
+      break;
+    case "danger-full-access":
+      args.push("--sandbox", "off", "--permission-mode", "bypassPermissions");
+      break;
+  }
+  return args;
+}
+function structuredText(record) {
+  const key = Object.hasOwn(record, "structured_output") ? "structured_output" : "structuredOutput";
+  if (!Object.hasOwn(record, key)) return null;
+  const value = record[key];
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+function parseGrokEnvelope(stdout, opts = {}) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new GrokBackendError("Grok returned output that is not JSON.");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new GrokBackendError("Grok returned JSON that is not a result object.");
+  }
+  const record = parsed;
+  if (record.type === "error") {
+    const message = typeof record.message === "string" && record.message.trim() !== "" ? record.message.trim() : "Grok returned an error envelope.";
+    throw new GrokBackendError(`Grok returned an error: ${message}`);
+  }
+  const sessionId = typeof record.sessionId === "string" && record.sessionId.trim() !== "" ? record.sessionId : null;
+  const structured = opts.schema ? structuredText(record) : null;
+  const text = structured ?? record.text;
+  if (isFinishedGrokStop(record.stopReason) && typeof text === "string" && text.trim() !== "") {
+    return { text, sessionId };
+  }
+  const reason = typeof record.stopReason === "string" ? record.stopReason : "missing";
+  throw new GrokBackendError(`Grok did not return a finished answer (stopReason: ${reason}).`);
+}
+function textFromAcpUpdate(record) {
+  const params = record.params;
+  if (!params || typeof params !== "object") return "";
+  const update = params.update;
+  if (!update || typeof update !== "object") return "";
+  const body = update;
+  if (body.sessionUpdate !== "agent_message_chunk") return "";
+  const content = body.content;
+  if (!content || typeof content !== "object") return "";
+  const chunk = content;
+  return chunk.type === "text" && typeof chunk.text === "string" ? chunk.text : "";
+}
+function interpretGrokStreamLine(line) {
+  const empty = {
+    text: "",
+    activity: null,
+    sessionId: null,
+    finished: false,
+    stopReason: null,
+    error: null
+  };
+  const trimmed = line.trim();
+  if (!trimmed) return empty;
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return empty;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
+  const record = parsed;
+  if (typeof record.type !== "string") {
+    return { ...empty, text: textFromAcpUpdate(record) };
+  }
+  if (record.type === "error") {
+    const message = typeof record.message === "string" && record.message.trim() !== "" ? record.message.trim() : "Grok returned an error envelope.";
+    return { ...empty, error: `Grok returned an error: ${message}` };
+  }
+  if (record.type === "text" && typeof record.data === "string") {
+    return { ...empty, text: record.data };
+  }
+  if (record.type === "tool_call") {
+    const name = typeof record.toolName === "string" && record.toolName.trim() !== "" ? record.toolName.trim() : "tool";
+    return { ...empty, activity: `Running: ${name}` };
+  }
+  if (record.type === "end") {
+    return {
+      ...empty,
+      finished: true,
+      stopReason: typeof record.stopReason === "string" ? record.stopReason : null,
+      sessionId: typeof record.sessionId === "string" && record.sessionId.trim() !== "" ? record.sessionId : null
+    };
+  }
+  return empty;
+}
+function canonicalRepoPath2(repoPath) {
+  try {
+    return realpathSync3(resolvePath4(repoPath));
+  } catch (err) {
+    throw new GrokBackendError(
+      `Repository path cannot be resolved: ${repoPath} (${err instanceof Error ? err.message : String(err)})`
+    );
+  }
+}
+function writePromptFile(prompt) {
+  const dir = mkdtempSync2(join7(tmpdir2(), "paf-grok-"));
+  const file = join7(dir, "prompt.txt");
+  try {
+    writeFileSync4(file, prompt, "utf8");
+  } catch (err) {
+    rmSync2(dir, { recursive: true, force: true });
+    throw err;
+  }
+  return { dir, file };
+}
+function grokFailureText(stdout) {
+  const trimmed = stdout.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string") {
+      return parsed.message.trim().slice(0, 500);
+    }
+  } catch {
+  }
+  return trimmed.slice(0, 500);
+}
+var GROK_KILL_GRACE_MS = 2e3;
+function toGrokError(err, timeoutSeconds) {
+  if (err instanceof GrokBackendError) return err;
+  if (err instanceof SpawnCliTimeoutError) {
+    return new GrokBackendError(`Grok timed out after ${timeoutSeconds}s`);
+  }
+  if (err instanceof SpawnCliError) {
+    const detail = err.stderr.trim() || grokFailureText(err.stdout) || err.message;
+    return new GrokBackendError(
+      `Grok exited with code ${err.exitCode ?? "unknown"}${detail ? `: ${detail}` : ""}`
+    );
+  }
+  if (err instanceof BackendError) return new GrokBackendError(err.message);
+  return new GrokBackendError(err instanceof Error ? err.message : String(err));
+}
+function grokRunArgs(opts, promptFile, repoCwd, outputFormat) {
+  return buildGrokArgs({
+    promptFile,
+    repoPath: repoCwd,
+    sandbox: opts.sandbox,
+    model: opts.model,
+    outputFormat,
+    schema: outputFormat === "json" ? opts.schema : null,
+    sessionId: opts.sessionId,
+    resumeSession: opts.resumeSession
+  });
+}
+var GrokBackend = class {
+  name = "grok";
+  localFileAccess = true;
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  capabilities = {
+    resumeStrategy: "native-session",
+    requiresClientSessionId: true
+  };
+  async run(opts) {
+    assertNotGrokHost(opts.env);
+    const repoCwd = canonicalRepoPath2(opts.repoPath);
+    const promptFile = writePromptFile(opts.prompt);
+    try {
+      const result = await spawnCli("grok", grokRunArgs(opts, promptFile.file, repoCwd, "json"), {
+        timeoutMs: opts.timeoutSeconds * 1e3,
+        env: opts.env,
+        cwd: repoCwd,
+        label: "grok",
+        killGraceMs: GROK_KILL_GRACE_MS
+      });
+      const parsed = parseGrokEnvelope(result.stdout, { schema: Boolean(opts.schema) });
+      const sessionId = parsed.sessionId ?? opts.sessionId ?? null;
+      if (sessionId) opts.onSessionCreated?.(sessionId);
+      return parsed.text;
+    } catch (err) {
+      throw toGrokError(err, opts.timeoutSeconds);
+    } finally {
+      rmSync2(promptFile.dir, { recursive: true, force: true });
+    }
+  }
+  async *runStream(opts) {
+    assertNotGrokHost(opts.env);
+    if (opts.schema) {
+      throw new GrokBackendError(
+        "Grok structured output uses batch JSON. Do not combine --schema or --verdict-json with streaming."
+      );
+    }
+    const repoCwd = canonicalRepoPath2(opts.repoPath);
+    const promptFile = writePromptFile(opts.prompt);
+    let child;
+    try {
+      child = spawn4("grok", grokRunArgs(opts, promptFile.file, repoCwd, "streaming-json"), {
+        stdio: ["ignore", "pipe", "pipe"],
+        cwd: repoCwd,
+        env: opts.env
+      });
+    } catch (err) {
+      rmSync2(promptFile.dir, { recursive: true, force: true });
+      throw toGrokError(err, opts.timeoutSeconds);
+    }
+    child.stdout?.setEncoding("utf8");
+    let ended = false;
+    let spawnError = null;
+    let killTimer = null;
+    const exit = new Promise((resolve5) => {
+      const finish = (code, signal) => {
+        ended = true;
+        if (killTimer) clearTimeout(killTimer);
+        resolve5({ code, signal });
+      };
+      child.once("error", (err) => {
+        spawnError = err;
+      });
+      child.once("close", (code, signal) => finish(code, signal));
+    });
+    const terminate = () => {
+      if (ended) return;
+      child.kill("SIGTERM");
+      killTimer ??= setTimeout(() => {
+        if (!ended) child.kill("SIGKILL");
+      }, GROK_KILL_GRACE_MS);
+    };
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, opts.timeoutSeconds * 1e3);
+    let interrupted = false;
+    const onSigint = () => {
+      interrupted = true;
+      terminate();
+    };
+    const onStdoutError = () => {
+      terminate();
+    };
+    process.on("SIGINT", onSigint);
+    process.stdout.on("error", onStdoutError);
+    const stderrChunks = [];
+    child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    let buffer = "";
+    let hasText = false;
+    let finished = false;
+    let sessionId = opts.sessionId ?? null;
+    let streamError = null;
+    const take = (piece) => {
+      if (piece.error) throw new GrokBackendError(piece.error);
+      if (piece.activity && opts.onEvent) {
+        const event = { type: "activity", message: piece.activity };
+        opts.onEvent(event);
+      }
+      if (piece.sessionId) sessionId = piece.sessionId;
+      if (piece.finished) {
+        finished = true;
+        if (!isFinishedGrokStop(piece.stopReason)) {
+          const reason = piece.stopReason ?? "missing";
+          throw new GrokBackendError(`Grok did not return a finished answer (stopReason: ${reason}).`);
+        }
+      }
+      return piece.text;
+    };
+    try {
+      try {
+        for await (const chunk of child.stdout) {
+          buffer += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const text = take(interpretGrokStreamLine(line));
+            if (text) {
+              hasText ||= text.trim() !== "";
+              yield text;
+            }
+          }
+        }
+        if (buffer.trim()) {
+          const text = take(interpretGrokStreamLine(buffer));
+          if (text) {
+            hasText ||= text.trim() !== "";
+            yield text;
+          }
+        }
+      } catch (err) {
+        streamError = err;
+        terminate();
+      }
+      const { code, signal } = await exit;
+      const stderr = Buffer.concat(stderrChunks).toString().trim();
+      if (timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
+      if (spawnError) throw spawnError;
+      if (interrupted) throw new GrokBackendError("Grok interrupted by SIGINT");
+      if (streamError) throw streamError;
+      if (signal) throw new GrokBackendError(`Grok killed by signal ${signal}`);
+      if (code !== 0) {
+        throw new GrokBackendError(`Grok exited with code ${code}${stderr ? `: ${stderr}` : ""}`);
+      }
+      if (!finished) throw new GrokBackendError("Grok did not return a finished answer (stopReason: missing).");
+      if (!hasText) throw new GrokBackendError("Grok did not return a finished answer (stopReason: missing).");
+      if (sessionId) opts.onSessionCreated?.(sessionId);
+    } catch (err) {
+      throw toGrokError(err, opts.timeoutSeconds);
+    } finally {
+      clearTimeout(timer);
+      process.removeListener("SIGINT", onSigint);
+      process.stdout.removeListener("error", onStdoutError);
+      if (!ended) {
+        terminate();
+        await exit;
+      }
+      rmSync2(promptFile.dir, { recursive: true, force: true });
+    }
+  }
+};
+var GROK_BACKEND = new GrokBackend();
+registerBackend(GROK_BACKEND);
 
 // src/cli.ts
 import { existsSync as existsSync13, readFileSync as readFileSync13 } from "fs";
@@ -85396,6 +85912,29 @@ async function setup(opts) {
       }
     }
   }
+  const grokAvailable = report.host.some((h) => h.name === "grok" && h.available);
+  if (grokAvailable) {
+    console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("Grok integration")}`);
+    const installGrok2 = await dist_default6({
+      message: "Install Grok skills (phone-a-friend, curiosity-engine, phone-a-team)?",
+      default: true
+    });
+    if (installGrok2) {
+      try {
+        const repoRoot = opts?.repoRoot ?? getPackageRoot();
+        const lines = installHosts({
+          repoRoot,
+          target: "grok",
+          mode: "symlink",
+          force: true,
+          syncClaudeCli: false
+        });
+        for (const line of lines) console.log(`  ${line}`);
+      } catch (err) {
+        console.log(theme.warning(`  Grok install failed: ${err.message}`));
+      }
+    }
+  }
   const existing = loadConfig(opts?.repoRoot);
   const cfg = {
     ...existing,
@@ -85470,7 +86009,7 @@ init_version();
 init_installer();
 
 // src/updates.ts
-import { spawn as spawn5 } from "child_process";
+import { spawn as spawn6 } from "child_process";
 import {
   closeSync as closeSync3,
   existsSync as existsSync8,
@@ -85480,18 +86019,18 @@ import {
   readFileSync as readFileSync11,
   renameSync as renameSync3,
   unlinkSync as unlinkSync3,
-  writeFileSync as writeFileSync7
+  writeFileSync as writeFileSync8
 } from "fs";
 import { homedir as homedir8 } from "os";
-import { dirname as dirname9, join as join10 } from "path";
+import { dirname as dirname9, join as join11 } from "path";
 var CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1e3;
 var NOTIFY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1e3;
 var FETCH_TIMEOUT_MS = 5e3;
 var PACKAGE_NAME = "@freibergergarcia/phone-a-friend";
 var REGISTRY_URL = "https://registry.npmjs.org/-/package/@freibergergarcia%2Fphone-a-friend/dist-tags";
 function defaultCachePath2(env5 = process.env, home = homedir8()) {
-  const base = env5.XDG_CONFIG_HOME ?? join10(home, ".config");
-  return join10(base, "phone-a-friend", "update-check.json");
+  const base = env5.XDG_CONFIG_HOME ?? join11(home, ".config");
+  return join11(base, "phone-a-friend", "update-check.json");
 }
 function emptySnapshot(currentVersion) {
   return {
@@ -85547,7 +86086,7 @@ function writeSnapshot(filePath, snapshot) {
   const tmpFd = openSync3(tmpPath, "w");
   try {
     try {
-      writeFileSync7(tmpFd, payload, "utf-8");
+      writeFileSync8(tmpFd, payload, "utf-8");
       fsyncSync2(tmpFd);
     } finally {
       closeSync3(tmpFd);
@@ -85703,7 +86242,7 @@ function kickoffBackgroundRefresh(args) {
   if (!isPafEntryScript(entryScript)) return;
   if (isTestRuntimeEnv(process.env)) return;
   try {
-    const child = spawn5(
+    const child = spawn6(
       process.execPath,
       [entryScript, "__update-check", "refresh"],
       {
@@ -85861,6 +86400,7 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
   lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning("!")} OpenCode commands/skills ${hostInstallations.opencode ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.codex ? theme.checkmark : theme.warning("!")} Codex skills ${hostInstallations.codex ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push(`    ${hostInstallations.pi ? theme.checkmark : theme.warning("!")} pi skills ${hostInstallations.pi ? theme.success("installed") : theme.warning("not installed")}`);
+  lines.push(`    ${hostInstallations.grok ? theme.checkmark : theme.warning("!")} Grok skills ${hostInstallations.grok ? theme.success("installed") : theme.warning("not installed")}`);
   lines.push("");
   const defaultBackend = config.defaults?.backend ?? DEFAULT_CONFIG.defaults.backend;
   lines.push(`  ${theme.label("Default:")} ${defaultBackend}`);
@@ -86044,6 +86584,12 @@ async function collectAdvisories(report) {
   const pi = report.cli.find((b) => b.name === "pi" && b.available);
   const piAdvisory = pi ? piVersionAdvisory(pi) : null;
   if (piAdvisory) out.push(piAdvisory);
+  const grok = report.cli.find((b) => b.name === "grok" && b.available);
+  if (grok) {
+    out.push(
+      "Grok Build is installed. --fast has no effect for --to grok; a relay still loads project instructions through --cwd."
+    );
+  }
   return out;
 }
 function claudeMarketplaceAdvisory(status) {
@@ -86081,7 +86627,8 @@ async function doctor(opts) {
     claude: isPluginInstalled(),
     opencode: isOpenCodeInstalled(),
     codex: isCodexInstalled(),
-    pi: isPiInstalled()
+    pi: isPiInstalled(),
+    grok: isGrokInstalled()
   };
   const updateCheck = collectUpdateCheckState(config);
   if (opts?.json) {
@@ -86136,6 +86683,7 @@ function inferHost() {
   const explicit = process.env.PHONE_A_FRIEND_HOST?.trim().toLowerCase();
   if (explicit) return explicit;
   if (process.env.CLAUDECODE === "1") return "claude";
+  if (process.env.GROK_AGENT === "1") return "grok";
   return null;
 }
 function errorMessage(error2) {
@@ -86283,7 +86831,7 @@ function beginTrackedRun(input) {
 init_tasks();
 
 // src/status-line.ts
-import { realpathSync as realpathSync4 } from "fs";
+import { realpathSync as realpathSync5 } from "fs";
 import { sep as sep2 } from "path";
 var STATUS_LINE_PREFIX = "\u25C7";
 var DEFAULT_RECENT_MINUTES = 2;
@@ -86324,7 +86872,7 @@ function truncateDetail(text, max = MAX_DETAIL_CHARS) {
 function taskMatchesCwd(task, cwd2) {
   const candidates = /* @__PURE__ */ new Set([cwd2]);
   try {
-    candidates.add(realpathSync4(cwd2));
+    candidates.add(realpathSync5(cwd2));
   } catch {
   }
   const root = task.repoPath.endsWith(sep2) ? task.repoPath : task.repoPath + sep2;
@@ -86535,7 +87083,7 @@ function printBackendAvailability() {
 }
 function resolveHostTarget(opts) {
   if (opts.all) return "all";
-  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi].filter(Boolean).length;
+  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi, opts.grok].filter(Boolean).length;
   if (selected > 1) {
     throw new InstallerError(
       "Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag."
@@ -86544,6 +87092,7 @@ function resolveHostTarget(opts) {
   if (opts.opencode) return "opencode";
   if (opts.codex) return "codex";
   if (opts.pi) return "pi";
+  if (opts.grok) return "grok";
   return "claude";
 }
 function installAction(opts) {
@@ -86556,9 +87105,9 @@ function installAction(opts) {
       console.error("Error: --repo-root is not compatible with --github");
       return 1;
     }
-    if (opts.opencode || opts.codex || opts.pi || opts.all) {
+    if (opts.opencode || opts.codex || opts.pi || opts.grok || opts.all) {
       console.error(
-        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, and pi has its own package manager. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode`, `--codex` and/or `--pi` separately."
+        "Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, pi has its own package manager, and Grok installs skills into ~/.grok/skills. Run `phone-a-friend plugin install --github` for Claude, then `phone-a-friend plugin install --opencode`, `--codex`, `--pi`, and/or `--grok` separately."
       );
       return 1;
     }
@@ -86607,13 +87156,13 @@ function uninstallAction(opts) {
   for (const line of lines) console.log(line);
 }
 function addInstallOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Register the Claude marketplace from GitHub, repointing a folder registration").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex (skills under $CODEX_HOME plus marketplace registration)", false).option("--pi", "Install for pi (skills under its agent directory, used as /skill:<name>)", false).option("--grok", "Install for Grok (skills under ~/.grok/skills)", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--force", "Replace existing installation", false).option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync (skip codex plugin marketplace add / plugin add)").option("--github", "Register the Claude marketplace from GitHub, repointing a folder registration").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
 }
 function addUpdateOptions(cmd) {
-  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
+  return cmd.option("--claude", "Install for Claude", false).option("--opencode", "Install for OpenCode", false).option("--codex", "Install for Codex", false).option("--pi", "Install for pi", false).option("--grok", "Install for Grok", false).option("--all", "Install for all supported hosts", false).option("--mode <mode>", "Installation mode: symlink or copy", "symlink").option("--repo-root <path>", "Repository root path").option("--no-claude-cli-sync", "Skip Claude CLI sync").option("--no-codex-cli-sync", "Skip Codex CLI sync").option("--force-marketplace-sync", "Repoint a Claude marketplace registered from another source (reinstalls PaF plugins)");
 }
 function addUninstallOptions(cmd) {
-  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--pi", "Uninstall for pi", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
+  return cmd.option("--claude", "Uninstall for Claude", false).option("--opencode", "Uninstall for OpenCode", false).option("--codex", "Uninstall for Codex", false).option("--pi", "Uninstall for pi", false).option("--grok", "Uninstall for Grok", false).option("--all", "Uninstall for all supported hosts", false).option("--purge-marketplace", "Also remove marketplace registration (even if installed remotely)").option("--no-codex-cli-sync", "Skip codex plugin remove / marketplace remove during uninstall");
 }
 async function run(argv) {
   const normalized = normalizeArgv(argv);
@@ -86729,11 +87278,11 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi").option("--repo <path>", "Repository path", process.cwd()).option(
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok").option("--repo <path>", "Repository path", process.cwd()).option(
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op elsewhere)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {
@@ -86787,6 +87336,7 @@ ${banner("AI coding agent relay")}
       }
       const peerMessaging = backendName === "claude" ? resolved.claudePeerMessaging : void 0;
       if (isReview) {
+        refuseUnsupportedRelaySession(backendName, opts.session ?? null, opts.backendSession ?? null);
         const tracked2 = beginTrackedRun({
           mode: taskMode,
           kind: "review",
@@ -86822,6 +87372,8 @@ ${banner("AI coding agent relay")}
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
+            session: opts.session ?? null,
+            backendSession: opts.backendSession ?? null,
             observer: mergeObservers(tracked2.observer, progress.observer)
           });
           if (isVerdictJson) {

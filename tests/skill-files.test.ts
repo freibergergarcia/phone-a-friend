@@ -830,6 +830,43 @@ describe('direct-mode Gemini commands use approval modes, never --yolo', () => {
   });
 });
 
+describe('grok as a host', () => {
+  const friend = readFile('skills/phone-a-friend/SKILL.md');
+  const command = readFile('commands/phone-a-friend.md');
+  const curiosity = readFile('skills/curiosity-engine/SKILL.md');
+
+  it('phone-a-friend tells a Grok host not to pick grok and to set the host marker', () => {
+    expect(friend).toMatch(/From Grok, do not select `grok` as the friend backend/);
+    expect(friend).toContain('PHONE_A_FRIEND_HOST=grok');
+    expect(friend).toContain('GROK_AGENT=1');
+    expect(friend).toContain('In Claude Code, Codex, and Grok');
+    expect(command).toContain('PHONE_A_FRIEND_HOST=grok');
+    expect(command).toContain('Claude Code, Codex, and Grok');
+  });
+
+  it('keeps grok out of the default parallel loop', () => {
+    expect(friend).toMatch(/for BACKEND in claude gemini;/);
+    expect(friend).not.toMatch(/for BACKEND in[^\n]*\bgrok\b/);
+    expect(friend).toMatch(/leave it out of this default loop/);
+  });
+
+  it('shows the read-only direct call and reads text from the envelope', () => {
+    expect(friend).toContain('grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE"');
+    expect(friend).toContain('--sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit');
+    expect(friend).toMatch(/stopReason` is `stop`, `length`, or `end_turn`/);
+    expect(friend).not.toMatch(/Do not pass `--to grok`, `--session`, or `--fast`/);
+    expect(friend).toContain('`--session` works with Grok');
+    expect(command).not.toMatch(/Do not pass\s+`--session` or `--fast` from Grok/);
+    expect(command).toContain('`--session` works with Grok');
+    expect(curiosity).toContain('--backend antigravity|codex|gemini|ollama|grok');
+    expect(curiosity).toContain('command -v grok');
+    expect(curiosity).toContain('PHONE_A_FRIEND_HOST=grok');
+    expect(curiosity).toMatch(/`--backend` accepts only `antigravity`,\s+`codex`, `gemini`, or `ollama` from Grok/);
+    expect(curiosity).toMatch(/If the host is Grok and\s+`--backend` is `grok`, report an error and stop/);
+    expect(curiosity).not.toMatch(/Choose `antigravity`, `codex`, `gemini`, `claude`/);
+  });
+});
+
 describe('pi as a host', () => {
   // pi loads a skill from its agent directory and runs it as /skill:<name>
   // (pi docs: skills.md). The skill text has to say what differs there.
@@ -914,7 +951,7 @@ describe('pi is binary-mode only in every skill and command', () => {
   }
 
   it('the OpenCode overlay and the reviewer subagent list pi among the backends', () => {
-    expect(readFile('skills/phone-a-friend/COMMAND.opencode.md')).toMatch(/`claude`, `pi`, or `ollama`/);
+    expect(readFile('skills/phone-a-friend/COMMAND.opencode.md')).toMatch(/`claude`, `pi`, `grok`, or `ollama`/);
     expect(readFile('agents/paf-reviewer.md')).toMatch(/description:[^\n]*\bpi\b/);
   });
 });

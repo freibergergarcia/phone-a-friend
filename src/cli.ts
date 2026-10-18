@@ -16,6 +16,7 @@ import {
   relayStream,
   reviewRelay,
   mergeObservers,
+  refuseUnsupportedRelaySession,
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
@@ -214,10 +215,11 @@ function resolveHostTarget(opts: {
   opencode?: boolean;
   codex?: boolean;
   pi?: boolean;
+  grok?: boolean;
   all?: boolean;
-}): 'claude' | 'opencode' | 'codex' | 'pi' | 'all' {
+}): 'claude' | 'opencode' | 'codex' | 'pi' | 'grok' | 'all' {
   if (opts.all) return 'all';
-  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi].filter(Boolean).length;
+  const selected = [opts.claude, opts.opencode, opts.codex, opts.pi, opts.grok].filter(Boolean).length;
   if (selected > 1) {
     throw new InstallerError(
       'Multiple host flags cannot be combined. Pass --all to install every host, or pick one flag.',
@@ -226,6 +228,7 @@ function resolveHostTarget(opts: {
   if (opts.opencode) return 'opencode';
   if (opts.codex) return 'codex';
   if (opts.pi) return 'pi';
+  if (opts.grok) return 'grok';
   return 'claude';
 }
 
@@ -234,6 +237,7 @@ function installAction(opts: {
   opencode?: boolean;
   codex?: boolean;
   pi?: boolean;
+  grok?: boolean;
   all?: boolean;
   mode?: string;
   force?: boolean;
@@ -253,12 +257,12 @@ function installAction(opts: {
       console.error('Error: --repo-root is not compatible with --github');
       return 1;
     }
-    if (opts.opencode || opts.codex || opts.pi || opts.all) {
+    if (opts.opencode || opts.codex || opts.pi || opts.grok || opts.all) {
       console.error(
         'Error: --github only applies to Claude Code; OpenCode and Codex have no marketplace, ' +
-          'and pi has its own package manager. ' +
+          'pi has its own package manager, and Grok installs skills into ~/.grok/skills. ' +
           'Run `phone-a-friend plugin install --github` for Claude, then ' +
-          '`phone-a-friend plugin install --opencode`, `--codex` and/or `--pi` separately.',
+          '`phone-a-friend plugin install --opencode`, `--codex`, `--pi`, and/or `--grok` separately.',
       );
       return 1;
     }
@@ -290,6 +294,7 @@ function updateAction(opts: {
   opencode?: boolean;
   codex?: boolean;
   pi?: boolean;
+  grok?: boolean;
   all?: boolean;
   mode?: string;
   repoRoot?: string;
@@ -316,6 +321,7 @@ function uninstallAction(opts: {
   opencode?: boolean;
   codex?: boolean;
   pi?: boolean;
+  grok?: boolean;
   all?: boolean;
   purgeMarketplace?: boolean;
   codexCliSync?: boolean;
@@ -340,6 +346,7 @@ function addInstallOptions(cmd: Command): Command {
     .option('--opencode', 'Install for OpenCode', false)
     .option('--codex', 'Install for Codex (skills under $CODEX_HOME plus marketplace registration)', false)
     .option('--pi', 'Install for pi (skills under its agent directory, used as /skill:<name>)', false)
+    .option('--grok', 'Install for Grok (skills under ~/.grok/skills)', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--force', 'Replace existing installation', false)
@@ -356,6 +363,7 @@ function addUpdateOptions(cmd: Command): Command {
     .option('--opencode', 'Install for OpenCode', false)
     .option('--codex', 'Install for Codex', false)
     .option('--pi', 'Install for pi', false)
+    .option('--grok', 'Install for Grok', false)
     .option('--all', 'Install for all supported hosts', false)
     .option('--mode <mode>', 'Installation mode: symlink or copy', 'symlink')
     .option('--repo-root <path>', 'Repository root path')
@@ -370,6 +378,7 @@ function addUninstallOptions(cmd: Command): Command {
     .option('--opencode', 'Uninstall for OpenCode', false)
     .option('--codex', 'Uninstall for Codex', false)
     .option('--pi', 'Uninstall for pi', false)
+    .option('--grok', 'Uninstall for Grok', false)
     .option('--all', 'Uninstall for all supported hosts', false)
     .option('--purge-marketplace', 'Also remove marketplace registration (even if installed remotely)')
     .option('--no-codex-cli-sync', 'Skip codex plugin remove / marketplace remove during uninstall');
@@ -525,7 +534,7 @@ export async function run(argv: string[]): Promise<number> {
     .command('relay')
     .description('Relay prompt/context to a coding backend (default)')
     .option('--prompt <text>', 'Prompt to relay (required unless review mode is selected)')
-    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi')
+    .option('--to <backend>', 'Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok')
     .option('--repo <path>', 'Repository path', process.cwd())
     .option('--context-file <path>', 'File with additional context (repeat to attach several, in order)',
       (value: string, previous: string[] | undefined) => [...(previous ?? []), value])
@@ -539,7 +548,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--schema <json>', 'Request structured JSON output matching this schema')
     .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
     .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
-    .option('--fast', 'Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op elsewhere)')
+    .option('--fast', 'Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (default scope: branch)')
@@ -619,6 +628,9 @@ export async function run(argv: string[]): Promise<number> {
         : undefined;
 
       if (isReview) {
+        // Reject unsupported sessions before recording a task, using the same
+        // capability check as relay. Supported sessions reach reviewRelay below.
+        refuseUnsupportedRelaySession(backendName, opts.session ?? null, opts.backendSession ?? null);
         const tracked = beginTrackedRun({
           mode: taskMode,
           kind: 'review',
@@ -659,6 +671,8 @@ export async function run(argv: string[]): Promise<number> {
             fast: Boolean(opts.fast),
             verdictJson: isVerdictJson,
             peerMessaging,
+            session: opts.session ?? null,
+            backendSession: opts.backendSession ?? null,
             observer: mergeObservers(tracked.observer, progress.observer),
           });
           if (isVerdictJson) {

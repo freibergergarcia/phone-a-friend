@@ -31,6 +31,8 @@ export function PluginStatusBar({ installed = false, hosts }: PluginStatusBarPro
         <HostLabel label="Codex" installed={hosts.codex} />
         <Text dimColor>·</Text>
         <HostLabel label="pi" installed={hosts.pi} />
+        <Text dimColor>·</Text>
+        <HostLabel label="Grok" installed={hosts.grok} />
       </Box>
     );
   }

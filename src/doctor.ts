@@ -17,6 +17,7 @@ import {
   describeClaudeMarketplaceSource,
   isCodexInstalled,
   isOpenCodeInstalled,
+  isGrokInstalled,
   isPiInstalled,
   isPluginInstalled,
   MARKETPLACE_NAME,
@@ -72,6 +73,7 @@ export interface HostInstallations {
   opencode: boolean;
   codex: boolean;
   pi: boolean;
+  grok: boolean;
 }
 
 function formatHumanReadable(
@@ -162,6 +164,7 @@ function formatHumanReadable(
   lines.push(`    ${hostInstallations.opencode ? theme.checkmark : theme.warning('!')} OpenCode commands/skills ${hostInstallations.opencode ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push(`    ${hostInstallations.codex ? theme.checkmark : theme.warning('!')} Codex skills ${hostInstallations.codex ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push(`    ${hostInstallations.pi ? theme.checkmark : theme.warning('!')} pi skills ${hostInstallations.pi ? theme.success('installed') : theme.warning('not installed')}`);
+  lines.push(`    ${hostInstallations.grok ? theme.checkmark : theme.warning('!')} Grok skills ${hostInstallations.grok ? theme.success('installed') : theme.warning('not installed')}`);
   lines.push('');
 
   // Default
@@ -442,6 +445,12 @@ async function collectAdvisories(report: DetectionReport): Promise<string[]> {
   const pi = report.cli.find(b => b.name === 'pi' && b.available);
   const piAdvisory = pi ? piVersionAdvisory(pi) : null;
   if (piAdvisory) out.push(piAdvisory);
+  const grok = report.cli.find(b => b.name === 'grok' && b.available);
+  if (grok) {
+    out.push(
+      'Grok Build is installed. --fast has no effect for --to grok; a relay still loads project instructions through --cwd.',
+    );
+  }
   return out;
 }
 
@@ -503,6 +512,7 @@ export async function doctor(opts?: DoctorOptions): Promise<DoctorResult> {
     opencode: isOpenCodeInstalled(),
     codex: isCodexInstalled(),
     pi: isPiInstalled(),
+    grok: isGrokInstalled(),
   };
   const updateCheck = collectUpdateCheckState(config);
 

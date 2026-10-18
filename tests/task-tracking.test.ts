@@ -133,21 +133,30 @@ describe('beginTrackedRun', () => {
   });
 
   it('infers the host from environment markers when not given', () => {
-    const original = { host: process.env.PHONE_A_FRIEND_HOST, claude: process.env.CLAUDECODE };
+    const original = {
+      host: process.env.PHONE_A_FRIEND_HOST,
+      claude: process.env.CLAUDECODE,
+      grok: process.env.GROK_AGENT,
+    };
     try {
       process.env.PHONE_A_FRIEND_HOST = 'opencode';
       process.env.CLAUDECODE = '1';
+      process.env.GROK_AGENT = '1';
       const shim = beginTrackedRun({ ...base, host: undefined, mode: 'results', openStore: () => store });
       expect(store.get(shim.id!)!.host).toBe('opencode');
       delete process.env.PHONE_A_FRIEND_HOST;
       const claude = beginTrackedRun({ ...base, host: undefined, mode: 'results', openStore: () => store });
       expect(store.get(claude.id!)!.host).toBe('claude');
       delete process.env.CLAUDECODE;
+      const grok = beginTrackedRun({ ...base, host: undefined, mode: 'results', openStore: () => store });
+      expect(store.get(grok.id!)!.host).toBe('grok');
+      delete process.env.GROK_AGENT;
       const none = beginTrackedRun({ ...base, host: undefined, mode: 'results', openStore: () => store });
       expect(store.get(none.id!)!.host).toBeNull();
     } finally {
       if (original.host === undefined) delete process.env.PHONE_A_FRIEND_HOST; else process.env.PHONE_A_FRIEND_HOST = original.host;
       if (original.claude === undefined) delete process.env.CLAUDECODE; else process.env.CLAUDECODE = original.claude;
+      if (original.grok === undefined) delete process.env.GROK_AGENT; else process.env.GROK_AGENT = original.grok;
     }
   });
 });

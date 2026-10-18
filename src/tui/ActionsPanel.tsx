@@ -15,7 +15,7 @@ import { dirname } from 'node:path';
 import { detectAll, decorateOpenCodeModels } from '../detection.js';
 import { configPaths, configInit } from '../config.js';
 import type { DetectionReport, BackendStatus } from '../detection.js';
-import { isCodexInstalled, isOpenCodeInstalled, isPiInstalled, isPluginInstalled } from '../installer.js';
+import { isCodexInstalled, isGrokInstalled, isOpenCodeInstalled, isPiInstalled, isPluginInstalled } from '../installer.js';
 
 interface Action {
   label: string;
@@ -65,10 +65,12 @@ function formatBackendSummary(report: DetectionReport): string {
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
   const piInstalled = isPiInstalled();
+  const grokInstalled = isGrokInstalled();
   lines.push(`  ${claudeInstalled ? '✓' : '!'} claude     ${claudeInstalled ? 'installed' : 'not installed'}`);
   lines.push(`  ${opencodeInstalled ? '✓' : '!'} opencode   ${opencodeInstalled ? 'installed' : 'not installed'}`);
   lines.push(`  ${codexInstalled ? '✓' : '!'} codex      ${codexInstalled ? 'installed' : 'not installed'}`);
   lines.push(`  ${piInstalled ? '✓' : '!'} pi         ${piInstalled ? 'installed' : 'not installed'}`);
+  lines.push(`  ${grokInstalled ? '✓' : '!'} grok       ${grokInstalled ? 'installed' : 'not installed'}`);
 
   return lines.join('\n');
 }
@@ -109,6 +111,7 @@ function buildActionGroups(
   const opencodeInstalled = isOpenCodeInstalled();
   const codexInstalled = isCodexInstalled();
   const piInstalled = isPiInstalled();
+  const grokInstalled = isGrokInstalled();
 
   return [
     {
@@ -251,6 +254,31 @@ function buildActionGroups(
           confirm: 'Uninstall pi skills? (y/n)',
           run: () =>
             spawnPaf(['plugin', 'uninstall', '--pi'], processRef, 'pi skills uninstalled'),
+        },
+      ],
+    },
+    {
+      title: 'Grok',
+      installed: grokInstalled,
+      actions: [
+        {
+          label: grokInstalled ? 'Reinstall' : 'Install',
+          description: grokInstalled
+            ? 'Refresh skills under ~/.grok/skills'
+            : 'Install skills under ~/.grok/skills',
+          run: () =>
+            spawnPaf(
+              ['plugin', 'install', '--grok', '--force', '--no-claude-cli-sync'],
+              processRef,
+              'Grok skills installed',
+            ),
+        },
+        {
+          label: 'Uninstall',
+          description: 'Remove PaF-owned skills from ~/.grok/skills',
+          confirm: 'Uninstall Grok skills? (y/n)',
+          run: () =>
+            spawnPaf(['plugin', 'uninstall', '--grok'], processRef, 'Grok skills uninstalled'),
         },
       ],
     },

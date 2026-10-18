@@ -1,7 +1,7 @@
 ---
 name: curiosity-engine
 description: "Structured Q&A rally between the host orchestrating model and a backend model. Both sides must always reply with ANSWER and QUESTION prefixes. Seeded by topic, runs for N rounds."
-argument-hint: '--topic "<topic>" [--rounds N] [--backend antigravity|codex|gemini|ollama]'
+argument-hint: '--topic "<topic>" [--rounds N] [--backend antigravity|codex|gemini|ollama|grok]'
 ---
 
 # /curiosity-engine
@@ -39,6 +39,11 @@ The game is seeded with a topic and runs for N rounds (default 3, max 6).
   transcripts are narrative context that the orchestrator generates and
   inlines into the relay prompt; that is the intended use, not file
   dumping.
+- Inside Grok, prefix every relay with `PHONE_A_FRIEND_HOST=grok`. Do not
+  select `grok` as the friend backend. PaF also refuses `--to grok` when
+  `GROK_AGENT=1`. This command's `--backend` accepts only `antigravity`,
+  `codex`, `gemini`, or `ollama` from Grok. If the host is Grok and
+  `--backend` is `grok`, report an error and stop, including in direct mode.
 
 ## Inputs
 
@@ -66,8 +71,11 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
 | **Ollama** | `PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"; curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" -d "{\"model\":\"<model>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \| jq -r '.message.content'` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
+
+Grok's direct call prints a JSON envelope. Return the `text` field only when it is a non-empty string and `stopReason` is `stop`, `length`, or `end_turn`. `--fast` adds no Grok flag. In binary mode, reuse `--session <label>` across rounds. In direct mode, use `--session-id <uuid>` for a new conversation and `--resume <uuid>` for follow-ups. Do not run this direct command when Grok is already the host (`GROK_AGENT=1` or `PHONE_A_FRIEND_HOST=grok`).
 
 pi is not a `--backend` choice here and has no direct-call row. It is reachable through `/phone-a-friend` in binary mode (`phone-a-friend --to pi`) only.
 
@@ -122,9 +130,9 @@ Extract `--topic`, `--rounds`, and `--backend` from `$ARGUMENTS`.
 
 - `--topic <string>` — required. Everything after `--topic` up to the next flag. If missing, ask the user: "What topic should the Curiosity Engine explore?" Do not proceed until provided.
 - `--rounds N` — optional, default 3, clamp to [1, 6].
-- `--backend antigravity|codex|gemini|ollama` — optional, default `codex`.
+- `--backend antigravity|codex|gemini|ollama|grok` — optional, default `codex`.
 
-If `--backend` value is not `antigravity`, `codex`, `gemini`, or `ollama`: report error and stop.
+If `--backend` value is not `antigravity`, `codex`, `gemini`, `ollama`, or `grok`: report error and stop. When the host is Grok (`PHONE_A_FRIEND_HOST=grok` or `GROK_AGENT=1`) and BACKEND is `grok`, report an error and stop. Do not run the direct `grok` command. When BACKEND is `grok` from another host, reuse `--session` across rounds; `--fast` adds no Grok flag.
 
 Set:
 - TOPIC = parsed topic string
@@ -141,6 +149,7 @@ Set:
 command -v agy     # if BACKEND=antigravity
 command -v codex   # if BACKEND=codex
 command -v gemini  # if BACKEND=gemini
+command -v grok    # if BACKEND=grok
 ```
 
 ### Ollama backend
@@ -167,6 +176,8 @@ If `RELAY_MODE = binary`, the binary handles model selection internally.
 | gemini   | no        | abort: "gemini CLI not found. Install: `npm install -g @google/gemini-cli`" |
 | ollama   | reachable | proceed (discover model if direct mode) |
 | ollama   | not reachable | abort: "Ollama not reachable at localhost:11434. Is Ollama running?" |
+| grok     | yes       | proceed |
+| grok     | no        | abort: "grok CLI not found. Install: `npm install -g @xai-official/grok`" |
 
 ## Step 3 — Serve Round 1
 
@@ -230,6 +241,8 @@ PROMPT_JSON="$(jq -Rs . < "$PROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${PROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
+# Grok (read text when stopReason is stop, length, or end_turn):
+grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit
 ```
 
 ## Step 4 — Parse Backend Response
@@ -286,6 +299,8 @@ REPROMPT_JSON="$(jq -Rs . < "$REPROMPT_FILE")"
 curl -s http://localhost:11434/api/chat -H "Content-Type: application/json" \
   -d "{\"model\":\"<OLLAMA_SELECTED_MODEL>\",\"messages\":[{\"role\":\"user\",\"content\":${REPROMPT_JSON}}],\"stream\":false}" \
   | jq -r '.message.content'
+# Grok (read text when stopReason is stop, length, or end_turn):
+grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$REPROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit
 ```
 
 Parse again. If still missing `QUESTION:` → end game early. Display:

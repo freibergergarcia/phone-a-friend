@@ -19,7 +19,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { resolve, join, dirname, isAbsolute, sep } from 'node:path';
+import { resolve, join, dirname, basename, isAbsolute, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBackends, INSTALL_HINTS } from './backends/index.js';
 import { resolvePiStoredPath } from './backends/pi.js';
@@ -40,7 +40,7 @@ const LEGACY_MARKETPLACE_NAME = 'phone-a-friend-dev';
 /** GitHub repository for marketplace distribution. */
 export const GITHUB_REPO = 'freibergergarcia/phone-a-friend';
 
-const INSTALL_TARGETS = new Set(['claude', 'opencode', 'codex', 'pi', 'all']);
+const INSTALL_TARGETS = new Set(['claude', 'opencode', 'codex', 'pi', 'grok', 'all']);
 const INSTALL_MODES = new Set(['symlink', 'copy']);
 const OPENCODE_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
 
@@ -69,6 +69,15 @@ const CODEX_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as c
  * is what `pi install npm:@freibergergarcia/phone-a-friend` loads.
  */
 const PI_SKILLS = ['phone-a-friend', 'curiosity-engine'] as const;
+
+/**
+ * Skills installed for Grok Build. Grok discovers a user skill at
+ * `~/.grok/skills/<name>/SKILL.md`. The host-neutral folder is used as is.
+ * `phone-a-team` ships from `skills/phone-a-team/.grok/SKILL.md`: a Bash
+ * round loop, the same shape as Codex, because Grok has no Agent Teams
+ * mechanic to spawn.
+ */
+const GROK_SKILLS = ['phone-a-friend', 'curiosity-engine', 'phone-a-team'] as const;
 
 const PAF_NPM_NAME = '@freibergergarcia/phone-a-friend';
 
@@ -124,7 +133,7 @@ const OPENCODE_LEGACY_SKILLS = ['phone-a-team'] as const;
  */
 const CODEX_LEGACY_SKILLS = [] as const;
 
-type InstallTarget = 'claude' | 'opencode' | 'codex' | 'pi' | 'all';
+type InstallTarget = 'claude' | 'opencode' | 'codex' | 'pi' | 'grok' | 'all';
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -450,6 +459,27 @@ export function piSkillTarget(name: string, piHome?: string): string {
   return join(piAgentDir(piHome), 'skills', name);
 }
 
+/** Grok's config root. Skills live in `<root>/skills/<name>`. Defaults to `~/.grok`. */
+export function grokConfigRoot(grokHome?: string): string {
+  if (grokHome) return grokHome;
+  return join(homedir(), '.grok');
+}
+
+export function grokSkillTarget(name: string, grokHome?: string): string {
+  return join(grokConfigRoot(grokHome), 'skills', name);
+}
+
+/**
+ * Grok skill source. `skills/<name>/.grok/SKILL.md` wins when a skill needs
+ * host-specific text (phone-a-team). Otherwise the host-neutral folder is
+ * installed as is.
+ */
+export function grokSkillSource(repoRoot: string, name: string): string {
+  const overlay = join(repoRoot, 'skills', name, '.grok');
+  if (existsSync(join(overlay, 'SKILL.md'))) return overlay;
+  return join(repoRoot, 'skills', name);
+}
+
 /**
  * True when `target` is a symlink pointing somewhere inside this PaF repo.
  * Used to auto-replace stale PaF-owned symlinks when source paths change
@@ -635,6 +665,19 @@ export function isPiInstalled(piHome?: string): boolean {
     existsSync(join(piSkillTarget(name, piHome), 'SKILL.md')),
   );
   return looseFileOk || isPiPackageDeclared(piHome);
+}
+
+/**
+ * True only when both Grok skills were put there by PaF. A skill Grok can
+ * see because a Claude plugin is installed does not count, and a directory
+ * the user wrote under the same name does not count either.
+ */
+export function isGrokInstalled(grokHome?: string): boolean {
+  return GROK_SKILLS.every((name) => {
+    const target = grokSkillTarget(name, grokHome);
+    if (!existsSync(target) && !isSymlink(target)) return false;
+    return isPafOwnedPiSkill(target, name);
+  });
 }
 
 function runCodexCommand(args: string[]): { code: number; output: string } {
@@ -908,6 +951,29 @@ function installPi(
   return lines;
 }
 
+function installGrok(
+  repoRoot: string,
+  mode: string,
+  force: boolean,
+  grokHome?: string,
+): string[] {
+  const lines: string[] = [];
+  for (const name of GROK_SKILLS) {
+    const skillSource = grokSkillSource(repoRoot, name);
+    if (!existsSync(join(skillSource, 'SKILL.md'))) {
+      throw new InstallerError(`Missing Grok skill source: ${join(skillSource, 'SKILL.md')}`);
+    }
+    const skillTarget = grokSkillTarget(name, grokHome);
+    const skillForce = force || (isSymlink(skillTarget) && isPafOwnedPiSkill(skillTarget, name, repoRoot));
+    const skillStatus = installPath(skillSource, skillTarget, mode, skillForce);
+    if (skillStatus === 'installed' && mode === 'copy') {
+      writeFileSync(join(skillTarget, PI_INSTALL_MARKER), `${PAF_NPM_NAME}\n`);
+    }
+    lines.push(`- grok_skill:${name}: ${skillStatus} -> ${skillTarget}`);
+  }
+  return lines;
+}
+
 /** `filePath` with symlinks resolved as far as it exists, so a removed target still compares. */
 function canonicalPath(filePath: string): string {
   let existing = resolve(filePath);
@@ -927,7 +993,8 @@ function canonicalPath(filePath: string): string {
 /**
  * True when the pi skill at `target` was put there by PaF: a copy carrying
  * the install marker, a symlink to exactly `<this install>/skills/<name>`,
- * or a symlink to `<dir>/skills/<name>` where `<dir>` is a PaF package by
+ * or a symlink to `<dir>/skills/<name>` (including `.grok` / `.codex`
+ * overlays) where `<dir>` is a PaF package by
  * its package.json. A symlink to some other place inside the repository is
  * the user's, the path's shape alone proves nothing, and a dangling symlink
  * into another location has nothing left to check.
@@ -937,9 +1004,17 @@ function isPafOwnedPiSkill(target: string, name: string, repoRoot?: string): boo
   try {
     const link = readlinkSync(target);
     const absolute = isAbsolute(link) ? link : resolve(dirname(target), link);
-    if (repoRoot && canonicalPath(absolute) === canonicalPath(join(repoRoot, 'skills', name))) return true;
-    const skillsDir = dirname(absolute);
-    if (absolute !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
+    if (repoRoot) {
+      const owned = [
+        join(repoRoot, 'skills', name),
+        join(repoRoot, 'skills', name, '.grok'),
+        join(repoRoot, 'skills', name, '.codex'),
+      ];
+      if (owned.some((candidate) => canonicalPath(absolute) === canonicalPath(candidate))) return true;
+    }
+    const skillDir = ['.grok', '.codex'].includes(basename(absolute)) ? dirname(absolute) : absolute;
+    const skillsDir = dirname(skillDir);
+    if (skillDir !== join(skillsDir, name) || skillsDir !== join(dirname(skillsDir), 'skills')) return false;
     return isPafPackageDir(dirname(skillsDir));
   } catch {
     return false;
@@ -960,6 +1035,18 @@ function uninstallPi(piHome?: string, repoRoot?: string): string[] {
     }
     removePath(target);
     return `- pi_skill:${name}: removed`;
+  });
+}
+
+function uninstallGrok(grokHome?: string, repoRoot?: string): string[] {
+  return GROK_SKILLS.map((name) => {
+    const target = grokSkillTarget(name, grokHome);
+    if (!existsSync(target) && !isSymlink(target)) return `- grok_skill:${name}: not-installed`;
+    if (!isPafOwnedPiSkill(target, name, repoRoot)) {
+      return `- grok_skill:${name}: kept (not PaF-owned; remove manually if desired)`;
+    }
+    removePath(target);
+    return `- grok_skill:${name}: removed`;
   });
 }
 
@@ -1433,6 +1520,8 @@ export interface InstallOptions {
   codexHome?: string;
   /** pi's agent directory. Defaults to `PI_CODING_AGENT_DIR`, then `~/.pi/agent`. */
   piHome?: string;
+  /** Grok config root. Skills go in `<grokHome>/skills`. Defaults to `~/.grok`. */
+  grokHome?: string;
   syncClaudeCli?: boolean;
   /**
    * Whether to register the plugin via `codex plugin marketplace add` +
@@ -1461,6 +1550,7 @@ export function installHosts(opts: InstallOptions): string[] {
     opencodeHome,
     codexHome,
     piHome,
+    grokHome,
     syncClaudeCli = true,
     syncCodexCli = true,
     forceMarketplaceSync = false,
@@ -1489,6 +1579,7 @@ export function installHosts(opts: InstallOptions): string[] {
   const shouldInstallOpenCode = target === 'opencode' || target === 'all';
   const shouldInstallCodex = target === 'codex' || target === 'all';
   const shouldInstallPi = target === 'pi' || target === 'all';
+  const shouldInstallGrok = target === 'grok' || target === 'all';
 
   if (shouldInstallClaude) {
     const { status, targetPath } = installClaude(resolvedRepo, mode, force, claudeHome);
@@ -1505,6 +1596,10 @@ export function installHosts(opts: InstallOptions): string[] {
 
   if (shouldInstallPi) {
     lines.push(...installPi(resolvedRepo, mode, force, piHome));
+  }
+
+  if (shouldInstallGrok) {
+    lines.push(...installGrok(resolvedRepo, mode, force, grokHome));
   }
 
   if (shouldInstallClaude && syncClaudeCli) {
@@ -1531,6 +1626,8 @@ export interface UninstallOptions {
   codexHome?: string;
   /** pi's agent directory. Defaults to `PI_CODING_AGENT_DIR`, then `~/.pi/agent`. */
   piHome?: string;
+  /** Grok config root. Skills live in `<grokHome>/skills`. Defaults to `~/.grok`. */
+  grokHome?: string;
   /**
    * Repo root for PaF-ownership checks during legacy-skill cleanup. Optional;
    * if absent, legacy artifacts at the user's path are preserved (safer
@@ -1564,6 +1661,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
     opencodeHome,
     codexHome,
     piHome,
+    grokHome,
     repoRoot,
     claudeCliUnsync = 'auto',
     codexCliUnsync = 'auto',
@@ -1580,6 +1678,7 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
   const shouldUninstallOpenCode = target === 'opencode' || target === 'all';
   const shouldUninstallCodex = target === 'codex' || target === 'all';
   const shouldUninstallPi = target === 'pi' || target === 'all';
+  const shouldUninstallGrok = target === 'grok' || target === 'all';
 
   if (shouldUninstallClaude) {
     const { status } = uninstallClaude(claudeHome);
@@ -1601,6 +1700,10 @@ export function uninstallHosts(opts: UninstallOptions): string[] {
 
   if (shouldUninstallPi) {
     lines.push(...uninstallPi(piHome, repoRoot));
+  }
+
+  if (shouldUninstallGrok) {
+    lines.push(...uninstallGrok(grokHome, repoRoot));
   }
 
   if (!shouldUninstallClaude) {
