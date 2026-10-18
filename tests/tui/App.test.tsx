@@ -27,6 +27,7 @@ vi.mock('../../src/installer.js', () => ({
   isOpenCodeInstalled: vi.fn().mockReturnValue(false),
   isCodexInstalled: vi.fn().mockReturnValue(false),
   isPiInstalled: vi.fn().mockReturnValue(false),
+  isGrokInstalled: vi.fn().mockReturnValue(false),
   claudeTarget: vi.fn().mockReturnValue('/tmp/test-claude-plugin'),
 }));
 

@@ -16,7 +16,7 @@ describe('detection', () => {
       const whichFn = vi.fn(() => true);
       const results = await detection.detectCliBackends(whichFn);
 
-      expect(results.map(b => b.name)).toEqual(['antigravity', 'codex', 'gemini', 'opencode', 'pi']);
+      expect(results.map(b => b.name)).toEqual(['antigravity', 'codex', 'gemini', 'opencode', 'pi', 'grok']);
       const antigravity = results.find(b => b.name === 'antigravity');
       const codex = results.find(b => b.name === 'codex');
       const gemini = results.find(b => b.name === 'gemini');
@@ -55,6 +55,12 @@ describe('detection', () => {
       expect(pi!.optional).toBe(true);
       expect(pi!.detail).toBe('pi not found in PATH');
       expect(pi!.installHint).toBe('npm install -g @earendil-works/pi-coding-agent');
+
+      const grok = results.find(b => b.name === 'grok');
+      expect(grok!.available).toBe(false);
+      expect(grok!.optional).toBe(true);
+      expect(grok!.detail).toBe('grok not found in PATH');
+      expect(grok!.installHint).toBe('npm install -g @xai-official/grok');
     });
 
     it('marks missing binaries as unavailable with install hints', async () => {
@@ -241,6 +247,20 @@ describe('detection', () => {
       expect(missing.find(b => b.name === 'pi')).toMatchObject({
         available: false,
         installHint: 'npm install -g @earendil-works/pi-coding-agent',
+      });
+    });
+
+    it('lists grok as an optional host, found through its binary', async () => {
+      const found = await detection.detectHostIntegrations(vi.fn((name: string) => name === 'grok'));
+      const grok = found.find(b => b.name === 'grok');
+
+      expect(grok).toMatchObject({ category: 'host', available: true });
+      expect(found.filter(b => b.available).map(b => b.name)).toEqual(['grok']);
+
+      const missing = await detection.detectHostIntegrations(vi.fn(() => false));
+      expect(missing.find(b => b.name === 'grok')).toMatchObject({
+        available: false,
+        installHint: 'npm install -g @xai-official/grok',
       });
     });
   });

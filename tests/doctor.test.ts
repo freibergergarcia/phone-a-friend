@@ -29,11 +29,12 @@ const { mockClaudeMarketplaceStatus } = vi.hoisted(() => ({
   })),
 }));
 
-const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled, mockIsPiInstalled } = vi.hoisted(() => ({
+const { mockIsPluginInstalled, mockIsOpenCodeInstalled, mockIsCodexInstalled, mockIsPiInstalled, mockIsGrokInstalled } = vi.hoisted(() => ({
   mockIsPluginInstalled: vi.fn(),
   mockIsOpenCodeInstalled: vi.fn(),
   mockIsCodexInstalled: vi.fn(),
   mockIsPiInstalled: vi.fn(),
+  mockIsGrokInstalled: vi.fn(),
 }));
 
 vi.mock('../src/detection.js', () => ({
@@ -64,6 +65,7 @@ vi.mock('../src/installer.js', async () => {
     isOpenCodeInstalled: mockIsOpenCodeInstalled,
     isCodexInstalled: mockIsCodexInstalled,
     isPiInstalled: mockIsPiInstalled,
+    isGrokInstalled: mockIsGrokInstalled,
     claudeMarketplaceStatus: mockClaudeMarketplaceStatus,
     describeClaudeMarketplaceSource: actual.describeClaudeMarketplaceSource,
     MARKETPLACE_NAME: actual.MARKETPLACE_NAME,
@@ -138,6 +140,7 @@ describe('doctor', () => {
     mockIsOpenCodeInstalled.mockReturnValue(false);
     mockIsCodexInstalled.mockReturnValue(false);
     mockIsPiInstalled.mockReturnValue(false);
+    mockIsGrokInstalled.mockReturnValue(false);
     mockInspectExecutables.mockResolvedValue(undefined);
     mockAttachModelAndCapabilities.mockReturnValue(undefined);
     mockInspectPafIdentity.mockReturnValue(pafIdentity());
@@ -196,6 +199,16 @@ describe('doctor', () => {
       expect((await doctor.doctor()).output).toMatch(/pi skills .*installed/);
       expect((await doctor.doctor()).output).not.toMatch(/pi skills .*not installed/);
       expect(JSON.parse((await doctor.doctor({ json: true })).output).hostInstallations.pi).toBe(true);
+    });
+
+    it('reports the Grok skills install status in text and JSON', async () => {
+      mockDetectAll.mockResolvedValue(makeReport());
+      expect((await doctor.doctor()).output).toMatch(/! Grok skills .*not installed/);
+
+      mockIsGrokInstalled.mockReturnValue(true);
+      expect((await doctor.doctor()).output).toMatch(/Grok skills .*installed/);
+      expect((await doctor.doctor()).output).not.toMatch(/Grok skills .*not installed/);
+      expect(JSON.parse((await doctor.doctor({ json: true })).output).hostInstallations.grok).toBe(true);
     });
 
     it('shows install hints for missing backends', async () => {
@@ -286,6 +299,24 @@ describe('doctor', () => {
       expect(result.output).toContain('3 of 3 relay backends ready');
     });
 
+    it('does not fail when the optional Grok CLI is missing', async () => {
+      const report = makeReport({
+        cli: [
+          { name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'gemini', category: 'cli', available: true, detail: 'found', installHint: '' },
+          { name: 'grok', category: 'cli', available: false, detail: 'grok not found in PATH', installHint: 'npm install -g @xai-official/grok', optional: true },
+        ],
+        local: [
+          { name: 'ollama', category: 'local', available: true, detail: 'running', installHint: '' },
+        ],
+      });
+      mockDetectAll.mockResolvedValue(report);
+      const result = await doctor.doctor();
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('grok not found in PATH');
+      expect(result.output).toContain('3 of 3 relay backends ready');
+    });
+
     it('counts optional Antigravity toward the denominator when present', async () => {
       const report = makeReport({
         cli: [
@@ -358,7 +389,7 @@ describe('doctor', () => {
       expect(parsed.backends.cli).toBeDefined();
       expect(parsed.backends.local).toBeDefined();
       expect(parsed.host).toBeDefined();
-      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false, pi: false });
+      expect(parsed.hostInstallations).toEqual({ claude: true, opencode: false, codex: false, pi: false, grok: false });
       expect(parsed.default).toBe('codex');
       expect(parsed.exitCode).toBeDefined();
     });
@@ -454,6 +485,22 @@ describe('doctor', () => {
         old.cli.push(piEntry('0.78.4'));
         mockDetectAll.mockResolvedValue(old);
         expect((await doctor.doctor()).exitCode).toBe(ok.exitCode);
+      });
+
+      it('advises that --fast has no effect when Grok is installed, without changing the exit code', async () => {
+        const report = makeReport();
+        report.cli.push({
+          name: 'grok', category: 'cli', available: true, detail: 'Grok Build (grok found in PATH)', installHint: '',
+          optional: true,
+        });
+        mockDetectAll.mockResolvedValue(report);
+        const result = await doctor.doctor();
+        expect(result.output).toContain('--fast has no effect for --to grok');
+        expect(result.exitCode).toBe((await doctor.doctor()).exitCode);
+
+        const absent = makeReport();
+        mockDetectAll.mockResolvedValue(absent);
+        expect((await doctor.doctor()).output).not.toContain('--fast has no effect for --to grok');
       });
 
       it('leaves an unreadable pi version to the generic probe advisory', async () => {

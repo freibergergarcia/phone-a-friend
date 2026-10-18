@@ -1,0 +1,207 @@
+/**
+ * Grok Build CLI backend.
+ *
+ * Headless `grok --prompt-file` with `--output-format json`. Sandbox and
+ * permission mode are separate: the sandbox limits an approved call, and
+ * `dontAsk` / `acceptEdits` / `bypassPermissions` keep the relay from sitting
+ * on an approval prompt until timeout. There is no native review and no
+ * resume yet (a returned sessionId is not a session PaF can continue).
+ */
+
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve as resolvePath } from 'node:path';
+import {
+  BackendError,
+  SpawnCliError,
+  SpawnCliTimeoutError,
+  registerBackend,
+  spawnCli,
+  type Backend,
+  type BackendCapabilities,
+  type BackendRunOptions,
+  type SandboxMode,
+} from './index.js';
+
+export class GrokBackendError extends BackendError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GrokBackendError';
+  }
+}
+
+const FINISHED_STOP_REASONS = new Set(['stop', 'length']);
+
+export const GROK_SCHEMA_UNSUPPORTED =
+  'Grok structured output is not supported yet. phone-a-friend --to grok cannot be combined with --schema or --verdict-json.';
+
+/**
+ * Grok sets `GROK_AGENT=1` on every child it launches. `PHONE_A_FRIEND_HOST=grok`
+ * is the explicit marker the skill sets, including for a caller that did not
+ * arrive through Grok's shell.
+ */
+export function isGrokHostEnv(env: Record<string, string | undefined>): boolean {
+  return env.GROK_AGENT === '1' || env.PHONE_A_FRIEND_HOST?.toLowerCase() === 'grok';
+}
+
+function assertNotGrokHost(env: Record<string, string>): void {
+  if (!isGrokHostEnv(env)) return;
+  throw new GrokBackendError(
+    'Grok is already the host for this Phone-a-Friend invocation. ' +
+      'Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama.',
+  );
+}
+
+export interface GrokArgOptions {
+  promptFile: string;
+  repoPath: string;
+  sandbox: SandboxMode;
+  model: string | null;
+}
+
+/**
+ * Arguments for one headless run. `--fast` is intentionally absent: Grok has
+ * no flag that skips project instructions, so a fast request adds nothing.
+ */
+export function buildGrokArgs(opts: GrokArgOptions): string[] {
+  const args = [
+    '--no-auto-update',
+    '--output-format', 'json',
+    '--cwd', opts.repoPath,
+    '--prompt-file', opts.promptFile,
+  ];
+  if (opts.model) args.push('-m', opts.model);
+
+  // workspace-write allows Edit and Write only. Shell stays off: acceptEdits
+  // still prompts for Bash, and a prompt hangs the relay until timeout.
+  switch (opts.sandbox) {
+    case 'read-only':
+      args.push(
+        '--sandbox', 'read-only',
+        '--permission-mode', 'dontAsk',
+        '--allow', 'Read',
+        '--allow', 'Grep',
+      );
+      break;
+    case 'workspace-write':
+      args.push(
+        '--sandbox', 'workspace',
+        '--permission-mode', 'acceptEdits',
+        '--allow', 'Read',
+        '--allow', 'Grep',
+        '--allow', 'Edit',
+        '--allow', 'Write',
+      );
+      break;
+    case 'danger-full-access':
+      args.push('--sandbox', 'off', '--permission-mode', 'bypassPermissions');
+      break;
+  }
+  return args;
+}
+
+/**
+ * Pull the answer out of Grok's `--output-format json` envelope.
+ * Exit 0 is not success: only a finished stop reason with text is an answer.
+ */
+export function parseGrokResult(stdout: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new GrokBackendError('Grok returned output that is not JSON.');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new GrokBackendError('Grok returned JSON that is not a result object.');
+  }
+  const record = parsed as Record<string, unknown>;
+  const stopReason = record.stopReason;
+  const text = record.text;
+  if (
+    typeof stopReason === 'string' &&
+    FINISHED_STOP_REASONS.has(stopReason) &&
+    typeof text === 'string' &&
+    text.trim() !== ''
+  ) {
+    return text;
+  }
+  const reason = typeof stopReason === 'string' ? stopReason : 'missing';
+  throw new GrokBackendError(`Grok did not return a finished answer (stopReason: ${reason}).`);
+}
+
+function canonicalRepoPath(repoPath: string): string {
+  try {
+    return realpathSync(resolvePath(repoPath));
+  } catch (err) {
+    throw new GrokBackendError(
+      `Repository path cannot be resolved: ${repoPath} (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+}
+
+function writePromptFile(prompt: string): { dir: string; file: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'paf-grok-'));
+  const file = join(dir, 'prompt.txt');
+  writeFileSync(file, prompt, 'utf8');
+  return { dir, file };
+}
+
+function toGrokError(err: unknown, timeoutSeconds: number): GrokBackendError {
+  if (err instanceof GrokBackendError) return err;
+  if (err instanceof SpawnCliTimeoutError) {
+    return new GrokBackendError(`Grok timed out after ${timeoutSeconds}s`);
+  }
+  if (err instanceof SpawnCliError) {
+    const tail = err.stderr.trim();
+    const detail = tail || err.message;
+    return new GrokBackendError(
+      `Grok exited with code ${err.exitCode ?? 'unknown'}${detail ? `: ${detail}` : ''}`,
+    );
+  }
+  if (err instanceof BackendError) return new GrokBackendError(err.message);
+  return new GrokBackendError(err instanceof Error ? err.message : String(err));
+}
+
+export class GrokBackend implements Backend {
+  readonly name = 'grok';
+  readonly localFileAccess = true;
+  readonly allowedSandboxes: ReadonlySet<SandboxMode> = new Set<SandboxMode>([
+    'read-only',
+    'workspace-write',
+    'danger-full-access',
+  ]);
+  readonly capabilities: BackendCapabilities = {
+    resumeStrategy: 'unsupported',
+    requiresClientSessionId: false,
+  };
+
+  async run(opts: BackendRunOptions): Promise<string> {
+    assertNotGrokHost(opts.env);
+    if (opts.schema) throw new GrokBackendError(GROK_SCHEMA_UNSUPPORTED);
+
+    const repoCwd = canonicalRepoPath(opts.repoPath);
+    const promptFile = writePromptFile(opts.prompt);
+    try {
+      const args = buildGrokArgs({
+        promptFile: promptFile.file,
+        repoPath: repoCwd,
+        sandbox: opts.sandbox,
+        model: opts.model,
+      });
+      const result = await spawnCli('grok', args, {
+        timeoutMs: opts.timeoutSeconds * 1000,
+        env: opts.env,
+        cwd: repoCwd,
+        label: 'grok',
+      });
+      return parseGrokResult(result.stdout);
+    } catch (err: unknown) {
+      throw toGrokError(err, opts.timeoutSeconds);
+    } finally {
+      rmSync(promptFile.dir, { recursive: true, force: true });
+    }
+  }
+}
+
+export const GROK_BACKEND = new GrokBackend();
+registerBackend(GROK_BACKEND);

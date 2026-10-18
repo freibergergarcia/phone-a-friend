@@ -559,7 +559,7 @@ describe('CLI', () => {
       expect(code).toBe(0);
     });
     const text = help.stdout.replace(/\s+/g, ' ');
-    expect(text).toContain('Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi');
+    expect(text).toContain('Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok');
     expect(text).toMatch(/--fast .*-nc -ns for pi/);
   });
 
@@ -860,6 +860,41 @@ describe('CLI', () => {
     });
     expect(result).toBe(1);
     expect(stderr).toContain('Multiple host flags cannot be combined');
+    expect(mockInstallHosts).not.toHaveBeenCalled();
+  });
+
+  it('plugin install --grok targets the grok host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'install', '--grok']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'grok', force: false }));
+  });
+
+  it('plugin update --grok forces the grok host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'update', '--grok']);
+      expect(code).toBe(0);
+    });
+    expect(mockInstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'grok', force: true }));
+  });
+
+  it('plugin uninstall --grok targets the grok host', async () => {
+    await captureOutputAsync(async () => {
+      const code = await run(['plugin', 'uninstall', '--grok']);
+      expect(code).toBe(0);
+    });
+    expect(mockUninstallHosts).toHaveBeenCalledWith(expect.objectContaining({ target: 'grok' }));
+  });
+
+  it('plugin install --github rejects --grok', async () => {
+    const { stderr, result } = await captureOutputAsync(async () => {
+      return await run(['plugin', 'install', '--github', '--grok']);
+    });
+    expect(result).toBe(1);
+    expect(stderr).toContain('--github only applies to Claude Code');
+    expect(stderr).toContain('--grok');
+    expect(mockInstallFromGitHubMarketplace).not.toHaveBeenCalled();
     expect(mockInstallHosts).not.toHaveBeenCalled();
   });
 

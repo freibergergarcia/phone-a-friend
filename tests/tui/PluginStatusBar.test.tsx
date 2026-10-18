@@ -31,7 +31,7 @@ describe('PluginStatusBar', () => {
   });
 
   it('shows multi-host status when host state is provided', () => {
-    const { lastFrame } = render(<PluginStatusBar hosts={{ claude: true, opencode: false }} />);
+    const { lastFrame } = render(<PluginStatusBar hosts={{ claude: true, opencode: false, codex: false, pi: false, grok: false }} />);
     const frame = lastFrame()!;
     expect(frame).toContain('Plugins:');
     expect(frame).toContain('Claude');
@@ -41,9 +41,10 @@ describe('PluginStatusBar', () => {
   });
 
   it('shows pi beside the other hosts', () => {
-    const hosts = { claude: false, opencode: false, codex: false, pi: true };
+    const hosts = { claude: false, opencode: false, codex: false, pi: true, grok: true };
     const frame = render(<PluginStatusBar hosts={hosts} />).lastFrame()!;
     expect(frame).toContain('pi \u2713');
+    expect(frame).toContain('Grok \u2713');
     expect(frame).toContain('Codex !');
   });
 });

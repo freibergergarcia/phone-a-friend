@@ -253,6 +253,26 @@ describe('setup', () => {
     );
   });
 
+  it('offers the Grok skills when the Grok host is available', async () => {
+    const report = makeReport({
+      host: [
+        { name: 'claude', category: 'host', available: false, detail: 'not found', installHint: 'install' },
+        { name: 'grok', category: 'host', available: true, detail: 'found', installHint: '' },
+      ],
+    });
+    mockDetectAll.mockResolvedValue(report);
+    mockConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await setup.setup();
+
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Grok') }));
+    expect(mockInstallHosts).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'grok', syncClaudeCli: false }),
+    );
+  });
+
   it('saves config to TOML path', async () => {
     mockDetectAll.mockResolvedValue(makeReport());
     mockSelect.mockResolvedValue('codex');

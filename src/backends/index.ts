@@ -174,6 +174,7 @@ export const INSTALL_HINTS: Record<string, string> = {
   claude: 'npm install -g @anthropic-ai/claude-code',
   opencode: 'npm install -g opencode-ai',
   pi: 'npm install -g @earendil-works/pi-coding-agent',
+  grok: 'npm install -g @xai-official/grok',
 };
 
 export const BACKEND_COMMANDS: Record<string, string> = {
@@ -184,6 +185,7 @@ export const BACKEND_COMMANDS: Record<string, string> = {
   ollama: 'ollama',
   opencode: 'opencode',
   pi: 'pi',
+  grok: 'grok',
 };
 
 // ---------------------------------------------------------------------------

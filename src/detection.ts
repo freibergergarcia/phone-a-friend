@@ -2,8 +2,8 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (antigravity/codex/gemini/opencode/pi), Local (ollama), plus
- * host integrations (claude/opencode/codex/pi).
+ * backends: CLI (antigravity/codex/gemini/opencode/pi/grok), Local (ollama), plus
+ * host integrations (claude/opencode/codex/pi/grok).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -71,6 +71,8 @@ const CLI_BACKENDS: { name: string; command?: string; installHint: string; label
   { name: 'opencode', installHint: 'npm install -g opencode-ai', label: 'OpenCode CLI', optional: true },
   // Optional for the same reason: most users do not have pi installed.
   { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent', optional: true },
+  // Optional for the same reason: Grok Build is a separate install.
+  { name: 'grok', installHint: INSTALL_HINTS.grok, label: 'Grok Build', optional: true },
 ];
 
 const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
@@ -81,6 +83,7 @@ const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] 
   { name: 'opencode', installHint: 'npm install -g opencode-ai', label: 'OpenCode CLI' },
   { name: 'codex', installHint: 'npm install -g @openai/codex', label: 'OpenAI Codex CLI' },
   { name: 'pi', installHint: INSTALL_HINTS.pi, label: 'Pi coding agent CLI' },
+  { name: 'grok', installHint: INSTALL_HINTS.grok, label: 'Grok Build CLI' },
 ];
 
 // ---------------------------------------------------------------------------
