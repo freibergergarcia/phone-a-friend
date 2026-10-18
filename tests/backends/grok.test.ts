@@ -148,7 +148,7 @@ describe('grok backend', () => {
       }));
       expect(args).toContain('--no-auto-update');
       expect(flagValues(args, '--allow')).toEqual(['Read', 'Grep']);
-      expect(flagValues(args, '--deny')).toEqual(['Bash']);
+      expect(flagValues(args, '--deny')).toEqual(['Bash', 'Edit']);
       expect(args).not.toContain('--always-approve');
       expect(spawnOpts.cwd).toBe(repo);
       expect(spawnOpts.env).toBe(opts.env);
@@ -156,7 +156,7 @@ describe('grok backend', () => {
       expect(existsSync(spawned.promptPath())).toBe(false);
     });
 
-    it('maps workspace-write to edit and write, and danger-full-access to bypass', async () => {
+    it('maps workspace-write to Edit, and danger-full-access to bypass', async () => {
       spawnOk();
       await GROK_BACKEND.run(makeOpts({ sandbox: 'workspace-write' }));
       const writeArgs = mockSpawn.mock.calls[0][1] as string[];

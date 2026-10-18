@@ -79,9 +79,10 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
   // grok 1.0.62 lists dontAsk and bypassPermissions in `grok --help`.
   // Documented allow filters are Bash, Edit, Read, Grep, MCPTool, WebFetch,
   // and WebSearch. Edit creates files; there is no Write filter, and an
-  // unknown allow name is ignored. dontAsk denies a tool that is not
-  // allowed, so a Bash call cannot sit on an approval prompt. --deny Bash
-  // also wins over a project allow. acceptEdits would still prompt for Bash.
+  // unknown allow name is ignored. CLI --allow merges with project rules,
+  // and deny wins over allow. dontAsk still honors a project Edit allow, and
+  // the read-only sandbox permits writes under /tmp and ~/.grok, so read-only
+  // denies Edit as well as Bash. acceptEdits would still prompt for Bash.
   switch (opts.sandbox) {
     case 'read-only':
       args.push(
@@ -90,6 +91,7 @@ export function buildGrokArgs(opts: GrokArgOptions): string[] {
         '--allow', 'Read',
         '--allow', 'Grep',
         '--deny', 'Bash',
+        '--deny', 'Edit',
       );
       break;
     case 'workspace-write':

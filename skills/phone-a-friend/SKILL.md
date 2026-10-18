@@ -191,7 +191,7 @@ When `RELAY_MODE = direct`, call backend CLIs directly instead of using the
 | **Antigravity** | `agy --add-dir "$PWD" --print-timeout 300s --sandbox --mode plan --prompt "$(cat "$PROMPT_FILE")"` |
 | **Codex** | `codex exec -C "$PWD" --skip-git-repo-check --sandbox read-only "$(cat "$PROMPT_FILE")" < /dev/null` |
 | **Gemini** | `gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text -m <model> --prompt "$(cat "$PROMPT_FILE")"` |
-| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash` |
+| **Grok** | `grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit` |
 
 Gemini's `--approval-mode plan` is Gemini Plan Mode, a best-effort read-only restriction: headless Gemini may exit Plan Mode and switch to YOLO. Use Antigravity when enforced read-only behavior is required.
 
@@ -362,7 +362,7 @@ PAF_CONTEXT_EOF
    # Gemini (omit -m for auto-routing; pin only when reproducibility/capability is needed):
    gemini --sandbox --approval-mode plan --include-directories "$PWD" --output-format text --prompt "$(cat "$PROMPT_FILE")"
    # Grok (read `text` when stopReason is stop, length, or end_turn; do not print the envelope):
-   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash
+   grok --no-auto-update --output-format json --cwd "$PWD" --prompt-file "$PROMPT_FILE" --sandbox read-only --permission-mode dontAsk --allow Read --allow Grep --deny Bash --deny Edit
    ```
 
    In direct mode, build `PROMPT_FILE` from the template in the "Direct call

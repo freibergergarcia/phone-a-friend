@@ -78423,7 +78423,9 @@ function buildGrokArgs(opts) {
         "--allow",
         "Grep",
         "--deny",
-        "Bash"
+        "Bash",
+        "--deny",
+        "Edit"
       );
       break;
     case "workspace-write":
