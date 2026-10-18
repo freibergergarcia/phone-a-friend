@@ -85916,7 +85916,7 @@ async function setup(opts) {
   if (grokAvailable) {
     console.log(`  ${theme.hint("Step 2/3")} ${theme.heading("Grok integration")}`);
     const installGrok2 = await dist_default6({
-      message: "Install Grok skills (phone-a-friend, curiosity-engine)?",
+      message: "Install Grok skills (phone-a-friend, curiosity-engine, phone-a-team)?",
       default: true
     });
     if (installGrok2) {

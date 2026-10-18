@@ -221,7 +221,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
   if (grokAvailable) {
     console.log(`  ${theme.hint('Step 2/3')} ${theme.heading('Grok integration')}`);
     const installGrok = await confirm({
-      message: 'Install Grok skills (phone-a-friend, curiosity-engine)?',
+      message: 'Install Grok skills (phone-a-friend, curiosity-engine, phone-a-team)?',
       default: true,
     });
     if (installGrok) {

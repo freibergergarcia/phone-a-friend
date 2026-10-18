@@ -628,8 +628,8 @@ export async function run(argv: string[]): Promise<number> {
         : undefined;
 
       if (isReview) {
-        // reviewRelay does not take session fields. Refuse before a task or a
-        // backend process, with the same errors prepareRelay already uses.
+        // Reject unsupported sessions before recording a task, using the same
+        // capability check as relay. Supported sessions reach reviewRelay below.
         refuseUnsupportedRelaySession(backendName, opts.session ?? null, opts.backendSession ?? null);
         const tracked = beginTrackedRun({
           mode: taskMode,
