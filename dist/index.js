@@ -3749,6 +3749,7 @@ __export(relay_exports, {
   detectDefaultBranch: () => detectDefaultBranch,
   gitDiffBase: () => gitDiffBase,
   mergeObservers: () => mergeObservers,
+  refuseUnsupportedRelaySession: () => refuseUnsupportedRelaySession,
   relay: () => relay,
   relayBackground: () => relayBackground,
   relayStream: () => relayStream,
@@ -4140,6 +4141,25 @@ function nextRelayEnv() {
   env5.PHONE_A_FRIEND_DEPTH = String(depth + 1);
   return env5;
 }
+function refuseUnsupportedRelaySession(backendName, session, backendSession) {
+  if (!session && !backendSession) return;
+  let selectedBackend;
+  try {
+    selectedBackend = getBackend(backendName);
+  } catch (err) {
+    throw new RelayError(err instanceof Error ? err.message : String(err));
+  }
+  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
+    throw new RelayError(
+      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
+    );
+  }
+  if (session && selectedBackend.capabilities.resumeStrategy === "unsupported") {
+    throw new RelayError(
+      `--session is not supported by the ${selectedBackend.name} backend (resume strategy: unsupported). The backend cannot resume a prior conversation, so PaF refuses to persist a label that would silently fresh-spawn each call.`
+    );
+  }
+}
 function prepareRelay(opts) {
   const {
     prompt,
@@ -4179,16 +4199,7 @@ function prepareRelay(opts) {
     const allowed = [...selectedBackend.allowedSandboxes].sort().join(", ");
     throw new RelayError(`Invalid sandbox mode: ${sandbox}. Allowed values: ${allowed}`);
   }
-  if (backendSession && selectedBackend.capabilities.resumeStrategy !== "native-session") {
-    throw new RelayError(
-      `--backend-session is not supported by the ${selectedBackend.name} backend (resume strategy: ${selectedBackend.capabilities.resumeStrategy}).`
-    );
-  }
-  if (session && selectedBackend.capabilities.resumeStrategy === "unsupported") {
-    throw new RelayError(
-      `--session is not supported by the ${selectedBackend.name} backend (resume strategy: unsupported). The backend cannot resume a prior conversation, so PaF refuses to persist a label that would silently fresh-spawn each call.`
-    );
-  }
+  refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
   const resolvedContext = resolveContextText(contextFile, contextText);
   const diffText = includeDiff ? gitDiff(resolvedRepo) : "";
   const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
@@ -87098,6 +87109,7 @@ ${banner("AI coding agent relay")}
       }
       const peerMessaging = backendName === "claude" ? resolved.claudePeerMessaging : void 0;
       if (isReview) {
+        refuseUnsupportedRelaySession(backendName, opts.session ?? null, opts.backendSession ?? null);
         const tracked2 = beginTrackedRun({
           mode: taskMode,
           kind: "review",

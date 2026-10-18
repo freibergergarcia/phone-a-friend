@@ -16,6 +16,7 @@ import {
   relayStream,
   reviewRelay,
   mergeObservers,
+  refuseUnsupportedRelaySession,
   RelayError,
 } from './relay.js';
 import { theme, banner } from './theme.js';
@@ -627,6 +628,9 @@ export async function run(argv: string[]): Promise<number> {
         : undefined;
 
       if (isReview) {
+        // reviewRelay does not take session fields. Refuse before a task or a
+        // backend process, with the same errors prepareRelay already uses.
+        refuseUnsupportedRelaySession(backendName, opts.session ?? null, opts.backendSession ?? null);
         const tracked = beginTrackedRun({
           mode: taskMode,
           kind: 'review',

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -25,6 +26,7 @@ import {
   parseGrokResult,
 } from '../../src/backends/grok.js';
 import { RelayError, relay } from '../../src/relay.js';
+import { run } from '../../src/cli.js';
 
 function envelope(text: string, stopReason = 'stop', extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ text, stopReason, sessionId: '01a14fbf-0000-7000-8000-000000000001', ...extra });
@@ -352,6 +354,82 @@ describe('grok backend', () => {
         backendSession: '01a14fbf-0000-7000-8000-000000000001',
         includeDiff: false,
       })).rejects.toThrow(/--backend-session is not supported by the grok backend/);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('review session gates', () => {
+    function git(...args: string[]): void {
+      execFileSync('git', ['-C', repo, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+
+    /** A committed file plus an unstaged edit, so a dropped flag would reach grok. */
+    function dirtyWorkingTree(): void {
+      git('init', '-q', '-b', 'main');
+      git('config', 'user.email', 'paf-tests@example.com');
+      git('config', 'user.name', 'PaF Tests');
+      writeFileSync(join(repo, 'tracked.txt'), 'base\n');
+      git('add', 'tracked.txt');
+      git('commit', '-q', '-m', 'base');
+      writeFileSync(join(repo, 'tracked.txt'), 'changed\n');
+    }
+
+    async function reviewWith(flag: string, value: string): Promise<{ code: number; stderr: string }> {
+      const saved = {
+        GROK_AGENT: process.env.GROK_AGENT,
+        PHONE_A_FRIEND_HOST: process.env.PHONE_A_FRIEND_HOST,
+        PHONE_A_FRIEND_DEPTH: process.env.PHONE_A_FRIEND_DEPTH,
+        PHONE_A_FRIEND_UPDATE_CHECK: process.env.PHONE_A_FRIEND_UPDATE_CHECK,
+        CI: process.env.CI,
+        TERM: process.env.TERM,
+        XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      };
+      const stderrChunks: string[] = [];
+      const origStderr = process.stderr.write;
+      const origConsoleError = console.error;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderrChunks.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+      console.error = (...args: unknown[]) => {
+        stderrChunks.push(args.map(String).join(' '));
+      };
+      delete process.env.GROK_AGENT;
+      delete process.env.PHONE_A_FRIEND_HOST;
+      process.env.PHONE_A_FRIEND_DEPTH = '0';
+      process.env.PHONE_A_FRIEND_UPDATE_CHECK = 'false';
+      process.env.CI = 'true';
+      process.env.TERM = 'dumb';
+      process.env.XDG_CONFIG_HOME = join(root, 'xdg');
+      mockSpawn.mockImplementation(() => mockChild(envelope('should-not-run')));
+      try {
+        const code = await run([
+          '--to', 'grok',
+          '--repo', repo,
+          '--review',
+          '--review-scope', 'working-tree',
+          flag, value,
+        ]);
+        return { code, stderr: stderrChunks.join('') };
+      } finally {
+        process.stderr.write = origStderr;
+        console.error = origConsoleError;
+        for (const [key, savedValue] of Object.entries(saved)) {
+          if (savedValue === undefined) delete process.env[key];
+          else process.env[key] = savedValue;
+        }
+      }
+    }
+
+    it.each([
+      ['--session', 'kept-review', '--session is not supported by the grok backend (resume strategy: unsupported)'],
+      ['--backend-session', '01a14fbf-0000-7000-8000-000000000001', '--backend-session is not supported by the grok backend (resume strategy: unsupported)'],
+    ])('refuses %s on a dirty review without starting grok', async (flag, value, message) => {
+      dirtyWorkingTree();
+      const { code, stderr } = await reviewWith(flag, value);
+      expect(code).toBe(1);
+      expect(stderr).toContain(message);
+      expect(stderr).not.toMatch(/Task [0-9a-f]{8} started/);
       expect(mockSpawn).not.toHaveBeenCalled();
     });
   });
