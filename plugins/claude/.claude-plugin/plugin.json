@@ -2,7 +2,7 @@
   "name": "phone-a-friend",
   "displayName": "Phone a Friend",
   "description": "Get second opinions, code reviews and multi-backend team feedback without leaving Claude Code, from Codex, Gemini, Antigravity, OpenCode, pi, Ollama or another Claude session. Requires the phone-a-friend CLI (Node.js 22.13+) and your own backend accounts or model servers; prompts and repository context go to the backend you choose.",
-  "version": "4.13.7",
+  "version": "4.13.8",
   "author": {
     "name": "Bruno Freiberger"
   },
