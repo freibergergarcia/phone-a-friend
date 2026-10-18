@@ -50,6 +50,16 @@ describe('Codex per-plugin manifest (.codex-plugin/plugin.json at repo root)', (
     const manifest = readJson(file) as { version: string };
     expect(manifest.version).toBe(packageVersion);
   });
+
+  it('shares homepage + keywords with .claude-plugin/plugin.json', () => {
+    // Both directories read these for search and provenance; edit them together.
+    const codex = readJson(file) as { homepage?: string; keywords?: string[] };
+    const claude = readJson('.claude-plugin/plugin.json') as { homepage?: string; keywords?: string[] };
+    expect(codex.homepage).toBeDefined();
+    expect(codex.homepage).toBe(claude.homepage);
+    expect(codex.keywords?.length).toBeGreaterThan(0);
+    expect(codex.keywords).toEqual(claude.keywords);
+  });
 });
 
 describe('Codex per-plugin manifest (plugins/phone-a-friend/.codex-plugin/plugin.json)', () => {

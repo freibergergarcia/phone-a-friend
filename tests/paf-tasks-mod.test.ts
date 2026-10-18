@@ -52,8 +52,9 @@ describe('paf-tasks mod packaging', () => {
     expect(readJson<{ files: string[] }>('package.json').files).toContain('mods/');
   });
 
-  it('ships the project license, since it installs as its own plugin', () => {
+  it('ships the project license and notice, since it installs as its own plugin', () => {
     expect(readText(`${MOD}/LICENSE`)).toBe(readText('LICENSE'));
+    expect(readText(`${MOD}/NOTICE`)).toBe(readText('NOTICE'));
   });
 
   it('declares its hooks module and state contract', () => {
