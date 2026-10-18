@@ -8,6 +8,7 @@
   <p><em>When your AI needs a second opinion.</em></p>
 
   [![npm](https://img.shields.io/npm/v/%40freibergergarcia%2Fphone-a-friend)](https://www.npmjs.com/package/@freibergergarcia/phone-a-friend)
+  [![pi package](https://img.shields.io/badge/pi-package-blueviolet)](https://pi.dev/packages/@freibergergarcia/phone-a-friend)
   [![CI](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml/badge.svg)](https://github.com/freibergergarcia/phone-a-friend/actions/workflows/ci.yml)
   [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
   ![Node.js 22.13+](https://img.shields.io/badge/node-%E2%89%A522.13-green)
@@ -160,7 +161,7 @@ The same form works for a one-shot run: `pi -p "/skill:phone-a-friend ask claude
 
 - **Use the `/skill:` form with local models.** pi lists the skill to the model, but a local model may not load it on its own. In testing, a 35B model given a plain "ask Claude through phone-a-friend" request guessed the CLI flags instead and relayed to the wrong backend; with `/skill:phone-a-friend` the same model ran the correct relay first time.
 - **No recursion marker is needed.** pi sets `PI_CODING_AGENT=true` for the commands it runs, and PaF refuses `--to pi` from there.
-- **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. `doctor` and the TUI recognize the npm form; a package installed from a git URL works in pi but shows as not installed there. You still need the npm global install for the `phone-a-friend` command itself.
+- **Alternative: pi's own package manager.** The npm package is also a pi package that exposes the same two skills: `pi install npm:@freibergergarcia/phone-a-friend`. It is listed in the [pi package catalog](https://pi.dev/packages/@freibergergarcia/phone-a-friend). Use one path or the other; with both, pi keeps the first skill it finds and warns about the name collision. `doctor` and the TUI recognize the npm form; a package installed from a git URL works in pi but shows as not installed there. You still need the npm global install for the `phone-a-friend` command itself.
 - **Uninstall** (`phone-a-friend plugin uninstall --pi`) removes only what PaF installed. A skill of your own under the same name is kept.
 
 **From source:**
