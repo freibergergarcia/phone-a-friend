@@ -237,6 +237,7 @@ function looksLikeOkIfAlready(output: string): boolean {
     'already installed',
     'already enabled',
     'already up to date',
+    'already at the latest version',
   ].some(token => text.includes(token));
 }
 
@@ -1379,6 +1380,38 @@ function reinstallPafPlugins(installs: ClaudePluginInstall[], skipUserMain: bool
 }
 
 /**
+ * Update every existing paf-tasks install. The regular sync updates only
+ * phone-a-friend, and auto-update is off by default for third-party
+ * marketplaces, so without this the panel stays on the version first
+ * installed. Installs just restored by a repoint are already current.
+ */
+function updateModPlugin(reinstalled: ClaudePluginInstall[], claudeHome?: string): string[] {
+  const lines: string[] = [];
+  for (const install of pafPluginInstalls(claudeHome)) {
+    if (install.plugin !== MOD_PLUGIN_NAME) continue;
+    if (reinstalled.some(r => r.plugin === install.plugin && r.scope === install.scope
+      && r.projectPath === install.projectPath)) continue;
+    const where = install.projectPath ? `${install.scope} ${install.projectPath}` : install.scope;
+    const label = `claude_cli_update:${install.plugin} (${where})`;
+    if (install.scope !== 'user' && !(install.projectPath && existsSync(install.projectPath))) {
+      lines.push(`- ${label}: skipped (project folder not found)`);
+      continue;
+    }
+    const { code, output } = runClaudeCommand(
+      ['claude', 'plugin', 'update', `${install.plugin}@${MARKETPLACE_NAME}`, '-s', install.scope],
+      install.scope === 'user' ? undefined : install.projectPath,
+    );
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- ${label}: ok`);
+    } else {
+      lines.push(`- ${label}: failed`);
+      if (output) lines.push(`  output: ${output}`);
+    }
+  }
+  return lines;
+}
+
+/**
  * Replace a registration with `target`. Claude has no "change source", and a
  * repeat add keeps the old one, so this removes the marketplace and adds it
  * from `target`. `marketplace remove` uninstalls the marketplace's plugins:
@@ -1476,6 +1509,9 @@ function syncClaudeMarketplace(opts: {
   const sync = syncClaudePluginRegistration(sourceArgument(target)!);
   lines.push(...sync);
   lines.push(...reinstallPafPlugins(reinstall, true));
+  if (!sync.some(l => l.startsWith('- claude_cli: skipped'))) {
+    lines.push(...updateModPlugin(reinstall, claudeHome));
+  }
   if (!sync.some(l => l.startsWith('- claude_cli: skipped')) && !sync.some(l => l.includes('marketplace_add: failed'))) {
     writeMarketplaceRecord(target, pafHome);
   }

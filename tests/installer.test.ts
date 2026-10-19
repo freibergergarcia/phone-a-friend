@@ -2261,6 +2261,54 @@ describe('Claude marketplace source and stale registrations', () => {
     expect(lines.some(l => l.includes('claude_cli_update: ok'))).toBe(true);
   });
 
+  it('updates every installed paf-tasks panel, each project from its own folder', () => {
+    const project = path.join(root, 'some-project');
+    fs.mkdirSync(project);
+    register({ source: 'github', repo: GITHUB_REPO });
+    recordInstalls({
+      [`paf-tasks@${MARKETPLACE_NAME}`]: [
+        { scope: 'user' },
+        { scope: 'project', projectPath: project },
+        { scope: 'project', projectPath: path.join(root, 'gone') },
+      ],
+    });
+
+    const lines = syncFrom(makeNpmInstall('node24'));
+
+    const calls = claudeCalls();
+    expect(calls).toContainEqual({ args: ['plugin', 'update', `paf-tasks@${MARKETPLACE_NAME}`, '-s', 'user'], cwd: undefined });
+    expect(calls).toContainEqual({ args: ['plugin', 'update', `paf-tasks@${MARKETPLACE_NAME}`, '-s', 'project'], cwd: project });
+    expect(lines).toContain('- claude_cli_update:paf-tasks (user): ok');
+    expect(lines.some(l => l.includes('paf-tasks (project') && l.includes('skipped (project folder not found)'))).toBe(true);
+    // The panel updates after the marketplace refresh, so it sees the new catalog.
+    const refresh = calls.findIndex(c => c.args.join(' ') === `plugin marketplace update ${MARKETPLACE_NAME}`);
+    const panel = calls.findIndex(c => c.args.join(' ') === `plugin update paf-tasks@${MARKETPLACE_NAME} -s user`);
+    expect(panel).toBeGreaterThan(refresh);
+  });
+
+  it('does not update paf-tasks when it is not installed', () => {
+    register({ source: 'github', repo: GITHUB_REPO });
+    syncFrom(makeNpmInstall('node24'));
+    expect(claudeCalls().some(c => c.args.includes(`paf-tasks@${MARKETPLACE_NAME}`))).toBe(false);
+  });
+
+  it('reports a failed paf-tasks update with its output', () => {
+    register({ source: 'github', repo: GITHUB_REPO });
+    recordInstalls({ [`paf-tasks@${MARKETPLACE_NAME}`]: [{ scope: 'user' }] });
+    mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'which') return '/usr/local/bin/claude';
+      if (cmd === 'claude' && args[1] === 'update' && args[2] === `paf-tasks@${MARKETPLACE_NAME}`) {
+        throw Object.assign(new Error('update failed'), { status: 1, stdout: '', stderr: 'network down' });
+      }
+      return '';
+    });
+
+    const lines = syncFrom(makeNpmInstall('node24'));
+
+    expect(lines).toContain('- claude_cli_update:paf-tasks (user): failed');
+    expect(lines).toContain('  output: network down');
+  });
+
   it('repoints a registration left by a previous Node version and reinstalls every plugin it had', () => {
     const old = makeNpmInstall('node22');
     const project = path.join(root, 'some-project');
@@ -2286,6 +2334,8 @@ describe('Claude marketplace source and stale registrations', () => {
     const panelInstall = calls.findIndex(c => c.args.join(' ') === `plugin install paf-tasks@${MARKETPLACE_NAME} -s user`);
     expect(userInstall).toBeGreaterThan(addIndex);
     expect(panelInstall).toBeGreaterThan(userInstall);
+    // A panel the repoint just reinstalled is current; no separate update.
+    expect(calls.some(c => c.args.join(' ') === `plugin update paf-tasks@${MARKETPLACE_NAME} -s user`)).toBe(false);
   });
 
   it('repoints a registration of this very install folder (pre-GitHub npm registration)', () => {

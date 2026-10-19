@@ -4685,7 +4685,8 @@ function looksLikeOkIfAlready(output) {
     "already added",
     "already installed",
     "already enabled",
-    "already up to date"
+    "already up to date",
+    "already at the latest version"
   ].some((token) => text.includes(token));
 }
 function cleanupLegacyMarketplace() {
@@ -5414,6 +5415,30 @@ function reinstallPafPlugins(installs, skipUserMain) {
   }
   return lines;
 }
+function updateModPlugin(reinstalled, claudeHome) {
+  const lines = [];
+  for (const install of pafPluginInstalls(claudeHome)) {
+    if (install.plugin !== MOD_PLUGIN_NAME) continue;
+    if (reinstalled.some((r) => r.plugin === install.plugin && r.scope === install.scope && r.projectPath === install.projectPath)) continue;
+    const where = install.projectPath ? `${install.scope} ${install.projectPath}` : install.scope;
+    const label = `claude_cli_update:${install.plugin} (${where})`;
+    if (install.scope !== "user" && !(install.projectPath && existsSync7(install.projectPath))) {
+      lines.push(`- ${label}: skipped (project folder not found)`);
+      continue;
+    }
+    const { code, output } = runClaudeCommand(
+      ["claude", "plugin", "update", `${install.plugin}@${MARKETPLACE_NAME}`, "-s", install.scope],
+      install.scope === "user" ? void 0 : install.projectPath
+    );
+    if (code === 0 || looksLikeOkIfAlready(output)) {
+      lines.push(`- ${label}: ok`);
+    } else {
+      lines.push(`- ${label}: failed`);
+      if (output) lines.push(`  output: ${output}`);
+    }
+  }
+  return lines;
+}
 function repointClaudeMarketplace(previous, target, claudeHome) {
   const lines = [
     `- claude_cli_marketplace_repoint: ${describeClaudeMarketplaceSource(previous)} -> ${describeClaudeMarketplaceSource(target)}`
@@ -5472,6 +5497,9 @@ function syncClaudeMarketplace(opts) {
   const sync = syncClaudePluginRegistration(sourceArgument(target));
   lines.push(...sync);
   lines.push(...reinstallPafPlugins(reinstall, true));
+  if (!sync.some((l) => l.startsWith("- claude_cli: skipped"))) {
+    lines.push(...updateModPlugin(reinstall, claudeHome));
+  }
   if (!sync.some((l) => l.startsWith("- claude_cli: skipped")) && !sync.some((l) => l.includes("marketplace_add: failed"))) {
     writeMarketplaceRecord(target, pafHome);
   }

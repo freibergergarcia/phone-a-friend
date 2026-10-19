@@ -481,6 +481,12 @@ The pure decision logic (`decideBanner`) is testable in isolation in `tests/upda
   project as the working directory), and restores them after the add. If the add
   fails (GitHub needs `git` and the network), the previous folder is re-added
   and the plugins reinstalled.
+- **paf-tasks updates.** The regular sync installs and updates only
+  `phone-a-friend`. After it, every recorded `paf-tasks` install (from
+  `installed_plugins.json`, each project scope from its own folder) gets
+  `claude plugin update`, except ones a repoint just reinstalled. Claude Code
+  leaves auto-update off for third-party marketplaces, so without this the
+  panel stayed on its first-installed version.
 - **Ownership record.** A successful registration writes
   `<PaF config dir>/claude-marketplace.json`. Uninstall's `auto` mode removes a
   remote marketplace only when it matches that record, so a GitHub marketplace

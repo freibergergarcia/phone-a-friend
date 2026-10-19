@@ -77,7 +77,10 @@ The setup wizard detects your backends, offers to install detected host integrat
 /plugin install phone-a-friend@phone-a-friend-marketplace
 ```
 
-To update: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin update phone-a-friend@phone-a-friend-marketplace`.
+To update: `/plugin marketplace update phone-a-friend-marketplace` then `/plugin update phone-a-friend@phone-a-friend-marketplace`. After `npm install -g`, `phone-a-friend plugin update --claude` does the same and also updates an installed `paf-tasks` panel.
+
+> [!TIP]
+> Claude Code turns auto-update off by default for third-party marketplaces ([docs](https://code.claude.com/docs/en/discover-plugins#keep-plugins-updated)), so these plugins stay on the version first installed until you update them. To follow releases, open `/plugin` → **Marketplaces** → `phone-a-friend-marketplace` → **Enable auto-update**, or set `"autoUpdate": true` on the marketplace's `extraKnownMarketplaces` entry in `settings.json`. Each Claude profile (`CLAUDE_CONFIG_DIR`) keeps its own setting and plugins.
 
 > [!NOTE]
 > Marketplace install ships only the slash commands and skills. For the full CLI (agentic mode and TUI), install via `npm install -g @freibergergarcia/phone-a-friend`.
