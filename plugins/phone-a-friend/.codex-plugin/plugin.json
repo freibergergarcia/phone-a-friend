@@ -25,7 +25,7 @@
   "interface": {
     "displayName": "Phone a Friend",
     "shortDescription": "Second opinions for your code",
-    "longDescription": "Get second opinions and code reviews from Antigravity, Claude, Gemini, OpenCode, pi, Grok, Ollama or xAI while working in Codex. The phone-a-team skill runs iterative Bash-orchestrated rounds and lets the host model synthesize the results. Requires a local coding host with shell access, Node.js 22.13+, a PATH-installed phone-a-friend CLI, and separately configured backends. Plugin installation supplies skills; it does not install or authenticate backend CLIs. Hosted chat without local shell access cannot run these workflows. Provider charges and local history apply; see the privacy notice.",
+    "longDescription": "Get second opinions and code reviews from Antigravity, Claude, Gemini, OpenCode, pi, Ollama or xAI while working in Codex. The phone-a-team skill runs iterative Bash-orchestrated rounds and lets the host model synthesize the results. Requires a local coding host with shell access, Node.js 22.13+, a PATH-installed phone-a-friend CLI, and separately configured backends. Plugin installation supplies skills; it does not install or authenticate backend CLIs. Hosted chat without local shell access cannot run these workflows. Provider charges and local history apply; see the privacy notice.",
     "developerName": "Bruno Freiberger",
     "category": "Productivity",
     "capabilities": [

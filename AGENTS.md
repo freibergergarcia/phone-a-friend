@@ -701,6 +701,7 @@ The `--schema` flag requests JSON output matching a JSON Schema from backends th
 - OpenCode CLI: schema injected into prompt (best-effort, not validated; the OpenCode SDK has a structured-output surface, but PaF's backend uses `opencode run`)
 - pi: schema injected into prompt (best-effort, not validated; pi has no structured-output flag). A small local model may answer with reasoning only, which fails closed with a hint to try `--fast` or a larger model
 - Grok: native `--json-schema` in batch mode; prefer `structured_output` when present, otherwise use the envelope text. `--verdict-json` uses the existing verdict schema and parser.
+- xAI: native enforcement via Responses `text.format` `json_schema` (strict)
 - Streaming is disabled when `--schema` is active (structured output requires batch mode)
 - When a `--schema` is set in review mode, native `review()` is bypassed and the generic `run()` path is used so the schema is honored uniformly across backends.
 

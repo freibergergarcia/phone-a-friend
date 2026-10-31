@@ -32,7 +32,7 @@ Use `doctor --json` to diagnose PATH/version mismatches before retrying.
   started; sessions created directly in pi cannot be attached.
 - **Codex, Claude, OpenCode**: native session resume. Follow-up prompts
   can send deltas only.
-- **Ollama**: replays full history each call. Sessions work but prompt
+- **Ollama and xAI**: replay full history each call. Sessions work but prompt
   size grows with each turn. Keep follow-ups concise.
 - **Grok**: native resume via `--session-id` for a new UUID and `--resume`
   for follow-ups. Both PaF session flags work for relays and reviews.

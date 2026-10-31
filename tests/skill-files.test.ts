@@ -988,7 +988,7 @@ describe('pi is binary-mode only in every skill and command', () => {
   }
 
   it('the OpenCode overlay and the reviewer subagent list pi among the backends', () => {
-    expect(readFile('skills/phone-a-friend/COMMAND.opencode.md')).toMatch(/`claude`, `pi`, `grok`, or `ollama`/);
+    expect(readFile('skills/phone-a-friend/COMMAND.opencode.md')).toMatch(/`claude`, `pi`, `grok`, `ollama`, or `xai`/);
     expect(readFile('agents/paf-reviewer.md')).toMatch(/description:[^\n]*\bpi\b/);
   });
 });

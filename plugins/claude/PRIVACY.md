@@ -8,7 +8,7 @@ or telemetry collector.
 
 The CLI sends your prompt, supplied context, and any requested diff to the backend
 you select. Backends include locally installed Claude, Codex, Gemini, Antigravity,
-OpenCode and pi CLIs, and an Ollama HTTP endpoint. A local CLI may send data to
+OpenCode and pi CLIs, an Ollama HTTP endpoint, and the xAI Responses API. A local CLI may send data to
 its configured model provider; using a local CLI does not mean inference stays
 on your machine. Ollama and pi/OpenCode can also use model servers you configure.
 Their providers' terms, privacy policies, authentication, billing and retention
