@@ -85,7 +85,7 @@
     "better-sqlite3": "^13.0.2",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
-    "ink": "^7.0.5",
+    "ink": "^8.0.0",
     "ora": "^9.3.0",
     "react": "^19.3.0",
     "react-devtools-core": "^8.0.0",
