@@ -308,7 +308,9 @@ The review repeated the checks independently instead of relying on the audit's l
   a vitest worker SIGSEGV, scripts exiting non-zero in `plugin-distribution`, and, at
   `--maxWorkers=2`, three 5-second timeouts and a 5.8-second result against a 5.5-second
   deadline assertion. `plugin-distribution` failed 2 of 12 runs on both the unmodified
-  baseline and the final tree. Native amd64 has not been run.
+  baseline and the final tree.
+- GitHub CI on native x64 Ubuntu with Node 22: 76 files and 1,859 tests passed, along
+  with Claude manifest validation and 43 mod tests.
 
 **Review bundle**
 
@@ -353,7 +355,7 @@ Fixtures were meant to be disposable, but this state remained afterwards:
 | Setup/doctor/updates | Full suite, fresh interactive setup and live doctor | Provider auth unavailable to doctor; installed PATH version differs from checkout |
 | Host integrations | Actual npm artifact on five disposable host homes, both modes; rollback tests | Real marketplace mutations and each vendor's live skill-discovery UI not exercised |
 | TUI/mod | PTY tab/config/refresh/quit checks; TUI unit tests; mod validation and 43 tests | Terminal resize, real host mod rendering, external editor and destructive actions not manually checked |
-| Distribution | Build, plugin checks/archives, standalone smoke, packed-installer test; Linux arm64 CI replica | Linux amd64 is flaky under emulation on the baseline too, with no native run; Windows not run |
+| Distribution | Build, plugin checks/archives, standalone smoke, packed-installer test; Linux arm64 CI replica | Linux amd64 is flaky only under emulation, on the baseline too, and passes natively in CI; Windows not run |
 
 The original promise of all-backend live acceptance is not yet met. Gemini needs
 usable CLI authentication (do not paste credentials into the audit), and all
