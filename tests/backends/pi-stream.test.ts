@@ -17,9 +17,9 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, execFile: mockExecFile, spawn: mockSpawn };
 });
 
+import { KILL_GRACE_MS } from '../../src/backends/child-supervisor.js';
 import {
   PI_BACKEND,
-  PI_KILL_GRACE_MS,
   PiBackendError,
   _resetPiVersionCache,
   buildPiArgs,
@@ -346,7 +346,7 @@ describe('pi backend streaming', () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(child.kill).toHaveBeenCalledWith('SIGTERM');
         expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
-        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS);
+        await vi.advanceTimersByTimeAsync(KILL_GRACE_MS);
         expect(child.kill).toHaveBeenCalledWith('SIGKILL');
         expect(await settled).toMatch(/pi timed out after 5s/);
       });
@@ -359,7 +359,7 @@ describe('pi backend streaming', () => {
         await vi.advanceTimersByTimeAsync(5_000);
         expect(child.kill).toHaveBeenCalledWith('SIGTERM');
         expect(child.kill).not.toHaveBeenCalledWith('SIGKILL');
-        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS);
+        await vi.advanceTimersByTimeAsync(KILL_GRACE_MS);
         expect(child.kill).toHaveBeenCalledWith('SIGKILL');
         expect(await settled).toMatch(/pi timed out after 5s/);
       });
@@ -375,7 +375,7 @@ describe('pi backend streaming', () => {
 
         let returned = false;
         const closing = stream.return(undefined).then(() => { returned = true; });
-        await vi.advanceTimersByTimeAsync(PI_KILL_GRACE_MS - 1);
+        await vi.advanceTimersByTimeAsync(KILL_GRACE_MS - 1);
         expect(child.kill).toHaveBeenCalledWith('SIGTERM');
         expect(returned).toBe(false);
         await vi.advanceTimersByTimeAsync(1);

@@ -541,7 +541,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--context-text <text>', 'Inline context text')
     .option('--include-diff', 'Append git diff to prompt')
     .option('--no-include-diff', 'Do not append git diff (overrides config defaults.include_diff)')
-    .option('--timeout <seconds>', 'Max runtime in seconds')
+    .option('--timeout <seconds>', 'Max runtime in seconds; 0 for no limit (default: 0)')
     .option('--model <name>', 'Model override')
     .option('--sandbox <mode>', 'Sandbox: read-only, workspace-write, danger-full-access')
     .option('--peer-messaging <mode>', 'Claude peer messaging: native, accept, refuse')
@@ -995,6 +995,7 @@ export async function run(argv: string[]): Promise<number> {
       const stop = () => orchestrator.stop();
       process.on('SIGINT', stop);
       process.on('SIGTERM', stop);
+      process.on('SIGHUP', stop);
 
       try {
         const events = await orchestrator.run({
@@ -1011,6 +1012,7 @@ export async function run(argv: string[]): Promise<number> {
         await orchestrator.close();
         process.off('SIGINT', stop);
         process.off('SIGTERM', stop);
+        process.off('SIGHUP', stop);
       }
     });
 
@@ -1535,6 +1537,9 @@ export async function run(argv: string[]): Promise<number> {
       }
       if (err.message.includes('depth limit')) {
         console.error(`  ${theme.hint('Agents are calling each other recursively.')}`);
+      }
+      if (/timed out after \d+s/.test(err.message)) {
+        console.error(`  ${theme.hint('Raise --timeout, or pass --timeout 0 for no limit.')}`);
       }
       console.error('');
       return 1;

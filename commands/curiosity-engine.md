@@ -225,7 +225,7 @@ PAF_CURIOSITY_PROMPT_EOF
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "$(cat "$PROMPT_FILE")"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --timeout 600 [--model <model>] --prompt "$(cat "$PROMPT_FILE")"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -283,7 +283,7 @@ PAF_CURIOSITY_REPROMPT_EOF
 
 **Binary mode** (`RELAY_MODE = binary`):
 ```bash
-phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF [--model <model>] --prompt "$(cat "$REPROMPT_FILE")"
+phone-a-friend --to <BACKEND> --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --timeout 600 [--model <model>] --prompt "$(cat "$REPROMPT_FILE")"
 ```
 
 **Direct mode** (`RELAY_MODE = direct`):
@@ -404,7 +404,7 @@ capability, or debugging requires a pin.
 with cache path, expiry, and bypass instructions; no auto-substitution):
 
 ```bash
-phone-a-friend --to gemini --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --prompt "$(cat "$PROMPT_FILE")"
+phone-a-friend --to gemini --repo "$PWD" --sandbox read-only --fast $PAF_NO_DIFF --timeout 600 --prompt "$(cat "$PROMPT_FILE")"
 ```
 
 To bypass the cache: `PHONE_A_FRIEND_GEMINI_DEAD_CACHE=false`. Or delete the

@@ -551,6 +551,25 @@ describe('SessionManager', () => {
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
     });
 
+    it('uses the session limit for each call, so a long session is not cut at 600s', async () => {
+      const child = new EventEmitter() as FakeChild;
+      child.stdin = { end: vi.fn() };
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = vi.fn((signal) => { if (signal === 'SIGKILL') child.emit('close', null); return true; });
+      spawnMock.mockReturnValue(child);
+
+      const promise = sm.spawn(makeAgent(), 'sys', 'hi', '/repo', { timeoutSeconds: 3600 });
+      const rejectCheck = expect(promise).rejects.toThrow('timed out after 3600s');
+
+      await vi.advanceTimersByTimeAsync(600_251);
+      expect(child.kill).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(3_000_000);
+      await rejectCheck;
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+
     it('does not double-reject (settle guard works)', async () => {
       const child = new EventEmitter() as FakeChild;
       child.stdin = { end: vi.fn() };

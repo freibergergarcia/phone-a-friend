@@ -228,7 +228,10 @@ phone-a-friend --to pi --prompt "Review this module" --fast        # Local model
 phone-a-friend --to codex --prompt "Review my fix" --include-diff   # Append `git diff HEAD` to the prompt
 phone-a-friend --to codex --prompt "Quick question" --no-include-diff  # Override defaults.include_diff = true
 phone-a-friend --to claude --prompt "Coordinate with the migration session" --peer-messaging accept
+phone-a-friend --to codex --prompt "Sanity-check this plan" --timeout 300  # Stop after 5 minutes
 ```
+
+A relay has no time limit by default, so a long delegated task is not cut off, and a hung backend runs until you stop it. Pass `--timeout <seconds>`, or set `defaults.timeout`, for a limit. At the limit PaF kills the backend and any output from that run is lost. A config file written by an older version sets `timeout = 600`, which still applies: run `phone-a-friend config set defaults.timeout 0` to remove it.
 
 ### Structured output
 

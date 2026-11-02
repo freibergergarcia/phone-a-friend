@@ -96,7 +96,8 @@ export class AntigravityBackend implements Backend {
 
     try {
       const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
-        timeoutMs: (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1000,
+        // 0 is no limit for PaF and for `--print-timeout`.
+        timeoutMs: opts.timeoutSeconds > 0 ? (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1000 : 0,
         env: opts.env,
         cwd: opts.repoPath,
         label: 'antigravity',

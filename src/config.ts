@@ -13,6 +13,7 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { parse as tomlParse, stringify as tomlStringify } from 'smol-toml';
 import { TASK_HISTORY_MODES, type TaskHistoryMode } from './tasks.js';
+import { timeoutProblem } from './backends/child-supervisor.js';
 import {
   CLAUDE_PEER_MESSAGING_MODES,
   type ClaudePeerMessagingMode,
@@ -68,7 +69,7 @@ export const DEFAULT_CONFIG: PafConfig = {
   defaults: {
     backend: 'codex',
     sandbox: 'read-only',
-    timeout: 600,
+    timeout: 0, // no limit
     include_diff: false,
     stream: true,
     update_check: true,
@@ -264,6 +265,13 @@ export function configSet(key: string, rawValue: string, filePath: string): void
 // Resolve — full precedence merge
 // ---------------------------------------------------------------------------
 
+function parseTimeout(raw: string): number {
+  const seconds = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  const problem = timeoutProblem(seconds);
+  if (problem) throw new Error(`${problem} (got "${raw}")`);
+  return seconds;
+}
+
 export function resolveConfig(
   cliOpts: Record<string, string | undefined>,
   env: Record<string, string | undefined> = process.env,
@@ -290,7 +298,7 @@ export function resolveConfig(
     cliOpts.timeout ??
     env.PHONE_A_FRIEND_TIMEOUT ??
     String(cfg.defaults.timeout);
-  const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
+  const timeout = parseTimeout(timeoutRaw);
 
   const includeDiffRaw =
     cliOpts.includeDiff ??

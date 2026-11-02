@@ -311,7 +311,7 @@ function assertResumeSchemaSupport(env: Record<string, string>, timeoutMs: numbe
     execFile('codex', ['exec', 'resume', '--help'], {
       env,
       encoding: 'utf8',
-      timeout: Math.max(1, Math.min(timeoutMs, 3000)),
+      timeout: timeoutMs > 0 ? Math.min(timeoutMs, 3000) : 3000,
       killSignal: 'SIGKILL',
       maxBuffer: 128 * 1024,
     }, (err, stdout) => {

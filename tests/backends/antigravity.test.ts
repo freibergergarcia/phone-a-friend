@@ -137,6 +137,17 @@ describe('AntigravityBackend', () => {
     expect(mockSpawn).toHaveBeenCalledTimes(1);
   });
 
+  it('passes a timeout of 0 through, which agy reads as no limit', () => {
+    const args = buildAntigravityArgs({
+      prompt: 'x',
+      repoPath: '/repo',
+      sandbox: 'read-only',
+      model: null,
+      timeoutSeconds: 0,
+    });
+    expect(args).toEqual(expect.arrayContaining(['--print-timeout', '0s']));
+  });
+
   it('forwards Antigravity display model names unchanged', () => {
     const args = buildAntigravityArgs({
       prompt: 'Review this.',
