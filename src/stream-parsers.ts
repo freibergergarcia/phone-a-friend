@@ -135,17 +135,18 @@ export async function* parseNDJSONStream(
         throw new Error(`Stream error: ${String(parsed.error)}`);
       }
 
-      // Terminator
-      if (parsed.done === true) {
-        receivedDone = true;
-        return;
-      }
-
       // Extract content from message.content
       const message = parsed.message as { content?: string } | undefined;
       const content = message?.content;
       if (typeof content === 'string' && content.length > 0) {
         yield content;
+      }
+
+      // The terminal response may contain the final token (or whole answer).
+      // Consume its content before stopping, including when EOF has no newline.
+      if (parsed.done === true) {
+        receivedDone = true;
+        return;
       }
     }
   }

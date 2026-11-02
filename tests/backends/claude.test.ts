@@ -193,6 +193,71 @@ describe('ClaudeBackend', () => {
     expect(args).not.toContain('--name');
   });
 
+  describe('when the version cannot be read', () => {
+    function mockVersionProbe(probe: () => string): void {
+      mockExecFileSync.mockImplementation((command: string) => {
+        if (command === 'which') return '/usr/local/bin/claude';
+        if (command === 'claude') return probe();
+        return '';
+      });
+    }
+    const timedOut = () => {
+      throw Object.assign(new Error('spawnSync claude ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    };
+    const crashed = () => {
+      throw Object.assign(new Error('Command failed: claude --version'), { status: 1 });
+    };
+
+    it.each(['accept', 'refuse'])('fails %s mode before any model request, naming the real cause', async (peerMessaging) => {
+      mockVersionProbe(timedOut);
+      const error = await CLAUDE_BACKEND.run(makeOpts({ peerMessaging })).catch(err => err);
+      expect(error).toBeInstanceOf(ClaudeBackendError);
+      expect(error.message).toContain('did not finish within 3s');
+      expect(error.message).toContain(`--peer-messaging ${peerMessaging}`);
+      expect(error.message).not.toContain('requires Claude Code');
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['fails', crashed, 'failed'],
+      ['prints no version', () => 'not-a-version', 'printed no version'],
+    ])('reports a probe that %s', async (_name, probe, expected) => {
+      mockVersionProbe(probe);
+      const error = await CLAUDE_BACKEND.run(makeOpts({ peerMessaging: 'accept' })).catch(err => err);
+      expect(error.message).toContain(expected);
+      expect(error.message).not.toContain('requires Claude Code');
+    });
+
+    it.each([undefined, 'native'])('warns and continues without peer tools in native mode (%s)', async (peerMessaging) => {
+      mockVersionProbe(timedOut);
+      mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        await expect(CLAUDE_BACKEND.run(makeOpts({ peerMessaging }))).resolves.toBe('ok');
+        const written = stderr.mock.calls.map(call => String(call[0])).join('');
+        expect(written).toContain('did not finish within 3s');
+        expect(written).toContain('without peer messaging');
+      } finally {
+        stderr.mockRestore();
+      }
+      const args = mockSpawn.mock.calls[0][1] as string[];
+      expect(args[args.indexOf('--tools') + 1]).not.toContain('ListAgents');
+      expect(args).not.toContain('--name');
+    });
+
+    it('stays silent in native mode on a readable older version', async () => {
+      mockClaudeVersion('2.1.223');
+      mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        await CLAUDE_BACKEND.run(makeOpts());
+        expect(stderr).not.toHaveBeenCalled();
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+  });
+
   it('rejects accept mode on Claude versions without peer messaging', async () => {
     mockClaudeVersion('2.1.223');
 

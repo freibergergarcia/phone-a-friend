@@ -102,6 +102,8 @@ export function isClaudeAuthError(msg: string): boolean {
   return text.includes('not logged in') || text.includes('please run /login');
 }
 
+const CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS = 3;
+
 /** Whether a `claude --version` response supports cross-session messaging. */
 export function supportsClaudePeerMessaging(versionOutput: string): boolean {
   const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -297,8 +299,7 @@ export class ClaudeBackend implements Backend {
       );
     }
 
-    const peerMessagingSupported = this.peerMessagingSupported();
-    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+    const peerMessagingSupported = this.peerMessagingSupported(opts.peerMessaging);
 
     const args = this.buildArgs({
       ...opts,
@@ -341,8 +342,7 @@ export class ClaudeBackend implements Backend {
       );
     }
 
-    const peerMessagingSupported = this.peerMessagingSupported();
-    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+    const peerMessagingSupported = this.peerMessagingSupported(opts.peerMessaging);
 
     const args = this.buildArgs({
       ...opts,
@@ -425,28 +425,63 @@ export class ClaudeBackend implements Backend {
     }
   }
 
-  private peerMessagingSupported(): boolean {
+  /** The `claude --version` output, or why it could not be used. */
+  private readClaudeVersion(): { version: string; failure: null } | { version: null; failure: string } {
+    let output: string;
     try {
-      const version = execFileSync('claude', ['--version'], {
+      output = execFileSync('claude', ['--version'], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
+        // This runs before the relay timer. Bound both time and output, and
+        // avoid waiting forever for a launcher that ignores SIGTERM.
+        timeout: CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS * 1000,
+        killSignal: 'SIGKILL',
+        maxBuffer: 16 * 1024,
       });
-      return supportsClaudePeerMessaging(version);
-    } catch {
-      return false;
+    } catch (err: unknown) {
+      const timedOut = (err as NodeJS.ErrnoException).code === 'ETIMEDOUT';
+      return {
+        version: null,
+        failure: timedOut
+          ? `\`claude --version\` did not finish within ${CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS}s`
+          : '`claude --version` failed',
+      };
     }
+    return /\d+\.\d+\.\d+/.test(output)
+      ? { version: output, failure: null }
+      : { version: null, failure: '`claude --version` printed no version' };
   }
 
-  private assertPeerMessagingSupport(
-    mode: ClaudePeerMessagingMode | undefined,
-    supported: boolean,
-  ): void {
+  /**
+   * Decide whether this relay may use peer messaging. An unreadable version is
+   * not an old version: `accept` and `refuse` are explicit requests PaF cannot
+   * honor without knowing, so they fail; `native` keeps the older tool set, says
+   * so, and leaves peer messaging out.
+   */
+  private peerMessagingSupported(mode: ClaudePeerMessagingMode | undefined): boolean {
+    const { version, failure } = this.readClaudeVersion();
+    if (version === null) {
+      if (mode === 'accept' || mode === 'refuse') {
+        throw new ClaudeBackendError(
+          `Could not confirm Claude Code's version for --peer-messaging ${mode}: ${failure}. ` +
+            'Retry, or use --peer-messaging native.',
+        );
+      }
+      process.stderr.write(
+        `[phone-a-friend] Could not confirm Claude Code's version: ${failure}. ` +
+          'Continuing without peer messaging.\n',
+      );
+      return false;
+    }
+
+    const supported = supportsClaudePeerMessaging(version);
     if (mode === 'accept' && !supported) {
       throw new ClaudeBackendError(
         'Claude peer messaging requires Claude Code v2.1.224 or later. ' +
           'Upgrade Claude Code or use --peer-messaging native.',
       );
     }
+    return supported;
   }
 }
 
