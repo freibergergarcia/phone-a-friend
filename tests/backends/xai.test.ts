@@ -6,7 +6,8 @@ import type { BackendRunOptions } from '../../src/backends/index.js';
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/xai/response.json', import.meta.url), 'utf8'));
 const key = 'fake-xai-key-for-tests';
 const backend = new XaiBackend();
-const mockFetch = vi.fn();
+const { mockFetch } = vi.hoisted(() => ({ mockFetch: vi.fn() }));
+vi.mock('../../src/backends/http-fetch.js', () => ({ longFetch: mockFetch }));
 function opts(overrides: Partial<BackendRunOptions> = {}): BackendRunOptions {
   return { prompt: 'Hello', repoPath: '/tmp/xai-test', timeoutSeconds: 60,
     sandbox: 'read-only', model: null, env: { XAI_API_KEY: key }, ...overrides };
@@ -15,10 +16,9 @@ function response(text = 'Hello', annotations: unknown[] = []) {
   return { status: 'completed', error: null, output: [{ type: 'message', content: [{ type: 'output_text', text, annotations }] }] };
 }
 beforeEach(() => {
-  vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset().mockResolvedValue(Response.json(response()));
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); });
 
 describe('xAI Responses backend', () => {
   it('sends both search tools, the default model, history, and only header auth', async () => {
@@ -88,6 +88,13 @@ describe('xAI Responses backend', () => {
     expect(error.cause).toBeUndefined();
   });
 
+  it('redacts a key written with JSON escapes in an error body', async () => {
+    const escaped = `\\u00${key.charCodeAt(0).toString(16)}${key.slice(1)}`;
+    mockFetch.mockResolvedValue(new Response(`{"error":"Invalid key: ${escaped}"}`, { status: 401 }));
+    const error = await backend.run(opts()).catch(e => e);
+    expect(error.message).toBe('xAI returned HTTP 401: {"error":"Invalid key: [REDACTED]"}');
+  });
+
   it.each(['failed', 'incomplete', 'in_progress'])('rejects response status %s', async status => {
     mockFetch.mockResolvedValue(Response.json({ status, error: null }));
     const error = await backend.run(opts()).catch(e => e);
@@ -151,9 +158,71 @@ describe('xAI Responses backend', () => {
     await expect(result).resolves.toBe('Hello');
   });
 
+  it('sets no timer at all when timeoutSeconds is 0', async () => {
+    vi.useFakeTimers();
+    let timersDuringRequest = -1;
+    mockFetch.mockImplementation(async () => { timersDuringRequest = vi.getTimerCount(); return Response.json(response()); });
+    await backend.run(opts({ timeoutSeconds: 0 }));
+    expect(timersDuringRequest).toBe(0);
+  });
+
+  it.each(['tool', 'user', 'system'])('leaves %s messages out of the answer', async role => {
+    const message = (from: string, text: string) => ({ type: 'message', role: from, content: [{ type: 'output_text', text, annotations: [] }] });
+    mockFetch.mockResolvedValue(Response.json({ status: 'completed', error: null, output: [message(role, 'Not the answer'), message('assistant', '{"ok":true}')] }));
+    expect(JSON.parse(await backend.run(opts({ schema: '{"type":"object"}' })))).toEqual({ ok: true });
+  });
+
+  it('keeps an answer that arrives next to a refusal', async () => {
+    mockFetch.mockResolvedValue(Response.json({ status: 'completed', error: null, output: [{ type: 'message', role: 'assistant', content: [{ type: 'refusal', refusal: 'No' }, { type: 'output_text', text: 'Answer', annotations: [] }] }] }));
+    expect(await backend.run(opts())).toBe('Answer');
+  });
+
+  it('reports a refusal with its reason, bounded and redacted', async () => {
+    mockFetch.mockResolvedValue(Response.json({ status: 'completed', error: null, output: [{ type: 'message', role: 'assistant', content: [{ type: 'refusal', refusal: `No, ${key}` }] }] }));
+    await expect(backend.run(opts())).rejects.toThrow(/^xAI refused: No, \[REDACTED\]$/);
+  });
+
   it('does not expose transport error details or credentials', async () => {
     mockFetch.mockRejectedValue(new Error(`Authorization: Bearer ${key}`));
     await expect(backend.run(opts())).rejects.toThrow(/^xAI request failed$/);
+  });
+
+  it.each([
+    ['fetch cause', { cause: { code: 'UND_ERR_HEADERS_TIMEOUT' } }, 'UND_ERR_HEADERS_TIMEOUT'],
+    ['node error', { code: 'ECONNRESET' }, 'ECONNRESET'],
+  ])('names the transport failure from a %s, without its message', async (_shape, fields, code) => {
+    mockFetch.mockRejectedValue(Object.assign(new Error(`Bearer ${key}`), fields));
+    await expect(backend.run(opts())).rejects.toThrow(new RegExp(`^xAI request failed: ${code}$`));
+  });
+
+  it.each([`not a code ${key}`, 'x'.repeat(50), 'A'.repeat(50)])('drops a transport code that is not a code (%s)', async code => {
+    mockFetch.mockRejectedValue(Object.assign(new Error(key), { code }));
+    await expect(backend.run(opts())).rejects.toThrow(/^xAI request failed$/);
+  });
+
+  it('redacts a transport code equal to the key', async () => {
+    mockFetch.mockRejectedValue(Object.assign(new Error('x'), { code: 'FAKEKEY' }));
+    await expect(backend.run(opts({ env: { XAI_API_KEY: 'FAKEKEY' } }))).rejects.toThrow(/^xAI request failed: \[REDACTED\]$/);
+  });
+
+  it.each([
+    ['a diff in the prompt', { prompt: 'Review\n\nGit Diff:\n+secret' }],
+    ['context in the prompt', { prompt: 'Review\n\nAdditional Context:\nsecret' }],
+    ['a pasted git diff', { prompt: 'Why?\ndiff --git a/x b/x\n+secret' }],
+    ['CRLF line endings', { prompt: 'Review\r\nGit Diff:\r\n+secret' }],
+    ['a diff in replayed history', { sessionHistory: [{ role: 'user' as const, content: 'Look\n\nGit Diff:\n+secret' }, { role: 'assistant' as const, content: 'ok' }] }],
+    ['context in replayed history', { sessionHistory: [{ role: 'user' as const, content: 'Look\n\nAdditional Context:\nsecret' }, { role: 'assistant' as const, content: 'ok' }] }],
+  ])('sends no search tools with %s', async (_where, overrides) => {
+    const notice = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await backend.run(opts(overrides));
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).tools).toBeUndefined();
+    expect(notice).toHaveBeenCalledWith(expect.stringContaining('search are off'));
+    notice.mockRestore();
+  });
+
+  it.each(['What does "Git Diff:" mean?', 'Is Additional Context: a good heading?', 'What does diff --git do?'])('keeps search for a mention in passing (%s)', async prompt => {
+    await backend.run(opts({ prompt }));
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).tools).toHaveLength(2);
   });
 
   it('aborts a timed out fetch', async () => {

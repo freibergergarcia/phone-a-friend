@@ -633,7 +633,7 @@ function assertNotPiHost(env: Record<string, string>): void {
   if (!isPiHostEnv(env)) return;
   throw new PiBackendError(
     'pi is already the host for this Phone-a-Friend invocation. ' +
-      'Choose another friend backend such as antigravity, codex, gemini, claude, or ollama.',
+      'Choose another friend backend such as antigravity, codex, gemini, claude, ollama, or xai.',
   );
 }
 

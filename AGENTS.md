@@ -38,7 +38,7 @@ src/
     gemini.ts        Gemini subprocess backend
     child-supervisor.ts  Time limit, termination and settling for every backend subprocess
     ollama.ts        Ollama HTTP API backend
-    ollama-http.ts   `fetch` replacement for Ollama chat requests, without Node's 300s limits
+    http-fetch.ts    `longFetch()`: `fetch` without Node's 300s limits, for Ollama and xAI
     xai.ts           xAI Responses HTTP backend (web/X search, transcript replay)
     opencode.ts      OpenCode CLI subprocess backend (`opencode run`, agentic with tool calling)
     pi.ts            pi CLI subprocess backend (`pi --mode json`, tool allowlist per sandbox, PaF-owned sessions)
@@ -89,7 +89,7 @@ dist/                Built bundle (committed, self-contained)
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - `Backend.preparePrompt?(prompt, { mode })` — optional last-step rewrite of the fully built prompt, applied by `finalizePrompt()` in `src/relay.ts` on every path (relay, raw and managed sessions, stream, generic review) before the prompt size limit. Only Antigravity implements it today; every other backend's prompt is byte-identical to before the hook existed.
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
-- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode/pi/grok (PaF passes `--repo`/`--dir`/equivalent, or spawns in the repo, and the backend reads files itself). `false` for ollama and xai (HTTP APIs, no native file access; receives only prompt + context + diff payloads, never raw file contents). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
+- Backend `localFileAccess: boolean` property — declares whether the backend can read repo files via its own tooling when given a repo path. `true` for antigravity/codex/gemini/claude/opencode/pi/grok (PaF passes `--repo`/`--dir`/equivalent, or spawns in the repo, and the backend reads files itself). `false` for ollama and xai (HTTP APIs, no native file access; they receive only prompt + context + diff payloads, and the `working-tree` and `all` review scopes put non-ignored untracked files in that diff). PaF does not auto-inline repo files for either case — keeping local files out of the relay payload is the responsibility of the caller (see "Context hygiene" rules in the relay-issuing skills/commands).
 - Antigravity backend in `src/backends/antigravity.ts` (`agy --add-dir <repo> --print-timeout <seconds>s --sandbox --mode plan --prompt <prompt>`, read-only only, native conversation resume, native `--json-schema` with the value read from the envelope's `structured_output`). Headless `agy` auto-denies shell commands, so the backend implements `preparePrompt()` to prefix every relay and review prompt with a one-line notice; without it the model reaches for `git` and returns nothing.
 - Claude backend in `src/backends/claude.ts` (`run()` via `spawnCli()`, `runStream()` via direct `spawn` with streaming parser, Claude Code 2.1.224+ peer messaging via `native|accept|refuse`)
 - Codex backend in `src/backends/codex.ts` (via `spawnCli()`, output file + stdout fallback on success only; a failed exit, timeout or signal is an error even if the output file exists)
@@ -111,7 +111,7 @@ dist/                Built bundle (committed, self-contained)
   - **Inherited host marker.** Grok sets `GROK_AGENT=1` on every process it starts, so a later `--to grok` from any of those processes is refused. `inferHost()` still prefers an explicit `PHONE_A_FRIEND_HOST`, then `CLAUDECODE=1`, and only then `GROK_AGENT=1`.
   - **Recursion guard.** `--to grok` is refused when `GROK_AGENT=1` (Grok sets it on every child) or `PHONE_A_FRIEND_HOST=grok`, before a second grok process starts.
   - A missing `grok` binary is optional in doctor, same as pi and OpenCode. When the binary is present, doctor prints an advisory: `--fast` has no effect, and `--cwd` still loads project instructions.
-- xAI backend in `src/backends/xai.ts` (Responses HTTP API, `XAI_API_KEY` auth, default `grok-4.6`, `store: false`, web and X search, transcript replay)
+- xAI backend in `src/backends/xai.ts` (Responses HTTP API, `XAI_API_KEY` auth, default `grok-4.6`, `store: false`, transcript replay). Web and X search run only on a bare prompt: when the prompt or replayed history has `GIT_DIFF_HEADING`, `CONTEXT_HEADING` or a `diff --git` line, no tools are sent and stderr says so. Other pasted text is not detected. Only assistant messages count as the answer, and a refusal with no answer text is an error
 - Stream parsers in `src/stream-parsers.ts` — SSE (OpenAI-compatible), NDJSON (Ollama), Claude JSON snapshots, OpenCode NDJSON events
 - Backend detection (CLI + Local + API + Host) in `src/detection.ts`
 - TOML config system in `src/config.ts` — `defaults.stream = true` enables streaming by default
@@ -392,7 +392,7 @@ Two indirections mean a fresh Claude session does not automatically run a checko
 ## Doctor diagnostics
 
 Doctor adds executable/version and configured-model information without changing
-backend readiness exit codes. JSON keeps the existing CLI/local/host structure;
+backend readiness exit codes. JSON keeps the existing CLI/local/host structure and adds `backends.api`;
 capabilities are marked `declared-only`, and backend-reported models remain
 unknown because doctor runs no inference. Version probes have time/output limits
 and use fixed failure classifications. The local Ollama CLI is a client identity,
@@ -423,7 +423,7 @@ Values are whole seconds, at most 2147483 (about 24.8 days, the longest timer No
 - The child runs in its own process group on POSIX. When the limit fires, or PaF receives SIGINT, SIGTERM or SIGHUP, the group gets SIGTERM, then SIGKILL after 2s, so tool children end too.
 - The run settles about 500ms after SIGKILL even if a process that left the group holds the output pipe. The task is recorded as failed, and any output from that run is not returned.
 - A clean exit does not kill anything. If a daemon the backend started holds the pipe, PaF ends the pipe once it has drained and returns the answer.
-- Ollama chat requests use `ollamaFetch()`, because Node's `fetch` has its own 300s limits that `--timeout` cannot raise. Antigravity passes the same value to `--print-timeout`, where `0` also means no limit.
+- Ollama chat requests and xAI requests use `longFetch()`, because Node's `fetch` has its own 300s limits that `--timeout` cannot raise. Antigravity passes the same value to `--print-timeout`, where `0` also means no limit.
 
 **Known limits.**
 

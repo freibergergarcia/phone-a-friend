@@ -45,7 +45,7 @@ export function assertProbeOutput(name, output, { backend, repo } = {}) {
     assert.ok(session, 'probe session missing');
     assert.equal(session.backend, backend);
     assert.equal(session.repoPath, repo);
-    if (backend === 'ollama') assert.ok(session.history.length >= 4);
+    if (backend === 'ollama' || backend === 'xai') assert.ok(session.history.length >= 4);
     else {
       assert.ok(typeof session.backendSessionId === 'string' && session.backendSessionId.length > 0);
       assert.deepEqual(session.history, []);

@@ -56,7 +56,7 @@ function assertNotGrokHost(env: Record<string, string>): void {
   if (!isGrokHostEnv(env)) return;
   throw new GrokBackendError(
     'Grok is already the host for this Phone-a-Friend invocation. ' +
-      'Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama.',
+      'Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, ollama, or xai.',
   );
 }
 

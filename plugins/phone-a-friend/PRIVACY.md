@@ -14,6 +14,15 @@ on your machine. Ollama and pi/OpenCode can also use model servers you configure
 Their providers' terms, privacy policies, authentication, billing and retention
 apply independently of this project.
 
+`--to xai` calls xAI's API directly with your `XAI_API_KEY`. On a bare prompt, xAI's
+web and X search tools are enabled, so the prompt can shape searches, and answers
+can include text from web pages and X posts. PaF sends no search tools when a request
+or its session has attached context or a diff, or a pasted line starting `diff --git`;
+it cannot recognize other private text pasted into the prompt. xAI's
+documentation says API requests and responses are kept for 30 days by default.
+PaF sends `store: false`, which xAI describes as storage for later retrieval;
+its documentation does not say this changes the 30-day retention.
+
 Repo-aware backends can inspect files using their own tools. Choose the repository,
 context and permissions accordingly. The default PaF sandbox is read-only, but
 the enforcement mechanism depends on the backend; see the

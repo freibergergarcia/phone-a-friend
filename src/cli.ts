@@ -548,7 +548,7 @@ export async function run(argv: string[]): Promise<number> {
     .option('--schema <json>', 'Request structured JSON output matching this schema')
     .option('--session <id>', 'Resume or create a persisted relay session (PaF label)')
     .option('--backend-session <id>', 'Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)')
-    .option('--fast', 'Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)')
+    .option('--fast', 'Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, Grok, and xAI)')
     .option('--stream', 'Stream tokens as they arrive (default)')
     .option('--no-stream', 'Disable streaming output (get full response at once)')
     .option('--review', 'Use review mode (default scope: branch)')

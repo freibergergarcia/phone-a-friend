@@ -167,6 +167,15 @@ export class SpawnCliTimeoutError extends BackendError {
 // Install hints
 // ---------------------------------------------------------------------------
 
+/** The lines buildPrompt() writes above what PaF attaches. They stay in replayed session history too. */
+export const GIT_DIFF_HEADING = 'Git Diff:';
+export const CONTEXT_HEADING = 'Additional Context:';
+
+/** The xAI API key from an environment, or undefined when it is unset or blank. */
+export function xaiApiKey(env: Record<string, string | undefined>): string | undefined {
+  return env.XAI_API_KEY?.trim() || undefined;
+}
+
 export const INSTALL_HINTS: Record<string, string> = {
   antigravity: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
   codex: 'npm install -g @openai/codex',
@@ -234,7 +243,7 @@ export function checkBackends(
 ): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = name === 'xai' ? !!process.env.XAI_API_KEY?.trim() : whichFn(BACKEND_COMMANDS[name] ?? name);
+    result[name] = name === 'xai' ? xaiApiKey(process.env) !== undefined : whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }

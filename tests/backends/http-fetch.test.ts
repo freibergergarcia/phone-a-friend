@@ -1,9 +1,9 @@
 /** A real local server: the behaviour under test is what `node:http` does. */
-import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import http, { type IncomingHttpHeaders } from 'node:http';
 import { brotliCompressSync, constants, createGzip, deflateSync, gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ollamaFetch } from '../../src/backends/ollama-http.js';
+import { createServer as netCreateServer, type AddressInfo } from 'node:net';
+import { longFetch } from '../../src/backends/http-fetch.js';
 
 let server: http.Server | null = null;
 
@@ -13,7 +13,7 @@ async function serve(handler: http.RequestListener): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/chat`;
 }
 
-const call = (url: string, signal = new AbortController().signal) => ollamaFetch(url, {
+const call = (url: string, signal = new AbortController().signal) => longFetch(url, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: '{"hello":"world"}',
@@ -26,7 +26,7 @@ afterEach(async () => {
   server = null;
 });
 
-describe('ollamaFetch', () => {
+describe('longFetch', () => {
   it('sends the method, headers and body, and returns a standard Response', async () => {
     const seen: { method?: string; type?: string; body: string } = { body: '' };
     const url = await serve((req, res) => {
@@ -219,5 +219,58 @@ describe('ollamaFetch', () => {
     await new Promise((resolve) => server!.close(resolve));
     server = null;
     await expect(call(url)).rejects.toThrow(/ECONNREFUSED/);
+  });
+});
+
+describe('longFetch credentials on redirects', () => {
+  const secrets = { Authorization: 'Bearer k', Cookie: 'c=1', 'Proxy-Authorization': 'Basic p' };
+
+  async function listen(handler: http.RequestListener): Promise<{ port: number; close: () => void }> {
+    const local = http.createServer(handler);
+    await new Promise<void>(r => local.listen(0, '127.0.0.1', r));
+    return { port: (local.address() as AddressInfo).port, close: () => local.close() };
+  }
+  const post = (url: string, headers: Record<string, string>) => longFetch(url, { method: 'POST', headers, body: '{}', signal: new AbortController().signal });
+
+  it.each([
+    ['another host', 'localhost'],
+    ['another port on the same host', '127.0.0.1'],
+  ])('drops every credential header on a redirect to %s', async (_name, host) => {
+    const seen: IncomingHttpHeaders[] = [];
+    const target = await listen((req, res) => { seen.push(req.headers); req.resume(); res.end('{}'); });
+    const first = await listen((req, res) => { req.resume(); res.writeHead(307, { location: `http://${host}:${target.port}/` }); res.end(); });
+    await (await post(`http://127.0.0.1:${first.port}/`, { ...secrets, 'Content-Type': 'application/json' })).text();
+    first.close(); target.close();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]['content-type']).toBe('application/json');
+    for (const name of ['authorization', 'cookie', 'proxy-authorization']) expect(seen[0][name]).toBeUndefined();
+  });
+
+  it('matches credential header names in any case', async () => {
+    const seen: IncomingHttpHeaders[] = [];
+    const target = await listen((req, res) => { seen.push(req.headers); req.resume(); res.end('{}'); });
+    const first = await listen((req, res) => { req.resume(); res.writeHead(308, { location: `http://127.0.0.1:${target.port}/` }); res.end(); });
+    await (await post(`http://127.0.0.1:${first.port}/`, { AUTHORIZATION: 'Bearer k' })).text();
+    first.close(); target.close();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].authorization).toBeUndefined();
+  });
+
+  it('keeps credential headers on a same-origin redirect', async () => {
+    const hits: (string | undefined)[] = [];
+    const server = await listen((req, res) => {
+      hits.push(req.headers.authorization); req.resume();
+      if (req.url === '/') { res.writeHead(307, { location: '/moved' }); res.end(); } else res.end('{}');
+    });
+    await (await post(`http://127.0.0.1:${server.port}/`, secrets)).text();
+    server.close();
+    expect(hits).toEqual(['Bearer k', 'Bearer k']);
+  });
+
+  it('rejects, rather than crashing, on a status Response cannot represent', async () => {
+    const raw = netCreateServer(c => { c.once('data', () => c.end('HTTP/1.1 700 Odd\r\nContent-Length: 2\r\n\r\n{}')); });
+    await new Promise<void>(r => raw.listen(0, '127.0.0.1', r));
+    await expect(post(`http://127.0.0.1:${(raw.address() as AddressInfo).port}/`, {})).rejects.toThrow('Unsupported HTTP status 700');
+    raw.close();
   });
 });

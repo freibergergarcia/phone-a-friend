@@ -177,7 +177,7 @@ If you use Grok Build as the host, install `phone-a-friend`, `curiosity-engine`,
 phone-a-friend plugin install --grok
 ```
 
-`/phone-a-team` runs parallel Bash relays with Grok synthesizing each round; its default friends are `claude,gemini`. From Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay and do not pass `--to grok`. PaF also refuses that call when `GROK_AGENT=1`, which Grok sets on its own child processes. Ask another friend (`claude`, `codex`, `gemini`, `opencode`, `pi`, `ollama`, or `antigravity`) instead.
+`/phone-a-team` runs parallel Bash relays with Grok synthesizing each round; its default friends are `claude,gemini`. From Grok, set `PHONE_A_FRIEND_HOST=grok` on every relay and do not pass `--to grok`. PaF also refuses that call when `GROK_AGENT=1`, which Grok sets on its own child processes. Ask another friend (`claude`, `codex`, `gemini`, `opencode`, `pi`, `ollama`, `xai`, or `antigravity`) instead.
 
 - **Uninstall** (`phone-a-friend plugin uninstall --grok`) removes only a PaF-owned copy. A skill of your own under the same name is kept.
 
@@ -525,8 +525,8 @@ xAI:
 phone-a-friend --to xai --prompt "Find recent X discussions with sources"
 ```
 
-Requires `XAI_API_KEY` from https://console.x.ai. `xai` calls the xAI API directly and needs no CLI; `grok` runs the Grok Build CLI.
-Web and X search are always on.
+Requires `XAI_API_KEY` from https://console.x.ai. `xai` calls the xAI API directly: no CLI, no repository access, API billing. `grok` runs the Grok Build CLI and can read the repository, so use it for repo work. If you have no Grok login, `grok` also falls back to `XAI_API_KEY`.
+Search runs only on a bare prompt. When a session or request has attached context or a diff (`--context-file`, `--context-text`, `--review`, `--include-diff`, `defaults.include_diff`), PaF sends no search tools and says so on stderr. It also spots a pasted line starting `diff --git`, but not other private text pasted into the prompt. Search calls are billed on top of tokens.
 Answers end with a `Sources:` list when cited; schema mode omits it.
 
 OpenCode configuration via TOML:

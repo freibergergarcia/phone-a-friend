@@ -1,10 +1,9 @@
 /**
- * `fetch` for Ollama chat requests, with no limit of its own.
+ * `fetch` with no limit of its own, for backends whose answers can take minutes.
  *
  * Node's built-in `fetch` gives up after 300s without response headers, and
- * after 300s between body chunks. A local model loading or working through a
- * long prompt passes both, and the run then fails with "fetch failed" whatever
- * `--timeout` says. Replacing those limits needs the `undici` package, whose
+ * after 300s between body chunks. A slow model or a long search passes both,
+ * and the run then fails with "fetch failed" whatever `--timeout` says. Replacing those limits needs the `undici` package, whose
  * dispatchers are tied to the Node version's own copy, so this uses `node:http`
  * and hands back a standard `Response`. `--timeout` is the only limit.
  */
@@ -19,6 +18,8 @@ const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 const BODY_PRESERVING_REDIRECTS = new Set([307, 308]);
 /** Same limit as `fetch`. */
 const MAX_REDIRECTS = 20;
+/** Same as `fetch`: credentials never follow a redirect to another origin. */
+const CROSS_ORIGIN_DROPPED_HEADERS = new Set(['authorization', 'cookie', 'proxy-authorization']);
 
 /** The encodings `fetch` decodes. A sync flush keeps a streamed reply arriving as it is sent. */
 const DECODERS = new Map<string, () => Transform>([
@@ -28,14 +29,14 @@ const DECODERS = new Map<string, () => Transform>([
   ['br', () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })],
 ]);
 
-export interface OllamaFetchInit {
+export interface LongFetchInit {
   method: string;
   headers: Record<string, string>;
   body: string;
   signal: AbortSignal;
 }
 
-export function ollamaFetch(url: string, init: OllamaFetchInit, redirects = 0): Promise<Response> {
+export function longFetch(url: string, init: LongFetchInit, redirects = 0): Promise<Response> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const request = target.protocol === 'https:' ? https.request : http.request;
@@ -58,8 +59,17 @@ export function ollamaFetch(url: string, init: OllamaFetchInit, redirects = 0): 
           } else if (next.protocol !== 'http:' && next.protocol !== 'https:') {
             reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
           } else {
-            resolve(ollamaFetch(next.href, init, redirects + 1));
+            const headers = next.origin === target.origin
+              ? init.headers
+              : Object.fromEntries(Object.entries(init.headers)
+                  .filter(([name]) => !CROSS_ORIGIN_DROPPED_HEADERS.has(name.toLowerCase())));
+            resolve(longFetch(next.href, { ...init, headers }, redirects + 1));
           }
+          return;
+        }
+        if (status < 200 || status > 599) {
+          res.resume();
+          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
           return;
         }
         const headers = new Headers();

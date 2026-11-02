@@ -13,7 +13,7 @@ phone-a-friend doctor
 ```
 
 Install and authenticate at least one supported backend: Antigravity, Claude
-Code, Codex, Gemini CLI, OpenCode, pi, Grok, or an Ollama server. Provider subscriptions,
+Code, Codex, Gemini CLI, OpenCode, pi, Grok, an Ollama server, or an xAI API key. Provider subscriptions,
 API charges and local-model requirements are separate. Use a backend different
 from the current host where its recursion guard applies.
 
@@ -36,7 +36,7 @@ testing for these workflows.
 Claude Code exposes namespaced commands such as
 `/phone-a-friend:phone-a-friend`; Codex exposes installed skills through its
 skill picker. The PaF CLI is required for the Codex team workflow, PaF-managed
-sessions, task history, and relays to the pi and Grok backends. Claude's team command has
+sessions, task history, and relays to the pi, Grok and xAI backends. Claude's team command has
 a limited direct-backend fallback when PaF is missing. The single-relay skill
 also has direct-CLI fallbacks for Antigravity, Codex, Gemini, and Grok. Grok as a
 host loads `phone-a-friend`, `curiosity-engine`, and a Bash-based `phone-a-team`
@@ -58,7 +58,9 @@ signs in with its own login or key, which you set up with that tool. The
 plugin runs the `phone-a-friend` CLI or, as a fallback, a backend CLI directly;
 the only network address it names itself is a local Ollama server
 (`localhost:11434`, or `OLLAMA_HOST`). Mentions of OAuth, keychains or API keys
-in the skills are troubleshooting notes for those CLIs' own sign-in.
+in the skills are troubleshooting notes for those CLIs' own sign-in. The
+`phone-a-friend` CLI, not the plugin, reads `XAI_API_KEY` for `--to xai` and sends it
+only to `api.x.ai`. Like any exported variable, backend CLIs also inherit it.
 
 ## Data
 

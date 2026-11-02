@@ -111,6 +111,16 @@ describe('setup', () => {
     vi.restoreAllMocks();
   });
 
+  it('names XAI_API_KEY among the install hints when nothing is available', async () => {
+    mockDetectAll.mockResolvedValue(makeReport({ cli: [], local: [], host: [], api: [{
+      name: 'xai', category: 'api', available: false, optional: true,
+      detail: 'XAI_API_KEY not set', installHint: 'Set XAI_API_KEY',
+    }] }));
+    mockConfirm.mockResolvedValue(false);
+    await setup.setup();
+    expect(output.join('\n')).toContain('xai: Set XAI_API_KEY');
+  });
+
   it('selects xAI as the default when it is the only available relay', async () => {
     mockDetectAll.mockResolvedValue(makeReport({ cli: [], local: [], host: [], api: [{
       name: 'xai', category: 'api', available: true, optional: true,

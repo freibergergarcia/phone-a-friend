@@ -7,7 +7,7 @@
  * Sandbox is a no-op — Ollama is pure inference.
  */
 
-import { ollamaFetch } from './ollama-http.js';
+import { longFetch } from './http-fetch.js';
 import {
   type BackendCapabilities,
   type BackendRunOptions,
@@ -63,7 +63,7 @@ export class OllamaBackend implements Backend {
 
     let data: Record<string, unknown>;
     try {
-      const resp = await ollamaFetch(url, {
+      const resp = await longFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -142,7 +142,7 @@ export class OllamaBackend implements Backend {
 
     let resp: Response;
     try {
-      resp = await ollamaFetch(url, {
+      resp = await longFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

@@ -322,4 +322,13 @@ describe('BackendsPanel', () => {
     expect(lastFrame()).not.toContain('Select default model');
     expect(onEditingChange).not.toHaveBeenCalled();
   });
+
+  it('lists an API backend between local and host backends', () => {
+    const report: DetectionReport = { ...MOCK_REPORT, api: [{ name: 'xai', category: 'api', available: true, optional: true, detail: 'XAI_API_KEY set (not validated)', installHint: '' }] };
+    const { lastFrame, unmount } = render(<BackendsPanel report={report} />);
+    const frame = lastFrame() ?? '';
+    expect(frame.indexOf('ollama')).toBeLessThan(frame.indexOf('xai'));
+    expect(frame.indexOf('xai')).toBeLessThan(frame.indexOf('claude'));
+    unmount();
+  });
 });

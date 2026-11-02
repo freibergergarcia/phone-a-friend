@@ -198,6 +198,9 @@ import { execFileSync, spawn as nodeSpawn } from "child_process";
 function isReviewScope(value) {
   return typeof value === "string" && REVIEW_SCOPES.includes(value);
 }
+function xaiApiKey(env4) {
+  return env4.XAI_API_KEY?.trim() || void 0;
+}
 function registerBackend(backend) {
   registry.set(backend.name, backend);
 }
@@ -222,7 +225,7 @@ function isInPath(name, env4) {
 function checkBackends(whichFn = isInPath) {
   const result = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = name === "xai" ? !!process.env.XAI_API_KEY?.trim() : whichFn(BACKEND_COMMANDS[name] ?? name);
+    result[name] = name === "xai" ? xaiApiKey(process.env) !== void 0 : whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }
@@ -276,7 +279,7 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -313,6 +316,8 @@ var init_backends = __esm({
         this.timeoutMs = timeoutMs;
       }
     };
+    GIT_DIFF_HEADING = "Git Diff:";
+    CONTEXT_HEADING = "Additional Context:";
     INSTALL_HINTS = {
       antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       codex: "npm install -g @openai/codex",
@@ -1271,29 +1276,29 @@ function stringifyInlineTable(obj, depth, numberAsFloat, strictTemporal) {
   }
   return res + " }";
 }
-function stringifyArray(array2, depth, numberAsFloat, strictTemporal) {
-  if (array2.length === 0)
+function stringifyArray(array, depth, numberAsFloat, strictTemporal) {
+  if (array.length === 0)
     return "[]";
   let res = "[ ";
-  for (let i = 0; i < array2.length; i++) {
+  for (let i = 0; i < array.length; i++) {
     if (i)
       res += ", ";
-    if (array2[i] === null || array2[i] === void 0) {
+    if (array[i] === null || array[i] === void 0) {
       throw new TypeError("arrays cannot contain null or undefined values");
     }
-    res += stringifyValue(array2[i], extendedTypeOf(array2[i]), depth - 1, numberAsFloat, strictTemporal);
+    res += stringifyValue(array[i], extendedTypeOf(array[i]), depth - 1, numberAsFloat, strictTemporal);
   }
   return res + " ]";
 }
-function stringifyArrayTable(array2, key, depth, numberAsFloat, strictTemporal) {
+function stringifyArrayTable(array, key, depth, numberAsFloat, strictTemporal) {
   if (depth === 0) {
     throw new Error("Could not stringify the object: maximum object depth exceeded");
   }
   let res = "";
-  for (let i = 0; i < array2.length; i++) {
+  for (let i = 0; i < array.length; i++) {
     res += `${res && "\n"}[[${key}]]
 `;
-    res += stringifyTable(0, array2[i], key, depth, numberAsFloat, strictTemporal);
+    res += stringifyTable(0, array[i], key, depth, numberAsFloat, strictTemporal);
   }
   return res;
 }
@@ -2537,7 +2542,7 @@ function isPiHostEnv(env4) {
 function assertNotPiHost(env4) {
   if (!isPiHostEnv(env4)) return;
   throw new PiBackendError(
-    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
+    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, ollama, or xai."
   );
 }
 function readPiProvider(repoPath) {
@@ -4283,10 +4288,10 @@ function buildPrompt(opts) {
     opts.prompt.trim()
   );
   if (opts.contextText) {
-    sections.push("", "Additional Context:", opts.contextText);
+    sections.push("", CONTEXT_HEADING, opts.contextText);
   }
   if (opts.diffText) {
-    sections.push("", "Git Diff:", opts.diffText);
+    sections.push("", GIT_DIFF_HEADING, opts.diffText);
   }
   return sections.join("\n").trim();
 }
@@ -5207,12 +5212,12 @@ var init_source = __esm({
         this[LEVEL] = level;
       }
     };
-    applyOptions2 = (object2, options = {}) => {
+    applyOptions2 = (object, options = {}) => {
       if (options.level !== void 0) {
         assertValidLevel(options.level);
       }
       const colorLevel = stdoutColor2 ? stdoutColor2.level : 0;
-      object2[LEVEL] = options.level === void 0 ? colorLevel : options.level;
+      object[LEVEL] = options.level === void 0 ? colorLevel : options.level;
     };
     chalkFactory2 = (options) => {
       const chalk3 = (...strings) => strings.join(" ");
@@ -8266,8 +8271,8 @@ var init_dist8 = __esm({
       });
       if (status === "done") {
         const selection = items.filter(isChecked);
-        const answer2 = theme2.style.answer(theme2.style.renderSelectedChoices(selection, items));
-        return [prefix, message, answer2].filter(Boolean).join(" ");
+        const answer = theme2.style.answer(theme2.style.renderSelectedChoices(selection, items));
+        return [prefix, message, answer].filter(Boolean).join(" ");
       }
       const keys = [
         ["\u2191\u2193", "navigate"],
@@ -18387,19 +18392,19 @@ var init_dist10 = __esm({
       async function startEditor(rl) {
         rl.pause();
         try {
-          const answer2 = await editAsync(value, { postfix, ...fileProps });
+          const answer = await editAsync(value, { postfix, ...fileProps });
           rl.resume();
           setStatus("loading");
-          const isValid = await validate2(answer2);
+          const isValid = await validate2(answer);
           if (isValid === true) {
             setError(void 0);
             setStatus("done");
-            done(answer2);
+            done(answer);
           } else {
             if (theme2.validationFailureMode === "clear") {
               setValue(config.default);
             } else {
-              setValue(answer2);
+              setValue(answer);
             }
             setError(isValid || "You must provide a valid value");
             setStatus("idle");
@@ -18494,20 +18499,20 @@ var init_dist11 = __esm({
         if (status !== "idle")
           return;
         if (isEnterKey(key)) {
-          const answer2 = getBooleanValue(value);
-          if (answer2 === void 0) {
+          const answer = getBooleanValue(value);
+          if (answer === void 0) {
             rl.write(value);
             setError(theme2.keywords.error({ yes, no }));
             return;
           }
-          setValue(transformer(answer2));
+          setValue(transformer(answer));
           setStatus("done");
-          done(answer2);
+          done(answer);
         } else if (isTabKey(key)) {
-          const answer2 = boolToString(!(getBooleanValue(value) ?? config.default !== false));
+          const answer = boolToString(!(getBooleanValue(value) ?? config.default !== false));
           rl.clearLine(0);
-          rl.write(answer2);
-          setValue(answer2);
+          rl.write(answer);
+          setValue(answer);
         } else {
           setValue(rl.line);
           setError(void 0);
@@ -18565,13 +18570,13 @@ var init_dist12 = __esm({
           return;
         }
         if (isEnterKey(key)) {
-          const answer2 = value || defaultValue2;
+          const answer = value || defaultValue2;
           setStatus("loading");
-          const isValid = await validate2(answer2);
+          const isValid = await validate2(answer);
           if (isValid === true) {
-            setValue(answer2);
+            setValue(answer);
             setStatus("done");
-            done(answer2);
+            done(answer);
           } else {
             if (theme2.validationFailureMode === "clear") {
               setValue("");
@@ -18683,19 +18688,19 @@ var init_dist13 = __esm({
         }
         if (isEnterKey(key)) {
           const input = value.trim() || defaultValue2;
-          const answer2 = input === "" ? void 0 : Number(input);
+          const answer = input === "" ? void 0 : Number(input);
           setStatus("loading");
           let isValid = true;
-          if (required || answer2 != null) {
-            isValid = validateNumber(answer2, { min, max, step });
+          if (required || answer != null) {
+            isValid = validateNumber(answer, { min, max, step });
           }
-          if (isValid === true && answer2 != null) {
-            isValid = await validate2(answer2);
+          if (isValid === true && answer != null) {
+            isValid = await validate2(answer);
           }
           if (isValid === true) {
-            setValue(String(answer2 ?? ""));
+            setValue(String(answer ?? ""));
             setStatus("done");
-            done(answer2);
+            done(answer);
           } else {
             rl.write(value);
             setError(isValid || "You must provide a valid numeric value");
@@ -18772,14 +18777,14 @@ var init_dist14 = __esm({
       const prefix = usePrefix({ theme: theme2, status });
       useKeypress((event, rl) => {
         if (isEnterKey(event)) {
-          const answer2 = (value.trim() || defaultKey).toLowerCase();
-          if (answer2 === "h" && !expanded) {
+          const answer = (value.trim() || defaultKey).toLowerCase();
+          if (answer === "h" && !expanded) {
             setExpanded(true);
           } else {
-            const selectedChoice = choices.find((choice) => !Separator.isSeparator(choice) && choice.key === answer2);
+            const selectedChoice = choices.find((choice) => !Separator.isSeparator(choice) && choice.key === answer);
             if (selectedChoice) {
               setStatus("done");
-              setValue(answer2);
+              setValue(answer);
               done(selectedChoice.value);
             } else if (value === "") {
               setError("Please input a value");
@@ -18875,8 +18880,8 @@ function getSelectedChoice(input, choices) {
   const trimmedInput = input.trim();
   selectedChoice = selectableChoices.find((choice) => choice.key === input || choice.key === trimmedInput);
   if (!selectedChoice && numberRegex.test(input)) {
-    const answer2 = Number.parseInt(input, 10) - 1;
-    selectedChoice = selectableChoices[answer2];
+    const answer = Number.parseInt(input, 10) - 1;
+    selectedChoice = selectableChoices[answer];
   }
   return selectedChoice ? [selectedChoice, choices.indexOf(selectedChoice)] : [void 0, void 0];
 }
@@ -19002,13 +19007,13 @@ var init_dist16 = __esm({
           return;
         }
         if (isEnterKey(key)) {
-          const answer2 = value;
+          const answer = value;
           setStatus("loading");
-          const isValid = await validate2(answer2);
+          const isValid = await validate2(answer);
           if (isValid === true) {
-            setValue(answer2);
+            setValue(answer);
             setStatus("done");
-            done(answer2);
+            done(answer);
           } else {
             rl.write(value);
             setError(isValid || "You must provide a valid value");
@@ -19593,7 +19598,7 @@ function decorateOpenCodeModels(report, whichFn = isInPath) {
   }
 }
 function detectApiBackends(env4 = process.env) {
-  const available = !!env4.XAI_API_KEY?.trim();
+  const available = xaiApiKey(env4) !== void 0;
   return [{
     name: "xai",
     category: "api",
@@ -19729,8 +19734,8 @@ var require_react_production = __commonJS({
     function cloneAndReplaceKey(oldElement, newKey) {
       return ReactElement(oldElement.type, newKey, oldElement.props);
     }
-    function isValidElement(object2) {
-      return "object" === typeof object2 && null !== object2 && object2.$$typeof === REACT_ELEMENT_TYPE;
+    function isValidElement(object) {
+      return "object" === typeof object && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
     }
     function escape2(key) {
       var escaperLookup = { "=": "=0", ":": "=2" };
@@ -19765,7 +19770,7 @@ var require_react_production = __commonJS({
       }
       throw thenable;
     }
-    function mapIntoArray(children, array2, escapedPrefix, nameSoFar, callback) {
+    function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
       var type = typeof children;
       if ("undefined" === type || "boolean" === type) children = null;
       var invokeCallback = false;
@@ -19786,7 +19791,7 @@ var require_react_production = __commonJS({
               case REACT_LAZY_TYPE:
                 return invokeCallback = children._init, mapIntoArray(
                   invokeCallback(children._payload),
-                  array2,
+                  array,
                   escapedPrefix,
                   nameSoFar,
                   callback
@@ -19794,7 +19799,7 @@ var require_react_production = __commonJS({
             }
         }
       if (invokeCallback)
-        return callback = callback(children), invokeCallback = "" === nameSoFar ? "." + getElementKey(children, 0) : nameSoFar, isArrayImpl(callback) ? (escapedPrefix = "", null != invokeCallback && (escapedPrefix = invokeCallback.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array2, escapedPrefix, "", function(c) {
+        return callback = callback(children), invokeCallback = "" === nameSoFar ? "." + getElementKey(children, 0) : nameSoFar, isArrayImpl(callback) ? (escapedPrefix = "", null != invokeCallback && (escapedPrefix = invokeCallback.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array, escapedPrefix, "", function(c) {
           return c;
         })) : null != callback && (isValidElement(callback) && (callback = cloneAndReplaceKey(
           callback,
@@ -19802,14 +19807,14 @@ var require_react_production = __commonJS({
             userProvidedKeyEscapeRegex,
             "$&/"
           ) + "/") + invokeCallback
-        )), array2.push(callback)), 1;
+        )), array.push(callback)), 1;
       invokeCallback = 0;
       var nextNamePrefix = "" === nameSoFar ? "." : nameSoFar + ":";
       if (isArrayImpl(children))
         for (var i = 0; i < children.length; i++)
           nameSoFar = children[i], type = nextNamePrefix + getElementKey(nameSoFar, i), invokeCallback += mapIntoArray(
             nameSoFar,
-            array2,
+            array,
             escapedPrefix,
             type,
             callback
@@ -19818,7 +19823,7 @@ var require_react_production = __commonJS({
         for (children = i.call(children), i = 0; !(nameSoFar = children.next()).done; )
           nameSoFar = nameSoFar.value, type = nextNamePrefix + getElementKey(nameSoFar, i++), invokeCallback += mapIntoArray(
             nameSoFar,
-            array2,
+            array,
             escapedPrefix,
             type,
             callback
@@ -19827,14 +19832,14 @@ var require_react_production = __commonJS({
         if ("function" === typeof children.then)
           return mapIntoArray(
             resolveThenable(children),
-            array2,
+            array,
             escapedPrefix,
             nameSoFar,
             callback
           );
-        array2 = String(children);
+        array = String(children);
         throw Error(
-          "Objects are not valid as a React child (found: " + ("[object Object]" === array2 ? "object with keys {" + Object.keys(children).join(", ") + "}" : array2) + "). If you meant to render a collection of children, use an array instead."
+          "Objects are not valid as a React child (found: " + ("[object Object]" === array ? "object with keys {" + Object.keys(children).join(", ") + "}" : array) + "). If you meant to render a collection of children, use an array instead."
         );
       }
       return invokeCallback;
@@ -20316,8 +20321,8 @@ var require_react_development = __commonJS({
       function validateChildKeys(node) {
         isValidElement(node) ? node._store && (node._store.validated = 1) : "object" === typeof node && null !== node && node.$$typeof === REACT_LAZY_TYPE && ("fulfilled" === node._payload.status ? isValidElement(node._payload.value) && node._payload.value._store && (node._payload.value._store.validated = 1) : node._store && (node._store.validated = 1));
       }
-      function isValidElement(object2) {
-        return "object" === typeof object2 && null !== object2 && object2.$$typeof === REACT_ELEMENT_TYPE;
+      function isValidElement(object) {
+        return "object" === typeof object && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
       }
       function escape2(key) {
         var escaperLookup = { "=": "=0", ":": "=2" };
@@ -20351,7 +20356,7 @@ var require_react_development = __commonJS({
         }
         throw thenable;
       }
-      function mapIntoArray(children, array2, escapedPrefix, nameSoFar, callback) {
+      function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
         var type = typeof children;
         if ("undefined" === type || "boolean" === type) children = null;
         var invokeCallback = false;
@@ -20372,7 +20377,7 @@ var require_react_development = __commonJS({
                 case REACT_LAZY_TYPE:
                   return invokeCallback = children._init, mapIntoArray(
                     invokeCallback(children._payload),
-                    array2,
+                    array,
                     escapedPrefix,
                     nameSoFar,
                     callback
@@ -20383,7 +20388,7 @@ var require_react_development = __commonJS({
           invokeCallback = children;
           callback = callback(invokeCallback);
           var childKey = "" === nameSoFar ? "." + getElementKey(invokeCallback, 0) : nameSoFar;
-          isArrayImpl(callback) ? (escapedPrefix = "", null != childKey && (escapedPrefix = childKey.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array2, escapedPrefix, "", function(c) {
+          isArrayImpl(callback) ? (escapedPrefix = "", null != childKey && (escapedPrefix = childKey.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array, escapedPrefix, "", function(c) {
             return c;
           })) : null != callback && (isValidElement(callback) && (null != callback.key && (invokeCallback && invokeCallback.key === callback.key || checkKeyStringCoercion(callback.key)), escapedPrefix = cloneAndReplaceKey(
             callback,
@@ -20391,7 +20396,7 @@ var require_react_development = __commonJS({
               userProvidedKeyEscapeRegex,
               "$&/"
             ) + "/") + childKey
-          ), "" !== nameSoFar && null != invokeCallback && isValidElement(invokeCallback) && null == invokeCallback.key && invokeCallback._store && !invokeCallback._store.validated && (escapedPrefix._store.validated = 2), callback = escapedPrefix), array2.push(callback));
+          ), "" !== nameSoFar && null != invokeCallback && isValidElement(invokeCallback) && null == invokeCallback.key && invokeCallback._store && !invokeCallback._store.validated && (escapedPrefix._store.validated = 2), callback = escapedPrefix), array.push(callback));
           return 1;
         }
         invokeCallback = 0;
@@ -20400,7 +20405,7 @@ var require_react_development = __commonJS({
           for (var i = 0; i < children.length; i++)
             nameSoFar = children[i], type = childKey + getElementKey(nameSoFar, i), invokeCallback += mapIntoArray(
               nameSoFar,
-              array2,
+              array,
               escapedPrefix,
               type,
               callback
@@ -20411,7 +20416,7 @@ var require_react_development = __commonJS({
           ), didWarnAboutMaps = true), children = i.call(children), i = 0; !(nameSoFar = children.next()).done; )
             nameSoFar = nameSoFar.value, type = childKey + getElementKey(nameSoFar, i++), invokeCallback += mapIntoArray(
               nameSoFar,
-              array2,
+              array,
               escapedPrefix,
               type,
               callback
@@ -20420,14 +20425,14 @@ var require_react_development = __commonJS({
           if ("function" === typeof children.then)
             return mapIntoArray(
               resolveThenable(children),
-              array2,
+              array,
               escapedPrefix,
               nameSoFar,
               callback
             );
-          array2 = String(children);
+          array = String(children);
           throw Error(
-            "Objects are not valid as a React child (found: " + ("[object Object]" === array2 ? "object with keys {" + Object.keys(children).join(", ") + "}" : array2) + "). If you meant to render a collection of children, use an array instead."
+            "Objects are not valid as a React child (found: " + ("[object Object]" === array ? "object with keys {" + Object.keys(children).join(", ") + "}" : array) + "). If you meant to render a collection of children, use an array instead."
           );
         }
         return invokeCallback;
@@ -21477,11 +21482,11 @@ function autoBind(self2, { include, exclude } = {}) {
     }
     return true;
   };
-  for (const [object2, key] of getAllProperties(self2.constructor.prototype)) {
+  for (const [object, key] of getAllProperties(self2.constructor.prototype)) {
     if (key === "constructor" || !filter(key)) {
       continue;
     }
-    const descriptor = Reflect.getOwnPropertyDescriptor(object2, key);
+    const descriptor = Reflect.getOwnPropertyDescriptor(object, key);
     if (descriptor && typeof descriptor.value === "function") {
       self2[key] = self2[key].bind(self2);
     }
@@ -21492,13 +21497,13 @@ var getAllProperties;
 var init_auto_bind = __esm({
   "node_modules/auto-bind/index.js"() {
     "use strict";
-    getAllProperties = (object2) => {
+    getAllProperties = (object) => {
       const properties = /* @__PURE__ */ new Set();
       do {
-        for (const key of Reflect.ownKeys(object2)) {
-          properties.add([object2, key]);
+        for (const key of Reflect.ownKeys(object)) {
+          properties.add([object, key]);
         }
-      } while ((object2 = Reflect.getPrototypeOf(object2)) && object2 !== Object.prototype);
+      } while ((object = Reflect.getPrototypeOf(object)) && object !== Object.prototype);
       return properties;
     };
   }
@@ -26879,8 +26884,8 @@ var require_react_reconciler_production = __commonJS({
         if (null == memoCache) {
           var current = currentlyRenderingFiber.alternate;
           null !== current && (current = current.updateQueue, null !== current && (current = current.memoCache, null != current && (memoCache = {
-            data: current.data.map(function(array2) {
-              return array2.slice();
+            data: current.data.map(function(array) {
+              return array.slice();
             }),
             index: 0
           })));
@@ -33889,11 +33894,11 @@ var require_react_reconciler_development = __commonJS({
       function warnForMissingKey() {
       }
       function setToSortedString(set) {
-        var array2 = [];
+        var array = [];
         set.forEach(function(value) {
-          array2.push(value);
+          array.push(value);
         });
-        return array2.sort().join(", ");
+        return array.sort().join(", ");
       }
       function getNearestMountedFiber(fiber) {
         for (var node = fiber, nextNode = node; nextNode && !nextNode.alternate; )
@@ -34445,9 +34450,9 @@ var require_react_reconciler_development = __commonJS({
       function is(x, y) {
         return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
       }
-      function getArrayKind(array2) {
-        for (var kind = 0, i = 0; i < array2.length && 100 > i; i++) {
-          var value = array2[i];
+      function getArrayKind(array) {
+        for (var kind = 0, i = 0; i < array.length && 100 > i; i++) {
+          var value = array[i];
           if ("object" === typeof value && null !== value)
             if (isArrayImpl(value) && 2 === value.length && "string" === typeof value[0]) {
               if (0 !== kind && 3 !== kind) return 1;
@@ -34461,11 +34466,11 @@ var require_react_reconciler_development = __commonJS({
         }
         return kind;
       }
-      function addObjectToProperties(object2, properties, indent, prefix2) {
-        if (!ArrayBuffer.isView(object2)) {
+      function addObjectToProperties(object, properties, indent, prefix2) {
+        if (!ArrayBuffer.isView(object)) {
           var addedProperties = 0, key;
-          for (key in object2)
-            if (hasOwnProperty.call(object2, key) && "_" !== key[0] && (addedProperties++, addValueToProperties(key, object2[key], properties, indent, prefix2), 100 <= addedProperties)) {
+          for (key in object)
+            if (hasOwnProperty.call(object, key) && "_" !== key[0] && (addedProperties++, addValueToProperties(key, object[key], properties, indent, prefix2), 100 <= addedProperties)) {
               properties.push([
                 prefix2 + "\xA0\xA0".repeat(indent) + "Only 100 properties are shown. React will not log more properties of this object.",
                 ""
@@ -35455,8 +35460,8 @@ var require_react_reconciler_development = __commonJS({
         }
         return indentation(indent) + describeTextNode(clientText, maxLength) + "\n";
       }
-      function objectName(object2) {
-        return Object.prototype.toString.call(object2).replace(/^\[object (.*)\]$/, function(m, p0) {
+      function objectName(object) {
+        return Object.prototype.toString.call(object).replace(/^\[object (.*)\]$/, function(m, p0) {
           return p0;
         });
       }
@@ -37921,8 +37926,8 @@ var require_react_reconciler_development = __commonJS({
         if (null == memoCache) {
           var current2 = currentlyRenderingFiber.alternate;
           null !== current2 && (current2 = current2.updateQueue, null !== current2 && (current2 = current2.memoCache, null != current2 && (memoCache = {
-            data: current2.data.map(function(array2) {
-              return array2.slice();
+            data: current2.data.map(function(array) {
+              return array.slice();
             }),
             index: 0
           })));
@@ -52117,8 +52122,8 @@ var require_backend = __commonJS({
                 function cloneAndReplaceKey(oldElement, newKey) {
                   return ReactElement(oldElement.type, newKey, oldElement.props);
                 }
-                function isValidElement(object2) {
-                  return "object" === _typeof(object2) && null !== object2 && object2.$$typeof === REACT_ELEMENT_TYPE;
+                function isValidElement(object) {
+                  return "object" === _typeof(object) && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
                 }
                 function escape2(key) {
                   var escaperLookup = {
@@ -52153,7 +52158,7 @@ var require_backend = __commonJS({
                   }
                   throw thenable;
                 }
-                function mapIntoArray(children, array2, escapedPrefix, nameSoFar, callback) {
+                function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
                   var type = _typeof(children);
                   if ("undefined" === type || "boolean" === type) children = null;
                   var invokeCallback = false;
@@ -52171,20 +52176,20 @@ var require_backend = __commonJS({
                           invokeCallback = true;
                           break;
                         case REACT_LAZY_TYPE:
-                          return invokeCallback = children._init, mapIntoArray(invokeCallback(children._payload), array2, escapedPrefix, nameSoFar, callback);
+                          return invokeCallback = children._init, mapIntoArray(invokeCallback(children._payload), array, escapedPrefix, nameSoFar, callback);
                       }
                   }
-                  if (invokeCallback) return callback = callback(children), invokeCallback = "" === nameSoFar ? "." + getElementKey(children, 0) : nameSoFar, isArrayImpl(callback) ? (escapedPrefix = "", null != invokeCallback && (escapedPrefix = invokeCallback.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array2, escapedPrefix, "", function(c) {
+                  if (invokeCallback) return callback = callback(children), invokeCallback = "" === nameSoFar ? "." + getElementKey(children, 0) : nameSoFar, isArrayImpl(callback) ? (escapedPrefix = "", null != invokeCallback && (escapedPrefix = invokeCallback.replace(userProvidedKeyEscapeRegex, "$&/") + "/"), mapIntoArray(callback, array, escapedPrefix, "", function(c) {
                     return c;
-                  })) : null != callback && (isValidElement(callback) && (callback = cloneAndReplaceKey(callback, escapedPrefix + (null == callback.key || children && children.key === callback.key ? "" : ("" + callback.key).replace(userProvidedKeyEscapeRegex, "$&/") + "/") + invokeCallback)), array2.push(callback)), 1;
+                  })) : null != callback && (isValidElement(callback) && (callback = cloneAndReplaceKey(callback, escapedPrefix + (null == callback.key || children && children.key === callback.key ? "" : ("" + callback.key).replace(userProvidedKeyEscapeRegex, "$&/") + "/") + invokeCallback)), array.push(callback)), 1;
                   invokeCallback = 0;
                   var nextNamePrefix = "" === nameSoFar ? "." : nameSoFar + ":";
-                  if (isArrayImpl(children)) for (var i = 0; i < children.length; i++) nameSoFar = children[i], type = nextNamePrefix + getElementKey(nameSoFar, i), invokeCallback += mapIntoArray(nameSoFar, array2, escapedPrefix, type, callback);
-                  else if (i = getIteratorFn(children), "function" === typeof i) for (children = i.call(children), i = 0; !(nameSoFar = children.next()).done; ) nameSoFar = nameSoFar.value, type = nextNamePrefix + getElementKey(nameSoFar, i++), invokeCallback += mapIntoArray(nameSoFar, array2, escapedPrefix, type, callback);
+                  if (isArrayImpl(children)) for (var i = 0; i < children.length; i++) nameSoFar = children[i], type = nextNamePrefix + getElementKey(nameSoFar, i), invokeCallback += mapIntoArray(nameSoFar, array, escapedPrefix, type, callback);
+                  else if (i = getIteratorFn(children), "function" === typeof i) for (children = i.call(children), i = 0; !(nameSoFar = children.next()).done; ) nameSoFar = nameSoFar.value, type = nextNamePrefix + getElementKey(nameSoFar, i++), invokeCallback += mapIntoArray(nameSoFar, array, escapedPrefix, type, callback);
                   else if ("object" === type) {
-                    if ("function" === typeof children.then) return mapIntoArray(resolveThenable(children), array2, escapedPrefix, nameSoFar, callback);
-                    array2 = String(children);
-                    throw Error("Objects are not valid as a React child (found: " + ("[object Object]" === array2 ? "object with keys {" + Object.keys(children).join(", ") + "}" : array2) + "). If you meant to render a collection of children, use an array instead.");
+                    if ("function" === typeof children.then) return mapIntoArray(resolveThenable(children), array, escapedPrefix, nameSoFar, callback);
+                    array = String(children);
+                    throw Error("Objects are not valid as a React child (found: " + ("[object Object]" === array ? "object with keys {" + Object.keys(children).join(", ") + "}" : array) + "). If you meant to render a collection of children, use an array instead.");
                   }
                   return invokeCallback;
                 }
@@ -53107,9 +53112,9 @@ var require_backend = __commonJS({
                     runTimeout(drainQueue);
                   }
                 };
-                function Item(fun, array2) {
+                function Item(fun, array) {
                   this.fun = fun;
-                  this.array = array2;
+                  this.array = array;
                 }
                 Item.prototype.run = function() {
                   this.fun.apply(null, this.array);
@@ -54548,10 +54553,10 @@ var require_backend = __commonJS({
             function getUID() {
               return ++uidCounter;
             }
-            function utfDecodeStringWithRanges(array2, left, right) {
+            function utfDecodeStringWithRanges(array, left, right) {
               var string = "";
               for (var i = left; i <= right; i++) {
-                string += String.fromCodePoint(array2[i]);
+                string += String.fromCodePoint(array[i]);
               }
               return string;
             }
@@ -54866,7 +54871,7 @@ var require_backend = __commonJS({
               }
               return false;
             }
-            function utils_getInObject(object2, path4) {
+            function utils_getInObject(object, path4) {
               return path4.reduce(function(reduced, attr) {
                 if (reduced) {
                   if (utils_hasOwnProperty.call(reduced, attr)) {
@@ -54877,13 +54882,13 @@ var require_backend = __commonJS({
                   }
                 }
                 return null;
-              }, object2);
+              }, object);
             }
-            function deletePathInObject(object2, path4) {
+            function deletePathInObject(object, path4) {
               var length = path4.length;
               var last = path4[length - 1];
-              if (object2 != null) {
-                var parent = utils_getInObject(object2, path4.slice(0, length - 1));
+              if (object != null) {
+                var parent = utils_getInObject(object, path4.slice(0, length - 1));
                 if (parent) {
                   if (src_isArray(parent)) {
                     parent.splice(last, 1);
@@ -54893,10 +54898,10 @@ var require_backend = __commonJS({
                 }
               }
             }
-            function renamePathInObject(object2, oldPath, newPath) {
+            function renamePathInObject(object, oldPath, newPath) {
               var length = oldPath.length;
-              if (object2 != null) {
-                var parent = utils_getInObject(object2, oldPath.slice(0, length - 1));
+              if (object != null) {
+                var parent = utils_getInObject(object, oldPath.slice(0, length - 1));
                 if (parent) {
                   var lastOld = oldPath[length - 1];
                   var lastNew = newPath[length - 1];
@@ -54909,11 +54914,11 @@ var require_backend = __commonJS({
                 }
               }
             }
-            function utils_setInObject(object2, path4, value) {
+            function utils_setInObject(object, path4, value) {
               var length = path4.length;
               var last = path4[length - 1];
-              if (object2 != null) {
-                var parent = utils_getInObject(object2, path4.slice(0, length - 1));
+              if (object != null) {
+                var parent = utils_getInObject(object, path4.slice(0, length - 1));
                 if (parent) {
                   parent[last] = value;
                 }
@@ -55006,13 +55011,13 @@ var require_backend = __commonJS({
                   return "unknown";
               }
             }
-            function typeOfWithLegacyElementSymbol(object2) {
-              if (utils_typeof(object2) === "object" && object2 !== null) {
-                var $$typeof = object2.$$typeof;
+            function typeOfWithLegacyElementSymbol(object) {
+              if (utils_typeof(object) === "object" && object !== null) {
+                var $$typeof = object.$$typeof;
                 switch ($$typeof) {
                   case REACT_ELEMENT_TYPE:
                   case REACT_LEGACY_ELEMENT_TYPE:
-                    var type = object2.type;
+                    var type = object.type;
                     switch (type) {
                       case REACT_FRAGMENT_TYPE:
                       case REACT_PROFILER_TYPE:
@@ -55201,10 +55206,10 @@ var require_backend = __commonJS({
                 case "iterator":
                   var name = data.constructor.name;
                   if (showFormattedValue) {
-                    var array2 = Array.from(data);
+                    var array = Array.from(data);
                     var _formatted6 = "";
-                    for (var _i2 = 0; _i2 < array2.length; _i2++) {
-                      var entryOrEntries = array2[_i2];
+                    for (var _i2 = 0; _i2 < array.length; _i2++) {
+                      var entryOrEntries = array[_i2];
                       if (_i2 > 0) {
                         _formatted6 += ", ";
                       }
@@ -55317,8 +55322,8 @@ var require_backend = __commonJS({
                   }
               }
             }
-            var isPlainObject2 = function isPlainObject3(object2) {
-              var objectPrototype = Object.getPrototypeOf(object2);
+            var isPlainObject2 = function isPlainObject3(object) {
+              var objectPrototype = Object.getPrototypeOf(object);
               if (!objectPrototype) return true;
               var objectParentPrototype = Object.getPrototypeOf(objectPrototype);
               return !objectParentPrototype;
@@ -55689,12 +55694,12 @@ var require_backend = __commonJS({
                   if (level >= LEVEL_THRESHOLD && !isPathAllowedCheck) {
                     return createDehydrated(type, true, data, cleaned, path4);
                   } else {
-                    var object2 = {};
+                    var object = {};
                     getAllEnumerableKeys(data).forEach(function(key) {
                       var name = key.toString();
-                      object2[name] = dehydrateKey(data, key, cleaned, unserializable, path4.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
+                      object[name] = dehydrateKey(data, key, cleaned, unserializable, path4.concat([name]), isPathAllowed, isPathAllowedCheck ? 1 : level + 1);
                     });
-                    return object2;
+                    return object;
                   }
                 case "class_instance": {
                   isPathAllowedCheck = isPathAllowed(path4);
@@ -55774,8 +55779,8 @@ var require_backend = __commonJS({
                 };
               }
             }
-            function fillInPath(object2, data, path4, value) {
-              var target = getInObject(object2, path4);
+            function fillInPath(object, data, path4, value) {
+              var target = getInObject(object, path4);
               if (target != null) {
                 if (!target[meta.unserializable]) {
                   delete target[meta.inspectable];
@@ -55801,13 +55806,13 @@ var require_backend = __commonJS({
                   upgradeUnserializable(value, value);
                 }
               }
-              setInObject(object2, path4, value);
+              setInObject(object, path4, value);
             }
-            function hydrate(object2, cleaned, unserializable) {
+            function hydrate(object, cleaned, unserializable) {
               cleaned.forEach(function(path4) {
                 var length = path4.length;
                 var last = path4[length - 1];
-                var parent = getInObject(object2, path4.slice(0, length - 1));
+                var parent = getInObject(object, path4.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -55838,7 +55843,7 @@ var require_backend = __commonJS({
               unserializable.forEach(function(path4) {
                 var length = path4.length;
                 var last = path4[length - 1];
-                var parent = getInObject(object2, path4.slice(0, length - 1));
+                var parent = getInObject(object, path4.slice(0, length - 1));
                 if (!parent || !parent.hasOwnProperty(last)) {
                   return;
                 }
@@ -55847,7 +55852,7 @@ var require_backend = __commonJS({
                 upgradeUnserializable(replacement, node);
                 parent[last] = replacement;
               });
-              return object2;
+              return object;
             }
             function upgradeUnserializable(destination, source) {
               Object.defineProperties(destination, hydration_defineProperty(hydration_defineProperty(hydration_defineProperty(hydration_defineProperty(hydration_defineProperty(hydration_defineProperty(hydration_defineProperty(hydration_defineProperty({}, meta.inspected, {
@@ -57262,12 +57267,12 @@ var require_backend = __commonJS({
               }
               return _get.apply(this, arguments);
             }
-            function _superPropBase(object2, property) {
-              while (!Object.prototype.hasOwnProperty.call(object2, property)) {
-                object2 = _getPrototypeOf(object2);
-                if (object2 === null) break;
+            function _superPropBase(object, property) {
+              while (!Object.prototype.hasOwnProperty.call(object, property)) {
+                object = _getPrototypeOf(object);
+                if (object === null) break;
               }
-              return object2;
+              return object;
             }
             function _getPrototypeOf(o) {
               _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function _getPrototypeOf2(o2) {
@@ -59324,8 +59329,8 @@ var require_backend = __commonJS({
             }
             ;
             var DevToolsFiberInspection_toString = Object.prototype.toString;
-            function DevToolsFiberInspection_isError(object2) {
-              return DevToolsFiberInspection_toString.call(object2) === "[object Error]";
+            function DevToolsFiberInspection_isError(object) {
+              return DevToolsFiberInspection_toString.call(object) === "[object Error]";
             }
             function getFiberFlags(fiber) {
               return fiber.flags !== void 0 ? fiber.flags : fiber.effectTag;
@@ -65121,9 +65126,9 @@ var require_backend = __commonJS({
               };
             }
             ;
-            function decorate(object2, attr, fn) {
-              var old = object2[attr];
-              object2[attr] = function(instance) {
+            function decorate(object, attr, fn) {
+              var old = object[attr];
+              object[attr] = function(instance) {
                 return fn.call(this, old, arguments);
               };
               return old;
@@ -66913,10 +66918,10 @@ var require_backend = __commonJS({
                 });
               });
             }
-            function shallowClone(object2) {
+            function shallowClone(object) {
               var cloned = {};
-              for (var n in object2) {
-                cloned[n] = object2[n];
+              for (var n in object) {
+                cloned[n] = object[n];
               }
               return cloned;
             }
@@ -72263,8 +72268,8 @@ var require_react_jsx_runtime_development = __commonJS({
       function validateChildKeys(node) {
         isValidElement(node) ? node._store && (node._store.validated = 1) : "object" === typeof node && null !== node && node.$$typeof === REACT_LAZY_TYPE && ("fulfilled" === node._payload.status ? isValidElement(node._payload.value) && node._payload.value._store && (node._payload.value._store.validated = 1) : node._store && (node._store.validated = 1));
       }
-      function isValidElement(object2) {
-        return "object" === typeof object2 && null !== object2 && object2.$$typeof === REACT_ELEMENT_TYPE;
+      function isValidElement(object) {
+        return "object" === typeof object && null !== object && object.$$typeof === REACT_ELEMENT_TYPE;
       }
       var React17 = require_react(), REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element"), REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal"), REACT_FRAGMENT_TYPE = /* @__PURE__ */ Symbol.for("react.fragment"), REACT_STRICT_MODE_TYPE = /* @__PURE__ */ Symbol.for("react.strict_mode"), REACT_PROFILER_TYPE = /* @__PURE__ */ Symbol.for("react.profiler"), REACT_CONSUMER_TYPE = /* @__PURE__ */ Symbol.for("react.consumer"), REACT_CONTEXT_TYPE = /* @__PURE__ */ Symbol.for("react.context"), REACT_FORWARD_REF_TYPE = /* @__PURE__ */ Symbol.for("react.forward_ref"), REACT_SUSPENSE_TYPE = /* @__PURE__ */ Symbol.for("react.suspense"), REACT_SUSPENSE_LIST_TYPE = /* @__PURE__ */ Symbol.for("react.suspense_list"), REACT_MEMO_TYPE = /* @__PURE__ */ Symbol.for("react.memo"), REACT_LAZY_TYPE = /* @__PURE__ */ Symbol.for("react.lazy"), REACT_ACTIVITY_TYPE = /* @__PURE__ */ Symbol.for("react.activity"), REACT_VIEW_TRANSITION_TYPE = /* @__PURE__ */ Symbol.for("react.view_transition"), REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for("react.client.reference"), ReactSharedInternals = React17.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, hasOwnProperty = Object.prototype.hasOwnProperty, isArrayImpl = Array.isArray, createTask = console.createTask ? console.createTask : function() {
         return null;
@@ -76632,7 +76637,7 @@ function extractGeminiResult(jsonOutput) {
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
-// src/backends/ollama-http.ts
+// src/backends/http-fetch.ts
 import http from "http";
 import https from "https";
 import { pipeline, Readable } from "stream";
@@ -76640,13 +76645,14 @@ import { constants, createBrotliDecompress, createGunzip, createInflate } from "
 var NULL_BODY_STATUSES = /* @__PURE__ */ new Set([101, 204, 205, 304]);
 var BODY_PRESERVING_REDIRECTS = /* @__PURE__ */ new Set([307, 308]);
 var MAX_REDIRECTS = 20;
+var CROSS_ORIGIN_DROPPED_HEADERS = /* @__PURE__ */ new Set(["authorization", "cookie", "proxy-authorization"]);
 var DECODERS = /* @__PURE__ */ new Map([
   ["gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
   ["x-gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
   ["deflate", () => createInflate({ flush: constants.Z_SYNC_FLUSH })],
   ["br", () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })]
 ]);
-function ollamaFetch(url, init, redirects = 0) {
+function longFetch(url, init, redirects = 0) {
   return new Promise((resolve5, reject) => {
     const target = new URL(url);
     const request = target.protocol === "https:" ? https.request : http.request;
@@ -76669,8 +76675,14 @@ function ollamaFetch(url, init, redirects = 0) {
           } else if (next.protocol !== "http:" && next.protocol !== "https:") {
             reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
           } else {
-            resolve5(ollamaFetch(next.href, init, redirects + 1));
+            const headers2 = next.origin === target.origin ? init.headers : Object.fromEntries(Object.entries(init.headers).filter(([name]) => !CROSS_ORIGIN_DROPPED_HEADERS.has(name.toLowerCase())));
+            resolve5(longFetch(next.href, { ...init, headers: headers2 }, redirects + 1));
           }
+          return;
+        }
+        if (status < 200 || status > 599) {
+          res.resume();
+          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
           return;
         }
         const headers = new Headers();
@@ -76917,7 +76929,7 @@ var OllamaBackend = class {
     const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let data;
     try {
-      const resp = await ollamaFetch(url, {
+      const resp = await longFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -76984,7 +76996,7 @@ var OllamaBackend = class {
     const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let resp;
     try {
-      resp = await ollamaFetch(url, {
+      resp = await longFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -77083,34 +77095,51 @@ var XaiBackendError = class extends BackendError {
     this.name = "XaiBackendError";
   }
 };
-function object(value) {
+function asObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
-function array(value) {
+function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+var RESPONSES_URL = "https://api.x.ai/v1/responses";
+var DEFAULT_MODEL = "grok-4.6";
+var ATTACHED_CONTENT = new RegExp(`^(?:${GIT_DIFF_HEADING}|${CONTEXT_HEADING})$|^diff --git `, "m");
+function transportCode(err, key) {
+  const source = err;
+  const code = source.cause?.code ?? source.code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(code) ? `: ${safeDetail(code, key)}` : "";
+}
+function decodedBody(body) {
+  try {
+    return JSON.stringify(JSON.parse(body));
+  } catch {
+    return body;
+  }
 }
 function safeDetail(detail, key) {
   return detail.split(key).join("[REDACTED]").slice(0, 200);
 }
-function answer(response, key) {
+function parseAnswer(response, key) {
   if (response.status !== "completed" || response.error != null) {
-    const error2 = object(response.error);
+    const error2 = asObject(response.error);
     const detail = [
       ["status", response.status ?? "unknown"],
-      ["reason", object(response.incomplete_details).reason],
+      ["reason", asObject(response.incomplete_details).reason],
       ["code", error2.code],
       ["message", error2.message]
     ].filter(([, value]) => typeof value === "string").map(([name, value]) => `${name}=${value}`).join("; ");
     throw new XaiBackendError(`xAI response failed: ${safeDetail(detail, key)}`);
   }
   const parts = [];
+  let refusal = null;
   const urls = /* @__PURE__ */ new Set();
-  for (const item of array(response.output).map(object)) {
-    if (item.type !== "message") continue;
-    for (const part of array(item.content).map(object)) {
+  for (const item of asArray(response.output).map(asObject)) {
+    if (item.type !== "message" || (item.role ?? "assistant") !== "assistant") continue;
+    for (const part of asArray(item.content).map(asObject)) {
+      if (part.type === "refusal") refusal ??= String(part.refusal ?? "no reason given");
       if (part.type !== "output_text" || typeof part.text !== "string") continue;
       parts.push(part.text);
-      for (const annotation of array(part.annotations).map(object)) {
+      for (const annotation of asArray(part.annotations).map(asObject)) {
         if (annotation.type === "url_citation" && typeof annotation.url === "string") {
           urls.add(annotation.url);
         }
@@ -77118,6 +77147,7 @@ function answer(response, key) {
     }
   }
   const text = parts.join("\n").trim();
+  if (!text && refusal !== null) throw new XaiBackendError(`xAI refused: ${safeDetail(refusal, key)}`);
   if (!text) throw new XaiBackendError("xAI completed without producing output");
   return { text, sources: urls.size ? `
 
@@ -77138,7 +77168,7 @@ var XaiBackend = class {
     "danger-full-access"
   ]);
   async run(opts) {
-    const key = opts.env.XAI_API_KEY?.trim();
+    const key = xaiApiKey(opts.env);
     if (!key) throw new XaiBackendError("Set XAI_API_KEY to use xai. Get an API key at https://console.x.ai");
     let schema;
     if (opts.schema) {
@@ -77146,18 +77176,21 @@ var XaiBackend = class {
         schema = JSON.parse(opts.schema);
       } catch {
       }
-      if (object(schema) !== schema) throw new XaiBackendError("--schema must be a JSON object for xai");
+      if (asObject(schema) !== schema) throw new XaiBackendError("--schema must be a JSON object for xai");
     }
+    const history = opts.sessionHistory ?? [];
+    const searchAllowed = ![opts.prompt, ...history.map((turn) => turn.content)].some((content) => ATTACHED_CONTENT.test(content));
+    if (!searchAllowed) console.error("[phone-a-friend] xai: web and X search are off because this conversation has attached context or a diff.");
     const controller = new AbortController();
     const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     try {
-      const resp = await fetch("https://api.x.ai/v1/responses", {
+      const resp = await longFetch(RESPONSES_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          model: opts.model ?? "grok-4.6",
-          input: [...opts.sessionHistory ?? [], { role: "user", content: opts.prompt }],
-          tools: [{ type: "web_search" }, { type: "x_search" }],
+          model: opts.model ?? DEFAULT_MODEL,
+          input: [...history, { role: "user", content: opts.prompt }],
+          ...searchAllowed ? { tools: [{ type: "web_search" }, { type: "x_search" }] } : {},
           stream: false,
           store: false,
           ...schema ? { text: { format: {
@@ -77176,7 +77209,7 @@ var XaiBackend = class {
         throw new XaiBackendError(`xAI response body could not be read (HTTP ${resp.status})`);
       }
       if (!resp.ok) {
-        throw new XaiBackendError(`xAI returned HTTP ${resp.status}: ${safeDetail(body, key)}`);
+        throw new XaiBackendError(`xAI returned HTTP ${resp.status}: ${safeDetail(decodedBody(body), key)}`);
       }
       let data;
       try {
@@ -77184,14 +77217,14 @@ var XaiBackend = class {
       } catch {
         throw new XaiBackendError(`xAI returned invalid JSON (HTTP ${resp.status})`);
       }
-      const result = answer(object(data), key);
+      const result = parseAnswer(asObject(data), key);
       return result.text + (opts.schema ? "" : result.sources);
     } catch (err) {
       if (controller.signal.aborted || err instanceof Error && err.name === "AbortError") {
         throw new XaiBackendError(`xAI timed out after ${opts.timeoutSeconds}s`);
       }
       if (err instanceof XaiBackendError) throw err;
-      throw new XaiBackendError("xAI request failed");
+      throw new XaiBackendError(`xAI request failed${transportCode(err, key)}`);
     } finally {
       clearTimeout(timer);
     }
@@ -77859,7 +77892,7 @@ function isGrokHostEnv(env4) {
 function assertNotGrokHost(env4) {
   if (!isGrokHostEnv(env4)) return;
   throw new GrokBackendError(
-    "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama."
+    "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, ollama, or xai."
   );
 }
 function isFinishedGrokStop(reason) {
@@ -81935,12 +81968,12 @@ var levelMapping = [
   "ansi16m"
 ];
 var styles2 = /* @__PURE__ */ Object.create(null);
-var applyOptions = (object2, options = {}) => {
+var applyOptions = (object, options = {}) => {
   if (options.level && !(Number.isInteger(options.level) && options.level >= 0 && options.level <= 3)) {
     throw new Error("The `level` option should be an integer from 0 to 3");
   }
   const colorLevel = stdoutColor ? stdoutColor.level : 0;
-  object2.level = options.level === void 0 ? colorLevel : options.level;
+  object.level = options.level === void 0 ? colorLevel : options.level;
 };
 var chalkFactory = (options) => {
   const chalk3 = (...strings) => strings.join(" ");
@@ -86145,7 +86178,7 @@ ${banner("AI coding agent relay")}
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds; 0 for no limit (default: 0)").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds; 0 for no limit (default: 0)").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, Grok, and xAI)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {

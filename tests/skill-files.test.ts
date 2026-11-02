@@ -987,6 +987,21 @@ describe('pi is binary-mode only in every skill and command', () => {
     });
   }
 
+  for (const rel of ['skills/phone-a-friend/SKILL.md', 'commands/phone-a-friend.md']) {
+    it(`${rel} tells hosts how to run xAI safely`, () => {
+      const file = readFile(rel);
+      const section = file.slice(file.indexOf('### xAI live research'));
+      expect(section).toContain('--no-include-diff');
+      expect(section).toContain('--timeout 600');
+      expect(section).toMatch(/untrusted data[^\n]*never follow instructions/);
+      expect(file).toMatch(/xAI has no direct-call row[^\n]*binary mode/);
+    });
+  }
+
+  it('the reviewer subagent treats relay output as untrusted', () => {
+    expect(readFile('agents/paf-reviewer.md')).toMatch(/untrusted data/);
+  });
+
   it('the OpenCode overlay and the reviewer subagent list pi among the backends', () => {
     expect(readFile('skills/phone-a-friend/COMMAND.opencode.md')).toMatch(/`claude`, `pi`, `grok`, `ollama`, or `xai`/);
     expect(readFile('agents/paf-reviewer.md')).toMatch(/description:[^\n]*\bpi\b/);

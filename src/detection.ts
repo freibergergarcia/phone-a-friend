@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath } from './backends/index.js';
+import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath, xaiApiKey } from './backends/index.js';
 import type { ExecutableInfo, ModelDiagnostics, CapabilityDiagnostics } from './diagnostics.js';
 
 // ---------------------------------------------------------------------------
@@ -311,7 +311,7 @@ export function decorateOpenCodeModels(
 // ---------------------------------------------------------------------------
 // API detection is credential presence only: no network call or key disclosure.
 export function detectApiBackends(env: Record<string, string | undefined> = process.env): BackendStatus[] {
-  const available = !!env.XAI_API_KEY?.trim();
+  const available = xaiApiKey(env) !== undefined;
   return [{
     name: 'xai', category: 'api', available, optional: true,
     detail: available ? 'XAI_API_KEY set (not validated)' : 'XAI_API_KEY not set',
