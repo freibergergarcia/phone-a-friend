@@ -1,7 +1,8 @@
 /**
  * Real processes, no fakes: the behaviour under test is what the operating
  * system does with signals, process groups and pipes. Each child's tool process
- * sleeps for a unique duration so survivors can be found and removed.
+ * sleeps for a unique, short duration: survivors can be found and removed, and
+ * one that cleanup misses (a sandbox can block pgrep) soon exits by itself.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,10 +14,10 @@ import {
 } from '../../src/backends/child-supervisor.js';
 
 const posix = process.platform !== 'win32';
-const SLEEP = '41337';
+const SLEEP = '41.337';
 
 function survivors(): string[] {
-  const { stdout } = spawnSync('pgrep', ['-f', `sleep ${SLEEP}`], { encoding: 'utf8' });
+  const { stdout } = spawnSync('pgrep', ['-f', `sleep ${SLEEP.replace('.', '[.]')}`], { encoding: 'utf8' });
   return stdout.split('\n').filter(Boolean);
 }
 
