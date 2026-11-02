@@ -5,6 +5,14 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 10
+    # Dependabot still adds its own SemVer label. On a minor or major update the
+    # PR then has two version labels, and label-check blocks it until one is
+    # removed. auto-bump releases PaF from this label, so choose it by the effect
+    # on PaF's CLI, not by the dependency's version.
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "patch"
     groups:
       dev-dependencies:
         dependency-type: "development"
@@ -20,6 +28,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github_actions"
+      - "patch"
     groups:
       actions:
         patterns:
