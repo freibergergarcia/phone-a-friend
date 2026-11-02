@@ -48,6 +48,14 @@ export function ollamaFetch(url: string, init: OllamaFetchInit, redirects = 0): 
       },
       (res) => {
         const status = res.statusCode ?? 502;
+        if (status < 200 || status > 599) {
+          // `new Response` throws a RangeError for such a status, and a throw
+          // inside this callback never reaches the promise — it kills the
+          // process before the task tracker records anything (#206).
+          res.resume();
+          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
+          return;
+        }
         if (BODY_PRESERVING_REDIRECTS.has(status) && res.headers.location) {
           res.resume();
           const next = URL.parse(res.headers.location, target);

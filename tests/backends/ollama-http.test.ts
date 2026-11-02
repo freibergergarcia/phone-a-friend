@@ -1,5 +1,6 @@
 /** A real local server: the behaviour under test is what `node:http` does. */
 import http from 'node:http';
+import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { brotliCompressSync, constants, createGzip, deflateSync, gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,6 +65,32 @@ describe('ollamaFetch', () => {
     const resp = await call(url);
     expect(resp.status).toBe(204);
     expect(resp.body).toBeNull();
+  });
+
+  it('rejects a status outside 200-599 instead of crashing (#206)', async () => {
+    // `new Response` throws a RangeError for such a status, and a throw inside
+    // the http callback never reached the promise — the process died before
+    // the task tracker recorded the failure. A raw TCP server, as the issue
+    // suggests: node:http is not expected to emit a 700 itself.
+    const raw = net.createServer((socket) => {
+      socket.once('data', () => {
+        socket.end('HTTP/1.1 700 Nonstandard\r\nContent-Length: 5\r\n\r\nhello');
+      });
+    });
+    await new Promise<void>((resolve) => raw.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (raw.address() as AddressInfo).port;
+      await expect(
+        ollamaFetch(`http://127.0.0.1:${port}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{"hello":"world"}',
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow('Unsupported HTTP status 700');
+    } finally {
+      await new Promise((resolve) => raw.close(resolve));
+    }
   });
 
   it.each([307, 308])('follows a %i redirect and keeps the POST and its body', async (status) => {
