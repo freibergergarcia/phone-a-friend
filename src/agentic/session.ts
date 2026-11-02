@@ -24,6 +24,7 @@ const NESTED_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SESSION'];
 
 /** The only backend with an agentic adapter. Dispatch is keyed on this name. */
 const AGENTIC_NATIVE_BACKEND = 'claude';
+const DEFAULT_CALL_TIMEOUT_SECONDS = 600;
 
 /**
  * Raised when an agentic request names a backend PaF cannot drive in agentic
@@ -67,6 +68,8 @@ export function assertAgenticBackendSupported(backendName: string): void {
 
 export interface AgenticRunOptions {
   signal?: AbortSignal;
+  /** Limit for one Claude call. The orchestrator passes the session's limit. */
+  timeoutSeconds?: number;
   sandbox?: AgenticSessionConfig['sandbox'];
 }
 
@@ -285,7 +288,8 @@ export class SessionManager {
         }, 250);
       };
       const abort = () => cancel('Claude session cancelled');
-      const timer = setTimeout(() => cancel('claude session timed out after 600s'), 600_000);
+      const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_CALL_TIMEOUT_SECONDS;
+      const timer = setTimeout(() => cancel(`claude session timed out after ${timeoutSeconds}s`), timeoutSeconds * 1000);
       child.on('error', (error: Error) => finish(error));
       child.on('close', (code) => { closed = true; exitCode = code; finish(); });
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));

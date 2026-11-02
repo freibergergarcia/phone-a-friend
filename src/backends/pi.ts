@@ -40,6 +40,7 @@ import {
   SpawnCliTimeoutError,
   type SandboxMode,
 } from './index.js';
+import { ownProcessGroup, superviseChild } from './child-supervisor.js';
 import { loadConfig, pafConfigDir } from '../config.js';
 import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
 import { injectSchemaPrompt } from './schema-prompt.js';
@@ -957,9 +958,6 @@ function confirmPiSession(
 // Backend
 // ---------------------------------------------------------------------------
 
-/** How long pi gets to exit after SIGTERM before it is killed, on the batch and the stream path. */
-export const PI_KILL_GRACE_MS = 2000;
-
 function timeoutMessage(timeoutSeconds: number): string {
   return (
     `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up ` +
@@ -1049,8 +1047,6 @@ export class PiBackend implements Backend {
         env: opts.env,
         cwd: repoCwd,
         label: 'pi',
-        // Same bound as the stream path: a pi that ignores SIGTERM is killed.
-        killGraceMs: PI_KILL_GRACE_MS,
         // Review, --schema and session calls all take this path, and those
         // are the long tool-using runs where progress matters.
         onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : undefined,
@@ -1073,45 +1069,11 @@ export class PiBackend implements Backend {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: repoCwd,
       env: opts.env,
+      ...ownProcessGroup(),
     });
-
-    // The verdict is derived after stdout is fully read, so the exit status
-    // is only recorded here. A failed spawn reports `error` and may never
-    // report `close`.
-    let ended = false;
-    let spawnFailure: Error | null = null;
-    let killTimer: ReturnType<typeof setTimeout> | null = null;
-    const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-      const finish = (code: number | null, signal: string | null): void => {
-        ended = true;
-        if (killTimer) clearTimeout(killTimer);
-        resolve({ code, signal });
-      };
-      child.once('error', (err) => {
-        spawnFailure = err;
-        finish(null, null);
-      });
-      child.once('close', (code, signal) => finish(code, signal as string | null));
-    });
-
-    // Every wait on `exit` below is bounded by this: a child that ignores
-    // SIGTERM is killed after the grace period.
-    const terminate = (): void => {
-      if (ended) return;
-      child.kill('SIGTERM');
-      killTimer ??= setTimeout(() => {
-        if (!ended) child.kill('SIGKILL');
-      }, PI_KILL_GRACE_MS);
-    };
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, opts.timeoutSeconds * 1000);
-
-    const onSigint = () => { terminate(); };
-    process.on('SIGINT', onSigint);
+    // The verdict is derived after stdout is fully read, so the exit status is
+    // only awaited at the end.
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
 
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
@@ -1130,16 +1092,17 @@ export class PiBackend implements Backend {
         }
       } catch (err: unknown) {
         readFailure = err;
-        terminate();
+        supervisor.terminate();
       }
 
-      const { code, signal } = await exit;
+      const { code, signal, spawnError } = await supervisor.exit;
       const stderr = Buffer.concat(stderrChunks).toString().trim();
 
-      if (spawnFailure) {
-        throw new PiBackendError(`pi failed to start: ${(spawnFailure as Error).message}`);
+      if (spawnError) {
+        throw new PiBackendError(`pi failed to start: ${spawnError.message}`);
       }
-      if (timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+      if (supervisor.timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+      if (supervisor.interruptedBy) throw new PiBackendError(`pi interrupted by ${supervisor.interruptedBy}`);
       // Before the signal check: a read failure is why the child was killed.
       if (readFailure) {
         throw new PiBackendError(
@@ -1158,13 +1121,11 @@ export class PiBackend implements Backend {
     } catch (err: unknown) {
       throw toPiError(err, opts.timeoutSeconds);
     } finally {
-      clearTimeout(timer);
-      process.removeListener('SIGINT', onSigint);
       // Reached early when the consumer stops reading: do not leave pi
       // running, and do not return before it is gone.
-      if (!ended) {
-        terminate();
-        await exit;
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
     }
   }

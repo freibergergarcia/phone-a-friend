@@ -36,7 +36,9 @@ src/
     claude.ts        Claude CLI subprocess backend (`claude -p`)
     codex.ts         Codex subprocess backend
     gemini.ts        Gemini subprocess backend
-    ollama.ts        Ollama HTTP API backend (native fetch)
+    child-supervisor.ts  Time limit, termination and settling for every backend subprocess
+    ollama.ts        Ollama HTTP API backend
+    ollama-http.ts   `fetch` replacement for Ollama chat requests, without Node's 300s limits
     opencode.ts      OpenCode CLI subprocess backend (`opencode run`, agentic with tool calling)
     pi.ts            pi CLI subprocess backend (`pi --mode json`, tool allowlist per sandbox, PaF-owned sessions)
     grok.ts          Grok Build CLI subprocess backend (`grok --prompt-file`, allow list per sandbox, native resume and streaming)
@@ -82,7 +84,7 @@ dist/                Built bundle (committed, self-contained)
 
 - Relay core is backend-agnostic in `src/relay.ts` — `relay()` for batch, `relayStream()` for streaming, `reviewRelay()` for diff-scoped review, `relayBackground()` for quiet mode with job tracking
 - Backend interface/registry in `src/backends/index.ts` — `run()` required, `runStream()` and `review()` optional, `capabilities` declares resume strategy and session ID requirements
-- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode, pi, Grok) for non-blocking execution with timeout, signal forwarding, stderr draining, and spawn error handling. `killGraceMs` is an opt-in SIGKILL escalation after the timeout's SIGTERM (pi and Grok pass 2s). Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
+- Shared `spawnCli()` async subprocess utility in `src/backends/index.ts` — used by all CLI backends (Antigravity, Codex, Claude, Gemini, OpenCode, pi, Grok) for non-blocking execution with stderr draining and spawn error handling. `superviseChild()` owns its time limit and termination (see "Timeouts"), as it does for the direct-stream paths. Throws `SpawnCliError` (extends `BackendError`) on non-zero exit, preserving stdout/stderr/exitCode for callers that need partial output from failed runs
 - `BackendRunOptions` shared interface in `src/backends/index.ts` — single options type for `run()` and `runStream()` across all backends, includes schema, session, and fast spawn fields
 - `Backend.preparePrompt?(prompt, { mode })` — optional last-step rewrite of the fully built prompt, applied by `finalizePrompt()` in `src/relay.ts` on every path (relay, raw and managed sessions, stream, generic review) before the prompt size limit. Only Antigravity implements it today; every other backend's prompt is byte-identical to before the hook existed.
 - `RelayObserver` in `src/relay.ts` — optional `onScope`, `onDrift`, `onEvent`, `onSessionLinked` hooks passed via `observer` on `RelayOptions`/`ReviewRelayOptions`. Backends report progress through `BackendRunOptions.onEvent`/`ReviewOptions.onEvent` as `BackendEvent`s; no hook is invoked and no progress stream is requested unless the caller supplied one. Used by task tracking (see "Task tracking").
@@ -101,7 +103,7 @@ dist/                Built bundle (committed, self-contained)
   - **Version gate.** `pi --version` is read once per process (cached by resolved executable + PATH, like `detectOpenCodeMajor()`); below 0.79.0 (no `--no-approve`), unreadable, or missing fails before any spawn.
   - **Recursion guard.** `--to pi` is refused when `PI_CODING_AGENT=true` (pi sets it for its child processes) or `PHONE_A_FRIEND_HOST=pi`.
   - **Progress.** Tool calls (`Running: read src/x.ts`), pi's automatic retries and context compaction (`Compacting context (threshold)`, from `compaction_start`; the `compaction_end` summary is never surfaced) are reported as `activity` events on both `run()` and `runStream()`. The detail is an allowlist of named fields per built-in tool (path, pattern, command), never file contents; a tool PaF does not know is reported by name only.
-  - **Cleanup.** On timeout or SIGINT (and, when streaming, a broken stdout or an early `return()`) pi gets SIGTERM, then SIGKILL after 2 s (`PI_KILL_GRACE_MS`) if it has not exited. The batch path gets this through `spawnCli()`'s opt-in `killGraceMs`; backends that do not pass it keep the old SIGTERM-only wait. pi is not started in its own process group, so a killed pi can leave a `bash` tool child behind under `danger-full-access`.
+  - **Cleanup.** Timeouts and signals follow "Timeouts". A broken stdout or an early `return()` while streaming terminates pi the same way.
   - Provider: `[backends.pi] provider` is read through `loadConfig(repoPath)`, so a repo `.phone-a-friend.toml` applies. Model IDs with a slash (`mlx-community/...`) are why provider and model are passed as separate flags.
 - Grok backend in `src/backends/grok.ts` (`grok --no-auto-update --output-format json --cwd <canonical repo> --prompt-file <temp>`; `run()` via `spawnCli()`, `runStream()` via direct spawn; no native `review()` or `preparePrompt()`). `--fast` adds no flag. Native sessions create a UUID with `--session-id` and continue it with `--resume`; both PaF session flags work for relays and generic reviews. `--schema` and `--verdict-json` pass `--json-schema`, preferring the envelope's `structured_output` over `text`. A successful envelope requires a non-empty answer and `stopReason` of `stop`, `length`, or `end_turn`. Streaming reads `streaming-json` text events, drops thoughts, reports tool names only, and requires a successful end event. The CLI selects batch mode for schemas and sessions. Cleanup terminates the child and escalates to SIGKILL after 2s, then removes the temporary prompt file. Raw stdout is never returned.
   - **Sandbox is an allow list plus a permission mode.** `read-only` and `workspace-write` both send `--permission-mode dontAsk` and `--deny Bash`. `read-only` allows Read and Grep under `--sandbox read-only` and also sends `--deny Edit`. CLI allows merge with project rules, so a project Edit allow would otherwise survive `dontAsk`, and Grok's read-only sandbox still permits writes under `/tmp` and `~/.grok`. `workspace-write` adds Edit under `--sandbox workspace` and does not deny it. On grok 1.0.62 the documented allow filters are Bash, Edit, Read, Grep, MCPTool, WebFetch, and WebSearch; Edit creates files, and there is no Write filter. `deny` wins over `allow`. `danger-full-access` sends `--sandbox off --permission-mode bypassPermissions` with no allow or deny list. `dontAsk` and `bypassPermissions` are values `grok --help` lists on 1.0.62.
@@ -172,7 +174,7 @@ run(config)
 - **SQLite TranscriptBus** (`src/agentic/bus.ts`) provides append-only persistence using better-sqlite3; DB at `~/.config/phone-a-friend/agentic.db`
 - **EventChannel** (`src/agentic/events.ts`) is an `AsyncIterable` bridge that streams `AgenticEvent` discriminated unions to CLI, TUI, and other consumers
 
-Timeout and explicit stop abort in-flight calls. On POSIX, PaF sends TERM to its owned process groups, escalates to KILL after 250ms, and waits for child close before ending the event stream. Only convergence without agent errors is `completed`; timeouts, pending work at the turn cap and child failures are `failed`, and explicit stops are `stopped`. The persisted `end_reason` distinguishes these outcomes. CLI exit is nonzero for every incomplete run. Partial failed output is retained as notes and is not routed.
+Each Claude call gets the session's `--timeout` as its own limit. Timeout and explicit stop abort in-flight calls. On POSIX, PaF sends TERM to its owned process groups, escalates to KILL after 250ms, and waits for child close before ending the event stream. Only convergence without agent errors is `completed`; timeouts, pending work at the turn cap and child failures are `failed`, and explicit stops are `stopped`. The persisted `end_reason` distinguishes these outcomes. CLI exit is nonzero for every incomplete run. Partial failed output is retained as notes and is not routed.
 
 Agentic sandbox settings are Claude tool policies, not OS isolation. Read-only exposes read/search tools; workspace-write adds Edit/Write; danger-full-access skips permission prompts. Initial and resumed calls receive the same tool policy, model and recursion restrictions.
 
@@ -398,6 +400,34 @@ installed pi is older than 0.79.0. It probes no model endpoint: that would coupl
 PaF to pi's `models.json`, and doctor promises no inference.
 
 For Grok, doctor treats a missing binary as optional, with no version floor. When `grok` is on `PATH`, it adds an advisory that `--fast` has no effect for `--to grok` and that a relay still loads project instructions through `--cwd`. It probes no model endpoint.
+
+## Timeouts
+
+| Run | Default | Set with | No limit |
+|---|---|---|---|
+| Relay and review | No limit | `--timeout`, `PHONE_A_FRIEND_TIMEOUT`, `defaults.timeout` | `0` |
+| Agentic session, and each Claude call in it | 900s | `agentic run --timeout` | Not available |
+
+Values are whole seconds, at most 2147483 (about 24.8 days, the longest timer Node honours). Anything else is an error, not the default.
+
+**Why there is no default limit.** A long delegated task must not be killed by a forgotten flag, losing its output. The cost is that a hung backend looks the same as a busy one, and nothing ends it. An idle limit cannot tell them apart either: Claude and Gemini batch runs print nothing until they finish, so it would kill healthy long tasks.
+
+**So agent-run relays pass their own limit.** The skills and commands use `--timeout 60` for casual questions, `180` for Codex and Grok team rounds, `300` for install checks, and `600` for second opinions, reviews, `/phone-a-team` and `/curiosity-engine`. `--timeout 0` is for long delegated work. Do not rely on a host's shell limit: Claude Code moves a foreground command that passes its limit to the background, where it keeps running (verified on 2.1.316). Gemini under a restrictive sandbox is the known hang (`geminiTimeoutRemediation()`).
+
+**What a limit guarantees** (`superviseChild()` in `src/backends/child-supervisor.ts`, used by every subprocess backend on the batch and stream paths):
+
+- The child runs in its own process group on POSIX. When the limit fires, or PaF receives SIGINT, SIGTERM or SIGHUP, the group gets SIGTERM, then SIGKILL after 2s, so tool children end too.
+- The run settles about 500ms after SIGKILL even if a process that left the group holds the output pipe. The task is recorded as failed, and any output from that run is not returned.
+- A clean exit does not kill anything. If a daemon the backend started holds the pipe, PaF ends the pipe once it has drained and returns the answer.
+- Ollama chat requests use `ollamaFetch()`, because Node's `fetch` has its own 300s limits that `--timeout` cannot raise. Antigravity passes the same value to `--print-timeout`, where `0` also means no limit.
+
+**Known limits.**
+
+- SIGKILL to PaF cannot be caught, so its backend keeps running, without a time limit. That now includes SIGKILL to PaF's process group, because the backend is in its own group. Claude Code's task stop is not affected: verified, nothing survived.
+- A process that calls `setsid` itself leaves the group and survives.
+- Windows has no process groups, so only the backend is signalled. Not run on Windows.
+- With no limit, nothing protects against a hung backend. It runs until it finishes or something signals PaF. `task list` still shows it as running, because silence never changes a status.
+- A config file written before this default sets `timeout = 600`, and that still applies. PaF does not rewrite it: it cannot tell a generated value from a chosen one.
 
 ## Configuration
 

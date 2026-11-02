@@ -19,6 +19,7 @@ import {
   type ReviewScope,
   type SandboxMode,
 } from './backends/index.js';
+import { timeoutProblem } from './backends/child-supervisor.js';
 import { JobManager, type Job } from './jobs.js';
 import { SessionStore } from './sessions.js';
 import {
@@ -33,7 +34,8 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_TIMEOUT_SECONDS = 600;
+/** `0` means no limit: a long delegated task must not be killed by a forgotten flag. */
+export const DEFAULT_TIMEOUT_SECONDS = 0;
 export const DEFAULT_BACKEND = 'codex';
 export const DEFAULT_SANDBOX: SandboxMode = 'read-only';
 export const MAX_RELAY_DEPTH = 1;
@@ -713,8 +715,9 @@ function prepareRelay(opts: RelayOptions): PreparedRelay {
   if (!prompt.trim()) {
     throw new RelayError('Prompt is required');
   }
-  if (timeoutSeconds <= 0) {
-    throw new RelayError('Timeout must be greater than zero');
+  const timeoutError = timeoutProblem(timeoutSeconds);
+  if (timeoutError) {
+    throw new RelayError(timeoutError);
   }
 
   const resolvedRepo = resolve(repoPath);
@@ -1091,8 +1094,9 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const prompt = effectivePrompt;
   const schema = effectiveSchema;
 
-  if (timeoutSeconds <= 0) {
-    throw new RelayError('Timeout must be greater than zero');
+  const timeoutError = timeoutProblem(timeoutSeconds);
+  if (timeoutError) {
+    throw new RelayError(timeoutError);
   }
 
   const requestedRepo = resolve(repoPath);

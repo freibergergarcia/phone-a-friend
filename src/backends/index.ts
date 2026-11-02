@@ -5,6 +5,7 @@
  */
 
 import { execFileSync, spawn as nodeSpawn } from 'node:child_process';
+import { ownProcessGroup, superviseChild } from './child-supervisor.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -242,6 +243,7 @@ export function checkBackends(
 // ---------------------------------------------------------------------------
 
 export interface SpawnCliOptions {
+  /** Time limit in milliseconds. `0` means no limit. */
   timeoutMs: number;
   /** Full process environment. Defaults to process.env if not provided.
    *  When provided, this replaces the entire env (Node.js spawn behavior).
@@ -252,12 +254,7 @@ export interface SpawnCliOptions {
   label?: string;
   /** Receives stdout chunks as they arrive, for progress observers. Errors thrown here are ignored. */
   onStdout?: (chunk: string) => void;
-  /**
-   * Opt-in: after the timeout or SIGINT sends SIGTERM, send SIGKILL if the
-   * child has not closed within this many milliseconds. Without it the wait
-   * for a child that ignores SIGTERM has no bound (the long-standing default,
-   * kept for backends that have not opted in).
-   */
+  /** Time between SIGTERM and SIGKILL. Defaults to `KILL_GRACE_MS`. */
   killGraceMs?: number;
 }
 
@@ -269,7 +266,8 @@ export interface SpawnCliResult {
 
 /**
  * Async subprocess runner shared by all CLI backends.
- * Replaces execFileSync: non-blocking, timeout handling, signal forwarding, stderr draining.
+ * Replaces execFileSync: non-blocking, stderr draining. `superviseChild()` owns
+ * the time limit, signal forwarding and termination.
  */
 export function spawnCli(
   command: string,
@@ -283,24 +281,9 @@ export function spawnCli(
       stdio: ['ignore', 'pipe', 'pipe'],
       env: opts.env ?? process.env as Record<string, string>,
       cwd: opts.cwd,
+      ...ownProcessGroup(),
     });
-
-    let killTimer: ReturnType<typeof setTimeout> | null = null;
-    const terminate = (): void => {
-      child.kill('SIGTERM');
-      if (opts.killGraceMs !== undefined && !killTimer) {
-        killTimer = setTimeout(() => { child.kill('SIGKILL'); }, opts.killGraceMs);
-      }
-    };
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, opts.timeoutMs);
-
-    const onSigint = () => { terminate(); };
-    process.on('SIGINT', onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutMs, killGraceMs: opts.killGraceMs });
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -316,23 +299,23 @@ export function spawnCli(
     });
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      process.removeListener('SIGINT', onSigint);
-      reject(new BackendError(`${label} failed to start: ${err.message}`));
-    });
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      process.removeListener('SIGINT', onSigint);
+    void supervisor.exit.then(({ code, signal, spawnError }) => {
+      if (spawnError) {
+        reject(new BackendError(`${label} failed to start: ${spawnError.message}`));
+        return;
+      }
 
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
       const stderr = Buffer.concat(stderrChunks).toString().trim();
 
-      if (timedOut) {
+      if (supervisor.timedOut) {
         reject(new SpawnCliTimeoutError(`${label} timed out after ${opts.timeoutMs / 1000}s`, opts.timeoutMs));
+        return;
+      }
+
+      // Before the exit status: a backend can stop early and still exit 0.
+      if (supervisor.interruptedBy) {
+        reject(new BackendError(`${label} interrupted by ${supervisor.interruptedBy}`));
         return;
       }
 

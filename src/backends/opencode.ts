@@ -26,6 +26,7 @@ import {
   type Backend,
   type SandboxMode,
 } from './index.js';
+import { ownProcessGroup, superviseChild } from './child-supervisor.js';
 import { parseOpenCodeStreamJSON } from '../stream-parsers.js';
 import { loadConfig } from '../config.js';
 import { probeVersion, resolveExecutableCandidates } from '../diagnostics.js';
@@ -436,16 +437,9 @@ export class OpenCodeBackend implements Backend {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: opts.env,
+      ...ownProcessGroup(),
     });
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, opts.timeoutSeconds * 1000);
-
-    const onSigint = () => { child.kill('SIGTERM'); };
-    process.on('SIGINT', onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
 
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
@@ -455,16 +449,6 @@ export class OpenCodeBackend implements Backend {
     // (or even a clean exit) so users see the real cause instead of a generic
     // "exited with code 1".
     let streamError: string | null = null;
-
-    // The close handler only reports the raw exit status. The final error is
-    // derived AFTER stdout is fully parsed, so streamError (parsed from stdout)
-    // is available — building the message inside the handler would race past
-    // the stdout error event and ignore it.
-    const closePromise = new Promise<{ code: number | null; signal: string | null }>(
-      (resolve) => {
-        child.on('close', (code, signal) => resolve({ code, signal: signal as string | null }));
-      },
-    );
 
     let chunkCount = 0;
     try {
@@ -479,12 +463,20 @@ export class OpenCodeBackend implements Backend {
         yield chunk;
       }
 
-      const { code, signal } = await closePromise;
+      // The final error is derived AFTER stdout is fully parsed, so streamError
+      // (parsed from stdout) is available.
+      const { code, signal, spawnError } = await supervisor.exit;
 
-      if (timedOut) {
+      if (spawnError) {
+        throw new OpenCodeBackendError(`opencode failed to start: ${spawnError.message}`);
+      }
+      if (supervisor.timedOut) {
         throw new OpenCodeBackendError(
           `opencode timed out after ${opts.timeoutSeconds}s`,
         );
+      }
+      if (supervisor.interruptedBy) {
+        throw new OpenCodeBackendError(`opencode interrupted by ${supervisor.interruptedBy}`);
       }
       if (signal) {
         throw new OpenCodeBackendError(`opencode killed by signal ${signal}`);
@@ -510,17 +502,18 @@ export class OpenCodeBackend implements Backend {
     } catch (err: unknown) {
       if (err instanceof OpenCodeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      if (timedOut) {
+      if (supervisor.timedOut) {
         throw new OpenCodeBackendError(
           `opencode timed out after ${opts.timeoutSeconds}s`,
         );
       }
       throw new OpenCodeBackendError(`opencode stream error: ${msg}`);
     } finally {
-      clearTimeout(timer);
-      process.removeListener('SIGINT', onSigint);
-      if (!child.killed) {
-        child.kill('SIGTERM');
+      // Reached early when the parser fails or the consumer stops reading: do
+      // not leave opencode running, and do not return before it is gone.
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
     }
   }

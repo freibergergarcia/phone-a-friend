@@ -221,6 +221,10 @@ pi/Grok do not own process groups, so tool descendants may survive their parent.
 Agentic mode does own process groups and passed its real-subprocess TERM-resistant
 descendant, deadline, explicit stop, SIGINT and SIGTERM regressions.
 
+**Update, 2026-11-02:** the timeout half of this finding is fixed (issue #202). See
+"Timeouts" in `AGENTS.md` for the current behaviour and its limits. The sandbox
+results below are unchanged.
+
 Read-only sentinel attempts preserved files for Claude, Codex and Grok. Their
 workspace-write and danger-full-access cases wrote only the disposable canary.
 Antigravity rejects unsupported write modes and preserved its canary, but its

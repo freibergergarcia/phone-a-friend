@@ -547,7 +547,7 @@ command:
    PAF_TEAM_CONTEXT_EOF
 
    phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" \
-     [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF \
+     --timeout 600 [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF \
      [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
 
    Note: for `--to claude`, `--fast` has no effect.
@@ -686,7 +686,7 @@ Two ways to source the verdict envelope per round:
    tasks.
 2. **Backend-judged (optional, file-change rounds)**: when the round
    produced file changes that exist as a git diff, the lead MAY also
-   run `phone-a-friend --to <backend> --review --review-scope <scope> --verdict-json` for an
+   run `phone-a-friend --to <backend> --review --review-scope <scope> --verdict-json --timeout 600` for an
    independent third-party verdict. If used, merge it conservatively with
    the lead-judged envelope: any blocker or important finding from either
    source makes the trace verdict `iterate`, and a backend `ship` verdict
@@ -715,7 +715,7 @@ Different backends have different response times:
   OpenAI-compatible providers typically respond in 5-30 seconds for
   chat-style completions; large or slow providers can take longer.
 
-The relay timeout is 600 seconds by default. Do not intervene before that.
+Every relay here passes `--timeout 600`, because PaF has no limit by default and a hung backend would stall the team. Do not intervene before that.
 
 ### Execution Mode
 
@@ -724,8 +724,8 @@ Before executing any round, select the execution mode based on team state:
 **With team (`TEAM_ACTIVE=true`):**
 - **DO phase**: Lead sends task to teammate(s) via `SendMessage`. For
   `--backend both`, message both workers in parallel. Wait for results.
-  If a worker does not respond within the relay timeout (default 600
-  seconds) plus 30 seconds, set `TEAM_ACTIVE=false`, ask every worker by
+  If a worker does not respond within the relay timeout (600 seconds)
+  plus 30 seconds, set `TEAM_ACTIVE=false`, ask every worker by
   name to shut down via `SendMessage`, and degrade to direct Bash mode for
   the remainder of the loop.
 - **REVIEW phase**: Lead reviews output received from teammate(s). For
@@ -766,7 +766,7 @@ PAF_TEAM_PROMPT_EOF
 <context>
 PAF_TEAM_CONTEXT_EOF
 
-  phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
+  phone-a-friend --to <backend> --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --timeout 600 [--context-file "$CONTEXT_FILE"] $PAF_NO_DIFF [--sandbox <mode>] [--model <model>] --fast [--session <SESSION_ID>]
   ```
 
   Diff inclusion: `$PAF_NO_DIFF` is set by the probe in "Diff inclusion

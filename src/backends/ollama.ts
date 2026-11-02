@@ -7,6 +7,7 @@
  * Sandbox is a no-op — Ollama is pure inference.
  */
 
+import { ollamaFetch } from './ollama-http.js';
 import {
   type BackendCapabilities,
   type BackendRunOptions,
@@ -56,11 +57,13 @@ export class OllamaBackend implements Backend {
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000);
+    const timer = opts.timeoutSeconds > 0
+      ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000)
+      : undefined;
 
     let data: Record<string, unknown>;
     try {
-      const resp = await fetch(url, {
+      const resp = await ollamaFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -78,7 +81,9 @@ export class OllamaBackend implements Backend {
       let raw: unknown;
       try {
         raw = await resp.json();
-      } catch {
+      } catch (err: unknown) {
+        // The limit fired while reading the body: that is a timeout, not bad JSON.
+        if (controller.signal.aborted) throw err;
         throw new OllamaBackendError(
           `Ollama returned invalid JSON (HTTP ${resp.status})`,
         );
@@ -131,11 +136,13 @@ export class OllamaBackend implements Backend {
 
     const url = `${host}/api/chat`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000);
+    const timer = opts.timeoutSeconds > 0
+      ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000)
+      : undefined;
 
     let resp: Response;
     try {
-      resp = await fetch(url, {
+      resp = await ollamaFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

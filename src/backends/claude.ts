@@ -23,6 +23,7 @@ import {
   type Backend,
   type SandboxMode,
 } from './index.js';
+import { ownProcessGroup, superviseChild } from './child-supervisor.js';
 import { parseClaudeStreamJSON } from '../stream-parsers.js';
 
 // ---------------------------------------------------------------------------
@@ -359,68 +360,49 @@ export class ClaudeBackend implements Backend {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env),
+      ...ownProcessGroup(),
     });
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, opts.timeoutSeconds * 1000);
-
-    // Forward SIGINT to the child so Ctrl+C kills the subprocess
-    const onSigint = () => { child.kill('SIGTERM'); };
-    process.on('SIGINT', onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
 
     // Drain stderr to prevent pipe backpressure stalling the child
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-    // Register close handler BEFORE consuming stdout to avoid missing the event
-    const closePromise = new Promise<void>((resolve, reject) => {
-      child.on('close', (code, signal) => {
-        if (timedOut) {
-          reject(new ClaudeBackendError(
-            `claude timed out after ${opts.timeoutSeconds}s`,
-          ));
-        } else if (signal) {
-          reject(new ClaudeBackendError(
-            `claude killed by signal ${signal}`,
-          ));
-        } else if (code !== 0 && code !== null) {
-          const stderr = Buffer.concat(stderrChunks).toString().trim();
-          const errMsg = stderr || `claude exited with code ${code}`;
-          if (isClaudeAuthError(errMsg)) {
-            reject(new ClaudeAuthError());
-          } else {
-            reject(new ClaudeBackendError(errMsg));
-          }
-        } else {
-          resolve();
-        }
-      });
-    });
-
     try {
       yield* parseClaudeStreamJSON(child.stdout as Readable);
       // Parser succeeded — verify process exited cleanly
-      await closePromise;
+      const { code, signal, spawnError } = await supervisor.exit;
+      if (spawnError) {
+        throw new ClaudeBackendError(`claude failed to start: ${spawnError.message}`);
+      }
+      if (supervisor.timedOut) {
+        throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);
+      }
+      if (supervisor.interruptedBy) {
+        throw new ClaudeBackendError(`claude interrupted by ${supervisor.interruptedBy}`);
+      }
+      if (signal) {
+        throw new ClaudeBackendError(`claude killed by signal ${signal}`);
+      }
+      if (code !== 0 && code !== null) {
+        const stderr = Buffer.concat(stderrChunks).toString().trim();
+        const errMsg = stderr || `claude exited with code ${code}`;
+        if (isClaudeAuthError(errMsg)) throw new ClaudeAuthError();
+        throw new ClaudeBackendError(errMsg);
+      }
     } catch (err: unknown) {
-      // Suppress the close promise rejection since we already have an error
-      closePromise.catch(() => {});
-
       if (err instanceof ClaudeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      if (timedOut) {
-        throw new ClaudeBackendError(
-          `claude timed out after ${opts.timeoutSeconds}s`,
-        );
+      if (supervisor.timedOut) {
+        throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);
       }
       throw new ClaudeBackendError(`claude stream error: ${msg}`);
     } finally {
-      clearTimeout(timer);
-      process.removeListener('SIGINT', onSigint);
-      if (!child.killed) {
-        child.kill('SIGTERM');
+      // Reached early when the parser fails or the consumer stops reading: do
+      // not leave claude running, and do not return before it is gone.
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
     }
   }

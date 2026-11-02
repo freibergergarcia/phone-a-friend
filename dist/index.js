@@ -48,6 +48,151 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/backends/child-supervisor.ts
+function timeoutProblem(seconds) {
+  if (!Number.isInteger(seconds) || seconds < 0) {
+    return "Timeout must be whole seconds, or 0 for no limit";
+  }
+  if (seconds > MAX_TIMEOUT_SECONDS) {
+    return `Timeout must be at most ${MAX_TIMEOUT_SECONDS} seconds, or 0 for no limit`;
+  }
+  return null;
+}
+function ownProcessGroup() {
+  return { detached: process.platform !== "win32" };
+}
+function superviseChild(child, opts) {
+  const killGraceMs = opts.killGraceMs ?? KILL_GRACE_MS;
+  const timers = /* @__PURE__ */ new Set();
+  const later = (fn, ms) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      fn();
+    }, ms);
+    timers.add(timer);
+  };
+  let ended = false;
+  let timedOut = false;
+  let terminating = false;
+  let closed = false;
+  let interruptedBy = null;
+  let exitStatus = { code: null, signal: null };
+  const signalChild = (signal) => {
+    if (ownProcessGroup().detached && child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch (err) {
+        if (err.code === "ESRCH") return;
+      }
+    }
+    child.kill(signal);
+  };
+  const groupAlive = () => {
+    if (!ownProcessGroup().detached || !child.pid) return false;
+    try {
+      process.kill(-child.pid, 0);
+      return true;
+    } catch (err) {
+      return err.code === "EPERM";
+    }
+  };
+  const pipes = () => [child.stdout, child.stderr].filter((pipe) => Boolean(pipe) && !pipe?.destroyed);
+  let finish = () => {
+  };
+  const abandonPipes = () => {
+    for (const pipe of pipes()) pipe.destroy();
+    later(() => finish(null), ABANDON_SETTLE_MS);
+  };
+  const terminate = () => {
+    if (ended || terminating) return;
+    terminating = true;
+    signalChild("SIGTERM");
+    later(() => {
+      signalChild("SIGKILL");
+      if (closed) finish(null);
+      else later(abandonPipes, POST_KILL_SETTLE_MS);
+    }, killGraceMs);
+  };
+  const finishWhenGroupEmpty = () => {
+    if (ended) return;
+    if (groupAlive()) later(finishWhenGroupEmpty, GROUP_POLL_MS);
+    else finish(null);
+  };
+  const endDrainedPipes = () => {
+    if (ended || terminating) return;
+    const open = pipes();
+    if (open.some((pipe) => pipe.readableLength > 0)) {
+      later(endDrainedPipes, POST_EXIT_DRAIN_MS);
+      return;
+    }
+    for (const pipe of open) {
+      pipe.once("end", () => pipe.destroy());
+      pipe.push(null);
+    }
+    later(abandonPipes, POST_KILL_SETTLE_MS);
+  };
+  const onSignal = (signal) => {
+    interruptedBy ??= signal;
+    terminate();
+  };
+  const exit = new Promise((resolve5) => {
+    finish = (spawnError) => {
+      if (ended) return;
+      ended = true;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      for (const signal of FORWARDED_SIGNALS) process.removeListener(signal, onSignal);
+      resolve5({ ...exitStatus, spawnError });
+    };
+    child.once("error", (err) => finish(err));
+    child.once("exit", (code, signal) => {
+      exitStatus = { code, signal };
+      later(endDrainedPipes, POST_EXIT_DRAIN_MS);
+    });
+    child.once("close", (code, signal) => {
+      exitStatus = { code, signal };
+      closed = true;
+      if (terminating) finishWhenGroupEmpty();
+      else finish(null);
+    });
+  });
+  for (const signal of FORWARDED_SIGNALS) process.on(signal, onSignal);
+  if (opts.timeoutMs > 0) {
+    later(() => {
+      timedOut = true;
+      terminate();
+    }, Math.min(opts.timeoutMs, MAX_TIMER_MS));
+  }
+  return {
+    exit,
+    terminate,
+    get timedOut() {
+      return timedOut;
+    },
+    get interruptedBy() {
+      return interruptedBy;
+    },
+    get ended() {
+      return ended;
+    }
+  };
+}
+var KILL_GRACE_MS, POST_KILL_SETTLE_MS, POST_EXIT_DRAIN_MS, ABANDON_SETTLE_MS, GROUP_POLL_MS, MAX_TIMER_MS, MAX_TIMEOUT_SECONDS, FORWARDED_SIGNALS;
+var init_child_supervisor = __esm({
+  "src/backends/child-supervisor.ts"() {
+    "use strict";
+    KILL_GRACE_MS = 2e3;
+    POST_KILL_SETTLE_MS = 500;
+    POST_EXIT_DRAIN_MS = 2e3;
+    ABANDON_SETTLE_MS = 100;
+    GROUP_POLL_MS = 100;
+    MAX_TIMER_MS = 2147483647;
+    MAX_TIMEOUT_SECONDS = Math.floor(MAX_TIMER_MS / 1e3);
+    FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
+  }
+});
+
 // src/backends/index.ts
 import { execFileSync, spawn as nodeSpawn } from "child_process";
 function isReviewScope(value) {
@@ -87,26 +232,10 @@ function spawnCli(command, args, opts) {
     const child = nodeSpawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: opts.env ?? process.env,
-      cwd: opts.cwd
+      cwd: opts.cwd,
+      ...ownProcessGroup()
     });
-    let killTimer = null;
-    const terminate = () => {
-      child.kill("SIGTERM");
-      if (opts.killGraceMs !== void 0 && !killTimer) {
-        killTimer = setTimeout(() => {
-          child.kill("SIGKILL");
-        }, opts.killGraceMs);
-      }
-    };
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, opts.timeoutMs);
-    const onSigint = () => {
-      terminate();
-    };
-    process.on("SIGINT", onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutMs, killGraceMs: opts.killGraceMs });
     const stdoutChunks = [];
     const stderrChunks = [];
     child.stdout?.on("data", (chunk) => {
@@ -119,20 +248,19 @@ function spawnCli(command, args, opts) {
       }
     });
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      process.removeListener("SIGINT", onSigint);
-      reject(new BackendError(`${label} failed to start: ${err.message}`));
-    });
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
-      process.removeListener("SIGINT", onSigint);
+    void supervisor.exit.then(({ code, signal, spawnError }) => {
+      if (spawnError) {
+        reject(new BackendError(`${label} failed to start: ${spawnError.message}`));
+        return;
+      }
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
       const stderr = Buffer.concat(stderrChunks).toString().trim();
-      if (timedOut) {
+      if (supervisor.timedOut) {
         reject(new SpawnCliTimeoutError(`${label} timed out after ${opts.timeoutMs / 1e3}s`, opts.timeoutMs));
+        return;
+      }
+      if (supervisor.interruptedBy) {
+        reject(new BackendError(`${label} interrupted by ${supervisor.interruptedBy}`));
         return;
       }
       if (signal) {
@@ -152,6 +280,7 @@ var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, Spa
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
+    init_child_supervisor();
     REVIEW_SCOPES = ["branch", "working-tree", "all"];
     CLAUDE_PEER_MESSAGING_MODES = [
       "native",
@@ -1706,6 +1835,12 @@ function configSet(key, rawValue, filePath) {
   current[parts[parts.length - 1]] = value;
   saveConfig(cfg, filePath);
 }
+function parseTimeout(raw) {
+  const seconds = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  const problem = timeoutProblem(seconds);
+  if (problem) throw new Error(`${problem} (got "${raw}")`);
+  return seconds;
+}
 function resolveConfig(cliOpts, env4 = process.env, repoRoot, xdgConfigHome) {
   const cfg = loadConfig(repoRoot, xdgConfigHome);
   const backend = cliOpts.to ?? env4.PHONE_A_FRIEND_BACKEND ?? cfg.defaults.backend;
@@ -1713,7 +1848,7 @@ function resolveConfig(cliOpts, env4 = process.env, repoRoot, xdgConfigHome) {
   const resolvedSandbox = cliOpts.sandbox ?? env4.PHONE_A_FRIEND_SANDBOX ?? cfg.defaults.sandbox;
   const sandbox = backend === "antigravity" && !sandboxFromCli ? "read-only" : resolvedSandbox;
   const timeoutRaw = cliOpts.timeout ?? env4.PHONE_A_FRIEND_TIMEOUT ?? String(cfg.defaults.timeout);
-  const timeout = /^\d+$/.test(timeoutRaw) ? Number(timeoutRaw) : cfg.defaults.timeout;
+  const timeout = parseTimeout(timeoutRaw);
   const includeDiffRaw = cliOpts.includeDiff ?? env4.PHONE_A_FRIEND_INCLUDE_DIFF;
   const includeDiff = includeDiffRaw !== void 0 ? includeDiffRaw === "true" || includeDiffRaw === "1" : cfg.defaults.include_diff;
   const streamRaw = cliOpts.stream;
@@ -1758,12 +1893,14 @@ var init_config = __esm({
     "use strict";
     init_dist();
     init_tasks();
+    init_child_supervisor();
     init_backends();
     DEFAULT_CONFIG = {
       defaults: {
         backend: "codex",
         sandbox: "read-only",
-        timeout: 600,
+        timeout: 0,
+        // no limit
         include_diff: false,
         stream: true,
         update_check: true,
@@ -2613,11 +2750,12 @@ function toPiError(err, timeoutSeconds) {
   if (err instanceof BackendError) return new PiBackendError(err.message);
   return new PiBackendError(err instanceof Error ? err.message : String(err));
 }
-var PiBackendError, PI_TOOLS, PI_SESSION_ID_PATTERN, LOCAL_SERVER_HINT, PI_PROGRESS_DETAIL_LIMIT, PI_COMPACTION_REASONS, PI_MIN_VERSION, PI_VERSION_PROBE_TIMEOUT_MS, versionCache, PI_HEADER_SCAN_LIMIT_BYTES, PI_HEADER_READ_BUFFER_BYTES, PI_KILL_GRACE_MS, PiBackend, PI_BACKEND;
+var PiBackendError, PI_TOOLS, PI_SESSION_ID_PATTERN, LOCAL_SERVER_HINT, PI_PROGRESS_DETAIL_LIMIT, PI_COMPACTION_REASONS, PI_MIN_VERSION, PI_VERSION_PROBE_TIMEOUT_MS, versionCache, PI_HEADER_SCAN_LIMIT_BYTES, PI_HEADER_READ_BUFFER_BYTES, PiBackend, PI_BACKEND;
 var init_pi = __esm({
   "src/backends/pi.ts"() {
     "use strict";
     init_backends();
+    init_child_supervisor();
     init_config();
     init_diagnostics();
     init_schema_prompt();
@@ -2641,7 +2779,6 @@ var init_pi = __esm({
     versionCache = /* @__PURE__ */ new Map();
     PI_HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
     PI_HEADER_READ_BUFFER_BYTES = 4096;
-    PI_KILL_GRACE_MS = 2e3;
     PiBackend = class {
       name = "pi";
       localFileAccess = true;
@@ -2684,8 +2821,6 @@ var init_pi = __esm({
             env: opts.env,
             cwd: repoCwd,
             label: "pi",
-            // Same bound as the stream path: a pi that ignores SIGTERM is killed.
-            killGraceMs: PI_KILL_GRACE_MS,
             // Review, --schema and session calls all take this path, and those
             // are the long tool-using runs where progress matters.
             onStdout: opts.onEvent ? createPiProgressTap(opts.onEvent) : void 0
@@ -2705,39 +2840,10 @@ var init_pi = __esm({
         const child = spawn3("pi", args, {
           stdio: ["ignore", "pipe", "pipe"],
           cwd: repoCwd,
-          env: opts.env
+          env: opts.env,
+          ...ownProcessGroup()
         });
-        let ended = false;
-        let spawnFailure = null;
-        let killTimer = null;
-        const exit = new Promise((resolve5) => {
-          const finish = (code, signal) => {
-            ended = true;
-            if (killTimer) clearTimeout(killTimer);
-            resolve5({ code, signal });
-          };
-          child.once("error", (err) => {
-            spawnFailure = err;
-            finish(null, null);
-          });
-          child.once("close", (code, signal) => finish(code, signal));
-        });
-        const terminate = () => {
-          if (ended) return;
-          child.kill("SIGTERM");
-          killTimer ??= setTimeout(() => {
-            if (!ended) child.kill("SIGKILL");
-          }, PI_KILL_GRACE_MS);
-        };
-        let timedOut = false;
-        const timer = setTimeout(() => {
-          timedOut = true;
-          terminate();
-        }, opts.timeoutSeconds * 1e3);
-        const onSigint = () => {
-          terminate();
-        };
-        process.on("SIGINT", onSigint);
+        const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
         const stderrChunks = [];
         child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
         const transcript = { header: null, finalAssistant: null };
@@ -2753,14 +2859,15 @@ var init_pi = __esm({
             }
           } catch (err) {
             readFailure = err;
-            terminate();
+            supervisor.terminate();
           }
-          const { code, signal } = await exit;
+          const { code, signal, spawnError } = await supervisor.exit;
           const stderr = Buffer.concat(stderrChunks).toString().trim();
-          if (spawnFailure) {
-            throw new PiBackendError(`pi failed to start: ${spawnFailure.message}`);
+          if (spawnError) {
+            throw new PiBackendError(`pi failed to start: ${spawnError.message}`);
           }
-          if (timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+          if (supervisor.timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
+          if (supervisor.interruptedBy) throw new PiBackendError(`pi interrupted by ${supervisor.interruptedBy}`);
           if (readFailure) {
             throw new PiBackendError(
               `pi stream error: ${readFailure instanceof Error ? readFailure.message : String(readFailure)}`
@@ -2776,11 +2883,9 @@ var init_pi = __esm({
         } catch (err) {
           throw toPiError(err, opts.timeoutSeconds);
         } finally {
-          clearTimeout(timer);
-          process.removeListener("SIGINT", onSigint);
-          if (!ended) {
-            terminate();
-            await exit;
+          if (!supervisor.ended) {
+            supervisor.terminate();
+            await supervisor.exit;
           }
         }
       }
@@ -4241,8 +4346,9 @@ function prepareRelay(opts) {
   if (!prompt.trim()) {
     throw new RelayError("Prompt is required");
   }
-  if (timeoutSeconds <= 0) {
-    throw new RelayError("Timeout must be greater than zero");
+  const timeoutError = timeoutProblem(timeoutSeconds);
+  if (timeoutError) {
+    throw new RelayError(timeoutError);
   }
   const resolvedRepo = resolve2(repoPath);
   if (!existsSync6(resolvedRepo) || !statSync2(resolvedRepo).isDirectory()) {
@@ -4527,8 +4633,9 @@ async function reviewRelay(opts) {
   } = opts;
   const prompt = effectivePrompt;
   const schema = effectiveSchema;
-  if (timeoutSeconds <= 0) {
-    throw new RelayError("Timeout must be greater than zero");
+  const timeoutError = timeoutProblem(timeoutSeconds);
+  if (timeoutError) {
+    throw new RelayError(timeoutError);
   }
   const requestedRepo = resolve2(repoPath);
   if (!existsSync6(requestedRepo) || !statSync2(requestedRepo).isDirectory()) {
@@ -4634,10 +4741,11 @@ var init_relay = __esm({
   "src/relay.ts"() {
     "use strict";
     init_backends();
+    init_child_supervisor();
     init_jobs();
     init_sessions();
     init_verdict();
-    DEFAULT_TIMEOUT_SECONDS = 600;
+    DEFAULT_TIMEOUT_SECONDS = 0;
     DEFAULT_BACKEND = "codex";
     DEFAULT_SANDBOX = "read-only";
     MAX_RELAY_DEPTH = 1;
@@ -22906,7 +23014,7 @@ var init_yoga_wasm_base64_esm = __esm({
 });
 
 // node_modules/yoga-layout/dist/src/generated/YGEnums.js
-var Align, BoxSizing, Dimension, Direction, Display, Edge, Errata, ExperimentalFeature, FlexDirection, Gutter, Justify, LogLevel, MeasureMode, NodeType, Overflow, PositionType, Unit, Wrap, constants, YGEnums_default;
+var Align, BoxSizing, Dimension, Direction, Display, Edge, Errata, ExperimentalFeature, FlexDirection, Gutter, Justify, LogLevel, MeasureMode, NodeType, Overflow, PositionType, Unit, Wrap, constants2, YGEnums_default;
 var init_YGEnums = __esm({
   "node_modules/yoga-layout/dist/src/generated/YGEnums.js"() {
     "use strict";
@@ -23036,7 +23144,7 @@ var init_YGEnums = __esm({
       Wrap2[Wrap2["WrapReverse"] = 2] = "WrapReverse";
       return Wrap2;
     })({});
-    constants = {
+    constants2 = {
       ALIGN_AUTO: Align.Auto,
       ALIGN_FLEX_START: Align.FlexStart,
       ALIGN_CENTER: Align.Center,
@@ -23110,7 +23218,7 @@ var init_YGEnums = __esm({
       WRAP_WRAP: Wrap.Wrap,
       WRAP_WRAP_REVERSE: Wrap.WrapReverse
     };
-    YGEnums_default = constants;
+    YGEnums_default = constants2;
   }
 });
 
@@ -74163,13 +74271,14 @@ function assertAgenticBackendSupported(backendName) {
     );
   }
 }
-var NESTED_SESSION_VARS2, AGENTIC_NATIVE_BACKEND, AgenticBackendError, SessionManager;
+var NESTED_SESSION_VARS2, AGENTIC_NATIVE_BACKEND, DEFAULT_CALL_TIMEOUT_SECONDS, AgenticBackendError, SessionManager;
 var init_session = __esm({
   "src/agentic/session.ts"() {
     "use strict";
     init_backends();
     NESTED_SESSION_VARS2 = ["CLAUDECODE", "CLAUDE_CODE_SESSION"];
     AGENTIC_NATIVE_BACKEND = "claude";
+    DEFAULT_CALL_TIMEOUT_SECONDS = 600;
     AgenticBackendError = class extends Error {
       backend;
       constructor(backend, message) {
@@ -74358,7 +74467,8 @@ ${prompt}`,
             }, 250);
           };
           const abort = () => cancel("Claude session cancelled");
-          const timer = setTimeout(() => cancel("claude session timed out after 600s"), 6e5);
+          const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_CALL_TIMEOUT_SECONDS;
+          const timer = setTimeout(() => cancel(`claude session timed out after ${timeoutSeconds}s`), timeoutSeconds * 1e3);
           child.on("error", (error2) => finish(error2));
           child.on("close", (code) => {
             closed = true;
@@ -74704,6 +74814,7 @@ var init_orchestrator = __esm({
   "src/agentic/orchestrator.ts"() {
     "use strict";
     init_backends();
+    init_child_supervisor();
     init_queue();
     init_bus();
     init_session();
@@ -74746,7 +74857,7 @@ var init_orchestrator = __esm({
           throw new Error("Orchestrator is already running. Create a new instance for concurrent sessions.");
         }
         if (!Number.isInteger(config.maxTurns) || config.maxTurns < 1) throw new Error("maxTurns must be a positive integer");
-        if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0) throw new Error("timeoutSeconds must be positive and finite");
+        if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0 || config.timeoutSeconds > MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${MAX_TIMEOUT_SECONDS}`);
         if (!["read-only", "workspace-write", "danger-full-access"].includes(config.sandbox)) throw new Error("Invalid agentic sandbox");
         this.controller = new AbortController();
         this.pendingEndReason = void 0;
@@ -74851,7 +74962,7 @@ var init_orchestrator = __esm({
               systemPrompt,
               prompt,
               repoPath,
-              { signal: this.controller.signal, sandbox: config.sandbox }
+              { signal: this.controller.signal, sandbox: config.sandbox, timeoutSeconds: config.timeoutSeconds }
             );
             this.bus.updateAgent(this.sessionId, agent.name, {
               backendSessionId: result.sessionId
@@ -75001,7 +75112,7 @@ var init_orchestrator = __esm({
                 agentName,
                 incomingPrompt,
                 repoPath,
-                { signal: this.controller.signal, sandbox: config.sandbox }
+                { signal: this.controller.signal, sandbox: config.sandbox, timeoutSeconds: config.timeoutSeconds }
               );
               return { agentName, output };
             } catch (err) {
@@ -75294,7 +75405,8 @@ ${prompt}`;
     const jsonEnvelope = session || Boolean(opts.schema);
     try {
       const result = await spawnCli(ANTIGRAVITY_COMMAND, args, {
-        timeoutMs: (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1e3,
+        // 0 is no limit for PaF and for `--print-timeout`.
+        timeoutMs: opts.timeoutSeconds > 0 ? (opts.timeoutSeconds + OUTER_TIMEOUT_GRACE_SECONDS) * 1e3 : 0,
         env: opts.env,
         cwd: opts.repoPath,
         label: "antigravity"
@@ -75796,7 +75908,7 @@ function assertResumeSchemaSupport(env4, timeoutMs) {
     execFile("codex", ["exec", "resume", "--help"], {
       env: env4,
       encoding: "utf8",
-      timeout: Math.max(1, Math.min(timeoutMs, 3e3)),
+      timeout: timeoutMs > 0 ? Math.min(timeoutMs, 3e3) : 3e3,
       killSignal: "SIGKILL",
       maxBuffer: 128 * 1024
     }, (err, stdout) => {
@@ -76506,6 +76618,73 @@ function extractGeminiResult(jsonOutput) {
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
+// src/backends/ollama-http.ts
+import http from "http";
+import https from "https";
+import { pipeline, Readable } from "stream";
+import { constants, createBrotliDecompress, createGunzip, createInflate } from "zlib";
+var NULL_BODY_STATUSES = /* @__PURE__ */ new Set([101, 204, 205, 304]);
+var BODY_PRESERVING_REDIRECTS = /* @__PURE__ */ new Set([307, 308]);
+var MAX_REDIRECTS = 20;
+var DECODERS = /* @__PURE__ */ new Map([
+  ["gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
+  ["x-gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
+  ["deflate", () => createInflate({ flush: constants.Z_SYNC_FLUSH })],
+  ["br", () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })]
+]);
+function ollamaFetch(url, init, redirects = 0) {
+  return new Promise((resolve5, reject) => {
+    const target = new URL(url);
+    const request = target.protocol === "https:" ? https.request : http.request;
+    const req = request(
+      target,
+      {
+        method: init.method,
+        headers: { "Accept-Encoding": "gzip, deflate, br", ...init.headers },
+        signal: init.signal
+      },
+      (res) => {
+        const status = res.statusCode ?? 502;
+        if (BODY_PRESERVING_REDIRECTS.has(status) && res.headers.location) {
+          res.resume();
+          const next = URL.parse(res.headers.location, target);
+          if (!next) {
+            reject(new Error(`Invalid redirect location from ${url}`));
+          } else if (redirects >= MAX_REDIRECTS) {
+            reject(new Error(`Too many redirects from ${url}`));
+          } else if (next.protocol !== "http:" && next.protocol !== "https:") {
+            reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
+          } else {
+            resolve5(ollamaFetch(next.href, init, redirects + 1));
+          }
+          return;
+        }
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(res.headers)) {
+          if (value === void 0) continue;
+          for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+        }
+        if (NULL_BODY_STATUSES.has(status)) {
+          res.resume();
+          resolve5(new Response(null, { status, headers }));
+          return;
+        }
+        const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+        const decoder = encoding ? DECODERS.get(encoding)?.() : void 0;
+        if (decoder) {
+          headers.delete("content-encoding");
+          headers.delete("content-length");
+        }
+        const body = decoder ? pipeline(res, decoder, () => {
+        }) : res;
+        resolve5(new Response(Readable.toWeb(body), { status, headers }));
+      }
+    );
+    req.on("error", reject);
+    req.end(init.body);
+  });
+}
+
 // src/backends/ollama.ts
 init_backends();
 
@@ -76721,10 +76900,10 @@ var OllamaBackend = class {
     if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
     const url = `${host}/api/chat`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
+    const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let data;
     try {
-      const resp = await fetch(url, {
+      const resp = await ollamaFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -76743,7 +76922,8 @@ var OllamaBackend = class {
       let raw;
       try {
         raw = await resp.json();
-      } catch {
+      } catch (err) {
+        if (controller.signal.aborted) throw err;
         throw new OllamaBackendError(
           `Ollama returned invalid JSON (HTTP ${resp.status})`
         );
@@ -76787,10 +76967,10 @@ var OllamaBackend = class {
     if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
     const url = `${host}/api/chat`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3);
+    const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let resp;
     try {
-      resp = await fetch(url, {
+      resp = await ollamaFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -76883,6 +77063,7 @@ registerBackend(OLLAMA_BACKEND);
 
 // src/backends/claude.ts
 init_backends();
+init_child_supervisor();
 import { execFileSync as execFileSync2, spawn } from "child_process";
 var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
 var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
@@ -77076,61 +77257,44 @@ var ClaudeBackend = class {
     const child = spawn("claude", args, {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.repoPath,
-      env: this.cleanEnv(opts.env)
+      env: this.cleanEnv(opts.env),
+      ...ownProcessGroup()
     });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, opts.timeoutSeconds * 1e3);
-    const onSigint = () => {
-      child.kill("SIGTERM");
-    };
-    process.on("SIGINT", onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
-    const closePromise = new Promise((resolve5, reject) => {
-      child.on("close", (code, signal) => {
-        if (timedOut) {
-          reject(new ClaudeBackendError(
-            `claude timed out after ${opts.timeoutSeconds}s`
-          ));
-        } else if (signal) {
-          reject(new ClaudeBackendError(
-            `claude killed by signal ${signal}`
-          ));
-        } else if (code !== 0 && code !== null) {
-          const stderr = Buffer.concat(stderrChunks).toString().trim();
-          const errMsg = stderr || `claude exited with code ${code}`;
-          if (isClaudeAuthError(errMsg)) {
-            reject(new ClaudeAuthError());
-          } else {
-            reject(new ClaudeBackendError(errMsg));
-          }
-        } else {
-          resolve5();
-        }
-      });
-    });
     try {
       yield* parseClaudeStreamJSON(child.stdout);
-      await closePromise;
+      const { code, signal, spawnError } = await supervisor.exit;
+      if (spawnError) {
+        throw new ClaudeBackendError(`claude failed to start: ${spawnError.message}`);
+      }
+      if (supervisor.timedOut) {
+        throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);
+      }
+      if (supervisor.interruptedBy) {
+        throw new ClaudeBackendError(`claude interrupted by ${supervisor.interruptedBy}`);
+      }
+      if (signal) {
+        throw new ClaudeBackendError(`claude killed by signal ${signal}`);
+      }
+      if (code !== 0 && code !== null) {
+        const stderr = Buffer.concat(stderrChunks).toString().trim();
+        const errMsg = stderr || `claude exited with code ${code}`;
+        if (isClaudeAuthError(errMsg)) throw new ClaudeAuthError();
+        throw new ClaudeBackendError(errMsg);
+      }
     } catch (err) {
-      closePromise.catch(() => {
-      });
       if (err instanceof ClaudeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      if (timedOut) {
-        throw new ClaudeBackendError(
-          `claude timed out after ${opts.timeoutSeconds}s`
-        );
+      if (supervisor.timedOut) {
+        throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);
       }
       throw new ClaudeBackendError(`claude stream error: ${msg}`);
     } finally {
-      clearTimeout(timer);
-      process.removeListener("SIGINT", onSigint);
-      if (!child.killed) {
-        child.kill("SIGTERM");
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
     }
   }
@@ -77190,6 +77354,7 @@ registerBackend(CLAUDE_BACKEND);
 
 // src/backends/opencode.ts
 init_backends();
+init_child_supervisor();
 import { spawn as spawn2 } from "child_process";
 import { delimiter as pathDelimiter2, resolve as resolvePath2 } from "path";
 init_config();
@@ -77421,25 +77586,13 @@ var OpenCodeBackend = class {
     const child = spawn2("opencode", args, {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.repoPath,
-      env: opts.env
+      env: opts.env,
+      ...ownProcessGroup()
     });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, opts.timeoutSeconds * 1e3);
-    const onSigint = () => {
-      child.kill("SIGTERM");
-    };
-    process.on("SIGINT", onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     let streamError = null;
-    const closePromise = new Promise(
-      (resolve5) => {
-        child.on("close", (code, signal) => resolve5({ code, signal }));
-      }
-    );
     let chunkCount = 0;
     try {
       for await (const chunk of parseOpenCodeStreamJSON(
@@ -77454,11 +77607,17 @@ var OpenCodeBackend = class {
         chunkCount++;
         yield chunk;
       }
-      const { code, signal } = await closePromise;
-      if (timedOut) {
+      const { code, signal, spawnError } = await supervisor.exit;
+      if (spawnError) {
+        throw new OpenCodeBackendError(`opencode failed to start: ${spawnError.message}`);
+      }
+      if (supervisor.timedOut) {
         throw new OpenCodeBackendError(
           `opencode timed out after ${opts.timeoutSeconds}s`
         );
+      }
+      if (supervisor.interruptedBy) {
+        throw new OpenCodeBackendError(`opencode interrupted by ${supervisor.interruptedBy}`);
       }
       if (signal) {
         throw new OpenCodeBackendError(`opencode killed by signal ${signal}`);
@@ -77478,17 +77637,16 @@ var OpenCodeBackend = class {
     } catch (err) {
       if (err instanceof OpenCodeBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      if (timedOut) {
+      if (supervisor.timedOut) {
         throw new OpenCodeBackendError(
           `opencode timed out after ${opts.timeoutSeconds}s`
         );
       }
       throw new OpenCodeBackendError(`opencode stream error: ${msg}`);
     } finally {
-      clearTimeout(timer);
-      process.removeListener("SIGINT", onSigint);
-      if (!child.killed) {
-        child.kill("SIGTERM");
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
     }
   }
@@ -77544,6 +77702,7 @@ init_pi();
 
 // src/backends/grok.ts
 init_backends();
+init_child_supervisor();
 import { spawn as spawn4 } from "child_process";
 import { mkdtempSync as mkdtempSync2, realpathSync as realpathSync3, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "fs";
 import { tmpdir as tmpdir2 } from "os";
@@ -77739,7 +77898,6 @@ function grokFailureText(stdout) {
   }
   return trimmed.slice(0, 500);
 }
-var GROK_KILL_GRACE_MS = 2e3;
 function toGrokError(err, timeoutSeconds) {
   if (err instanceof GrokBackendError) return err;
   if (err instanceof SpawnCliTimeoutError) {
@@ -77787,8 +77945,7 @@ var GrokBackend = class {
         timeoutMs: opts.timeoutSeconds * 1e3,
         env: opts.env,
         cwd: repoCwd,
-        label: "grok",
-        killGraceMs: GROK_KILL_GRACE_MS
+        label: "grok"
       });
       const parsed = parseGrokEnvelope(result.stdout, { schema: Boolean(opts.schema) });
       const sessionId = parsed.sessionId ?? opts.sessionId ?? null;
@@ -77814,48 +77971,18 @@ var GrokBackend = class {
       child = spawn4("grok", grokRunArgs(opts, promptFile.file, repoCwd, "streaming-json"), {
         stdio: ["ignore", "pipe", "pipe"],
         cwd: repoCwd,
-        env: opts.env
+        env: opts.env,
+        ...ownProcessGroup()
       });
     } catch (err) {
       rmSync2(promptFile.dir, { recursive: true, force: true });
       throw toGrokError(err, opts.timeoutSeconds);
     }
     child.stdout?.setEncoding("utf8");
-    let ended = false;
-    let spawnError = null;
-    let killTimer = null;
-    const exit = new Promise((resolve5) => {
-      const finish = (code, signal) => {
-        ended = true;
-        if (killTimer) clearTimeout(killTimer);
-        resolve5({ code, signal });
-      };
-      child.once("error", (err) => {
-        spawnError = err;
-      });
-      child.once("close", (code, signal) => finish(code, signal));
-    });
-    const terminate = () => {
-      if (ended) return;
-      child.kill("SIGTERM");
-      killTimer ??= setTimeout(() => {
-        if (!ended) child.kill("SIGKILL");
-      }, GROK_KILL_GRACE_MS);
-    };
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, opts.timeoutSeconds * 1e3);
-    let interrupted = false;
-    const onSigint = () => {
-      interrupted = true;
-      terminate();
-    };
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const onStdoutError = () => {
-      terminate();
+      supervisor.terminate();
     };
-    process.on("SIGINT", onSigint);
     process.stdout.on("error", onStdoutError);
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
@@ -77903,13 +78030,13 @@ var GrokBackend = class {
         }
       } catch (err) {
         streamError = err;
-        terminate();
+        supervisor.terminate();
       }
-      const { code, signal } = await exit;
+      const { code, signal, spawnError } = await supervisor.exit;
       const stderr = Buffer.concat(stderrChunks).toString().trim();
-      if (timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
+      if (supervisor.timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
       if (spawnError) throw spawnError;
-      if (interrupted) throw new GrokBackendError("Grok interrupted by SIGINT");
+      if (supervisor.interruptedBy) throw new GrokBackendError(`Grok interrupted by ${supervisor.interruptedBy}`);
       if (streamError) throw streamError;
       if (signal) throw new GrokBackendError(`Grok killed by signal ${signal}`);
       if (code !== 0) {
@@ -77921,12 +78048,10 @@ var GrokBackend = class {
     } catch (err) {
       throw toGrokError(err, opts.timeoutSeconds);
     } finally {
-      clearTimeout(timer);
-      process.removeListener("SIGINT", onSigint);
       process.stdout.removeListener("error", onStdoutError);
-      if (!ended) {
-        terminate();
-        await exit;
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
       rmSync2(promptFile.dir, { recursive: true, force: true });
     }
@@ -85869,7 +85994,7 @@ ${banner("AI coding agent relay")}
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds; 0 for no limit (default: 0)").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {
@@ -86213,6 +86338,7 @@ RAW_END>>>
       const stop = () => orchestrator.stop();
       process.on("SIGINT", stop);
       process.on("SIGTERM", stop);
+      process.on("SIGHUP", stop);
       try {
         const events = await orchestrator.run({
           agents,
@@ -86227,6 +86353,7 @@ RAW_END>>>
         await orchestrator.close();
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);
+        process.off("SIGHUP", stop);
       }
     });
     agenticCmd.command("logs").description("View past agentic sessions").option("--session <id>", "Show transcript for a specific session").action(async (opts) => {
@@ -86643,6 +86770,9 @@ RAW_END>>>
         }
         if (err.message.includes("depth limit")) {
           console.error(`  ${theme.hint("Agents are calling each other recursively.")}`);
+        }
+        if (/timed out after \d+s/.test(err.message)) {
+          console.error(`  ${theme.hint("Raise --timeout, or pass --timeout 0 for no limit.")}`);
         }
         console.error("");
         return 1;

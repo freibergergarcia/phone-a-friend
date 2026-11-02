@@ -45,7 +45,7 @@ describe('config', () => {
     it('has expected default values', () => {
       expect(config.DEFAULT_CONFIG.defaults.backend).toBe('codex');
       expect(config.DEFAULT_CONFIG.defaults.sandbox).toBe('read-only');
-      expect(config.DEFAULT_CONFIG.defaults.timeout).toBe(600);
+      expect(config.DEFAULT_CONFIG.defaults.timeout).toBe(0);
       expect(config.DEFAULT_CONFIG.defaults.include_diff).toBe(false);
     });
 
@@ -88,7 +88,7 @@ describe('config', () => {
     it('returns defaults when no config files exist', () => {
       const result = config.loadConfig(undefined, join(tempDir, 'nonexistent'));
       expect(result.defaults.backend).toBe('codex');
-      expect(result.defaults.timeout).toBe(600);
+      expect(result.defaults.timeout).toBe(0);
     });
 
     it('reads user config from TOML file', () => {
@@ -192,7 +192,7 @@ describe('config', () => {
 
       const loaded = config.loadConfigFromFile(configPath);
       expect(loaded.defaults.backend).toBe('codex');
-      expect(loaded.defaults.timeout).toBe(600);
+      expect(loaded.defaults.timeout).toBe(0);
     });
   });
 
@@ -302,11 +302,34 @@ describe('config', () => {
       expect(result.timeout).toBe(120);
     });
 
+    it('keeps a limit from a config file written by an older version', () => {
+      const configDir = join(tempDir, 'phone-a-friend');
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.toml'), '[defaults]\ntimeout = 600\n');
+      const result = config.resolveConfig({}, {}, undefined, tempDir);
+      expect(result.timeout).toBe(600);
+    });
+
+    it('accepts a timeout of 0, meaning no limit', () => {
+      const result = config.resolveConfig({ timeout: '0' }, {}, undefined, join(tempDir, 'nonexistent'));
+      expect(result.timeout).toBe(0);
+    });
+
+    it.each(['abc', '1.5', '-1', '', '2147484'])('rejects an invalid --timeout instead of using the default: %j', (timeout) => {
+      expect(() => config.resolveConfig({ timeout }, {}, undefined, join(tempDir, 'nonexistent')))
+        .toThrow(/Timeout must be/);
+    });
+
+    it('rejects an invalid PHONE_A_FRIEND_TIMEOUT', () => {
+      expect(() => config.resolveConfig({}, { PHONE_A_FRIEND_TIMEOUT: 'soon' }, undefined, join(tempDir, 'nonexistent')))
+        .toThrow(/got "soon"/);
+    });
+
     it('returns full defaults when nothing is specified', () => {
       const result = config.resolveConfig({}, {}, undefined, join(tempDir, 'nonexistent'));
       expect(result.backend).toBe('codex');
       expect(result.sandbox).toBe('read-only');
-      expect(result.timeout).toBe(600);
+      expect(result.timeout).toBe(0);
       expect(result.includeDiff).toBe(false);
       expect(result.claudePeerMessaging).toBe('native');
     });

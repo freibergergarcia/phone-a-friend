@@ -214,17 +214,17 @@ PAF_PROMPT_EOF
 <context-payload>
 PAF_CONTEXT_EOF
 
-   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # Antigravity supports native session resume in read-only mode.
-   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Gemini supports --session via native resume (see "Session continuity" below):
-   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
-   "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # Grok supports --session, --schema, --verdict-json, and streaming. --fast adds no flag.
-   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--session <id>]
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc

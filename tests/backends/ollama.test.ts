@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock fetch globally
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+vi.mock('../../src/backends/ollama-http.js', () => ({ ollamaFetch: (...args: unknown[]) => mockFetch(...args) }));
 
 import { OllamaBackend, OllamaBackendError } from '../../src/backends/ollama.js';
 

@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { SpawnCliError } from '../backends/index.js';
+import { MAX_TIMEOUT_SECONDS } from '../backends/child-supervisor.js';
 import { MessageQueue } from './queue.js';
 import { TranscriptBus } from './bus.js';
 import { SessionManager } from './session.js';
@@ -66,7 +67,7 @@ export class Orchestrator {
     }
 
     if (!Number.isInteger(config.maxTurns) || config.maxTurns < 1) throw new Error('maxTurns must be a positive integer');
-    if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0) throw new Error('timeoutSeconds must be positive and finite');
+    if (!Number.isFinite(config.timeoutSeconds) || config.timeoutSeconds <= 0 || config.timeoutSeconds > MAX_TIMEOUT_SECONDS) throw new Error(`timeoutSeconds must be between 1 and ${MAX_TIMEOUT_SECONDS}`);
     if (!['read-only', 'workspace-write', 'danger-full-access'].includes(config.sandbox)) throw new Error('Invalid agentic sandbox');
     this.controller = new AbortController();
     this.pendingEndReason = undefined;
@@ -193,7 +194,7 @@ export class Orchestrator {
       try {
         const result = await this.sessions.spawn(
           agent, systemPrompt, prompt, repoPath,
-          { signal: this.controller.signal, sandbox: config.sandbox },
+          { signal: this.controller.signal, sandbox: config.sandbox, timeoutSeconds: config.timeoutSeconds },
         );
 
         this.bus.updateAgent(this.sessionId, agent.name, {
@@ -377,7 +378,7 @@ export class Orchestrator {
         try {
           const output = await this.sessions.resume(
             agentName, incomingPrompt, repoPath,
-            { signal: this.controller.signal, sandbox: config.sandbox },
+            { signal: this.controller.signal, sandbox: config.sandbox, timeoutSeconds: config.timeoutSeconds },
           );
           return { agentName, output };
         } catch (err) {

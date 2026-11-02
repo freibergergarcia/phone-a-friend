@@ -31,6 +31,7 @@ import {
   type BackendRunOptions,
   type SandboxMode,
 } from './index.js';
+import { ownProcessGroup, superviseChild } from './child-supervisor.js';
 
 export class GrokBackendError extends BackendError {
   constructor(message: string) {
@@ -297,8 +298,6 @@ function grokFailureText(stdout: string): string {
   return trimmed.slice(0, 500);
 }
 
-const GROK_KILL_GRACE_MS = 2_000;
-
 function toGrokError(err: unknown, timeoutSeconds: number): GrokBackendError {
   if (err instanceof GrokBackendError) return err;
   if (err instanceof SpawnCliTimeoutError) {
@@ -351,7 +350,6 @@ export class GrokBackend implements Backend {
         env: opts.env,
         cwd: repoCwd,
         label: 'grok',
-        killGraceMs: GROK_KILL_GRACE_MS,
       });
       const parsed = parseGrokEnvelope(result.stdout, { schema: Boolean(opts.schema) });
       const sessionId = parsed.sessionId ?? opts.sessionId ?? null;
@@ -380,6 +378,7 @@ export class GrokBackend implements Backend {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: repoCwd,
         env: opts.env,
+        ...ownProcessGroup(),
       });
     } catch (err) {
       rmSync(promptFile.dir, { recursive: true, force: true });
@@ -388,35 +387,8 @@ export class GrokBackend implements Backend {
     // Preserve multi-byte characters split across stdout chunks.
     child.stdout?.setEncoding('utf8');
 
-    let ended = false;
-    let spawnError: Error | null = null;
-    let killTimer: ReturnType<typeof setTimeout> | null = null;
-    const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-      const finish = (code: number | null, signal: string | null): void => {
-        ended = true;
-        if (killTimer) clearTimeout(killTimer);
-        resolve({ code, signal });
-      };
-      child.once('error', (err) => { spawnError = err; });
-      child.once('close', (code, signal) => finish(code, signal));
-    });
-    const terminate = (): void => {
-      if (ended) return;
-      child.kill('SIGTERM');
-      killTimer ??= setTimeout(() => {
-        if (!ended) child.kill('SIGKILL');
-      }, GROK_KILL_GRACE_MS);
-    };
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, opts.timeoutSeconds * 1000);
-    let interrupted = false;
-    const onSigint = (): void => { interrupted = true; terminate(); };
-    const onStdoutError = (): void => { terminate(); };
-    process.on('SIGINT', onSigint);
+    const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
+    const onStdoutError = (): void => { supervisor.terminate(); };
     process.stdout.on('error', onStdoutError);
 
     const stderrChunks: Buffer[] = [];
@@ -468,14 +440,14 @@ export class GrokBackend implements Backend {
         }
       } catch (err: unknown) {
         streamError = err;
-        terminate();
+        supervisor.terminate();
       }
 
-      const { code, signal } = await exit;
+      const { code, signal, spawnError } = await supervisor.exit;
       const stderr = Buffer.concat(stderrChunks).toString().trim();
-      if (timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
+      if (supervisor.timedOut) throw new GrokBackendError(`Grok timed out after ${opts.timeoutSeconds}s`);
       if (spawnError) throw spawnError;
-      if (interrupted) throw new GrokBackendError('Grok interrupted by SIGINT');
+      if (supervisor.interruptedBy) throw new GrokBackendError(`Grok interrupted by ${supervisor.interruptedBy}`);
       if (streamError) throw streamError;
       if (signal) throw new GrokBackendError(`Grok killed by signal ${signal}`);
       if (code !== 0) {
@@ -487,12 +459,10 @@ export class GrokBackend implements Backend {
     } catch (err: unknown) {
       throw toGrokError(err, opts.timeoutSeconds);
     } finally {
-      clearTimeout(timer);
-      process.removeListener('SIGINT', onSigint);
       process.stdout.removeListener('error', onStdoutError);
-      if (!ended) {
-        terminate();
-        await exit;
+      if (!supervisor.ended) {
+        supervisor.terminate();
+        await supervisor.exit;
       }
       rmSync(promptFile.dir, { recursive: true, force: true });
     }

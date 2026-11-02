@@ -37,6 +37,43 @@ function parseFrontmatter(raw: string): unknown {
 const PROBE = "phone-a-friend relay --help 2>/dev/null | grep -q -- '--no-include-diff'";
 const ENV_FALLBACK = 'PHONE_A_FRIEND_INCLUDE_DIFF=false';
 
+describe('agent-run relays pass their own time limit', () => {
+  // PaF has no default limit, and Claude Code moves a foreground command past
+  // its limit to the background, so nothing else would end a hung relay.
+  const RELAY_LINE = /^\s*(?:"\$RELAY_BIN"|phone-a-friend) --to [<"a-zA-Z]/;
+
+  it.each([
+    'skills/phone-a-friend/SKILL.md',
+    'commands/phone-a-friend.md',
+    'skills/curiosity-engine/SKILL.md',
+    'commands/curiosity-engine.md',
+    'commands/phone-a-team.md',
+    'skills/phone-a-team/.codex/SKILL.md',
+    'skills/phone-a-team/.grok/SKILL.md',
+  ])('%s', (file) => {
+    const lines = readFile(file).split('\n');
+    const unlimited: string[] = [];
+    let inCode = false;
+    lines.forEach((line, index) => {
+      if (line.trim().startsWith('```')) inCode = !inCode;
+      if (!inCode || !RELAY_LINE.test(line)) return;
+      const command = lines.slice(index, index + 6).join(' ');
+      const end = command.search(/```/);
+      const body = end === -1 ? command : command.slice(0, end);
+      // Session, peer-messaging and cache examples show one flag, not a full relay.
+      if (/--(?:backend-session|peer-messaging)|DEAD_CACHE/.test(body)) return;
+      if (!/--timeout \d/.test(body)) unlimited.push(`${index + 1}: ${line.trim()}`);
+    });
+    expect(unlimited).toEqual([]);
+  });
+
+  it('tells agents to choose a limit, and when no limit is right', () => {
+    const skill = readFile('skills/phone-a-friend/SKILL.md');
+    expect(skill).toContain('**Always pass `--timeout`.**');
+    expect(skill).toContain('--timeout 0');
+  });
+});
+
 describe('Claude /phone-a-team rich command (commands/phone-a-team.md)', () => {
   const file = readFile('commands/phone-a-team.md');
 

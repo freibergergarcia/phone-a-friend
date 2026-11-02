@@ -12,6 +12,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawn: mockSpawn };
 });
 
+import { KILL_GRACE_MS } from '../../src/backends/child-supervisor.js';
 import { spawnCli, BackendError, SpawnCliError, SpawnCliTimeoutError } from '../../src/backends/index.js';
 
 function fakeChild(exitCode = 0, stdout = '', stderr = '') {
@@ -130,19 +131,50 @@ describe('spawnCli()', () => {
       }
     });
 
-    it('is never sent SIGKILL without killGraceMs (unchanged default)', async () => {
+    it('is sent SIGKILL by default, and the run settles even if close never arrives', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const child = stubbornChild();
+        // Never closes, as when another process holds the pipes.
+        (child as any).kill = vi.fn(() => true);
+        mockSpawn.mockReturnValue(child);
+        const settled = spawnCli('stuck', [], { timeoutMs: 1000 }).catch((e) => e);
+
+        await vi.advanceTimersByTimeAsync(1000 + KILL_GRACE_MS);
+        expect((child as any).kill).toHaveBeenCalledWith('SIGTERM');
+        expect((child as any).kill).toHaveBeenCalledWith('SIGKILL');
+
+        await vi.advanceTimersByTimeAsync(1000);
+        const err = await settled;
+        expect(err).toBeInstanceOf(SpawnCliTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it.each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)('rejects a run interrupted by %s even when the child exits 0', async (signal) => {
+      const child = stubbornChild();
+      mockSpawn.mockReturnValue(child);
+      const settled = spawnCli('quick', [], { timeoutMs: 0, label: 'quick' }).catch((e) => e);
+      process.emit(signal, signal);
+      child.emit('close', 0, null);
+      const err = await settled;
+      expect(err).toBeInstanceOf(BackendError);
+      expect(err.message).toBe(`quick interrupted by ${signal}`);
+    });
+
+    it('has no time limit when timeoutMs is 0', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       try {
         const child = stubbornChild();
         mockSpawn.mockReturnValue(child);
         let settled = false;
-        void spawnCli('stuck', [], { timeoutMs: 1000 }).catch(() => undefined).then(() => { settled = true; });
+        void spawnCli('slow', [], { timeoutMs: 0 }).catch(() => undefined).then(() => { settled = true; });
 
-        await vi.advanceTimersByTimeAsync(60_000);
-        expect((child as any).kill).toHaveBeenCalledWith('SIGTERM');
-        expect((child as any).kill).not.toHaveBeenCalledWith('SIGKILL');
+        await vi.advanceTimersByTimeAsync(30 * 24 * 60 * 60 * 1000);
+        expect((child as any).kill).not.toHaveBeenCalled();
         expect(settled).toBe(false);
-        child.emit('close', null, 'SIGTERM');
+        child.emit('close', 0, null);
       } finally {
         vi.useRealTimers();
       }

@@ -327,17 +327,17 @@ PAF_PROMPT_EOF
 <context-payload>
 PAF_CONTEXT_EOF
 
-   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to codex --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # Antigravity supports native session resume in read-only mode.
-   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to antigravity --repo "$PWD" --sandbox read-only --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # For gemini, omit --model by default (let auto-routing pick); see "Gemini model selection" below.
    # Gemini supports --session via native resume (see "Session continuity" below):
-   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to gemini --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # pi (local models): the provider comes from `[backends.pi] provider` in PaF config.
    # Add --fast for small local models (skips AGENTS.md/CLAUDE.md and pi skills).
-   "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--fast] [--session <id>]
+   "$RELAY_BIN" --to pi --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--fast] [--session <id>]
    # Grok supports --session, --schema, --verdict-json, and streaming. --fast adds no flag.
-   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF [--session <id>]
+   "$RELAY_BIN" --to grok --repo "$PWD" --prompt "$(cat "$PROMPT_FILE")" --context-file "$CONTEXT_FILE" $PAF_NO_DIFF --timeout 600 [--session <id>]
    ```
 
    Use delimiter names that do not appear in the payload. The quoted heredoc
@@ -436,7 +436,11 @@ phone-a-friend config set backends.claude.peer_messaging accept
 
 When the user asks more than one backend in the same request (e.g. "ask claude and gemini X", "what does codex and ollama think about Y"), run all relays **in parallel**, not sequentially. Sequential calls feel slow even when each one is fast, and a single hung backend should not block the others.
 
-**Quick-question default**: for casual, conversational questions (favourite colour, one-line opinion, sanity check) use `--timeout 60`. The relay's default is 600s, which is correct for code review and bad for "what's your fav colour" — a hung backend can stall the whole interaction. For longer tasks (code review, refactor advice) the default 600s is right; do not lower it.
+**Always pass `--timeout`.** PaF has no limit by default, and from outside a hung backend looks the same as a busy one (Gemini hangs silently under a restrictive sandbox, for example). Without a limit, a hung relay runs until someone stops it, and a host's shell timeout may not end it. Choose by the task:
+
+- `--timeout 60` for casual questions (favourite colour, one-line opinion, sanity check).
+- `--timeout 600` for second opinions, code reviews and refactor advice. Do not lower it.
+- `--timeout 0` (no limit) when the user delegates work that can take longer (a migration, a large refactor, a full audit), or a larger number if they want a bound. Run it in the background, if your host can, so the conversation is not blocked. At a limit PaF kills the backend, and any output from that run is lost.
 
 **Bash pattern** (use this exactly when you have two or more backends to query):
 

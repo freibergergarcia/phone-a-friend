@@ -356,7 +356,7 @@ describe('Orchestrator', () => {
         'critic',
         expect.stringContaining('@reviewer says: question A'),
         '/repo',
-        expect.objectContaining({ sandbox: 'read-only', signal: expect.any(AbortSignal) }),
+        expect.objectContaining({ sandbox: 'read-only', signal: expect.any(AbortSignal), timeoutSeconds: 300 }),
       );
     });
 

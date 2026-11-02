@@ -75,7 +75,7 @@ function makeMockBackendWithReview(name: string): Backend & { review: ReturnType
 
 describe('relay constants', () => {
   it('exports expected defaults', () => {
-    expect(DEFAULT_TIMEOUT_SECONDS).toBe(600);
+    expect(DEFAULT_TIMEOUT_SECONDS).toBe(0);
     expect(DEFAULT_BACKEND).toBe('codex');
     expect(DEFAULT_SANDBOX).toBe('read-only');
     expect(MAX_RELAY_DEPTH).toBe(1);
@@ -362,10 +362,15 @@ describe('relay', () => {
     );
   });
 
-  it('raises on zero timeout', async () => {
-    await expect(relay({ prompt: 'test', repoPath: repo, timeoutSeconds: 0 })).rejects.toThrow(
-      'Timeout must be greater than zero',
-    );
+  it.each([-1, 1.5, 2_147_484])('raises on an invalid timeout: %s', async (timeoutSeconds) => {
+    await expect(relay({ prompt: 'test', repoPath: repo, timeoutSeconds })).rejects.toThrow(/Timeout must be/);
+  });
+
+  it('accepts a timeout of 0 (no limit) and passes it to the backend', async () => {
+    const backend = makeMockBackend('codex');
+    registerBackend(backend);
+    await relay({ prompt: 'test', repoPath: repo, backend: 'codex', timeoutSeconds: 0 });
+    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({ timeoutSeconds: 0 }));
   });
 
   it('raises on unsupported backend', async () => {
@@ -984,13 +989,13 @@ describe('reviewRelay', () => {
     ).rejects.toThrow('Repository path does not exist');
   });
 
-  it('raises on zero timeout', async () => {
+  it('raises on an invalid timeout', async () => {
     const backend = makeMockBackendWithReview('codex');
     registerBackend(backend);
 
     await expect(
-      reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', timeoutSeconds: 0 }),
-    ).rejects.toThrow('Timeout must be greater than zero');
+      reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', timeoutSeconds: -1 }),
+    ).rejects.toThrow(/Timeout must be/);
   });
 
   it.each(['managed', 'raw'])('routes a %s review session through run() and resumes it', async (mode) => {
