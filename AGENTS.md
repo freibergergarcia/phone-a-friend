@@ -346,6 +346,11 @@ claude plugin test mods/paf-tasks                # its own tests; vitest does no
 - **`minor`**: new features, new CLI flags, new backends
 - **`major`**: breaking changes to CLI contract or relay API
 
+Dependabot PRs need two manual checks:
+
+- **Label.** Dependabot adds a SemVer label for the dependency's own version, on top of the `patch` set in `.github/dependabot.yml`. A minor or major update therefore has two version labels and fails `label-check` until one is removed. `auto-bump` releases PaF from the remaining label, so choose it by the effect on PaF's CLI and relay API; a major `tsup` update is still `patch`.
+- **`dist/`.** Dependabot cannot rebuild `dist/`, so CI fails on any update that changes the bundle. Run `npm run build` and commit it, on the Dependabot branch or in a combined `chore/` PR.
+
 ### Branch naming convention
 
 Labels are auto-applied by the `auto-label` workflow when a PR is opened, based on the branch name prefix:
