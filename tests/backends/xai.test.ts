@@ -139,6 +139,18 @@ describe('xAI Responses backend', () => {
     await assertion;
   });
 
+  it('sets no time limit when timeoutSeconds is 0', async () => {
+    vi.useFakeTimers();
+    mockFetch.mockImplementation(async (_url, init) => {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (init.signal.aborted) throw new DOMException('aborted', 'AbortError');
+      return Response.json(response());
+    });
+    const result = backend.run(opts({ timeoutSeconds: 0 }));
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toBe('Hello');
+  });
+
   it('does not expose transport error details or credentials', async () => {
     mockFetch.mockRejectedValue(new Error(`Authorization: Bearer ${key}`));
     await expect(backend.run(opts())).rejects.toThrow(/^xAI request failed$/);

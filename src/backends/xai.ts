@@ -74,7 +74,9 @@ export class XaiBackend implements Backend {
       if (object(schema) !== schema) throw new XaiBackendError('--schema must be a JSON object for xai');
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000);
+    const timer = opts.timeoutSeconds > 0
+      ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1000)
+      : undefined;
     try {
       const resp = await fetch('https://api.x.ai/v1/responses', {
         method: 'POST',
