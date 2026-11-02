@@ -7,7 +7,8 @@ import { TaskStore } from '../src/tasks.js';
 
 // Runs the built CLI in separate processes against a fixture codex. Git,
 // SQLite task records, Commander parsing, stderr contracts, and exit codes are real.
-describe('task tracking built CLI end to end', () => {
+// Each test spawns the built CLI several times, and run() allows each call 20s.
+describe('task tracking built CLI end to end', { timeout: 60_000 }, () => {
   let root: string;
   let repo: string;
   let bin: string;
@@ -15,7 +16,7 @@ describe('task tracking built CLI end to end', () => {
   let env: NodeJS.ProcessEnv;
   const entry = join(process.cwd(), 'dist', 'index.js');
 
-  function fixtureCodex(opts: { exitCode?: number; touchDuringRun?: string } = {}) {
+  function fixtureCodex(opts: { exitCode?: number; touchDuringRun?: string; partialOutput?: boolean; hang?: boolean; signal?: boolean } = {}) {
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, 'codex'), `#!${process.execPath}
 const fs = require('node:fs');
@@ -33,8 +34,11 @@ ${opts.touchDuringRun ? `fs.appendFileSync(${JSON.stringify(opts.touchDuringRun)
 emit({ type: 'item.completed', item: { id: 'c1', type: 'command_execution', command: 'git diff', aggregated_output: 'x', exit_code: 0, status: 'completed' } });
 emit({ type: 'item.completed', item: { id: 'm1', type: 'agent_message', text: 'Fixture review: one finding.' } });
 emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } });
+if (${Boolean(opts.partialOutput)} && outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Incomplete fixture answer.');
+if (${Boolean(opts.signal)}) { process.kill(process.pid, 'SIGTERM'); }
+if (${Boolean(opts.hang)}) { setInterval(() => {}, 1000); }
 if (${opts.exitCode ?? 0} !== 0) { process.stderr.write('fixture codex exploded\\n'); process.exit(${opts.exitCode ?? 0}); }
-if (outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one finding.');
+if (outIndex >= 0 && !${Boolean(opts.hang || opts.signal)}) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one finding.');
 `, { mode: 0o755 });
   }
 
@@ -149,6 +153,34 @@ if (outIndex >= 0) fs.writeFileSync(args[outIndex + 1], 'Fixture review: one fin
     expect(full).toMatchObject({ kind: 'relay', status: 'completed', promptPreview: 'Explain auth.ts', result: 'Fixture review: one finding.' });
     expect(meta).toMatchObject({ kind: 'relay', status: 'completed', promptPreview: null, result: null });
     expect(meta.promptHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it.each([false, true])('does not report partial output from a failed Codex call as success (review: %s)', review => {
+    fixtureCodex({ exitCode: 2, partialOutput: true });
+    const args = review ? ['--review', '--review-scope', 'working-tree'] : ['--prompt', 'Synthetic relay'];
+    const result = run(['--to', 'codex', '--repo', repo, '--no-stream', ...args]);
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stdout).toBe('');
+    const tasks = JSON.parse(run(['task', 'list', '--json']).stdout);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].status).toBe('failed');
+    expect(tasks[0].error).toContain('fixture codex exploded');
+    expect(tasks[0].result).toBeNull();
+    expect(tasks[0].error).not.toContain('Incomplete fixture answer.');
+    expect(run(['task', 'result', tasks[0].id]).status).toBe(1);
+  });
+
+  it.each(['timeout', 'signal'])('keeps partial Codex output unsuccessful after %s', failure => {
+    fixtureCodex({ partialOutput: true, hang: failure === 'timeout', signal: failure === 'signal' });
+    for (const args of [['--prompt', 'Synthetic relay'], ['--review', '--review-scope', 'working-tree']]) {
+      const result = run(['--to', 'codex', '--repo', repo, '--no-stream', '--timeout', '1', ...args]);
+      expect(result.status, result.stderr).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain(failure === 'timeout' ? 'timed out' : 'killed by signal');
+    }
+    const tasks = JSON.parse(run(['task', 'list', '--json']).stdout);
+    expect(tasks).toHaveLength(2);
+    for (const task of tasks) expect(task).toMatchObject({ status: 'failed', result: null });
   });
 
   it('records a failed backend run and reports it through task result', () => {

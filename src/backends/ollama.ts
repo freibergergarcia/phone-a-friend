@@ -83,6 +83,9 @@ export class OllamaBackend implements Backend {
           `Ollama returned invalid JSON (HTTP ${resp.status})`,
         );
       }
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new OllamaBackendError('Ollama returned JSON that is not a response object');
+      }
       data = raw as Record<string, unknown>;
     } catch (err: unknown) {
       if (err instanceof OllamaBackendError) throw err;
@@ -96,9 +99,12 @@ export class OllamaBackend implements Backend {
     if (data.error) {
       throw new OllamaBackendError(`Ollama error: ${data.error}`);
     }
+    if (data.done === false) {
+      throw new OllamaBackendError('Ollama returned an incomplete response');
+    }
 
     const message = data.message as Record<string, unknown> | undefined;
-    const content = ((message?.content as string) ?? '').trim();
+    const content = typeof message?.content === 'string' ? message.content.trim() : '';
 
     if (!content) {
       throw new OllamaBackendError(
@@ -156,7 +162,14 @@ export class OllamaBackend implements Backend {
     }
 
     try {
-      yield* parseNDJSONStream(resp.body, controller.signal);
+      let hasText = false;
+      for await (const chunk of parseNDJSONStream(resp.body, controller.signal)) {
+        if (chunk.trim()) hasText = true;
+        yield chunk;
+      }
+      if (!hasText) {
+        throw new OllamaBackendError('Ollama completed without producing output');
+      }
     } catch (err: unknown) {
       if (err instanceof OllamaBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);

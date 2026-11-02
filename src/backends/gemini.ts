@@ -222,15 +222,12 @@ export class GeminiBackend implements Backend {
       return result.stdout;
     } catch (err: unknown) {
       if (err instanceof SpawnCliError && err.exitCode === 53) {
-        if (err.stdout) {
-          try {
-            maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
-            return useJsonOutput ? extractGeminiResult(err.stdout) : err.stdout;
-          } catch {
-            throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
-          }
-        }
-        throw new GeminiBackendError('Gemini reached turn limit, response may be incomplete');
+        // The run stopped early, so whatever it printed is not a finished
+        // answer. Returning it would mark the relay and its task as completed.
+        maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
+        throw new GeminiBackendError(
+          'Gemini reached its turn limit (exit 53); the response is incomplete and was not returned',
+        );
       }
       if (err instanceof SpawnCliError && isIneligibleTierError(err.stderr)) {
         throw new GeminiBackendError(

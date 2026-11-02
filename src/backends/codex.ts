@@ -124,11 +124,8 @@ export class CodexBackend implements Backend {
           maybeEmitSessionId(err.stdout, opts.onSessionCreated);
         }
 
-        // On failure, check if codex wrote a useful last-message before dying
-        const lastMessage = readOutputFile(outputPath);
-        if (lastMessage) return lastMessage;
-
         if (err instanceof BackendError) {
+          // A last-message file does not override a failed exit or timeout.
           throw new CodexBackendError(err.message);
         }
         throw err;
@@ -212,10 +209,6 @@ export class CodexBackend implements Backend {
         stdout = result.stdout;
       } catch (err: unknown) {
         tap?.flush();
-        // On failure, check if codex wrote a useful last-message before dying
-        const lastMessage = readOutputFile(outputPath);
-        if (lastMessage) return lastMessage;
-
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }

@@ -76590,8 +76590,6 @@ var CodexBackend = class {
         if (err instanceof SpawnCliError) {
           maybeEmitSessionId(err.stdout, opts.onSessionCreated);
         }
-        const lastMessage2 = readOutputFile(outputPath);
-        if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -76656,8 +76654,6 @@ var CodexBackend = class {
         stdout = result.stdout;
       } catch (err) {
         tap?.flush();
-        const lastMessage2 = readOutputFile(outputPath);
-        if (lastMessage2) return lastMessage2;
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -77301,15 +77297,10 @@ var GeminiBackend = class {
       return result.stdout;
     } catch (err) {
       if (err instanceof SpawnCliError && err.exitCode === 53) {
-        if (err.stdout) {
-          try {
-            maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
-            return useJsonOutput ? extractGeminiResult(err.stdout) : err.stdout;
-          } catch {
-            throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
-          }
-        }
-        throw new GeminiBackendError("Gemini reached turn limit, response may be incomplete");
+        maybeEmitGeminiSessionId(err.stdout, opts.onSessionCreated);
+        throw new GeminiBackendError(
+          "Gemini reached its turn limit (exit 53); the response is incomplete and was not returned"
+        );
       }
       if (err instanceof SpawnCliError && isIneligibleTierError(err.stderr)) {
         throw new GeminiBackendError(
@@ -77452,14 +77443,14 @@ async function* parseNDJSONStream(body, signal) {
       if (parsed.error) {
         throw new Error(`Stream error: ${String(parsed.error)}`);
       }
-      if (parsed.done === true) {
-        receivedDone = true;
-        return;
-      }
       const message = parsed.message;
       const content = message?.content;
       if (typeof content === "string" && content.length > 0) {
         yield content;
+      }
+      if (parsed.done === true) {
+        receivedDone = true;
+        return;
       }
     }
   }
@@ -77672,6 +77663,9 @@ var OllamaBackend = class {
           `Ollama returned invalid JSON (HTTP ${resp.status})`
         );
       }
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new OllamaBackendError("Ollama returned JSON that is not a response object");
+      }
       data = raw;
     } catch (err) {
       if (err instanceof OllamaBackendError) throw err;
@@ -77683,8 +77677,11 @@ var OllamaBackend = class {
     if (data.error) {
       throw new OllamaBackendError(`Ollama error: ${data.error}`);
     }
+    if (data.done === false) {
+      throw new OllamaBackendError("Ollama returned an incomplete response");
+    }
     const message = data.message;
-    const content = (message?.content ?? "").trim();
+    const content = typeof message?.content === "string" ? message.content.trim() : "";
     if (!content) {
       throw new OllamaBackendError(
         "Ollama completed without producing output"
@@ -77734,7 +77731,14 @@ var OllamaBackend = class {
       throw new OllamaBackendError("Ollama returned empty response body");
     }
     try {
-      yield* parseNDJSONStream(resp.body, controller.signal);
+      let hasText = false;
+      for await (const chunk of parseNDJSONStream(resp.body, controller.signal)) {
+        if (chunk.trim()) hasText = true;
+        yield chunk;
+      }
+      if (!hasText) {
+        throw new OllamaBackendError("Ollama completed without producing output");
+      }
     } catch (err) {
       if (err instanceof OllamaBackendError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
@@ -77825,6 +77829,7 @@ function isClaudeAuthError(msg) {
   const text = msg.toLowerCase();
   return text.includes("not logged in") || text.includes("please run /login");
 }
+var CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS = 3;
 function supportsClaudePeerMessaging(versionOutput) {
   const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) return false;
@@ -77940,8 +77945,7 @@ var ClaudeBackend = class {
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
       );
     }
-    const peerMessagingSupported = this.peerMessagingSupported();
-    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+    const peerMessagingSupported = this.peerMessagingSupported(opts.peerMessaging);
     const args = this.buildArgs({
       ...opts,
       outputFormat: opts.schema ? void 0 : "text",
@@ -77976,8 +77980,7 @@ var ClaudeBackend = class {
         `claude CLI not found in PATH. Install it: ${INSTALL_HINTS.claude}`
       );
     }
-    const peerMessagingSupported = this.peerMessagingSupported();
-    this.assertPeerMessagingSupport(opts.peerMessaging, peerMessagingSupported);
+    const peerMessagingSupported = this.peerMessagingSupported(opts.peerMessaging);
     const args = this.buildArgs({
       ...opts,
       outputFormat: "stream-json",
@@ -78046,23 +78049,55 @@ var ClaudeBackend = class {
       }
     }
   }
-  peerMessagingSupported() {
+  /** The `claude --version` output, or why it could not be used. */
+  readClaudeVersion() {
+    let output;
     try {
-      const version = execFileSync2("claude", ["--version"], {
+      output = execFileSync2("claude", ["--version"], {
         encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"]
+        stdio: ["ignore", "pipe", "ignore"],
+        // This runs before the relay timer. Bound both time and output, and
+        // avoid waiting forever for a launcher that ignores SIGTERM.
+        timeout: CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS * 1e3,
+        killSignal: "SIGKILL",
+        maxBuffer: 16 * 1024
       });
-      return supportsClaudePeerMessaging(version);
-    } catch {
+    } catch (err) {
+      const timedOut = err.code === "ETIMEDOUT";
+      return {
+        version: null,
+        failure: timedOut ? `\`claude --version\` did not finish within ${CLAUDE_VERSION_PROBE_TIMEOUT_SECONDS}s` : "`claude --version` failed"
+      };
+    }
+    return /\d+\.\d+\.\d+/.test(output) ? { version: output, failure: null } : { version: null, failure: "`claude --version` printed no version" };
+  }
+  /**
+   * Decide whether this relay may use peer messaging. An unreadable version is
+   * not an old version: `accept` and `refuse` are explicit requests PaF cannot
+   * honor without knowing, so they fail; `native` keeps the older tool set, says
+   * so, and leaves peer messaging out.
+   */
+  peerMessagingSupported(mode) {
+    const { version, failure } = this.readClaudeVersion();
+    if (version === null) {
+      if (mode === "accept" || mode === "refuse") {
+        throw new ClaudeBackendError(
+          `Could not confirm Claude Code's version for --peer-messaging ${mode}: ${failure}. Retry, or use --peer-messaging native.`
+        );
+      }
+      process.stderr.write(
+        `[phone-a-friend] Could not confirm Claude Code's version: ${failure}. Continuing without peer messaging.
+`
+      );
       return false;
     }
-  }
-  assertPeerMessagingSupport(mode, supported) {
+    const supported = supportsClaudePeerMessaging(version);
     if (mode === "accept" && !supported) {
       throw new ClaudeBackendError(
         "Claude peer messaging requires Claude Code v2.1.224 or later. Upgrade Claude Code or use --peer-messaging native."
       );
     }
+    return supported;
   }
 };
 var CLAUDE_BACKEND = new ClaudeBackend();

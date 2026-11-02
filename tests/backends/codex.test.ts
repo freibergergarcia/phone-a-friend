@@ -536,8 +536,7 @@ describe('CodexBackend', () => {
       });
       const onSessionCreated = vi.fn();
       const result = CODEX_BACKEND.run({ ...opts, onSessionCreated });
-      if (partial) await expect(result).resolves.toBe('{"verdict":"iterate"}');
-      else await expect(result).rejects.toThrow('exec failed');
+      await expect(result).rejects.toMatchObject({ message: 'exec failed' });
       expect(onSessionCreated).toHaveBeenCalledWith('partial-thread');
       expect(fs.existsSync(schemaPath)).toBe(false);
       expect(fs.existsSync(dirname(schemaPath))).toBe(false);

@@ -145,6 +145,21 @@ describe('OllamaBackend', () => {
     await expect(backend.run(makeOpts())).rejects.toThrow('without producing output');
   });
 
+  it('rejects an explicitly incomplete batch answer', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ message: { content: 'partial' }, done: false }));
+    await expect(backend.run(makeOpts())).rejects.toThrow('incomplete response');
+  });
+
+  it.each([null, [], 'unexpected'])('rejects invalid response envelopes (%j)', async body => {
+    mockFetch.mockResolvedValueOnce(mockResponse(body));
+    await expect(backend.run(makeOpts())).rejects.toThrow(OllamaBackendError);
+  });
+
+  it('rejects non-text content with a backend error', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ message: { content: { text: 'wrong shape' } }, done: true }));
+    await expect(backend.run(makeOpts())).rejects.toThrow('without producing output');
+  });
+
   it('throws on missing message in response', async () => {
     mockFetch.mockResolvedValue(mockResponse({}));
 
@@ -266,6 +281,18 @@ describe('OllamaBackend.runStream', () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
+  });
+
+  it('returns an answer carried entirely by the terminal response', async () => {
+    mockFetch.mockResolvedValueOnce(mockStreamResponse([
+      { message: { role: 'assistant', content: 'PONG' }, done: true, done_reason: 'stop' },
+    ]));
+    expect(await collectStream(backend.runStream(makeOpts()))).toEqual(['PONG']);
+  });
+
+  it.each(['', '   '])('rejects completed streams without an answer (%j)', content => {
+    mockFetch.mockResolvedValueOnce(mockStreamResponse([{ message: { content }, done: true }]));
+    return expect(collectStream(backend.runStream(makeOpts()))).rejects.toThrow('without producing output');
   });
 
   it('yields tokens from NDJSON stream', async () => {

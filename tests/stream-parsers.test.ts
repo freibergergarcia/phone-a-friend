@@ -218,6 +218,21 @@ describe('parseSSEStream', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseNDJSONStream', () => {
+  it.each([true, false])('keeps terminal content, including a final line without newline (newline: %s)', newline => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const wire = JSON.stringify({ message: { content: 'PO' }, done: false }) + '\n'
+          + JSON.stringify({ message: { content: 'NG' }, done: true }) + (newline ? '\n' : '');
+        // Include a chunk boundary inside the terminal record.
+        controller.enqueue(encoder.encode(wire.slice(0, -5)));
+        controller.enqueue(encoder.encode(wire.slice(-5)));
+        controller.close();
+      },
+    });
+    return expect(collect(parseNDJSONStream(body))).resolves.toEqual(['PO', 'NG']);
+  });
+
   it('yields content from tokens with done:false', async () => {
     const lines = [
       { message: { content: 'Hello' }, done: false },

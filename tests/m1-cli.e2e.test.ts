@@ -6,7 +6,8 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 
 // Run the built product in separate processes. All external CLIs are fixtures;
 // native SessionStore/SQLite, Commander parsing, events, and exit codes are real.
-describe('M1 built CLI end to end', () => {
+// Tests spawn the built CLI several times, and run() allows each call 15s.
+describe('M1 built CLI end to end', { timeout: 60_000 }, () => {
   let root: string;
   let bin: string;
   let log: string;

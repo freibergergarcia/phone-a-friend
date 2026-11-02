@@ -304,6 +304,46 @@ describe('GeminiBackend', () => {
     ).rejects.toThrow('something went wrong');
   });
 
+  describe('turn limit (exit 53)', () => {
+    const SCHEMA = '{"type":"object"}';
+    const JSON_ANSWER = JSON.stringify({ session_id: 'turn-limit-session', response: '{"ok":true}' });
+
+    function runWithExit53(stdout: string, overrides: Record<string, unknown> = {}) {
+      mockExecFileSync.mockImplementation((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/gemini';
+        throw new Error(`unexpected execFileSync call: ${cmd}`);
+      });
+      mockSpawn.mockImplementation(() => fakeChild(53, stdout, 'turn limit reached'));
+      return GEMINI_BACKEND.run({
+        prompt: 'x',
+        repoPath: '/tmp/repo',
+        timeoutSeconds: 60,
+        sandbox: 'read-only' as SandboxMode,
+        model: null,
+        env: {},
+        ...overrides,
+      });
+    }
+
+    it.each([
+      ['partial text', 'Half of an answer', {}],
+      ['a parseable JSON envelope', JSON_ANSWER, { schema: SCHEMA }],
+      ['unparseable JSON', '{"response":', { schema: SCHEMA }],
+      ['no output', '', {}],
+    ])('fails instead of returning %s', async (_name, stdout, overrides) => {
+      const error = await runWithExit53(stdout, overrides).catch(err => err);
+      expect(error).toBeInstanceOf(GeminiBackendError);
+      expect(error.message).toMatch(/turn limit/i);
+      expect(error.message).not.toContain('Half of an answer');
+    });
+
+    it('still reports the session it created', async () => {
+      const onSessionCreated = vi.fn();
+      await expect(runWithExit53(JSON_ANSWER, { schema: SCHEMA, onSessionCreated })).rejects.toThrow(/turn limit/i);
+      expect(onSessionCreated).toHaveBeenCalledWith('turn-limit-session');
+    });
+  });
+
   it('throws when gemini produces no output', async () => {
     mockExecFileSync.mockImplementation((cmd: string) => {
       if (cmd === 'which') return '/usr/local/bin/gemini';
