@@ -31,6 +31,14 @@ function runShell(script: string) {
   return spawn('bash', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'], ...ownProcessGroup() });
 }
 
+async function waitForSurvivor(): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (survivors().length === 0) {
+    if (Date.now() > deadline) throw new Error('the outside process never started');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 async function settleTime(promise: Promise<unknown>): Promise<number> {
   const start = Date.now();
   await promise;
@@ -118,12 +126,15 @@ describe.runIf(posix)('superviseChild', { timeout: 15_000 }, () => {
   it('settles when a process outside the group holds the pipe after SIGKILL', async () => {
     // perl POSIX::setsid leaves the group, so no group signal reaches it.
     const child = runShell(
-      `perl -e 'use POSIX; POSIX::setsid(); exec("sleep", "${SLEEP}")' & sleep 0.2; trap '' TERM; while true; do sleep 1; done`,
+      `perl -e 'use POSIX; POSIX::setsid(); exec("sleep", "${SLEEP}")' & trap '' TERM; while true; do sleep 1; done`,
     );
-    const supervisor = superviseChild(child, { timeoutMs: 400, killGraceMs: 200 });
+    const supervisor = superviseChild(child, { timeoutMs: 0, killGraceMs: 200 });
+    // Terminating earlier could kill perl before it leaves the group.
+    await waitForSurvivor();
+    supervisor.terminate();
     const elapsed = await settleTime(supervisor.exit);
-    expect(supervisor.timedOut).toBe(true);
     expect(elapsed).toBeLessThan(3_000);
+    expect((await supervisor.exit).signal).toBe('SIGKILL');
     expect(survivors().length).toBe(1);
   });
 
