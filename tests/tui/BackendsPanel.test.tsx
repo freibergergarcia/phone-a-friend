@@ -30,6 +30,7 @@ import { configSet } from '../../src/config.js';
 const mockConfigSet = vi.mocked(configSet);
 
 const MOCK_REPORT: DetectionReport = {
+  api: [],
   cli: [
     { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: '' },
     { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },
@@ -183,7 +184,7 @@ describe('BackendsPanel', () => {
   });
 
   it('handles empty backend list without crashing', () => {
-    const emptyReport: DetectionReport = { cli: [], local: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
+    const emptyReport: DetectionReport = { cli: [], local: [], api: [], host: [], environment: { tmux: { active: false, installed: false }, agentTeams: { enabled: false } } };
     const { lastFrame } = render(<BackendsPanel report={emptyReport} />);
     const frame = lastFrame()!;
     expect(frame).toContain('Backends');
@@ -320,5 +321,14 @@ describe('BackendsPanel', () => {
     await tick();
     expect(lastFrame()).not.toContain('Select default model');
     expect(onEditingChange).not.toHaveBeenCalled();
+  });
+
+  it('lists an API backend between local and host backends', () => {
+    const report: DetectionReport = { ...MOCK_REPORT, api: [{ name: 'xai', category: 'api', available: true, optional: true, detail: 'XAI_API_KEY set (not validated)', installHint: '' }] };
+    const { lastFrame, unmount } = render(<BackendsPanel report={report} />);
+    const frame = lastFrame() ?? '';
+    expect(frame.indexOf('ollama')).toBeLessThan(frame.indexOf('xai'));
+    expect(frame.indexOf('xai')).toBeLessThan(frame.indexOf('claude'));
+    unmount();
   });
 });

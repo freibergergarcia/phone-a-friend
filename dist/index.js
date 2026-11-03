@@ -198,6 +198,9 @@ import { execFileSync, spawn as nodeSpawn } from "child_process";
 function isReviewScope(value) {
   return typeof value === "string" && REVIEW_SCOPES.includes(value);
 }
+function xaiApiKey(env4) {
+  return env4.XAI_API_KEY?.trim() || void 0;
+}
 function registerBackend(backend) {
   registry.set(backend.name, backend);
 }
@@ -222,7 +225,7 @@ function isInPath(name, env4) {
 function checkBackends(whichFn = isInPath) {
   const result = {};
   for (const name of Object.keys(INSTALL_HINTS).sort()) {
-    result[name] = whichFn(BACKEND_COMMANDS[name] ?? name);
+    result[name] = name === "xai" ? xaiApiKey(process.env) !== void 0 : whichFn(BACKEND_COMMANDS[name] ?? name);
   }
   return result;
 }
@@ -276,7 +279,7 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -313,11 +316,14 @@ var init_backends = __esm({
         this.timeoutMs = timeoutMs;
       }
     };
+    GIT_DIFF_HEADING = "Git Diff:";
+    CONTEXT_HEADING = "Additional Context:";
     INSTALL_HINTS = {
       antigravity: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       codex: "npm install -g @openai/codex",
       gemini: "npm install -g @google/gemini-cli",
       ollama: "https://ollama.com/download",
+      xai: "Set XAI_API_KEY (https://console.x.ai)",
       claude: "npm install -g @anthropic-ai/claude-code",
       opencode: "npm install -g opencode-ai",
       pi: "npm install -g @earendil-works/pi-coding-agent",
@@ -2130,7 +2136,7 @@ function configuredPiProvider(config) {
   return { requested: raw.trim(), requestedSource: "paf-config" };
 }
 function attachModelAndCapabilities(report, config) {
-  const entries = [...report.cli, ...report.local, ...report.host].filter((b) => !b.planned);
+  const entries = [...report.cli, ...report.local, ...report.api, ...report.host].filter((b) => !b.planned);
   for (const b of entries) {
     const configured = config.backends?.[b.name]?.model ?? config[b.name]?.model ?? null;
     b.model = {
@@ -2536,7 +2542,7 @@ function isPiHostEnv(env4) {
 function assertNotPiHost(env4) {
   if (!isPiHostEnv(env4)) return;
   throw new PiBackendError(
-    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
+    "pi is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, ollama, or xai."
   );
 }
 function readPiProvider(repoPath) {
@@ -4282,10 +4288,10 @@ function buildPrompt(opts) {
     opts.prompt.trim()
   );
   if (opts.contextText) {
-    sections.push("", "Additional Context:", opts.contextText);
+    sections.push("", CONTEXT_HEADING, opts.contextText);
   }
   if (opts.diffText) {
-    sections.push("", "Git Diff:", opts.diffText);
+    sections.push("", GIT_DIFF_HEADING, opts.diffText);
   }
   return sections.join("\n").trim();
 }
@@ -19591,6 +19597,17 @@ function decorateOpenCodeModels(report, whichFn = isInPath) {
     }
   }
 }
+function detectApiBackends(env4 = process.env) {
+  const available = xaiApiKey(env4) !== void 0;
+  return [{
+    name: "xai",
+    category: "api",
+    available,
+    optional: true,
+    detail: available ? "XAI_API_KEY set (not validated)" : "XAI_API_KEY not set",
+    installHint: INSTALL_HINTS.xai
+  }];
+}
 async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
   const [cli, local, host] = await Promise.all([
     detectCliBackends(whichFn),
@@ -19598,7 +19615,7 @@ async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
     detectHostIntegrations(whichFn)
   ]);
   const environment = detectEnvironment(whichFn);
-  return { cli, local, host, environment };
+  return { cli, local, api: detectApiBackends(), host, environment };
 }
 var CLI_BACKENDS, OLLAMA_DEFAULT_HOST, OLLAMA_INSTALL_HINT, HOST_INTEGRATIONS;
 var init_detection = __esm({
@@ -72486,7 +72503,7 @@ function StatusPanel({ report, loading, refreshing, error: error2, pluginInstall
     }
     return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Box_default, { flexDirection: "column", children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { color: "cyan", children: "Scanning backends..." }) });
   }
-  const allRelay = [...report.cli, ...report.local];
+  const allRelay = [...report.cli, ...report.local, ...report.api];
   const countable = allRelay.filter((b) => !b.planned && !(b.optional && !b.available));
   const available = countable.filter((b) => b.available).length;
   const total = countable.length;
@@ -72535,7 +72552,8 @@ function StatusPanel({ report, loading, refreshing, error: error2, pluginInstall
         " ready)"
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "CLI", backends: report.cli }),
-      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "Local", backends: report.local })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "Local", backends: report.local }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CategorySection, { label: "API", backends: report.api })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Box_default, { flexDirection: "column", children: [
       /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Text, { bold: true, underline: true, children: "Host Integrations" }),
@@ -72735,7 +72753,7 @@ function BackendsPanel({ report, onEditingChange }) {
   const [modelSelectedIndex, setModelSelectedIndex] = (0, import_react37.useState)(0);
   const [config, setConfig] = (0, import_react37.useState)(() => loadConfig());
   const [saveMessage, setSaveMessage] = (0, import_react37.useState)(null);
-  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.host] : [];
+  const allBackendsForClamp = report ? [...report.cli, ...report.local, ...report.api, ...report.host] : [];
   const currentModels = allBackendsForClamp[selectedIndex]?.models ?? [];
   (0, import_react37.useEffect)(() => {
     if (mode === "modelSelect" && currentModels.length > 0 && modelSelectedIndex >= currentModels.length) {
@@ -72786,7 +72804,7 @@ function BackendsPanel({ report, onEditingChange }) {
   use_input_default((input, key) => {
     if (mode === "modelSelect") {
       if (key.return) {
-        const allBackends2 = report ? [...report.cli, ...report.local, ...report.host] : [];
+        const allBackends2 = report ? [...report.cli, ...report.local, ...report.api, ...report.host] : [];
         const selected2 = allBackends2[selectedIndex];
         const models = selected2?.models ?? [];
         const model = models[modelSelectedIndex];
@@ -72800,7 +72818,7 @@ function BackendsPanel({ report, onEditingChange }) {
       return;
     }
     if (key.return) {
-      const allBackends2 = report ? [...report.cli, ...report.local, ...report.host] : [];
+      const allBackends2 = report ? [...report.cli, ...report.local, ...report.api, ...report.host] : [];
       const selected2 = allBackends2[selectedIndex];
       if (selected2 && (selected2.models?.length ?? 0) > 0) {
         enterModelSelect(selected2.name, selected2.models);
@@ -72813,6 +72831,7 @@ function BackendsPanel({ report, onEditingChange }) {
   const allBackends = [
     ...report.cli,
     ...report.local,
+    ...report.api,
     ...report.host
   ];
   const selected = allBackends[selectedIndex];
@@ -73061,7 +73080,7 @@ import { dirname as dirname10 } from "path";
 function formatBackendSummary(report) {
   const lines = [];
   const mark2 = (b) => b.available ? "\u2713" : "\u2717";
-  const relay2 = [...report.cli, ...report.local];
+  const relay2 = [...report.cli, ...report.local, ...report.api];
   const ready = relay2.filter((b) => b.available && !b.planned).length;
   const total = relay2.filter((b) => !b.planned && !(b.optional && !b.available)).length;
   lines.push(`Backend re-scan complete \u2014 ${ready} of ${total} relay backends ready`);
@@ -75720,7 +75739,7 @@ function isCodexHostEnv(env4) {
 function assertNotCodexHost(env4) {
   if (!isCodexHostEnv(env4)) return;
   throw new CodexBackendError(
-    "Codex is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, claude, gemini, opencode, or ollama."
+    "Codex is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, claude, gemini, opencode, ollama, or xai."
   );
 }
 var CodexBackend = class {
@@ -76618,7 +76637,7 @@ function extractGeminiResult(jsonOutput) {
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
-// src/backends/ollama-http.ts
+// src/backends/http-fetch.ts
 import http from "http";
 import https from "https";
 import { pipeline, Readable } from "stream";
@@ -76626,13 +76645,14 @@ import { constants, createBrotliDecompress, createGunzip, createInflate } from "
 var NULL_BODY_STATUSES = /* @__PURE__ */ new Set([101, 204, 205, 304]);
 var BODY_PRESERVING_REDIRECTS = /* @__PURE__ */ new Set([307, 308]);
 var MAX_REDIRECTS = 20;
+var CROSS_ORIGIN_DROPPED_HEADERS = /* @__PURE__ */ new Set(["authorization", "cookie", "proxy-authorization"]);
 var DECODERS = /* @__PURE__ */ new Map([
   ["gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
   ["x-gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
   ["deflate", () => createInflate({ flush: constants.Z_SYNC_FLUSH })],
   ["br", () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })]
 ]);
-function ollamaFetch(url, init, redirects = 0) {
+function longFetch(url, init, redirects = 0) {
   return new Promise((resolve5, reject) => {
     const target = new URL(url);
     const request = target.protocol === "https:" ? https.request : http.request;
@@ -76655,8 +76675,14 @@ function ollamaFetch(url, init, redirects = 0) {
           } else if (next.protocol !== "http:" && next.protocol !== "https:") {
             reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
           } else {
-            resolve5(ollamaFetch(next.href, init, redirects + 1));
+            const headers2 = next.origin === target.origin ? init.headers : Object.fromEntries(Object.entries(init.headers).filter(([name]) => !CROSS_ORIGIN_DROPPED_HEADERS.has(name.toLowerCase())));
+            resolve5(longFetch(next.href, { ...init, headers: headers2 }, redirects + 1));
           }
+          return;
+        }
+        if (status < 200 || status > 599) {
+          res.resume();
+          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
           return;
         }
         const headers = new Headers();
@@ -76903,7 +76929,7 @@ var OllamaBackend = class {
     const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let data;
     try {
-      const resp = await ollamaFetch(url, {
+      const resp = await longFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -76970,7 +76996,7 @@ var OllamaBackend = class {
     const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
     let resp;
     try {
-      resp = await ollamaFetch(url, {
+      resp = await longFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -77060,6 +77086,152 @@ function isJsonObject(value) {
 }
 var OLLAMA_BACKEND = new OllamaBackend();
 registerBackend(OLLAMA_BACKEND);
+
+// src/backends/xai.ts
+init_backends();
+var XaiBackendError = class extends BackendError {
+  constructor(message) {
+    super(message);
+    this.name = "XaiBackendError";
+  }
+};
+function asObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+var RESPONSES_URL = "https://api.x.ai/v1/responses";
+var DEFAULT_MODEL = "grok-4.6";
+var ATTACHED_CONTENT = new RegExp(`^(?:${GIT_DIFF_HEADING}|${CONTEXT_HEADING})$|^diff --git `, "m");
+function transportCode(err, key) {
+  const source = err;
+  const code = source.cause?.code ?? source.code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(code) ? `: ${safeDetail(code, key)}` : "";
+}
+function decodedBody(body) {
+  try {
+    return JSON.stringify(JSON.parse(body));
+  } catch {
+    return body;
+  }
+}
+function safeDetail(detail, key) {
+  return detail.split(key).join("[REDACTED]").slice(0, 200);
+}
+function parseAnswer(response, key) {
+  if (response.status !== "completed" || response.error != null) {
+    const error2 = asObject(response.error);
+    const detail = [
+      ["status", response.status ?? "unknown"],
+      ["reason", asObject(response.incomplete_details).reason],
+      ["code", error2.code],
+      ["message", error2.message]
+    ].filter(([, value]) => typeof value === "string").map(([name, value]) => `${name}=${value}`).join("; ");
+    throw new XaiBackendError(`xAI response failed: ${safeDetail(detail, key)}`);
+  }
+  const parts = [];
+  let refusal = null;
+  const urls = /* @__PURE__ */ new Set();
+  for (const item of asArray(response.output).map(asObject)) {
+    if (item.type !== "message" || (item.role ?? "assistant") !== "assistant") continue;
+    for (const part of asArray(item.content).map(asObject)) {
+      if (part.type === "refusal") refusal ??= String(part.refusal ?? "no reason given");
+      if (part.type !== "output_text" || typeof part.text !== "string") continue;
+      parts.push(part.text);
+      for (const annotation of asArray(part.annotations).map(asObject)) {
+        if (annotation.type === "url_citation" && typeof annotation.url === "string") {
+          urls.add(annotation.url);
+        }
+      }
+    }
+  }
+  const text = parts.join("\n").trim();
+  if (!text && refusal !== null) throw new XaiBackendError(`xAI refused: ${safeDetail(refusal, key)}`);
+  if (!text) throw new XaiBackendError("xAI completed without producing output");
+  return { text, sources: urls.size ? `
+
+Sources:
+${[...urls].map((url) => `- ${url}`).join("\n")}` : "" };
+}
+var XaiBackend = class {
+  name = "xai";
+  localFileAccess = false;
+  capabilities = {
+    resumeStrategy: "transcript-replay",
+    requiresClientSessionId: false
+  };
+  // Sandbox modes are a no-op: this backend has no local tools.
+  allowedSandboxes = /* @__PURE__ */ new Set([
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+  ]);
+  async run(opts) {
+    const key = xaiApiKey(opts.env);
+    if (!key) throw new XaiBackendError("Set XAI_API_KEY to use xai. Get an API key at https://console.x.ai");
+    let schema;
+    if (opts.schema) {
+      try {
+        schema = JSON.parse(opts.schema);
+      } catch {
+      }
+      if (asObject(schema) !== schema) throw new XaiBackendError("--schema must be a JSON object for xai");
+    }
+    const history = opts.sessionHistory ?? [];
+    const searchAllowed = ![opts.prompt, ...history.map((turn) => turn.content)].some((content) => ATTACHED_CONTENT.test(content));
+    if (!searchAllowed) console.error("[phone-a-friend] xai: web and X search are off because this conversation has attached context or a diff.");
+    const controller = new AbortController();
+    const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
+    try {
+      const resp = await longFetch(RESPONSES_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: opts.model ?? DEFAULT_MODEL,
+          input: [...history, { role: "user", content: opts.prompt }],
+          ...searchAllowed ? { tools: [{ type: "web_search" }, { type: "x_search" }] } : {},
+          stream: false,
+          store: false,
+          ...schema ? { text: { format: {
+            type: "json_schema",
+            name: "paf_response",
+            schema,
+            strict: true
+          } } } : {}
+        }),
+        signal: controller.signal
+      });
+      let body;
+      try {
+        body = await resp.text();
+      } catch {
+        throw new XaiBackendError(`xAI response body could not be read (HTTP ${resp.status})`);
+      }
+      if (!resp.ok) {
+        throw new XaiBackendError(`xAI returned HTTP ${resp.status}: ${safeDetail(decodedBody(body), key)}`);
+      }
+      let data;
+      try {
+        data = JSON.parse(body);
+      } catch {
+        throw new XaiBackendError(`xAI returned invalid JSON (HTTP ${resp.status})`);
+      }
+      const result = parseAnswer(asObject(data), key);
+      return result.text + (opts.schema ? "" : result.sources);
+    } catch (err) {
+      if (controller.signal.aborted || err instanceof Error && err.name === "AbortError") {
+        throw new XaiBackendError(`xAI timed out after ${opts.timeoutSeconds}s`);
+      }
+      if (err instanceof XaiBackendError) throw err;
+      throw new XaiBackendError(`xAI request failed${transportCode(err, key)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+};
+var XAI_BACKEND = new XaiBackend();
+registerBackend(XAI_BACKEND);
 
 // src/backends/claude.ts
 init_backends();
@@ -77430,7 +77602,7 @@ function isOpenCodeHostEnv(env4) {
 function assertNotOpenCodeHost(env4) {
   if (!isOpenCodeHostEnv(env4)) return;
   throw new OpenCodeBackendError(
-    "OpenCode is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, or ollama."
+    "OpenCode is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, ollama, or xai."
   );
 }
 function buildOpenCodeArgs(opts) {
@@ -77720,7 +77892,7 @@ function isGrokHostEnv(env4) {
 function assertNotGrokHost(env4) {
   if (!isGrokHostEnv(env4)) return;
   throw new GrokBackendError(
-    "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, or ollama."
+    "Grok is already the host for this Phone-a-Friend invocation. Choose another friend backend such as antigravity, codex, gemini, claude, opencode, pi, ollama, or xai."
   );
 }
 function isFinishedGrokStop(reason) {
@@ -84482,12 +84654,16 @@ function printReport(report) {
     console.log("    Local:");
     for (const b of report.local) printBackendLine(b);
   }
+  if (report.api.length) {
+    console.log("    API:");
+    for (const b of report.api) printBackendLine(b);
+  }
   console.log("");
   console.log("  Host Integrations:");
   for (const b of report.host) printBackendLine(b);
 }
 function getSelectableBackends(report) {
-  const allRelay = [...report.cli, ...report.local];
+  const allRelay = [...report.cli, ...report.local, ...report.api];
   return allRelay.filter((b) => b.available && !b.planned);
 }
 async function setup(opts) {
@@ -84512,7 +84688,7 @@ async function setup(opts) {
   if (selectable.length === 0) {
     console.log(theme.warning("  No relay backends available."));
     console.log("  Install at least one backend to get started:");
-    const allRelay = [...report.cli, ...report.local];
+    const allRelay = [...report.cli, ...report.local, ...report.api];
     for (const b of allRelay) {
       if (!b.planned && b.installHint) {
         console.log(`    ${b.name}: ${theme.hint(b.installHint)}`);
@@ -85042,7 +85218,7 @@ init_pi();
 init_backends();
 init_diagnostics();
 function countableBackends(report) {
-  return [...report.cli, ...report.local].filter((b) => {
+  return [...report.cli, ...report.local, ...report.api].filter((b) => {
     if (b.planned) return false;
     if (b.optional && !b.available) return false;
     return true;
@@ -85091,6 +85267,13 @@ function formatHumanReadable(report, config, paths, hostInstallations, advisorie
       lines.push(...formatDiagnosticLines(b));
       const modelsLine = formatBackendModels(b);
       if (modelsLine) lines.push(modelsLine);
+    }
+  }
+  if (report.api.length) {
+    lines.push("    API:");
+    for (const b of report.api) {
+      lines.push(`  ${formatBackendLine(b)}`);
+      lines.push(...formatDiagnosticLines(b));
     }
   }
   lines.push("");
@@ -85153,7 +85336,7 @@ function formatDiagnosticLines(b) {
     const shown = requestedSource === "invalid" ? theme.warning(`invalid [backends.${b.name}] provider in PaF config (expected a non-empty string)`) : requested ? `${requested} (from PaF config)` : `${b.name}'s default`;
     lines.push(`${DIAG_INDENT}${theme.hint("provider:")} ${shown}`);
   }
-  if (b.model && (exe?.selected || b.name === "ollama")) {
+  if (b.model && (exe?.selected || b.name === "ollama" || b.category === "api")) {
     const requested = b.model.requested ? `${b.model.requested} (from PaF config)` : "backend default";
     lines.push(
       `${DIAG_INDENT}${theme.hint("model:")} requested=${requested}, reported=unknown ${theme.hint("(doctor runs no backend)")}`
@@ -85215,7 +85398,8 @@ function formatJson(report, config, exitCode, hostInstallations, advisories = []
     },
     backends: {
       cli: normalizeForJson(report.cli),
-      local: normalizeForJson(report.local)
+      local: normalizeForJson(report.local),
+      api: normalizeForJson(report.api)
     },
     host: normalizeForJson(report.host),
     hostInstallations,
@@ -85990,11 +86174,11 @@ ${banner("AI coding agent relay")}
       writeOut: (str) => console.log(str.trimEnd()),
       writeErr: (str) => console.error(str.trimEnd())
     }).exitOverride();
-    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok").option("--repo <path>", "Repository path", process.cwd()).option(
+    program2.command("relay").description("Relay prompt/context to a coding backend (default)").option("--prompt <text>", "Prompt to relay (required unless review mode is selected)").option("--to <backend>", "Target backend: antigravity, codex, gemini, ollama, claude, opencode, pi, grok, xai").option("--repo <path>", "Repository path", process.cwd()).option(
       "--context-file <path>",
       "File with additional context (repeat to attach several, in order)",
       (value, previous) => [...previous ?? [], value]
-    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds; 0 for no limit (default: 0)").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, and Grok)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
+    ).option("--context-text <text>", "Inline context text").option("--include-diff", "Append git diff to prompt").option("--no-include-diff", "Do not append git diff (overrides config defaults.include_diff)").option("--timeout <seconds>", "Max runtime in seconds; 0 for no limit (default: 0)").option("--model <name>", "Model override").option("--sandbox <mode>", "Sandbox: read-only, workspace-write, danger-full-access").option("--peer-messaging <mode>", "Claude peer messaging: native, accept, refuse").option("--schema <json>", "Request structured JSON output matching this schema").option("--session <id>", "Resume or create a persisted relay session (PaF label)").option("--backend-session <id>", "Attach to a raw backend session/thread ID (bypasses PaF label store; combine with --session to adopt it)").option("--fast", "Use fast mode when supported (--pure for OpenCode 1.x, -nc -ns for pi; no-op for Antigravity, Claude, Codex, Gemini, Ollama, Grok, and xAI)").option("--stream", "Stream tokens as they arrive (default)").option("--no-stream", "Disable streaming output (get full response at once)").option("--review", "Use review mode (default scope: branch)").option("--review-scope <scope>", "Review scope: branch, working-tree, all").option("--base <branch>", "Base branch for review diff (default: auto-detect main/master)").option("--verdict-json", "Review with opinionated verdict envelope (implies --review). Outputs compact JSON with verdict/findings/summary.").option("--quiet", "Run silently, save result to job store").option("--no-task-history", "Do not record this run in the local task store").action(async (opts, command) => {
       const isReview = opts.review || opts.base !== void 0 || opts.reviewScope !== void 0 || opts.verdictJson;
       const isVerdictJson = Boolean(opts.verdictJson);
       if (opts.reviewScope !== void 0 && !isReviewScope(opts.reviewScope)) {

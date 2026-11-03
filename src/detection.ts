@@ -2,12 +2,12 @@
  * Backend detection system.
  *
  * Used by setup, doctor, and relay to scan the environment for available
- * backends: CLI (antigravity/codex/gemini/opencode/pi/grok), Local (ollama), plus
+ * backends: CLI (antigravity/codex/gemini/opencode/pi/grok), Local (ollama), API (xai), plus
  * host integrations (claude/opencode/codex/pi/grok).
  */
 
 import { execFileSync } from 'node:child_process';
-import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath } from './backends/index.js';
+import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath, xaiApiKey } from './backends/index.js';
 import type { ExecutableInfo, ModelDiagnostics, CapabilityDiagnostics } from './diagnostics.js';
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ import type { ExecutableInfo, ModelDiagnostics, CapabilityDiagnostics } from './
 
 export interface BackendStatus {
   name: string;
-  category: 'cli' | 'local' | 'host';
+  category: 'cli' | 'local' | 'api' | 'host';
   available: boolean;
   detail: string;
   installHint: string;
@@ -50,6 +50,7 @@ export interface EnvironmentStatus {
 export interface DetectionReport {
   cli: BackendStatus[];
   local: BackendStatus[];
+  api: BackendStatus[];
   host: BackendStatus[];
   environment: EnvironmentStatus;
 }
@@ -308,6 +309,16 @@ export function decorateOpenCodeModels(
 }
 
 // ---------------------------------------------------------------------------
+// API detection is credential presence only: no network call or key disclosure.
+export function detectApiBackends(env: Record<string, string | undefined> = process.env): BackendStatus[] {
+  const available = xaiApiKey(env) !== undefined;
+  return [{
+    name: 'xai', category: 'api', available, optional: true,
+    detail: available ? 'XAI_API_KEY set (not validated)' : 'XAI_API_KEY not set',
+    installHint: INSTALL_HINTS.xai,
+  }];
+}
+
 // Full detection
 // ---------------------------------------------------------------------------
 
@@ -323,5 +334,5 @@ export async function detectAll(
 
   const environment = detectEnvironment(whichFn);
 
-  return { cli, local, host, environment };
+  return { cli, local, api: detectApiBackends(), host, environment };
 }

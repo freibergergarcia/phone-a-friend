@@ -262,6 +262,17 @@ describe('config', () => {
   });
 
   describe('resolveConfig', () => {
+    it('model precedence is scoped to the selected backend', () => {
+      const repo = join(tempDir, 'repo');
+      mkdirSync(repo);
+      writeFileSync(join(repo, '.phone-a-friend.toml'), '[backends.xai]\nmodel = "repo-grok"\n[backends.codex]\nmodel = "codex-model"\n');
+      const resolve = (to: string, model?: string) => config.resolveConfig({ to, model }, {}, repo, tempDir).model;
+      expect(resolve('xai')).toBe('repo-grok');
+      expect(resolve('xai', 'explicit-grok')).toBe('explicit-grok');
+      expect(resolve('codex')).toBe('codex-model');
+      expect(resolve('gemini')).toBeUndefined();
+    });
+
     it('CLI flags override everything', () => {
       const configDir = join(tempDir, 'phone-a-friend');
       mkdirSync(configDir, { recursive: true });

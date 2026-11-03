@@ -46,6 +46,11 @@ function printReport(report: DetectionReport): void {
     for (const b of report.local) printBackendLine(b);
   }
 
+  if (report.api.length) {
+    console.log('    API:');
+    for (const b of report.api) printBackendLine(b);
+  }
+
   console.log('');
   console.log('  Host Integrations:');
   for (const b of report.host) printBackendLine(b);
@@ -56,7 +61,7 @@ function printReport(report: DetectionReport): void {
 // ---------------------------------------------------------------------------
 
 function getSelectableBackends(report: DetectionReport): BackendStatus[] {
-  const allRelay = [...report.cli, ...report.local];
+  const allRelay = [...report.cli, ...report.local, ...report.api];
   return allRelay.filter(b => b.available && !b.planned);
 }
 
@@ -97,7 +102,7 @@ export async function setup(opts?: SetupOptions): Promise<void> {
     // No backends available
     console.log(theme.warning('  No relay backends available.'));
     console.log('  Install at least one backend to get started:');
-    const allRelay = [...report.cli, ...report.local];
+    const allRelay = [...report.cli, ...report.local, ...report.api];
     for (const b of allRelay) {
       if (!b.planned && b.installHint) {
         console.log(`    ${b.name}: ${theme.hint(b.installHint)}`);

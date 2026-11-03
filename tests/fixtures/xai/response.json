@@ -1,0 +1,54 @@
+{
+  "model": "grok-4.6",
+  "status": "completed",
+  "error": null,
+  "output": [
+    {
+      "id": "rs_807ae7ed-98bd-90f7-aeae-c523b4f8f372",
+      "summary": [
+        {
+          "text": "The user asked: \"In two sentences, what did @photomatt post on X on 2026-09-11? Cite the post.\"\n",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "call_id": "xs_call-6988e4f6-e017-4d26-a6da-8ff5d909e0b8-0",
+      "input": "{\"query\":\"from:photomatt since:2026-09-11 until:2026-09-12\",\"limit\":\"10\",\"mode\":\"Latest\"}",
+      "name": "x_keyword_search",
+      "type": "custom_tool_call",
+      "id": "ctc_807ae7ed-98bd-90f7-aeae-c523b4f8f372_call-6988e4f6-e017-4d26-a6da-8ff5d909e0b8-0",
+      "status": "completed"
+    },
+    {
+      "id": "tco_807ae7ed-98bd-90f7-aeae-c523b4f8f372_call-6988e4f6-e017-4d26-a6da-8ff5d909e0b8-0",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "content": [
+        {
+          "type": "output_text",
+          "text": "On September 11, 2026, @photomatt posted founder advice that if you don't have a coup attempt every few years, you're not hiring strong enough leaders.[[1]](https://x.com/photomatt/status/2098446534677590301) He also shared big news via a blog link and replied to a tweet about surviving coups by saying the key is always betting on Open Source and flossing.",
+          "logprobs": [],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://x.com/photomatt/status/2098446534677590301",
+              "start_index": 151,
+              "end_index": 208,
+              "title": "1"
+            }
+          ]
+        }
+      ],
+      "id": "msg_807ae7ed-98bd-90f7-aeae-c523b4f8f372",
+      "role": "assistant",
+      "type": "message",
+      "status": "completed"
+    }
+  ]
+}

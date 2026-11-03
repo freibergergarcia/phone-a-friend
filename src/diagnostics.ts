@@ -410,7 +410,7 @@ function configuredPiProvider(config: PafConfig): NonNullable<ModelDiagnostics['
  * and backend registry. No backend is run, so the reported model stays null.
  */
 export function attachModelAndCapabilities(report: DetectionReport, config: PafConfig): void {
-  const entries = [...report.cli, ...report.local, ...report.host].filter(b => !b.planned);
+  const entries = [...report.cli, ...report.local, ...report.api, ...report.host].filter(b => !b.planned);
   for (const b of entries) {
     const configured =
       config.backends?.[b.name]?.model ??

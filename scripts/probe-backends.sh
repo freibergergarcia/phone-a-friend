@@ -31,7 +31,7 @@ main() {
 set -eu
 B=${1:?backend}; MODEL=${2:-}
 case "$B" in
-  antigravity|claude|codex|gemini|ollama|opencode|pi|grok) ;;
+  antigravity|claude|codex|gemini|ollama|opencode|pi|grok|xai) ;;
   *) echo "Unknown backend: $B" >&2; exit 2 ;;
 esac
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

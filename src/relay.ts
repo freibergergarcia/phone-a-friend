@@ -18,6 +18,8 @@ import {
   type PreparePromptContext,
   type ReviewScope,
   type SandboxMode,
+  CONTEXT_HEADING,
+  GIT_DIFF_HEADING,
 } from './backends/index.js';
 import { timeoutProblem } from './backends/child-supervisor.js';
 import { JobManager, type Job } from './jobs.js';
@@ -540,11 +542,11 @@ function buildPrompt(opts: {
   );
 
   if (opts.contextText) {
-    sections.push('', 'Additional Context:', opts.contextText);
+    sections.push('', CONTEXT_HEADING, opts.contextText);
   }
 
   if (opts.diffText) {
-    sections.push('', 'Git Diff:', opts.diffText);
+    sections.push('', GIT_DIFF_HEADING, opts.diffText);
   }
 
   return sections.join('\n').trim();

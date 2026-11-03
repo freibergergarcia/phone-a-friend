@@ -18,6 +18,7 @@ import { render } from 'ink-testing-library';
 
 vi.mock('../../src/detection.js', () => ({
   detectAll: vi.fn().mockResolvedValue({
+    api: [],
     cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
     local: [],
     host: [],
@@ -85,6 +86,7 @@ function makeFakeProc(exitCode = 0) {
 }
 
 const MOCK_REPORT: DetectionReport = {
+  api: [],
   cli: [{ name: 'codex', category: 'cli', available: true, detail: 'found', installHint: '' }],
   local: [],
   host: [{ name: 'claude', category: 'host', available: true, detail: 'found', installHint: '' }],

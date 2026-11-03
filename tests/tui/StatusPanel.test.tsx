@@ -9,6 +9,7 @@ import { StatusPanel } from '../../src/tui/StatusPanel.js';
 import type { DetectionReport } from '../../src/detection.js';
 
 const MOCK_REPORT: DetectionReport = {
+  api: [],
   cli: [
     { name: 'codex', category: 'cli', available: true, detail: 'OpenAI Codex CLI (found in PATH)', installHint: '' },
     { name: 'gemini', category: 'cli', available: false, detail: 'not found in PATH', installHint: 'npm install -g @google/gemini-cli' },
@@ -26,6 +27,18 @@ const MOCK_REPORT: DetectionReport = {
 };
 
 describe('StatusPanel', () => {
+  it('includes xAI under API and counts it as ready', () => {
+    const report: DetectionReport = { ...MOCK_REPORT, api: [{
+      name: 'xai', category: 'api', available: true, optional: true,
+      detail: 'XAI_API_KEY set (not validated)', installHint: '',
+    }] };
+    const { lastFrame, unmount } = render(<StatusPanel report={report} loading={false} refreshing={false} error={null} />);
+    expect(lastFrame()).toContain('API');
+    expect(lastFrame()).toContain('xai');
+    expect(lastFrame()).toContain('2 of 4 ready');
+    unmount();
+  });
+
   it('shows loading state when report is null', () => {
     const { lastFrame } = render(
       <StatusPanel report={null} loading={true} refreshing={false} error={null} />
