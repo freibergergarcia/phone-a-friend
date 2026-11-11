@@ -528,6 +528,18 @@ const ROUND_HEAD =
   /^((?:round|pass|gate|phase|step|iteration)\s+[\w.]+(?:,\s*(?:pass|round)\s+\w+)?(?:\s*\([^)]{1,24}\))?(?:\s+(?:for|on|of)\s+[^.:;,]{1,40}?)?)\s*(?:[.:;,—–-]\s|$)/i
 const LABEL_PREFIX = /^(?:user request|request|task|question|prompt|context)\s*:\s*/i
 const TITLE_CHARS = 46
+// /phone-a-friend asks "Review this response in context and provide your
+// opinion. Focus: <the ask>": the opening is the same every time, the ask is not.
+const FOCUS = /(?:^|[.!?]\s+)focus(?:\s+on)?\s*:\s*(\S.*)$/i
+// "a second opinion on the three fixes" is about "the three fixes".
+const ASK_LEAD = /^(?:(?:a|an|your|the)\s+)?(?:second\s+opinion|opinion|review|take|view|thoughts?|feedback|sanity[- ]check)\s+(?:on|of|about|for)\s+/i
+
+// The ask after "Focus:", without its "a second opinion on" lead; null when there is none.
+export function focusOf(preview: string): string | null {
+  const ask = FOCUS.exec(preview)?.[1]?.trim()
+  if (!ask) return null
+  return ask.replace(ASK_LEAD, '').trim() || ask
+}
 
 const askedOf = (task: PafTask): Asked =>
   task.kind === 'review'
@@ -537,7 +549,8 @@ const askedOf = (task: PafTask): Asked =>
       : 'other'
 
 // The opening clause of the prompt names the round: "Round 3 for #400",
-// "Gate A, pass 2", "Delta after your ship at b86b56f".
+// "Gate A, pass 2", "Delta after your ship at b86b56f". A prompt with a
+// "Focus:" is named by its focus, unless it opens with a round.
 export function titleOf(prompt: string, kind: string, reviewScope: string | null, backend: string): string {
   const preview = prompt.replace(/\s+/g, ' ').trim().replace(LABEL_PREFIX, '')
   if (preview === '' || DEFAULT_REVIEW.test(preview)) {
@@ -548,7 +561,8 @@ export function titleOf(prompt: string, kind: string, reviewScope: string | null
   }
   let title = ROUND_HEAD.exec(preview)?.[1] ?? null
   if (title === null) {
-    title = preview
+    const focus = focusOf(preview)
+    title = focus === null ? preview : focus.charAt(0).toUpperCase() + focus.slice(1)
     const sentence = /[.!?](?:\s|$)/.exec(title)
     if (sentence && sentence.index >= 8) title = title.slice(0, sentence.index)
     const colon = title.indexOf(': ')
@@ -578,7 +592,9 @@ export function questionOf(round: Round): string {
   const preview = (round.task.promptPreview ?? '').replace(/\s+/g, ' ').trim().replace(LABEL_PREFIX, '')
   if (preview === '' || DEFAULT_REVIEW.test(preview)) return ''
   const title = round.title.replace(/…$/, '')
-  const rest = preview.toLowerCase().startsWith(title.toLowerCase()) ? preview.slice(title.length) : preview
+  // A round named by its focus was asked the focus; the opening around it is the same every time.
+  const asked = (ROUND_HEAD.test(preview) ? null : focusOf(preview)) ?? preview
+  const rest = asked.toLowerCase().startsWith(title.toLowerCase()) ? asked.slice(title.length) : asked
   return rest.replace(/^[\s.,;:!?—–-]+/, '').trim()
 }
 

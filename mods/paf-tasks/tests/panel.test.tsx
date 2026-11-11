@@ -10,8 +10,9 @@ const ran = (stdout: string, exitCode = 0, stderr = '') => ({
 
 type World = {
   tasks: PafTask[]
-  // 'missing': herdr cannot be run here. `pafError`: what `phone-a-friend` fails with.
-  herdr?: 'missing'
+  // 'missing': herdr cannot be run here. 'stopped': it runs, and says its server does not.
+  // `pafError`: what `phone-a-friend` fails with.
+  herdr?: 'missing' | 'stopped'
   pafError?: string
   isPlaced?: boolean
   // Paths that, by the time they are asked about, hold another repository.
@@ -24,10 +25,14 @@ type World = {
   branch?: string | null
 }
 
+// What herdr 0.x prints, on stderr with exit 1, when no server is running.
+const HERDR_STOPPED =
+  '{"id":"cli:agent:list","error":{"code":"server_not_running","message":"no herdr server is running at /home/me/.config/herdr/herdr.sock; run `herdr` to start or attach it"}}'
+
 // The host beneath the mod: git, phone-a-friend and herdr answered from `world`,
 // which a test may change between polls. Returns every command that was run.
-function host(on: On, world: World): { runs: string[][]; toasts: string[]; copied: string[]; submitted: string[]; opened: number } {
-  const seen = { runs: [] as string[][], toasts: [] as string[], copied: [] as string[], submitted: [] as string[], opened: 0 }
+function host(on: On, world: World): { runs: string[][]; toasts: string[]; copied: string[]; submitted: string[]; opened: number; painted: number } {
+  const seen = { runs: [] as string[][], toasts: [] as string[], copied: [] as string[], submitted: [] as string[], opened: 0, painted: 0 }
   on('process.run', async (_$, e) => {
     const argv = [...e.argv]
     seen.runs.push(argv)
@@ -40,6 +45,7 @@ function host(on: On, world: World): { runs: string[][]; toasts: string[]; copie
     if (argv[0] === 'git') return ran(PORCELAIN)
     if (argv[0] === 'herdr') {
       if (world.herdr === 'missing') return ran('', 127, 'env: node: No such file or directory')
+      if (world.herdr === 'stopped') return ran('', 1, HERDR_STOPPED)
       if (argv[1] === 'agent' && argv[2] === 'list') return ran(JSON.stringify(AGENTS))
       if (argv[1] === 'workspace') return ran(JSON.stringify(WORKSPACES))
       return ran('')
@@ -49,8 +55,10 @@ function host(on: On, world: World): { runs: string[][]; toasts: string[]; copie
     const repo = argv.includes('--repo') ? argv[argv.indexOf('--repo') + 1] : null
     return ran(JSON.stringify(world.tasks.filter(item => repo === null || item.repoPath === repo)))
   })
-  on('ui.open', async () => {
+  on('ui.open', async (_$, e) => {
     seen.opened += 1
+    // An open that leaves the terminal to paint the pane in the theme's background.
+    if (e.backgroundColor !== 'transparent') seen.painted += 1
     return { value: world.isPlaced === false ? { isPlaced: false, reason: 'the terminal is too narrow' } : { isPlaced: true } }
   })
   on('ui.close', async () => ({ value: undefined }))
@@ -84,7 +92,7 @@ const PANE = {
 
 const BAND = {
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -97,16 +105,17 @@ test('the panel shows the thread for this branch: its trail, its rounds, and wha
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'paf-tasks', surface, ...PANE })
     expect(await ui.find({ type: 'Text', text: 'feat/pi-backend' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /codex · 4 rounds over 2h/ })).toBeDefined()
-    // Oldest to newest: revise, ship, failed, revise.
-    expect((await ui.find({ type: 'Text', text: /^✗ ✓ ! ✗$/ }))?.text).toBe('✗ ✓ ! ✗')
+    expect(await ui.find({ type: 'Text', text: 'feat/pi-backend · paf' })).toBeDefined()
+    // Oldest to newest: revise, ship, failed, revise with a blocker (its own mark); then the thread's facts on the same line.
+    expect((await ui.find({ type: 'Text', text: /^✗ ✓ ! ⊗ / }))?.text).toBe('✗ ✓ ! ⊗   4 rounds over 2h · codex')
 
     // The newest round is open: Codex's three findings, worst first as it wrote them.
     expect((await ui.find({ key: 'round-4dba04f2' }))?.props.label).toBe('Review this branch (pi host slice)')
     expect(await ui.find({ type: 'Text', text: /^1 blocker · 2 important$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /branch vs origin\/main · 14 files · tree changed during review/ })).toBeDefined()
     expect(await ui.find({ type: 'Markdown', text: /A copied skill without the marker is deleted on uninstall/ })).toBeDefined()
-    expect(await ui.findAll({ type: 'Text', text: /^(blocker|important)$/ })).toHaveLength(3)
+    // Blockers and important findings are solid labels.
+    expect(await ui.findAll({ type: 'Text', text: /^ (BLOCKER|IMPORTANT) $/ })).toHaveLength(3)
     // A finding that opens with code is left as written.
     expect(await ui.find({ type: 'Markdown', text: /^`piAgentDir\(\)` does not expand/ })).toBeDefined()
 
@@ -231,6 +240,24 @@ test('the panel leads with the branch checked out here, and history waits behind
   await ui.unmount()
 })
 
+test('when every other branch is older than a week, one line says how many, under no heading', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const old = task({ id: 'o0000002', branch: 'feat/rust-poc', promptPreview: 'Gate B for the Rust harness.' }, 20 * 86_400, 300)
+  const older = task({ id: 'o0000003', branch: 'fix/old-logs', promptPreview: 'Round 1 on the logs.' }, 30 * 86_400, 300)
+  host(on, { tasks: [SHIP, old, older] })
+  await $.command.run(paf())
+
+  const ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /^OTHER BRANCHES/ })).toBeUndefined()
+  expect((await ui.find({ key: 'branches' }))?.props.label).toBe('2 older branches here')
+  await ui.press({ key: 'branches' })
+  expect(await ui.find({ type: 'Text', text: 'OTHER BRANCHES HERE' })).toBeDefined()
+  expect(await ui.find({ key: 'thread-feat/rust-poc' })).toBeDefined()
+  expect(await ui.find({ key: 'thread-fix/old-logs' })).toBeDefined()
+  expect((await ui.find({ key: 'branches' }))?.props.label).toBe('fewer branches')
+  await ui.unmount()
+})
+
 test('on a branch with no reviews yet the panel says so, and lists the branches that have some', async ($, on) => {
   mock.clock(on, { now: NOW })
   host(on, { tasks: [SHIP, REVISE], branch: 'main' })
@@ -258,6 +285,72 @@ test('the panel opens by itself for a call here that is running or just finished
   world.tasks = [{ ...LIVE, id: 'l0000002' }, ...world.tasks]
   await clock.advance(16_000)
   expect(seen.opened).toBe(1)
+})
+
+// A dark theme in a light terminal drew the pane's plain text black on black:
+// the theme's background under the terminal's own foreground.
+test('every open leaves the terminal its own background, by itself and when asked', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const seen = host(on, { tasks: [{ ...LIVE, id: 'l0000003' }] })
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: { command: 'paf' } }))
+  await $.session.start({ cwd: `${ROOT}/src`, surface: 'terminal', isInteractive: true })
+  await clock.advance(16_000)
+  expect(seen.opened).toBe(1)
+  expect(seen.painted).toBe(0)
+  await $.command.run(paf())
+  expect(seen.opened).toBe(2)
+  expect(seen.painted).toBe(0)
+})
+
+test('on main the panel lists what this session asked, and t shows every session', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const onMain = (over: Partial<PafTask> & { id: string }, startedAgo: number, tookSeconds: number) => task({ branch: 'main', ...over }, startedAgo, tookSeconds)
+  const old = onMain({ id: 'm0000001', promptPreview: 'Round 1 on the backdated logs.', result: 'VERDICT: revise\n\n- [blocker] [src/log.ts:12] — the date is dropped.' }, 5 * 86_400, 44)
+  const world: World = { tasks: [old], branch: 'main' }
+  host(on, world)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: { command: 'paf' } }))
+  await $.session.start({ cwd: `${ROOT}/src`, surface: 'terminal', isInteractive: true })
+  await $.command.run(paf())
+
+  let ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: 'Nothing asked from this session yet.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' this session ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'idle 5d' })).toBeDefined()
+  // The newest fact leads: a narrow pane cuts the line at its end.
+  expect(await ui.find({ type: 'Text', text: '⊗   last 5d ago · 1 round · codex' })).toBeDefined()
+  expect(await ui.find({ key: 'round-m0000001' })).toBeUndefined()
+  // t lists every session's rounds, and back.
+  expect((await ui.find({ key: 'history' }))?.props.label).toBe('all sessions')
+  await ui.press({ key: 'history' })
+  expect(await ui.find({ key: 'round-m0000001' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' this session ' })).toBeUndefined()
+  expect((await ui.find({ key: 'history' }))?.props.label).toBe('this session')
+  await ui.press({ key: 'history' })
+  await ui.unmount()
+
+  // A call this session made is listed, named by its focus; the older round waits behind t.
+  const answer = 'Fix 1, partly agree. The defect is real: the selected past date is combined with the current clock. '.repeat(6).trim()
+  const mine = onMain(
+    { id: 'm0000002', promptPreview: 'Review this response in context and provide your opinion. Focus: a second opinion on the owner-time field.', result: answer },
+    -30,
+    10,
+  )
+  world.tasks = [mine, old]
+  await clock.advance(60_000)
+  await $.command.run(paf())
+  ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect((await ui.find({ key: 'round-m0000002' }))?.props.label).toBe('The owner-time field')
+  expect(await ui.find({ key: 'round-m0000001' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '1 round before this session' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'done 20s ago' })).toBeDefined()
+  // A long prose answer folds to its opening.
+  expect((await ui.find({ type: 'Markdown', text: /^Fix 1, partly agree\./ }))?.props.text).toEndWith(' …')
+  expect(await ui.find({ type: 'Text', text: `${answer.length} characters in all` })).toBeDefined()
+  await ui.press({ key: 'full' })
+  expect(await ui.find({ type: 'Markdown', text: answer })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a listed worktree path that now holds another repository is not asked about', async ($, on) => {
@@ -349,7 +442,7 @@ test('a round that finishes between polls raises a toast with its verdict', asyn
   world.tasks = [{ ...LIVE, status: 'completed', finishedAt: new Date(NOW + 2_000).toISOString(), result: CODEX.result }, SHIP]
   await clock.advance(2_000)
   await $.command.run(paf())
-  expect(seen.toasts.filter(text => text.includes('codex'))).toEqual(['✗ codex: 1 blocker · 2 important · Pass 7 on the pi host work'])
+  expect(seen.toasts.filter(text => text.includes('codex'))).toEqual(['⊗ codex: 1 blocker · 2 important · Pass 7 on the pi host work'])
 })
 
 test('a failing CLI shows its error in the panel instead of throwing', async ($, on) => {
@@ -413,6 +506,24 @@ test('without herdr the Agents view is not offered', async ($, on) => {
   expect(await ui.find({ key: 'view-agents' })).toBeUndefined()
   expect(await ui.find({ key: 'round-b2d2d470' })).toBeDefined()
   await ui.unmount()
+})
+
+test('with herdr installed and its server stopped, the Agents view says so in words', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  host(on, { tasks: [SHIP], herdr: 'stopped' })
+  await $.command.run(paf('agents'))
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: 'paf-tasks', surface, ...PANE })
+    expect(await ui.find({ type: 'Text', text: 'herdr is not running.' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Run `herdr` in a terminal to start it\./ })).toBeDefined()
+    // herdr's JSON is never drawn, and a stopped server is not "no sessions".
+    expect(await ui.find({ type: 'Text', text: /server_not_running|cli:agent:list|\{"/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'No agent sessions in herdr right now.' })).toBeUndefined()
+    // The view stays offered: starting herdr is all it takes.
+    expect(await ui.find({ key: 'view-agents' })).toBeDefined()
+    await ui.unmount()
+  }
 })
 
 test('without herdr, herdr is asked again once a minute, not on every tick', async ($, on) => {
@@ -494,7 +605,7 @@ test('in the conversation a folded call is drawn as a call: who was asked, the v
       props: { calls: [done('t1', RELAY, output)], isActive: false, isExpanded: false },
     })
     expect(await alone.find({ type: 'Text', text: /Ran 1 shell commands/ })).toBeUndefined()
-    expect((await alone.find({ type: 'Text', text: /^✗ codex/ }))?.text).toBe('✗ codex · Review this branch (pi host slice) · 1 blocker · 2 important · 3m 7s')
+    expect((await alone.find({ type: 'Text', text: /^⊗ codex/ }))?.text).toBe('⊗ codex · Review this branch (pi host slice) · 1 blocker · 2 important · 3m 7s')
     const rows = (await alone.findAll({ type: 'Text', text: /^(blocker|important)\s+\S/ })).map(found => found.text)
     expect(rows).toHaveLength(3)
     expect(rows[0]).toStartWith('blocker   installer.ts:843  A copied skill without the marker is deleted on uninstall.')
@@ -509,7 +620,7 @@ test('in the conversation a folded call is drawn as a call: who was asked, the v
       props: { calls: [done('t0', 'git status --short', ' M README.md'), done('t1', RELAY, output)], isActive: false, isExpanded: false },
     })
     expect(await mixed.find({ type: 'Text', text: 'Ran 2 shell commands' })).toBeDefined()
-    expect(await mixed.find({ type: 'Text', text: /^✗ codex · Review this branch/ })).toBeDefined()
+    expect(await mixed.find({ type: 'Text', text: /^⊗ codex · Review this branch/ })).toBeDefined()
     await mixed.unmount()
 
     // Unfolded, and groups with no such call, are the engine's own.

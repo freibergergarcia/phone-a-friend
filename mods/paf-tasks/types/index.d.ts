@@ -44,6 +44,10 @@ export type TimelineEntry = { at: number; text: string }
 // `repo` is this worktree; `project` is every worktree of the same repository.
 export type PafScope = 'repo' | 'project'
 export type PafView = 'calls' | 'agents'
+// Which rounds of a branch the Reviews view lists: `session`, those started
+// since this session began; `all`, every one; `auto`, `session` on main,
+// master or trunk and `all` elsewhere.
+export type PafHistory = 'auto' | 'session' | 'all'
 
 // When one of this session's calls began, and what it asked (backend, label, prompt).
 // `task`, once a call in the foreground has ended: the task it printed, or null for none.
@@ -84,6 +88,9 @@ declare module 'claude-code' {
       pane: string | null
       // Whether the panel is on screen: placed, and the tab that shows.
       isOnScreen: boolean
+      // When this session began (or was cleared, resumed or forked); null before it is known.
+      sessionStart: number | null
+      history: PafHistory
     }
   }
 }

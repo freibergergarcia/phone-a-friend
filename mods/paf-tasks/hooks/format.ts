@@ -3,6 +3,7 @@
 import type { HerdrAgent, PafTask } from '../types'
 import { countsText, isActive, parseTime, roundOf, titleOf, toRound } from './model'
 import type { AgentState, Round, Severity, Thread } from './model'
+import { ERROR_COLOR, LIVE_COLOR, OK_COLOR, SUBTLE, WARN_COLOR } from './palette'
 
 // 00:45, 12:03, 1:02:09
 export function clock(ms: number): string {
@@ -38,6 +39,22 @@ export const fit = (text: string, width: number): string =>
   width <= 0 ? '' : text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`
 
 export const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim()
+
+// Why herdr could not list its agents, from what it printed. herdr answers in
+// JSON, errors too: `{"id":"cli:agent:list","error":{"code":"server_not_running",
+// "message":"no herdr server is running at …; run `herdr` to start or attach it"}}`.
+// `stopped` for a server that is not running, which the view words itself;
+// else herdr's own sentence, never the JSON around it.
+export function herdrProblem(output: string, exitCode: number): string {
+  try {
+    const error = (JSON.parse(output) as { error?: { code?: unknown; message?: unknown } } | null)?.error
+    if (error?.code === 'server_not_running') return 'stopped'
+    if (typeof error?.message === 'string' && oneLine(error.message) !== '') return fit(oneLine(error.message), 240)
+  } catch {
+    // Not JSON: an older herdr, or a shell's own complaint.
+  }
+  return fit(oneLine(output) || `herdr exited ${exitCode}`, 240)
+}
 
 // Markdown as plain words, for a toast or a one-line row.
 export const plain = (text: string): string =>
@@ -146,16 +163,36 @@ export const spin = (frame: number): string => SPINNER[frame % SPINNER.length] ?
 
 export type Look = { glyph: string; color: string }
 
-// The mark a round wears in the trail and in its row.
+// The mark a round wears in the trail and in its row. A round with a blocker
+// has its own mark, not only its own color: in the trail the mark is all there
+// is, and a color can be faint or, to some eyes, the same as the next one.
 export function lookOf(round: Round, frame: number): Look {
-  if (round.state === 'live') return { glyph: spin(frame), color: 'cyan' }
-  if (round.state === 'ship') return { glyph: '✓', color: 'green' }
-  if (round.state === 'revise') return { glyph: '✗', color: round.worst === 'blocker' ? 'red' : 'yellow' }
-  if (round.state === 'failed') return { glyph: '!', color: 'red' }
-  return { glyph: '·', color: 'gray' }
+  if (round.state === 'live') return { glyph: spin(frame), color: LIVE_COLOR }
+  if (round.state === 'ship') return { glyph: '✓', color: OK_COLOR }
+  if (round.state === 'revise') return round.worst === 'blocker' ? { glyph: '⊗', color: ERROR_COLOR } : { glyph: '✗', color: WARN_COLOR }
+  if (round.state === 'failed') return { glyph: '!', color: ERROR_COLOR }
+  return { glyph: '·', color: SUBTLE }
 }
 
-export const SEVERITY_COLOR: Record<Severity, string> = { blocker: 'red', important: 'yellow', finding: 'yellow', nit: 'gray' }
+export const SEVERITY_COLOR: Record<Severity, string> = { blocker: ERROR_COLOR, important: WARN_COLOR, finding: WARN_COLOR, nit: SUBTLE }
+
+// Blockers and important findings are drawn as solid labels; the rest as colored words.
+export const isLoud = (severity: Severity): boolean => severity === 'blocker' || severity === 'important'
+
+// 3873 -> "3,873"
+export const thousands = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+// What a thread is doing now, for the right of its header: "⠹ running · 00:42",
+// "done 40s ago" for one that just finished, else "idle 5d".
+export function threadStatus(thread: Thread, now: number, frame: number, recentMs: number): { text: string; isLive: boolean } {
+  const live = thread.rounds.filter(round => round.state === 'live')
+  if (live.length > 0) {
+    const since = Math.min(...live.map(round => round.startedAt ?? now))
+    return { text: `${spin(frame)} ${live.length > 1 ? `${live.length} running` : 'running'} · ${clock(now - since)}`, isLive: true }
+  }
+  const quiet = now - thread.lastAt
+  return quiet < recentMs ? { text: `done ${age(quiet)} ago`, isLive: true } : { text: `idle ${age(quiet)}`, isLive: false }
+}
 
 // What a row says after the title. The findings are the facts, so they are
 // what a revise says; "ship" is said only when the reviewer said it, and an
@@ -199,12 +236,16 @@ export function threadSpan(thread: Thread): string {
   return age(Math.max(0, thread.lastAt - thread.firstAt))
 }
 
+// "4 rounds over 2h", "1 round"
+export const roundsText = (thread: Thread): string =>
+  thread.rounds.length > 1 ? `${thread.rounds.length} rounds over ${threadSpan(thread)}` : `${thread.rounds.length} round`
+
 export const AGENT_LOOK: Record<AgentState, { color: string; word: string }> = {
-  blocked: { color: 'yellow', word: 'needs you' },
-  done: { color: 'green', word: 'done' },
-  working: { color: 'cyan', word: 'working' },
-  idle: { color: 'gray', word: 'idle' },
-  unknown: { color: 'gray', word: 'open' },
+  blocked: { color: WARN_COLOR, word: 'needs you' },
+  done: { color: OK_COLOR, word: 'done' },
+  working: { color: LIVE_COLOR, word: 'working' },
+  idle: { color: SUBTLE, word: 'idle' },
+  unknown: { color: SUBTLE, word: 'open' },
 }
 
 export const agentGlyph = (state: AgentState, frame: number): string =>
