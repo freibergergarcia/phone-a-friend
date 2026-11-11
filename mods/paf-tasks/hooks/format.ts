@@ -146,16 +146,39 @@ export const spin = (frame: number): string => SPINNER[frame % SPINNER.length] ?
 
 export type Look = { glyph: string; color: string }
 
+// Colors are the person's theme keys, so a light theme and the colorblind
+// themes get their own; cyan, which no key names, marks what is running.
+export const SUBTLE = 'inactive'
+export const LIVE_COLOR = 'cyan'
+
 // The mark a round wears in the trail and in its row.
 export function lookOf(round: Round, frame: number): Look {
-  if (round.state === 'live') return { glyph: spin(frame), color: 'cyan' }
-  if (round.state === 'ship') return { glyph: '✓', color: 'green' }
-  if (round.state === 'revise') return { glyph: '✗', color: round.worst === 'blocker' ? 'red' : 'yellow' }
-  if (round.state === 'failed') return { glyph: '!', color: 'red' }
-  return { glyph: '·', color: 'gray' }
+  if (round.state === 'live') return { glyph: spin(frame), color: LIVE_COLOR }
+  if (round.state === 'ship') return { glyph: '✓', color: 'success' }
+  if (round.state === 'revise') return { glyph: '✗', color: round.worst === 'blocker' ? 'error' : 'warning' }
+  if (round.state === 'failed') return { glyph: '!', color: 'error' }
+  return { glyph: '·', color: SUBTLE }
 }
 
-export const SEVERITY_COLOR: Record<Severity, string> = { blocker: 'red', important: 'yellow', finding: 'yellow', nit: 'gray' }
+export const SEVERITY_COLOR: Record<Severity, string> = { blocker: 'error', important: 'warning', finding: 'warning', nit: SUBTLE }
+
+// Blockers and important findings are drawn as solid labels; the rest as colored words.
+export const isLoud = (severity: Severity): boolean => severity === 'blocker' || severity === 'important'
+
+// 3873 -> "3,873"
+export const thousands = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+// What a thread is doing now, for the right of its header: "⠹ running · 00:42",
+// "done 40s ago" for one that just finished, else "idle 5d".
+export function threadStatus(thread: Thread, now: number, frame: number, recentMs: number): { text: string; isLive: boolean } {
+  const live = thread.rounds.filter(round => round.state === 'live')
+  if (live.length > 0) {
+    const since = Math.min(...live.map(round => round.startedAt ?? now))
+    return { text: `${spin(frame)} ${live.length > 1 ? `${live.length} running` : 'running'} · ${clock(now - since)}`, isLive: true }
+  }
+  const quiet = now - thread.lastAt
+  return quiet < recentMs ? { text: `done ${age(quiet)} ago`, isLive: true } : { text: `idle ${age(quiet)}`, isLive: false }
+}
 
 // What a row says after the title. The findings are the facts, so they are
 // what a revise says; "ship" is said only when the reviewer said it, and an
@@ -198,6 +221,10 @@ export function cleanActivity(text: string): string {
 export function threadSpan(thread: Thread): string {
   return age(Math.max(0, thread.lastAt - thread.firstAt))
 }
+
+// "4 rounds over 2h", "1 round"
+export const roundsText = (thread: Thread): string =>
+  thread.rounds.length > 1 ? `${thread.rounds.length} rounds over ${threadSpan(thread)}` : `${thread.rounds.length} round`
 
 export const AGENT_LOOK: Record<AgentState, { color: string; word: string }> = {
   blocked: { color: 'yellow', word: 'needs you' },

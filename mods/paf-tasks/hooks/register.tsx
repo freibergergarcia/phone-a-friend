@@ -4,13 +4,16 @@ import type { ElementTable, Register } from 'claude-code'
 import type { HerdrAgent, PafCallStart, PafScope, PafTask, PafView, TimelineEntry } from '../types'
 import {
   AGENT_LOOK,
+  LIVE_COLOR,
   SEVERITY_COLOR,
+  SUBTLE,
   age,
   agentGlyph,
   cleanActivity,
   clock,
   durationOf,
   fit,
+  isLoud,
   lede,
   lookOf,
   oneLine,
@@ -20,12 +23,14 @@ import {
   rootOf,
   relayKey,
   roundOfCall,
+  roundsText,
   scopeText,
   slim,
   slimAgent,
   slimWorkspace,
   spin,
-  threadSpan,
+  thousands,
+  threadStatus,
   took,
   verdictText,
 } from './format'
@@ -63,7 +68,13 @@ const TIMELINE_STEPS = 5
 const FOLDED_ROUNDS = 7
 const FOLDED_FINDINGS = 6
 const FOLDED_BRANCHES = 8
-const FOLDED_PROSE_CHARS = 900
+// A prose answer folded is its opening: a few lines, the rest one press away.
+const FOLDED_PROSE_CHARS = 360
+// The trail shares its line with the thread's facts.
+const TRAIL_MARKS = 12
+// Branches whose history is mostly other sessions': the Reviews view lists
+// only this session's rounds on them until `t` asks for all.
+const TRUNK = /^(?:main|master|trunk)$/
 const FULL_PROSE_CHARS = 9_000
 // In the conversation, a round shows this many findings, one line each.
 const TRANSCRIPT_FINDINGS = 6
@@ -93,6 +104,8 @@ const skippedAtom = atom({ plugin: 'paf-tasks', key: 'skippedWorktrees' } as con
 const branchAtom = atom({ plugin: 'paf-tasks', key: 'branch' } as const, null)
 const paneAtom = atom({ plugin: 'paf-tasks', key: 'pane' } as const, null)
 const onScreenAtom = atom({ plugin: 'paf-tasks', key: 'isOnScreen' } as const, false)
+const sessionStartAtom = atom({ plugin: 'paf-tasks', key: 'sessionStart' } as const, null)
+const historyAtom = atom({ plugin: 'paf-tasks', key: 'history' } as const, 'auto')
 
 type Panel = 'both' | 'calls' | 'agents'
 type Band = 'auto' | 'always' | 'never'
@@ -618,12 +631,12 @@ function callLine(ui: Ui, view: CallView, live: Live) {
   const { Text } = ui
   const { call, state, round } = view
   const look = state.isInterrupted
-    ? { glyph: '!', color: 'yellow' }
+    ? { glyph: '!', color: 'warning' }
     : round !== null
       ? lookOf(round, live.frame)
       : state.isRunning
-        ? { glyph: spin(live.frame), color: 'cyan' }
-        : { glyph: '·', color: 'gray' }
+        ? { glyph: spin(live.frame), color: LIVE_COLOR }
+        : { glyph: '·', color: SUBTLE }
   const duration = round !== null ? durationOf(round) : null
   const tail = state.isInterrupted
     ? 'interrupted'
@@ -659,7 +672,7 @@ function callAnswer(ui: Ui, round: Round, hasPanel: boolean) {
     <Box flexDirection="column" paddingLeft={2}>
       {round.problem !== null && (
         <Text wrap="wrap">
-          <Text color="red">{fit(round.problem.line, 300)}</Text>
+          <Text color="error">{fit(round.problem.line, 300)}</Text>
           {round.problem.hint !== null && <Text dimColor>{` ${round.problem.hint}`}</Text>}
         </Text>
       )}
@@ -731,6 +744,8 @@ export const register: Register = (on, options) => {
     pollNow = isWaited => poll(io, isWaited)
     selfPane = (await $.env.get('HERDR_PANE_ID')) ?? null
     await update($, paneAtom, () => selfPane)
+    const startedAt = await $.clock.now()
+    await update($, sessionStartAtom, () => startedAt)
 
     await $.command.register({
       name: 'paf',
@@ -767,6 +782,9 @@ export const register: Register = (on, options) => {
     lastAgents = ''
     lastOnScreen = null
     await update($, paneAtom, () => selfPane)
+    // "This session" starts over with it.
+    const startedAt = await $.clock.now()
+    await update($, sessionStartAtom, () => startedAt)
     void pollNow?.()
 
     return next(e)
@@ -1210,6 +1228,8 @@ export const register: Register = (on, options) => {
     const isAllBranches = await read($, allBranchesAtom)
     const branch = await read($, branchAtom)
     const skipped = await read($, skippedAtom)
+    const sessionStart = await read($, sessionStartAtom)
+    const history = await read($, historyAtom)
 
     // The Agents view may have read other worktrees; this view shows them only when asked.
     const threads = toThreads(scope === 'project' ? tasks : tasks.filter(task => task.repoPath === here.root))
@@ -1260,12 +1280,73 @@ export const register: Register = (on, options) => {
     )
     const skippedNote =
       scope === 'project' && skipped > 0 ? (
-        <Text dimColor wrap="wrap">{`${skipped} more worktree${skipped === 1 ? ' is' : 's are'} not read: the panel reads ${MAX_WORKTREES}.`}</Text>
+        <Text color={SUBTLE} wrap="wrap">{`${skipped} more worktree${skipped === 1 ? ' is' : 's are'} not read: the panel reads ${MAX_WORKTREES}.`}</Text>
       ) : null
+
+    // On main, master or trunk most of the history is other sessions', so
+    // only what was asked since this session began is listed there, until `t`.
+    const isSessionOnly = (item: Thread): boolean => sessionStart !== null && (history === 'session' || (history === 'auto' && TRUNK.test(item.title)))
+    const historyButton = (isSession: boolean) =>
+      sessionStart !== null && (
+        <Button
+          key="history"
+          plain
+          hotkey="t"
+          label={isSession ? 'all sessions' : 'this session'}
+          dimColor
+          onPress={async () => {
+            await update($, historyAtom, () => (isSession ? 'all' : 'session'))
+            await update($, roundAtom, () => null)
+            await update($, allRoundsAtom, () => false)
+          }}
+        />
+      )
+
+    // "feat/x · repo" and, on the right, what the thread is doing now.
+    const threadHead = (item: Thread, isSession: boolean) => {
+      const status = threadStatus(item, now, frame, RECENT_MS)
+      return (
+        <Box justifyContent="space-between" columnGap={2}>
+          <Box flexShrink={1}>
+            <Text wrap="truncate-end">
+              <Text bold>{item.title}</Text>
+              <Text color={SUBTLE}>{` · ${item.repo}`}</Text>
+            </Text>
+          </Box>
+          <Box flexShrink={0} columnGap={2}>
+            {isSession && (
+              <Text inverse bold color={LIVE_COLOR}>
+                {' this session '}
+              </Text>
+            )}
+            <Text color={status.isLive ? LIVE_COLOR : SUBTLE}>{status.text}</Text>
+          </Box>
+        </Box>
+      )
+    }
+    // The trail: every round's outcome, oldest to newest, then the facts. A
+    // review converging reads ✗ ✗ ✓; one going in circles shows it at a glance.
+    const trailLine = (rounds: readonly Round[], selected: Round | null, facts: string) => {
+      const trail = rounds.slice(-Math.max(4, Math.min(TRAIL_MARKS, Math.floor((width - 24) / 2))))
+      return (
+        <Text wrap="truncate-end">
+          {rounds.length > trail.length && <Text color={SUBTLE}>{'… '}</Text>}
+          {trail.map((round, index) => {
+            const look = lookOf(round, frame)
+            return (
+              <Text color={look.color} bold underline={round === selected}>
+                {`${look.glyph}${index < trail.length - 1 ? ' ' : ''}`}
+              </Text>
+            )
+          })}
+          <Text color={SUBTLE}>{`   ${facts}`}</Text>
+        </Text>
+      )
+    }
 
     const otherBranches = rest.length > 0 && !isInline && (
       <Box flexDirection="column" marginTop={1}>
-        <Text dimColor bold>
+        <Text color={SUBTLE} bold>
           {scope === 'repo' ? 'OTHER BRANCHES HERE' : 'OTHER BRANCHES'}
         </Text>
         {branches.map(other => {
@@ -1278,7 +1359,7 @@ export const register: Register = (on, options) => {
                 <Text color={look.color}>{look.glyph}</Text>
                 <Button key={`thread-${other.key}`} plain dimColor label={fit(other.title, Math.max(10, width - right.length - 5))} onPress={() => void openThread(other.key)} />
               </Box>
-              <Text dimColor>{right}</Text>
+              <Text color={SUBTLE}>{right}</Text>
             </Box>
           )
         })}
@@ -1300,7 +1381,7 @@ export const register: Register = (on, options) => {
           {header}
           {problem !== null && (
             <Box marginTop={1}>
-              <Text color="red" wrap="wrap">
+              <Text color="error" wrap="wrap">
                 {problem}
               </Text>
             </Box>
@@ -1315,12 +1396,12 @@ export const register: Register = (on, options) => {
             <Box flexDirection="column" marginTop={1}>
               <Text>No reviews {scope === 'repo' ? 'in this worktree' : 'in this repository'} yet.</Text>
               <Box marginTop={gap}>
-                <Text dimColor wrap="wrap">
+                <Text color={SUBTLE} wrap="wrap">
                   When Claude asks another model for a second opinion, the conversation lands here: every round, its verdict and its findings.
                 </Text>
               </Box>
               <Box marginTop={gap}>
-                <Text dimColor>Try: </Text>
+                <Text color={SUBTLE}>Try: </Text>
                 <Text>ask codex to review this branch</Text>
               </Box>
             </Box>
@@ -1331,8 +1412,55 @@ export const register: Register = (on, options) => {
       )
     }
 
+    const isSession = isSessionOnly(thread)
+    // A round at work is listed whenever it started: it is what the panel is for.
+    const mine = isSession ? thread.rounds.filter(round => round.state === 'live' || (round.startedAt ?? 0) >= (sessionStart ?? 0)) : thread.rounds
+    const earlier = thread.rounds.length - mine.length
+
+    if (mine.length === 0) {
+      return (
+        <Box flexDirection="column">
+          {header}
+          {problem !== null && (
+            <Box marginTop={1}>
+              <Text color="error" wrap="wrap">
+                {problem}
+              </Text>
+            </Box>
+          )}
+          <Box flexDirection="column" marginTop={1}>
+            {threadHead(thread, true)}
+          </Box>
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold>Nothing asked from this session yet.</Text>
+            {isAutoOpen && (
+              <Text color={SUBTLE} wrap="wrap">
+                A call you make here opens this panel by itself.
+              </Text>
+            )}
+          </Box>
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={SUBTLE}>{`Earlier on ${thread.title}`}</Text>
+            {trailLine(thread.rounds, null, `${roundsText(thread)} · ${thread.backends.join(' + ')} · last ${age(now - thread.lastAt)} ago`)}
+          </Box>
+          {otherBranches}
+          {skippedNote}
+          <Box columnGap={2} marginTop={gap} flexWrap="wrap">
+            {historyButton(true)}
+            {rest.length > 0 && <Button key="branch" plain hotkey="b" label="next branch" dimColor onPress={() => void nextThread()} />}
+            <Button key="scope" plain hotkey="w" label={scope === 'repo' ? 'all worktrees' : 'this worktree only'} dimColor onPress={() => void switchScope()} />
+            <Button key="refresh" plain hotkey="r" label="refresh" dimColor onPress={() => void pollNow?.(true)} />
+          </Box>
+        </Box>
+      )
+    }
+
+    // What is listed: this session's rounds, or all of them.
+    const shown: Thread = isSession
+      ? { ...thread, rounds: mine, backends: [...new Set(mine.map(round => round.task.backend))], firstAt: mine[0]?.startedAt ?? thread.firstAt }
+      : thread
     // Newest first, as a conversation reads from the bottom up.
-    const rounds = [...thread.rounds].reverse()
+    const rounds = [...shown.rounds].reverse()
     const selected: Round = rounds.find(round => round.task.id === roundId) ?? rounds.find(round => round.state === 'live') ?? (rounds[0] as Round)
     const folded = isInline ? 3 : FOLDED_ROUNDS
     const listed = isAllRounds ? rounds : rounds.slice(0, folded)
@@ -1344,18 +1472,8 @@ export const register: Register = (on, options) => {
         return order[Math.min(order.length - 1, Math.max(0, at + by))] ?? null
       })
 
-    // The trail: every round's outcome, oldest to newest. A review converging
-    // reads ✗ ✗ ✓; one going in circles shows it at a glance.
-    const room = Math.max(6, Math.floor((width + 1) / 2) - 1)
-    const trail = thread.rounds.slice(-room)
     const worktree = placeOf(thread.rounds.at(-1)?.task.repoPath ?? null).worktree
-    const about = [
-      thread.backends.join(' + '),
-      thread.rounds.length > 1 ? `${thread.rounds.length} rounds over ${threadSpan(thread)}` : '1 round',
-      scope === 'project' && worktree ? worktree : null,
-    ]
-      .filter(Boolean)
-      .join(' · ')
+    const about = [roundsText(shown), shown.backends.join(' + '), scope === 'project' && worktree ? worktree : null].filter(Boolean).join(' · ')
 
     const details = (round: Round) => {
       const task = round.task
@@ -1383,16 +1501,16 @@ export const register: Register = (on, options) => {
         <Box columnGap={1} marginBottom={gap}>
           <Box width={1} flexShrink={0} backgroundColor={look.color} />
           <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-            <Text dimColor wrap="truncate-end">
+            <Text color={SUBTLE} wrap="truncate-end">
               {meta}
             </Text>
             {scopeText(task) !== null && (
-              <Text dimColor wrap="truncate-end">
+              <Text color={SUBTLE} wrap="truncate-end">
                 {scopeText(task)}
               </Text>
             )}
             {asked !== '' && !isInline && (
-              <Text dimColor italic wrap="wrap">
+              <Text color={SUBTLE} italic wrap="wrap">
                 {isFull ? asked : fit(asked, Math.max(40, (width - 2) * 2 - 2))}
               </Text>
             )}
@@ -1401,29 +1519,29 @@ export const register: Register = (on, options) => {
               <Box flexDirection="column" marginTop={gap}>
                 {usual !== null && (
                   <Text wrap="truncate-end">
-                    <Text color="cyan">{'━'.repeat(filled)}</Text>
-                    <Text dimColor>{'─'.repeat(barWidth - filled)}</Text>
-                    <Text dimColor>{elapsed > usual * 1.5 ? `  longer than the usual ${took(usual)}` : `  usually ${took(usual)}`}</Text>
+                    <Text color={LIVE_COLOR}>{'━'.repeat(filled)}</Text>
+                    <Text color={SUBTLE}>{'─'.repeat(barWidth - filled)}</Text>
+                    <Text color={SUBTLE}>{elapsed > usual * 1.5 ? `  longer than the usual ${took(usual)}` : `  usually ${took(usual)}`}</Text>
                   </Text>
                 )}
                 {steps.map(entry => (
                   <Text wrap="truncate-end">
-                    <Text dimColor>{`${clock(entry.at * 1_000)}  `}</Text>
+                    <Text color={SUBTLE}>{`${clock(entry.at * 1_000)}  `}</Text>
                     {entry.text}
                   </Text>
                 ))}
-                {steps.length === 0 && <Text dimColor>starting…</Text>}
-                {steps.length > 0 && quiet > 45 && <Text dimColor italic>{`no new step for ${took(quiet * 1_000)}: thinking is not reported`}</Text>}
+                {steps.length === 0 && <Text color={SUBTLE}>starting…</Text>}
+                {steps.length > 0 && quiet > 45 && <Text color={SUBTLE} italic>{`no new step for ${took(quiet * 1_000)}: thinking is not reported`}</Text>}
               </Box>
             )}
 
             {round.problem !== null && (
               <Box flexDirection="column" marginTop={gap}>
-                <Text color="red" wrap="wrap">
+                <Text color="error" wrap="wrap">
                   {fit(round.problem.line, isFull ? 2_000 : 320)}
                 </Text>
                 {round.problem.hint !== null && (
-                  <Text dimColor wrap="wrap">
+                  <Text color={SUBTLE} wrap="wrap">
                     {round.problem.hint}
                   </Text>
                 )}
@@ -1433,25 +1551,32 @@ export const register: Register = (on, options) => {
             {findings.map(finding => (
               <Box flexDirection="column" marginTop={gap}>
                 <Text wrap="truncate-end">
-                  <Text color={SEVERITY_COLOR[finding.severity]} bold>
-                    {finding.severity}
-                  </Text>
-                  {finding.location !== null && <Text dimColor>{`  ${finding.location}`}</Text>}
+                  {isLoud(finding.severity) ? (
+                    <Text inverse bold color={SEVERITY_COLOR[finding.severity]}>
+                      {` ${finding.severity.toUpperCase()} `}
+                    </Text>
+                  ) : (
+                    <Text bold color={SEVERITY_COLOR[finding.severity]}>
+                      {finding.severity}
+                    </Text>
+                  )}
+                  {finding.location !== null && <Text color={SUBTLE}>{`  ${finding.location}`}</Text>}
                 </Text>
                 <Markdown text={capital(isFull ? finding.text : lede(finding.text, 240))} />
                 {isFull && finding.detail !== null && <Markdown dimColor text={finding.detail} />}
                 {!isFull && finding.detail !== null && finding.text.length < 90 && (
-                  <Text dimColor wrap="wrap">
+                  <Text color={SUBTLE} wrap="wrap">
                     {lede(plain(finding.detail), 150)}
                   </Text>
                 )}
               </Box>
             ))}
-            {round.answer.findings.length > findings.length && <Text dimColor>{`+${round.answer.findings.length - findings.length} more findings`}</Text>}
+            {round.answer.findings.length > findings.length && <Text color={SUBTLE}>{`+${round.answer.findings.length - findings.length} more findings`}</Text>}
 
             {round.state !== 'live' && round.problem === null && round.answer.findings.length === 0 && prose !== '' && (
-              <Box marginTop={gap}>
-                <Markdown text={prose.length > proseLimit ? `${prose.slice(0, proseLimit)} …` : prose} />
+              <Box flexDirection="column" marginTop={gap}>
+                <Markdown text={isFull ? (prose.length > proseLimit ? `${prose.slice(0, proseLimit)} …` : prose) : lede(prose, FOLDED_PROSE_CHARS)} />
+                {!isFull && prose.length > FOLDED_PROSE_CHARS && <Text color={SUBTLE}>{`${thousands(prose.length)} characters in all`}</Text>}
               </Box>
             )}
             {isFull && round.answer.findings.length > 0 && prose !== '' && (
@@ -1461,7 +1586,7 @@ export const register: Register = (on, options) => {
             )}
             {round.state !== 'live' && round.problem === null && task.result === null && (
               <Box marginTop={gap}>
-                <Text dimColor italic wrap="wrap">
+                <Text color={SUBTLE} italic wrap="wrap">
                   The answer was not kept (task_history is set to metadata).
                 </Text>
               </Box>
@@ -1507,10 +1632,8 @@ export const register: Register = (on, options) => {
               />
             </Box>
             <Box flexShrink={0}>
-              <Text color={isSelected && round.state !== 'answered' ? look.color : undefined} dimColor={!isSelected || round.state === 'answered'}>
-                {said}
-              </Text>
-              {when !== '' && <Text dimColor>{` · ${when}`}</Text>}
+              <Text color={isSelected && round.state !== 'answered' ? look.color : SUBTLE}>{said}</Text>
+              {when !== '' && <Text color={SUBTLE}>{` · ${when}`}</Text>}
             </Box>
           </Box>
           {isSelected && details(round)}
@@ -1523,32 +1646,15 @@ export const register: Register = (on, options) => {
         {header}
         {problem !== null && (
           <Box marginTop={1}>
-            <Text color="red" wrap="wrap">
+            <Text color="error" wrap="wrap">
               {problem}
             </Text>
           </Box>
         )}
 
         <Box flexDirection="column" marginTop={1}>
-          <Text bold wrap="truncate-end">
-            {thread.title}
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            {about}
-          </Text>
-          {thread.rounds.length > 1 && (
-            <Text wrap="truncate-end">
-              {thread.rounds.length > trail.length && <Text dimColor>{'… '}</Text>}
-              {trail.map((round, index) => {
-                const look = lookOf(round, frame)
-                return (
-                  <Text color={look.color} bold={round === selected} underline={round === selected}>
-                    {`${look.glyph}${index < trail.length - 1 ? ' ' : ''}`}
-                  </Text>
-                )
-              })}
-            </Text>
-          )}
+          {threadHead(thread, isSession)}
+          {trailLine(shown.rounds, selected, about)}
         </Box>
 
         <Box flexDirection="column" marginTop={gap}>
@@ -1563,6 +1669,7 @@ export const register: Register = (on, options) => {
               onPress={() => update($, allRoundsAtom, value => !value)}
             />
           )}
+          {earlier > 0 && <Text color={SUBTLE}>{`${earlier} round${earlier === 1 ? '' : 's'} before this session`}</Text>}
         </Box>
 
         {otherBranches}
@@ -1571,6 +1678,7 @@ export const register: Register = (on, options) => {
         <Box columnGap={2} marginTop={gap} flexWrap="wrap">
           <Button key="older" plain hotkey="j" label="older" dimColor onPress={() => void step(1)} />
           <Button key="newer" plain hotkey="k" label="newer" dimColor onPress={() => void step(-1)} />
+          {historyButton(isSession)}
           {rest.length > 0 && <Button key="branch" plain hotkey="b" label="next branch" dimColor onPress={() => void nextThread()} />}
           <Button key="scope" plain hotkey="w" label={scope === 'repo' ? 'all worktrees' : 'this worktree only'} dimColor onPress={() => void switchScope()} />
           <Button key="refresh" plain hotkey="r" label="refresh" dimColor onPress={() => void pollNow?.(true)} />

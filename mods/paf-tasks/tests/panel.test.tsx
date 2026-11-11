@@ -97,16 +97,17 @@ test('the panel shows the thread for this branch: its trail, its rounds, and wha
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: 'paf-tasks', surface, ...PANE })
     expect(await ui.find({ type: 'Text', text: 'feat/pi-backend' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /codex · 4 rounds over 2h/ })).toBeDefined()
-    // Oldest to newest: revise, ship, failed, revise.
-    expect((await ui.find({ type: 'Text', text: /^✗ ✓ ! ✗$/ }))?.text).toBe('✗ ✓ ! ✗')
+    expect(await ui.find({ type: 'Text', text: 'feat/pi-backend · paf' })).toBeDefined()
+    // Oldest to newest: revise, ship, failed, revise; then the thread's facts on the same line.
+    expect((await ui.find({ type: 'Text', text: /^✗ ✓ ! ✗ / }))?.text).toBe('✗ ✓ ! ✗   4 rounds over 2h · codex')
 
     // The newest round is open: Codex's three findings, worst first as it wrote them.
     expect((await ui.find({ key: 'round-4dba04f2' }))?.props.label).toBe('Review this branch (pi host slice)')
     expect(await ui.find({ type: 'Text', text: /^1 blocker · 2 important$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /branch vs origin\/main · 14 files · tree changed during review/ })).toBeDefined()
     expect(await ui.find({ type: 'Markdown', text: /A copied skill without the marker is deleted on uninstall/ })).toBeDefined()
-    expect(await ui.findAll({ type: 'Text', text: /^(blocker|important)$/ })).toHaveLength(3)
+    // Blockers and important findings are solid labels.
+    expect(await ui.findAll({ type: 'Text', text: /^ (BLOCKER|IMPORTANT) $/ })).toHaveLength(3)
     // A finding that opens with code is left as written.
     expect(await ui.find({ type: 'Markdown', text: /^`piAgentDir\(\)` does not expand/ })).toBeDefined()
 
@@ -258,6 +259,55 @@ test('the panel opens by itself for a call here that is running or just finished
   world.tasks = [{ ...LIVE, id: 'l0000002' }, ...world.tasks]
   await clock.advance(16_000)
   expect(seen.opened).toBe(1)
+})
+
+test('on main the panel lists what this session asked, and t shows every session', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const onMain = (over: Partial<PafTask> & { id: string }, startedAgo: number, tookSeconds: number) => task({ branch: 'main', ...over }, startedAgo, tookSeconds)
+  const old = onMain({ id: 'm0000001', promptPreview: 'Round 1 on the backdated logs.', result: 'VERDICT: revise\n\n- [blocker] [src/log.ts:12] — the date is dropped.' }, 5 * 86_400, 44)
+  const world: World = { tasks: [old], branch: 'main' }
+  host(on, world)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', async () => ({ value: { command: 'paf' } }))
+  await $.session.start({ cwd: `${ROOT}/src`, surface: 'terminal', isInteractive: true })
+  await $.command.run(paf())
+
+  let ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: 'Nothing asked from this session yet.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' this session ' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'idle 5d' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '✗   1 round · codex · last 5d ago' })).toBeDefined()
+  expect(await ui.find({ key: 'round-m0000001' })).toBeUndefined()
+  // t lists every session's rounds, and back.
+  expect((await ui.find({ key: 'history' }))?.props.label).toBe('all sessions')
+  await ui.press({ key: 'history' })
+  expect(await ui.find({ key: 'round-m0000001' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' this session ' })).toBeUndefined()
+  expect((await ui.find({ key: 'history' }))?.props.label).toBe('this session')
+  await ui.press({ key: 'history' })
+  await ui.unmount()
+
+  // A call this session made is listed, named by its focus; the older round waits behind t.
+  const answer = 'Fix 1, partly agree. The defect is real: the selected past date is combined with the current clock. '.repeat(6).trim()
+  const mine = onMain(
+    { id: 'm0000002', promptPreview: 'Review this response in context and provide your opinion. Focus: a second opinion on the owner-time field.', result: answer },
+    -30,
+    10,
+  )
+  world.tasks = [mine, old]
+  await clock.advance(60_000)
+  await $.command.run(paf())
+  ui = await $.ui.mount({ plugin: 'paf-tasks', surface: 'terminal', ...PANE })
+  expect((await ui.find({ key: 'round-m0000002' }))?.props.label).toBe('The owner-time field')
+  expect(await ui.find({ key: 'round-m0000001' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '1 round before this session' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'done 20s ago' })).toBeDefined()
+  // A long prose answer folds to its opening.
+  expect((await ui.find({ type: 'Markdown', text: /^Fix 1, partly agree\./ }))?.props.text).toEndWith(' …')
+  expect(await ui.find({ type: 'Text', text: `${answer.length} characters in all` })).toBeDefined()
+  await ui.press({ key: 'full' })
+  expect(await ui.find({ type: 'Markdown', text: answer })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a listed worktree path that now holds another repository is not asked about', async ($, on) => {

@@ -148,6 +148,17 @@ test('a round is titled by how its prompt opens', async () => {
   expect(questionOf(toRound(task({ id: 'r1', kind: 'review', promptPreview: '' }, 10, 5)))).toBe('')
 })
 
+test('a prompt with a Focus is named by its focus, unless it opens with a round', async () => {
+  // How /phone-a-friend words a request: the same opening every time, then the ask.
+  const asked = 'Review this response in context and provide your opinion. Focus: a second opinion on the three proposed fixes for backdated logs in the web composer.'
+  expect(titleOf(asked, 'relay', null, 'codex')).toBe('The three proposed fixes for backdated logs…')
+  expect(questionOf(toRound(task({ id: 'f1', promptPreview: asked }, 10, 5)))).toBe('in the web composer.')
+  expect(titleOf('Focus: auth token refresh', 'relay', null, 'codex')).toBe('Auth token refresh')
+  expect(titleOf('Round 3 for #400. Focus: the anchor regex.', 'relay', null, 'codex')).toBe('Round 3 for #400')
+  // "focus" inside a sentence is not a Focus.
+  expect(titleOf('Keep the focus: ship the parser first. Then tests.', 'relay', null, 'codex')).toBe('Keep the focus')
+})
+
 test('everything asked about one branch is one thread, oldest round first, a live one leading', async () => {
   const threads = toThreads([LIVE, CODEX, LOST, SHIP, REVISE, ELSEWHERE])
   expect(threads.map(thread => [thread.title, thread.rounds.length, thread.state])).toEqual([

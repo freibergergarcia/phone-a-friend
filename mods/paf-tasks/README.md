@@ -60,13 +60,23 @@ it. While the turn waits, its spinner says `Waiting on codex…`.
 and the thread for the branch checked out in this worktree comes first (on a
 branch with no reviews yet, the panel says so):
 
+- the branch and repository, and what the thread is doing now: `⠹ running · 00:42`,
+  `done 40s ago`, or `idle 5d`;
 - the **trail**, one mark per round, oldest to newest (`✗ ✓ ✗ ✗ ✓`): whether the
-  review is converging;
-- the rounds, newest first, each with its verdict;
-- the open round: what was asked, the findings with severity and location, or
-  for a round still running, its steps and how long this usually takes;
+  review is converging, then how many rounds and who was asked;
+- the rounds, newest first, each with its verdict. A round is named by how its
+  prompt opens ("Round 3 for #400"), or by its `Focus:` when it has one;
+- the open round: what was asked, the findings with severity and location
+  (blockers and important findings as solid labels), the opening of a prose
+  answer (`f` for the rest), or for a round still running, its steps and how
+  long this usually takes;
 - other branches of this worktree; one with nothing newer than a week is
   folded under `+N more`. `w` adds the repository's other worktrees.
+
+On `main`, `master` or `trunk`, whose history is mostly other sessions', the
+panel lists only the rounds started since this session began (or was cleared
+or resumed), with the earlier ones summed up on one line. `t` lists every
+session's rounds, there or on any branch, and back.
 
 `2` switches to **Agents** (with herdr): the sessions herdr runs, grouped by
 what needs you, with what each one's reviewer last said. Enter jumps to a session.
@@ -88,6 +98,7 @@ type `/paf`.
 | `s` | send the round's findings to Claude |
 | `c` | copy the reviewer's answer |
 | `b` | next branch |
+| `t` | all sessions / this session only (the default on main, master, trunk) |
 | `w` | all worktrees / this worktree only (the default) |
 | `r` | refresh now |
 | `1` / `2` | Reviews / Agents |
