@@ -50,9 +50,13 @@ jobs:
 
   paf-tasks:
     # The Claude Code mod in mods/paf-tasks/ (needs Claude Code 2.1.287+).
+    # Pinned to 2.1.311, the first version that passes a pane's
+    # `backgroundColor` on to the surface: the mod opens its pane transparent,
+    # and a test holds every open to that. Older versions drop the option and
+    # pass every other test (run by hand on 2.1.289, 305, 308 and 310).
     runs-on: ubuntu-latest
     env:
-      CLAUDE_CODE_VERSION: "2.1.289"
+      CLAUDE_CODE_VERSION: "2.1.311"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

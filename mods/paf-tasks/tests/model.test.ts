@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { answerIn, cleanActivity, lede, parseRelay, parseWorktrees, rootOf, roundOfCall, taskOfCall, verdictText } from '../hooks/format'
+import { AGENT_LOOK, SEVERITY_COLOR, answerIn, cleanActivity, herdrProblem, lede, lookOf, parseRelay, parseWorktrees, rootOf, roundOfCall, taskOfCall, verdictText } from '../hooks/format'
 import {
   countsText,
   explain,
@@ -355,4 +355,33 @@ test('agent cards put what needs the person first, and know this session by its 
   // Without herdr's pane id, every session in this worktree counts as here.
   const byPath = { root: ROOT, pane: null }
   expect(agents.filter(item => isSelf(item, byPath)).map(item => item.id)).toEqual(['w3:p1', 'w3:p2'])
+})
+
+test('a round with a blocker wears its own mark, not only its own color', async () => {
+  const marks = (result: string) => lookOf(roundOf(task({ id: 'k0000001', result }, 600, 60)), 0)
+  const blocker = marks('VERDICT: revise\n\n- [blocker] [src/a.ts:1] — the date is dropped.')
+  const important = marks('VERDICT: revise\n\n- [important] [src/a.ts:1] — the date is dropped.')
+  expect([blocker.glyph, important.glyph]).toEqual(['⊗', '✗'])
+  expect(blocker.glyph).not.toBe(important.glyph)
+  // Every mark is one of the five a person has to learn, plus the spinner.
+  expect(lookOf(roundOf(SHIP), 0).glyph).toBe('✓')
+  expect(lookOf(roundOf(LOST), 0).glyph).toBe('!')
+})
+
+test('every color a round, a finding or an agent is drawn in is a theme key, or the one live color', async () => {
+  // A raw color name is fixed whatever the theme; `gray` in particular is close to the background of many dark palettes.
+  const allowed = ['inactive', 'success', 'error', 'warning', 'cyan']
+  const drawn = [...Object.values(SEVERITY_COLOR), ...Object.values(AGENT_LOOK).map(look => look.color), ...[SHIP, REVISE, CODEX, LOST, LIVE, ELSEWHERE].map(item => lookOf(roundOf(item), 0).color)]
+  expect(drawn.filter(color => !allowed.includes(color))).toEqual([])
+})
+
+test('herdr is quoted in its own words, never as the JSON it answers in', async () => {
+  const stopped = '{"id":"cli:agent:list","error":{"code":"server_not_running","message":"no herdr server is running at /home/me/.config/herdr/herdr.sock; run `herdr` to start or attach it"}}'
+  expect(herdrProblem(stopped, 1)).toBe('stopped')
+  expect(herdrProblem('{"id":"cli:agent:list","error":{"code":"timeout","message":"the server did not\\n answer in 5s"}}', 1)).toBe('the server did not answer in 5s')
+  // Not JSON, JSON that is no object, and nothing at all.
+  expect(herdrProblem('zsh: permission denied: herdr', 126)).toBe('zsh: permission denied: herdr')
+  expect(herdrProblem('null', 1)).toBe('null')
+  expect(herdrProblem('{"error":{"code":"odd"}}', 3)).toBe('{"error":{"code":"odd"}}')
+  expect(herdrProblem('', 2)).toBe('herdr exited 2')
 })

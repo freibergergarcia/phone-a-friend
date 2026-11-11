@@ -4,15 +4,14 @@ import type { ElementTable, Register } from 'claude-code'
 import type { HerdrAgent, PafCallStart, PafScope, PafTask, PafView, TimelineEntry } from '../types'
 import {
   AGENT_LOOK,
-  LIVE_COLOR,
   SEVERITY_COLOR,
-  SUBTLE,
   age,
   agentGlyph,
   cleanActivity,
   clock,
   durationOf,
   fit,
+  herdrProblem,
   isLoud,
   lede,
   lookOf,
@@ -37,9 +36,16 @@ import {
 import type { Binding, CallState, HerdrWorkspace, RelayCall } from './format'
 import { handoff, isActive, isSelf, parseTime, placeOf, questionOf, roundOf, threadKeyOf, toAgentCards, toThreads, usualMs } from './model'
 import type { AgentCard, AgentState, Here, Round, Thread } from './model'
+import { ERROR_COLOR, LABEL_TEXT, LIVE_COLOR, SUBTLE, WARN_COLOR } from './palette'
 
 const PANE = 'paf-tasks'
 const TITLE = 'phone-a-friend'
+// How every open asks for the pane. Left to itself the terminal paints a docked
+// pane in the theme's background while uncolored text keeps the terminal's own
+// foreground, so a dark theme in a light terminal is black on black (and a light
+// theme in a dark one, white on white). Transparent leaves the terminal's own
+// background under that text. Each open sets it anew, so every open passes it.
+const PANE_OPEN = { id: PANE, title: TITLE, rows: 16, backgroundColor: 'transparent' } as const
 const TICK_MS = 2_000
 // While nothing runs, poll PaF on every 8th tick (16 s) so a call started from
 // another terminal still shows up. herdr is polled every tick (two ~6 ms calls).
@@ -537,7 +543,7 @@ async function refreshAgents(io: Io): Promise<void> {
       anyWorking = false
       // 127 is a command that could not be run at all (its interpreter is gone).
       if (listed.exitCode === 127) herdrMissingAt = await io.now()
-      await io.saveAgents([], {}, listed.exitCode === 127 ? 'missing' : fit(oneLine(listed.stderr) || `herdr exited ${listed.exitCode}`, 240))
+      await io.saveAgents([], {}, listed.exitCode === 127 ? 'missing' : herdrProblem(listed.stderr || listed.stdout, listed.exitCode))
       return
     }
     herdrMissingAt = null
@@ -631,7 +637,7 @@ function callLine(ui: Ui, view: CallView, live: Live) {
   const { Text } = ui
   const { call, state, round } = view
   const look = state.isInterrupted
-    ? { glyph: '!', color: 'warning' }
+    ? { glyph: '!', color: WARN_COLOR }
     : round !== null
       ? lookOf(round, live.frame)
       : state.isRunning
@@ -672,7 +678,7 @@ function callAnswer(ui: Ui, round: Round, hasPanel: boolean) {
     <Box flexDirection="column" paddingLeft={2}>
       {round.problem !== null && (
         <Text wrap="wrap">
-          <Text color="error">{fit(round.problem.line, 300)}</Text>
+          <Text color={ERROR_COLOR}>{fit(round.problem.line, 300)}</Text>
           {round.problem.hint !== null && <Text dimColor>{` ${round.problem.hint}`}</Text>}
         </Text>
       )}
@@ -738,7 +744,7 @@ export const register: Register = (on, options) => {
       onScreen: async () => (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced && pane.isShown),
       saveOnScreen: value => update($, onScreenAtom, () => value),
       reveal: async () => {
-        if (isAutoOpen && !isClosedByPerson) await $.ui.open({ id: PANE, title: TITLE, rows: 16 })
+        if (isAutoOpen && !isClosedByPerson) await $.ui.open(PANE_OPEN)
       },
     }
     pollNow = isWaited => poll(io, isWaited)
@@ -768,7 +774,7 @@ export const register: Register = (on, options) => {
     // at the first call); a panel that is only the agents list has it already.
     if (isAutoOpen && panel === 'agents') {
       hasRevealed = true
-      void $.ui.open({ id: PANE, title: TITLE, rows: 16 }).then(() => syncOnScreen(io))
+      void $.ui.open(PANE_OPEN).then(() => syncOnScreen(io))
     }
     void poll(io)
 
@@ -806,7 +812,7 @@ export const register: Register = (on, options) => {
       selfPane = (await $.env.get('HERDR_PANE_ID')) ?? null
       await update($, paneAtom, () => selfPane)
     }
-    const opened = await $.ui.open({ id: PANE, title: TITLE, focus: true, rows: 16 })
+    const opened = await $.ui.open({ ...PANE_OPEN, focus: true })
     lastOnScreen = opened.isPlaced
     await update($, onScreenAtom, () => opened.isPlaced)
     // Works before or without session.start too (a test, a failed start).
@@ -846,7 +852,7 @@ export const register: Register = (on, options) => {
         onScreen: async () => (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced && pane.isShown),
         saveOnScreen: value => update($, onScreenAtom, () => value),
         reveal: async () => {
-          if (isAutoOpen && !isClosedByPerson) await $.ui.open({ id: PANE, title: TITLE, rows: 16 })
+          if (isAutoOpen && !isClosedByPerson) await $.ui.open(PANE_OPEN)
         },
       }, isWaited)
     await pollNow(true)
@@ -1086,14 +1092,14 @@ export const register: Register = (on, options) => {
     const header = (
       <Box columnGap={3} rowGap={0} flexWrap="wrap" paddingRight={4}>
         <Text>
-          <Text color="cyan">◇ </Text>
+          <Text color={LIVE_COLOR}>◇ </Text>
           <Text bold>phone-a-friend</Text>
         </Text>
         {hasTabs && (
           <Box columnGap={2}>
             <Button key="view-calls" plain hotkey="1" label="Reviews" dimColor={shownView !== 'calls'} onPress={() => update($, viewAtom, () => 'calls')} />
             <Button key="view-agents" plain hotkey="2" label="Agents" dimColor={shownView !== 'agents'} onPress={() => update($, viewAtom, () => 'agents')} />
-            {wanting > 0 && <Text color="yellow">{`● ${wanting}`}</Text>}
+            {wanting > 0 && <Text color={WARN_COLOR}>{`● ${wanting}`}</Text>}
           </Box>
         )}
       </Box>
@@ -1150,7 +1156,7 @@ export const register: Register = (on, options) => {
                 <Text dimColor>{place}</Text>
               ) : (
                 <Box flexShrink={0}>
-                  <Text color={item.isHere ? 'cyan' : look.color}>{state}</Text>
+                  <Text color={item.isHere ? LIVE_COLOR : look.color}>{state}</Text>
                   <Text dimColor>{when}</Text>
                 </Box>
               )}
@@ -1158,7 +1164,7 @@ export const register: Register = (on, options) => {
             {(!isQuiet || item.isHere) && <Text dimColor wrap="truncate-end">{`  ${place}`}</Text>}
             {call && (
               <Text wrap="truncate-end">
-                <Text color="cyan">{`  ${spin(frame)} `}</Text>
+                <Text color={LIVE_COLOR}>{`  ${spin(frame)} `}</Text>
                 <Text dimColor>{`waiting on ${call.task.backend} · ${call.title} · ${clock(now - (call.startedAt ?? now))}`}</Text>
               </Text>
             )}
@@ -1190,10 +1196,18 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           {header}
-          {agentsProblem !== null && agentsProblem !== 'missing' && (
+          {agentsProblem !== null && agentsProblem !== 'missing' && agentsProblem !== 'stopped' && (
             <Box marginTop={1}>
-              <Text color="red" wrap="wrap">
+              <Text color={ERROR_COLOR} wrap="wrap">
                 {agentsProblem}
+              </Text>
+            </Box>
+          )}
+          {agentsProblem === 'stopped' && (
+            <Box marginTop={1} flexDirection="column">
+              <Text>herdr is not running.</Text>
+              <Text dimColor wrap="wrap">
+                Run `herdr` in a terminal to start it. The agent sessions it runs are then listed here.
               </Text>
             </Box>
           )}
@@ -1315,7 +1329,7 @@ export const register: Register = (on, options) => {
           </Box>
           <Box flexShrink={0} columnGap={2}>
             {isSession && (
-              <Text inverse bold color={LIVE_COLOR}>
+              <Text bold color={LABEL_TEXT} backgroundColor={LIVE_COLOR}>
                 {' this session '}
               </Text>
             )}
@@ -1324,8 +1338,9 @@ export const register: Register = (on, options) => {
         </Box>
       )
     }
-    // The trail: every round's outcome, oldest to newest, then the facts. A
-    // review converging reads ✗ ✗ ✓; one going in circles shows it at a glance.
+    // The trail: every round's outcome, oldest to newest, then the facts, the
+    // newest of them first: a narrow pane cuts the line at its end. A review
+    // converging reads ✗ ✗ ✓; one going in circles shows it at a glance.
     const trailLine = (rounds: readonly Round[], selected: Round | null, facts: string) => {
       const trail = rounds.slice(-Math.max(4, Math.min(TRAIL_MARKS, Math.floor((width - 24) / 2))))
       return (
@@ -1344,11 +1359,15 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // With every other branch folded there is nothing to head: one line says how many wait.
+    const folds = rest.length - unfolded.length
     const otherBranches = rest.length > 0 && !isInline && (
       <Box flexDirection="column" marginTop={1}>
-        <Text color={SUBTLE} bold>
-          {scope === 'repo' ? 'OTHER BRANCHES HERE' : 'OTHER BRANCHES'}
-        </Text>
+        {branches.length > 0 && (
+          <Text color={SUBTLE} bold>
+            {scope === 'repo' ? 'OTHER BRANCHES HERE' : 'OTHER BRANCHES'}
+          </Text>
+        )}
         {branches.map(other => {
           const last = other.rounds.at(-1) as Round
           const look = lookOf(other.state === 'live' ? (other.rounds.find(round => round.state === 'live') ?? last) : last, frame)
@@ -1363,12 +1382,12 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
-        {rest.length > unfolded.length && (
+        {folds > 0 && (
           <Button
             key="branches"
             plain
             dimColor
-            label={isAllBranches ? 'fewer branches' : `+${rest.length - unfolded.length} more`}
+            label={isAllBranches ? 'fewer branches' : unfolded.length > 0 ? `+${folds} more` : `${folds} older branch${folds === 1 ? '' : 'es'}${scope === 'repo' ? ' here' : ''}`}
             onPress={() => update($, allBranchesAtom, value => !value)}
           />
         )}
@@ -1381,7 +1400,7 @@ export const register: Register = (on, options) => {
           {header}
           {problem !== null && (
             <Box marginTop={1}>
-              <Text color="error" wrap="wrap">
+              <Text color={ERROR_COLOR} wrap="wrap">
                 {problem}
               </Text>
             </Box>
@@ -1423,7 +1442,7 @@ export const register: Register = (on, options) => {
           {header}
           {problem !== null && (
             <Box marginTop={1}>
-              <Text color="error" wrap="wrap">
+              <Text color={ERROR_COLOR} wrap="wrap">
                 {problem}
               </Text>
             </Box>
@@ -1441,7 +1460,7 @@ export const register: Register = (on, options) => {
           </Box>
           <Box flexDirection="column" marginTop={1}>
             <Text color={SUBTLE}>{`Earlier on ${thread.title}`}</Text>
-            {trailLine(thread.rounds, null, `${roundsText(thread)} · ${thread.backends.join(' + ')} · last ${age(now - thread.lastAt)} ago`)}
+            {trailLine(thread.rounds, null, `last ${age(now - thread.lastAt)} ago · ${roundsText(thread)} · ${thread.backends.join(' + ')}`)}
           </Box>
           {otherBranches}
           {skippedNote}
@@ -1537,7 +1556,7 @@ export const register: Register = (on, options) => {
 
             {round.problem !== null && (
               <Box flexDirection="column" marginTop={gap}>
-                <Text color="error" wrap="wrap">
+                <Text color={ERROR_COLOR} wrap="wrap">
                   {fit(round.problem.line, isFull ? 2_000 : 320)}
                 </Text>
                 {round.problem.hint !== null && (
@@ -1552,7 +1571,7 @@ export const register: Register = (on, options) => {
               <Box flexDirection="column" marginTop={gap}>
                 <Text wrap="truncate-end">
                   {isLoud(finding.severity) ? (
-                    <Text inverse bold color={SEVERITY_COLOR[finding.severity]}>
+                    <Text bold color={LABEL_TEXT} backgroundColor={SEVERITY_COLOR[finding.severity]}>
                       {` ${finding.severity.toUpperCase()} `}
                     </Text>
                   ) : (
@@ -1646,7 +1665,7 @@ export const register: Register = (on, options) => {
         {header}
         {problem !== null && (
           <Box marginTop={1}>
-            <Text color="error" wrap="wrap">
+            <Text color={ERROR_COLOR} wrap="wrap">
               {problem}
             </Text>
           </Box>

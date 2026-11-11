@@ -62,7 +62,7 @@ branch with no reviews yet, the panel says so):
 
 - the branch and repository, and what the thread is doing now: `⠹ running · 00:42`,
   `done 40s ago`, or `idle 5d`;
-- the **trail**, one mark per round, oldest to newest (`✗ ✓ ✗ ✗ ✓`): whether the
+- the **trail**, one mark per round, oldest to newest (`⊗ ✗ ✓ ✗ ✓`): whether the
   review is converging, then how many rounds and who was asked;
 - the rounds, newest first, each with its verdict. A round is named by how its
   prompt opens ("Round 3 for #400"), or by its `Focus:` when it has one;
@@ -71,7 +71,8 @@ branch with no reviews yet, the panel says so):
   answer (`f` for the rest), or for a round still running, its steps and how
   long this usually takes;
 - other branches of this worktree; one with nothing newer than a week is
-  folded under `+N more`. `w` adds the repository's other worktrees.
+  folded under `+N more`, or under `N older branches` when all of them are.
+  `w` adds the repository's other worktrees.
 
 On `main`, `master` or `trunk`, whose history is mostly other sessions', the
 panel lists only the rounds started since this session began (or was cleared
@@ -80,6 +81,7 @@ session's rounds, there or on any branch, and back.
 
 `2` switches to **Agents** (with herdr): the sessions herdr runs, grouped by
 what needs you, with what each one's reviewer last said. Enter jumps to a session.
+With herdr installed and its server stopped, the view says so: run `herdr` to start it.
 
 **Above the prompt**, one line while a reviewer works and the panel is not on
 screen. A toast when a round finishes.
@@ -110,11 +112,25 @@ type `/paf`.
 | Mark | Means |
 |---|---|
 | `✓` green | ship: the reviewer said so, or had nothing to fix |
-| `✗` red | findings, at least one blocker |
+| `⊗` red | findings, at least one blocker |
 | `✗` yellow | findings, none a blocker |
 | `·` gray | an answer that is not a review |
 | `!` red | the call failed (the row says why, the round says what to do) |
 | spinner | still running |
+
+Each mark has its own shape, so the trail reads without its colors.
+
+## Colors
+
+The colors are your Claude Code theme's (`/theme`), so the light and colorblind
+themes get their own. Plain text and the panel's background are your
+terminal's. If the theme is dark and the terminal light, or the other way
+round, the plain text stays readable and the colored marks can look faint, as
+they do in the rest of Claude Code: `/theme` → Auto (match terminal) follows
+the terminal.
+
+The panel asks Claude Code not to paint its own background. Claude Code older
+than 2.1.311 ignores that request.
 
 A verdict the reviewer declared ("VERDICT: ship", "Ship.") is shown in its word.
 One read off the answer is shown as the facts: `3 findings`, `no findings`.
