@@ -20,6 +20,7 @@ import {
   isInPath,
   registerBackend,
   spawnCli,
+  SpawnCliError,
   type Backend,
   type SandboxMode,
 } from './index.js';
@@ -81,7 +82,7 @@ export function defaultClaudeRemediation(host: string = process.env.PHONE_A_FRIE
   if (host === 'codex') {
     return (
       'Codex is running with a sandbox that blocks Claude\'s keychain access. ' +
-      'Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), ' +
+      'Re-run Codex with `codex --sandbox danger-full-access`, ' +
       'or escalate this specific command via the approval prompt. ' +
       'This is NOT a Claude login problem — `claude -p` works fine outside the Codex sandbox.'
     );
@@ -163,6 +164,54 @@ export function extractClaudeSchemaOutput(stdout: string): string {
   return stdout;
 }
 
+/**
+ * The `--max-turns` value for a relay: `CLAUDE_MAX_TURNS` when it is set, and
+ * no limit otherwise. PaF used to pass 10 by default, which ended a task that
+ * needed an eleventh turn without an answer; a relay is bounded by `--timeout`
+ * (and `CLAUDE_MAX_BUDGET`), as for every other backend. Without the flag
+ * Claude sets no limit of its own: a 14-turn run completed on 2.1.322.
+ */
+function claudeMaxTurns(env: Record<string, string>): string | null {
+  const value = env.CLAUDE_MAX_TURNS?.trim();
+  return value ? value : null;
+}
+
+/**
+ * Whether Claude's stdout says the run ended at `--max-turns`. Claude exits 1
+ * and reports it on stdout only: `Error: Reached max turns (N)` in text mode,
+ * a result envelope with `subtype: "error_max_turns"` in JSON mode (verified
+ * on 2.1.322). stderr holds unrelated warnings at that point, which is what
+ * the relay printed before this check.
+ */
+export function isClaudeTurnLimit(stdout: string): boolean {
+  if (/^Error: Reached max turns \(\d+\)\s*$/m.test(stdout)) return true;
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    return isClaudeTurnLimitResult(parsed);
+  } catch {
+    return false;
+  }
+}
+
+/** The same check for one parsed `result` event (JSON envelope or stream line). */
+export function isClaudeTurnLimitResult(event: unknown): boolean {
+  return typeof event === 'object'
+    && event !== null
+    && (event as Record<string, unknown>).type === 'result'
+    && (event as Record<string, unknown>).subtype === 'error_max_turns';
+}
+
+function claudeTurnLimitMessage(maxTurns: string | null): string {
+  // Without CLAUDE_MAX_TURNS PaF passes no limit, so this one came from Claude's own settings.
+  if (maxTurns === null) {
+    return 'Claude stopped at a turn limit before giving an answer. PaF set none for this run, so it comes from Claude Code itself.';
+  }
+  return (
+    `Claude stopped at its turn limit (${maxTurns} ${maxTurns === '1' ? 'turn' : 'turns'}) before giving an answer. ` +
+    'The limit comes from the CLAUDE_MAX_TURNS environment variable: raise it, or unset it for no limit.'
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Backend
 // ---------------------------------------------------------------------------
@@ -238,9 +287,11 @@ export class ClaudeBackend implements Backend {
       args.push('--model', opts.model);
     }
 
-    // Max turns (from env or default)
-    const maxTurns = opts.env.CLAUDE_MAX_TURNS ?? '10';
-    args.push('--max-turns', maxTurns);
+    // Max turns: only when CLAUDE_MAX_TURNS asks for one
+    const maxTurns = claudeMaxTurns(opts.env);
+    if (maxTurns !== null) {
+      args.push('--max-turns', maxTurns);
+    }
 
     // Max budget (from env, optional)
     const maxBudget = opts.env.CLAUDE_MAX_BUDGET;
@@ -325,6 +376,10 @@ export class ClaudeBackend implements Backend {
       throw new ClaudeBackendError('claude completed without producing output');
     } catch (err: unknown) {
       if (err instanceof ClaudeBackendError) throw err;
+      // Before the stderr-based checks: at the turn limit stderr is unrelated.
+      if (err instanceof SpawnCliError && isClaudeTurnLimit(err.stdout)) {
+        throw new ClaudeBackendError(claudeTurnLimitMessage(claudeMaxTurns(opts.env)));
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (isClaudeAuthError(msg)) {
         throw new ClaudeAuthError();
@@ -368,8 +423,13 @@ export class ClaudeBackend implements Backend {
     const stderrChunks: Buffer[] = [];
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
+    let reachedTurnLimit = false;
     try {
-      yield* parseClaudeStreamJSON(child.stdout as Readable);
+      yield* parseClaudeStreamJSON(child.stdout as Readable, {
+        onResult: (event) => {
+          if (isClaudeTurnLimitResult(event)) reachedTurnLimit = true;
+        },
+      });
       // Parser succeeded — verify process exited cleanly
       const { code, signal, spawnError } = await supervisor.exit;
       if (spawnError) {
@@ -385,6 +445,9 @@ export class ClaudeBackend implements Backend {
         throw new ClaudeBackendError(`claude killed by signal ${signal}`);
       }
       if (code !== 0 && code !== null) {
+        if (reachedTurnLimit) {
+          throw new ClaudeBackendError(claudeTurnLimitMessage(claudeMaxTurns(opts.env)));
+        }
         const stderr = Buffer.concat(stderrChunks).toString().trim();
         const errMsg = stderr || `claude exited with code ${code}`;
         if (isClaudeAuthError(errMsg)) throw new ClaudeAuthError();

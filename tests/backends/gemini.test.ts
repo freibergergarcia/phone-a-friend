@@ -14,7 +14,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, execFileSync: mockExecFileSync, spawn: mockSpawn };
 });
 
-import { GEMINI_BACKEND, GeminiBackendError } from '../../src/backends/gemini.js';
+import { GEMINI_BACKEND, GeminiBackendError, geminiTimeoutRemediation } from '../../src/backends/gemini.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,6 +41,12 @@ function fakeChild(exitCode = 0, stdout = '', stderr = '') {
 // ---------------------------------------------------------------------------
 
 describe('GeminiBackend', () => {
+  it('does not recommend the removed `codex --full-auto` from a Codex host', () => {
+    const text = geminiTimeoutRemediation('codex');
+    expect(text).toContain('codex --sandbox danger-full-access');
+    expect(text).not.toContain('--full-auto');
+  });
+
   beforeEach(() => {
     mockExecFileSync.mockReset();
     mockSpawn.mockReset();

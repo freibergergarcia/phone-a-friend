@@ -53,7 +53,7 @@ export function geminiTimeoutRemediation(host: string = process.env.PHONE_A_FRIE
     return (
       'Gemini timed out under Codex\'s sandbox. Codex\'s default workspace-write ' +
       'sandbox blocks Gemini\'s OAuth refresh path (keychain + outbound HTTPS). ' +
-      'Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), ' +
+      'Re-run Codex with `codex --sandbox danger-full-access`, ' +
       'or set `GEMINI_API_KEY` so Gemini skips OAuth entirely.'
     );
   }

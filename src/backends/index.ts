@@ -134,6 +134,23 @@ export class BackendError extends Error {
   }
 }
 
+/**
+ * Thrown by a backend's `review()` when its native review command could not be
+ * used at all: the CLI refused the invocation before doing any work (an older
+ * CLI without the subcommand or one of its flags).
+ *
+ * It is the only failure `reviewRelay` answers by running the generic path.
+ * Every other failure (time limit, Ctrl-C, sign-in, rate limit, a model error)
+ * means the backend already ran or was told to stop, so a second run would
+ * repeat the work, restart the time limit and hide the first error.
+ */
+export class NativeReviewUnavailableError extends BackendError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NativeReviewUnavailableError';
+  }
+}
+
 export class SpawnCliError extends BackendError {
   readonly stdout: string;
   readonly stderr: string;

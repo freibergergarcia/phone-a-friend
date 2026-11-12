@@ -13,6 +13,7 @@ import {
   getBackend,
   isReviewScope,
   BackendError,
+  NativeReviewUnavailableError,
   type Backend,
   type ClaudePeerMessagingMode,
   type PreparePromptContext,
@@ -592,6 +593,12 @@ export interface ReviewRelayOptions {
   base?: string;
   scope?: ReviewScope;
   prompt?: string;
+  /**
+   * Extra context for the reviewer, as for a relay. Native review() cannot
+   * carry it, so a review with context takes the generic path.
+   */
+  contextFile?: string | string[] | null;
+  contextText?: string | null;
   timeoutSeconds?: number;
   model?: string | null;
   sandbox?: SandboxMode;
@@ -1125,6 +1132,10 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const backendSession = opts.backendSession ?? null;
   refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
 
+  // Read before the diff and before any backend call: a missing or oversized
+  // context file fails the review instead of being left out of it.
+  const resolvedContext = resolveContextText(opts.contextFile ?? null, opts.contextText ?? null);
+
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env = nextRelayEnv();
 
@@ -1148,6 +1159,8 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   //   - a schema is set — native review() does not forward schema to the
   //     backend's structured output enforcement, so the schema would be
   //     silently dropped. Use the generic run() path which honors schema.
+  //   - context is attached — native review() has no field for it, and the
+  //     generic prompt carries it next to the diff.
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? new Set<ReviewScope>(['branch']);
   // Native review() has no session fields. A requested session takes the
   // generic path, which resumes the same way a normal relay does.
@@ -1156,6 +1169,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
     && nativeReviewScopes.has(scope)
     && !prompt
     && !schema
+    && !resolvedContext
     && !session
     && !backendSession
   ) {
@@ -1174,13 +1188,19 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
       reportReviewDrift(observer, resolvedRepo, base, scope, scopeInfo.diffHash);
       return nativeResult;
     } catch (err) {
-      // Fallback to run() with diff on review() failure
       if (err instanceof RelayError) {
         // Re-throw relay errors (depth limit, etc.)
         throw err;
       }
-      // Log warning and fall through to generic path
-      console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${(err as Error).message}`);
+      // Only a native review that never started is run again on the generic
+      // path. Before this every failure was: `--timeout 60` ran for up to
+      // 120s, Ctrl-C started a second review, and a sign-in or rate-limit
+      // error was followed by a second full run.
+      if (!(err instanceof NativeReviewUnavailableError)) {
+        if (err instanceof BackendError) throw backendErrorToRelayError(err);
+        throw err;
+      }
+      console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${err.message}`);
     }
   }
 
@@ -1190,7 +1210,7 @@ export async function reviewRelay(opts: ReviewRelayOptions): Promise<string> {
   const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
-    contextText: '',
+    contextText: resolvedContext,
     diffText,
     localFileAccess: selectedBackend.localFileAccess,
   }), 'review');

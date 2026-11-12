@@ -645,6 +645,41 @@ describe('CLI', () => {
     expect(mockReviewRelay).not.toHaveBeenCalled();
   });
 
+  it('--review passes context files and context text to reviewRelay()', async () => {
+    const a = path.join(tmpDir, 'plan.md');
+    const b = path.join(tmpDir, 'notes.md');
+    fs.writeFileSync(a, 'first');
+    fs.writeFileSync(b, 'second');
+
+    await run(['relay', '--review', '--repo', tmpDir, '--context-file', a, '--context-file', b]);
+    expect(mockReviewRelay.mock.calls[0][0].contextFile).toEqual([a, b]);
+    expect(mockReviewRelay.mock.calls[0][0].contextText).toBeNull();
+
+    await run(['relay', '--review', '--repo', tmpDir, '--context-text', 'the ticket says X']);
+    expect(mockReviewRelay.mock.calls[1][0].contextFile).toBeNull();
+    expect(mockReviewRelay.mock.calls[1][0].contextText).toBe('the ticket says X');
+  });
+
+  it.each([
+    ['--review'],
+    ['--verdict-json'],
+    ['--review-scope', 'working-tree'],
+    ['--base', 'main'],
+  ])('rejects --quiet in review mode (%s) before starting a review', async (...reviewFlags) => {
+    const { stderr, stdout, result } = await captureOutputAsync(async () => {
+      return await run(['relay', ...reviewFlags, '--quiet', '--repo', tmpDir]);
+    });
+
+    expect(result).toBe(1);
+    expect(stderr).toContain('--quiet cannot be combined with review mode');
+    // No task exists for a rejected command, so the message must not point at one.
+    expect(stderr).not.toContain('task result');
+    expect(stderr).not.toMatch(/Task [0-9a-f]{8} started/);
+    expect(stdout).toBe('');
+    expect(mockReviewRelay).not.toHaveBeenCalled();
+    expect(mockRelay).not.toHaveBeenCalled();
+  });
+
   it('--review passes backend and model through', async () => {
     await run([
       'relay', '--review', '--to', 'gemini', '--model', 'gemini-2.5-flash',

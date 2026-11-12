@@ -19,6 +19,7 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 // Import AFTER mock is set up
 import { CODEX_BACKEND, CodexBackendError, isCodexHostEnv } from '../../src/backends/codex.js';
+import { NativeReviewUnavailableError } from '../../src/backends/index.js';
 import type { ReviewOptions, SandboxMode as SandboxModeType } from '../../src/backends/index.js';
 
 // ---------------------------------------------------------------------------
@@ -584,6 +585,8 @@ describe('CodexBackend', () => {
       // codex exec review does not accept -C or --sandbox; uses cwd instead
       expect(args).not.toContain('-C');
       expect(args).not.toContain('--sandbox');
+      // ...so the sandbox travels as a config override
+      expect(args[args.indexOf('-c') + 1]).toBe('sandbox_mode="read-only"');
       expect(args).toContain('--base');
       expect(args[args.indexOf('--base') + 1]).toBe('main');
       expect(args).toContain('--output-last-message');
@@ -650,6 +653,113 @@ describe('CodexBackend', () => {
       // Prompt is dropped because --base and [PROMPT] are mutually exclusive
       expect(args).not.toContain('Focus on security issues');
       expect(args).toContain('--base');
+    });
+
+    it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)(
+      'passes the %s sandbox to a native review, for both targets',
+      async (sandbox) => {
+        mockExecFileSync.mockImplementation((cmd: string) => (cmd === 'which' ? '/usr/local/bin/codex' : ''));
+        mockSpawn.mockImplementation((_cmd: string, args: string[]) => {
+          const child = fakeChild();
+          const outputIdx = args.indexOf('--output-last-message') + 1;
+          process.nextTick(() => {
+            if (outputIdx > 0) fs.writeFileSync(args[outputIdx], 'ok');
+            child.emit('close', 0, null);
+          });
+          return child;
+        });
+
+        await CODEX_BACKEND.review!({ ...baseReviewOpts, sandbox });
+        await CODEX_BACKEND.review!({ ...baseReviewOpts, sandbox, scope: 'working-tree' });
+
+        const calls = mockSpawn.mock.calls.filter((c: unknown[]) => c[0] === 'codex');
+        expect(calls).toHaveLength(2);
+        for (const call of calls) {
+          const args = call[1] as string[];
+          expect(args.filter((a) => a === '-c')).toHaveLength(1);
+          expect(args[args.indexOf('-c') + 1]).toBe(`sandbox_mode="${sandbox}"`);
+        }
+      },
+    );
+
+    // Captured from codex-cli 0.167.1 (exit 2 both times): an unknown flag on
+    // `exec review`, and what a CLI without the `review` subcommand answers.
+    const USAGE_UNKNOWN_FLAG = [
+      "error: unexpected argument '--uncommitted' found",
+      '',
+      "  tip: to pass '--uncommitted' as a value, use '-- --uncommitted'",
+      '',
+      'Usage: codex exec review --base <BRANCH> [PROMPT]',
+      '',
+      "For more information, try '--help'.",
+    ].join('\n');
+    const USAGE_NO_SUBCOMMAND = [
+      "error: unexpected argument '--base' found",
+      '',
+      "  tip: to pass '--base' as a value, use '-- --base'",
+      '',
+      'Usage: codex exec [OPTIONS] [PROMPT]',
+      '       codex exec [OPTIONS] <COMMAND> [ARGS]',
+      '',
+      "For more information, try '--help'.",
+    ].join('\n');
+
+    function failingCodex(exitCode: number, stderr: string): void {
+      mockExecFileSync.mockImplementation((cmd: string) => (cmd === 'which' ? '/usr/local/bin/codex' : ''));
+      mockSpawn.mockImplementation(() => {
+        const child = fakeChild();
+        process.nextTick(() => {
+          child.stderr.write(stderr);
+          child.stderr.end();
+          child.stdout.end();
+          child.emit('close', exitCode, null);
+        });
+        return child;
+      });
+    }
+
+    it.each([
+      ['an unknown flag', USAGE_UNKNOWN_FLAG, "error: unexpected argument '--uncommitted' found"],
+      ['no review subcommand', USAGE_NO_SUBCOMMAND, "error: unexpected argument '--base' found"],
+    ])('reports a refused command line (%s) as native review unavailable', async (_name, stderr, firstLine) => {
+      failingCodex(2, stderr);
+
+      const err = await CODEX_BACKEND.review!(baseReviewOpts).catch((e) => e);
+
+      expect(err).toBeInstanceOf(NativeReviewUnavailableError);
+      expect(err.message).toBe(firstLine);
+    });
+
+    it.each([
+      ['a config error', 1, 'Error loading config.toml: unknown variant `bogus`, expected one of `read-only`, `workspace-write`, `danger-full-access`\nin `sandbox_mode`'],
+      ['a sign-in failure', 1, 'ERROR: Not signed in. Run codex login.'],
+      ['exit 2 without usage text', 2, 'stream disconnected before completion'],
+      ['usage text with another exit code', 1, USAGE_UNKNOWN_FLAG],
+    ])('reports %s as an ordinary failure, not as unavailable', async (_name, exitCode, stderr) => {
+      failingCodex(exitCode, stderr);
+
+      const err = await CODEX_BACKEND.review!(baseReviewOpts).catch((e) => e);
+
+      expect(err).toBeInstanceOf(CodexBackendError);
+      expect(err).not.toBeInstanceOf(NativeReviewUnavailableError);
+    });
+
+    it('reports a review that reached its time limit as an ordinary failure', async () => {
+      mockExecFileSync.mockImplementation((cmd: string) => (cmd === 'which' ? '/usr/local/bin/codex' : ''));
+      mockSpawn.mockImplementation(() => {
+        const child = fakeChild();
+        child.kill = vi.fn(() => {
+          process.nextTick(() => child.emit('close', null, 'SIGTERM'));
+          return true;
+        });
+        return child;
+      });
+
+      const err = await CODEX_BACKEND.review!({ ...baseReviewOpts, timeoutSeconds: 0.01 }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(CodexBackendError);
+      expect(err).not.toBeInstanceOf(NativeReviewUnavailableError);
+      expect(err.message).toMatch(/codex exec review timed out/);
     });
 
     it('passes -m when model is set', async () => {

@@ -13,6 +13,7 @@ import {
   type BackendEvent,
   type BackendRunOptions,
   BackendError,
+  NativeReviewUnavailableError,
   INSTALL_HINTS,
   isInPath,
   registerBackend,
@@ -167,7 +168,10 @@ export class CodexBackend implements Backend {
     const outputPath = join(tmpDir, 'codex-last-message.txt');
 
     try {
-      // codex exec review does not accept -C or --sandbox; use cwd instead
+      // `codex exec review` accepts neither -C nor --sandbox. The working
+      // directory is the spawn cwd. The sandbox travels as a config override,
+      // as it does for `exec resume`; without it the review runs under
+      // whatever the user's Codex config says, not under PaF's `--sandbox`.
       const reviewTargetArgs = opts.scope === 'working-tree'
         ? ['--uncommitted']
         : ['--base', opts.base];
@@ -175,6 +179,8 @@ export class CodexBackend implements Backend {
         'exec',
         'review',
         ...reviewTargetArgs,
+        '-c',
+        `sandbox_mode="${opts.sandbox}"`,
         '--output-last-message',
         outputPath,
         '--skip-git-repo-check',
@@ -209,6 +215,9 @@ export class CodexBackend implements Backend {
         stdout = result.stdout;
       } catch (err: unknown) {
         tap?.flush();
+        if (isCodexUsageError(err)) {
+          throw new NativeReviewUnavailableError(firstLine(err.stderr));
+        }
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -234,6 +243,23 @@ export class CodexBackend implements Backend {
       }
     }
   }
+}
+
+/**
+ * Whether codex refused the command line itself, before doing any work. Its
+ * argument parser exits 2 and prints `error: ...` followed by a `Usage:` line
+ * (verified on 0.167.1 with an unknown flag, and with the arguments an older
+ * CLI without `exec review` would see). A failure while running exits 1.
+ */
+export function isCodexUsageError(err: unknown): err is SpawnCliError {
+  return err instanceof SpawnCliError
+    && err.exitCode === 2
+    && /^error: /m.test(err.stderr)
+    && /^Usage: codex\b/m.test(err.stderr);
+}
+
+function firstLine(text: string): string {
+  return text.split('\n').find((line) => line.trim().length > 0)?.trim() ?? text;
 }
 
 interface CodexExecArgsOptions {

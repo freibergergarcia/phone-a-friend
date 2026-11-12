@@ -366,6 +366,7 @@ phone-a-friend --to claude --review                           # Committed branch
 phone-a-friend --to codex --review --review-scope working-tree # Staged, unstaged, and untracked
 phone-a-friend --to opencode --review --review-scope all       # Branch plus working-tree changes
 phone-a-friend --to codex --review --base develop              # Use a specific comparison branch
+phone-a-friend --to codex --review --context-file ticket.md    # Send notes with the review
 ```
 
 | `--review-scope` | Included changes |
@@ -387,6 +388,16 @@ returns `No changes found for review scope "<scope>".`; `--verdict-json` returns
 a valid `abstain` envelope with no findings. Native review is used only when the
 backend supports the selected non-empty scope; otherwise PaF supplies the
 deterministic diff through the generic path.
+
+`--context-file` and `--context-text` are sent with the review. A review with
+context, a custom prompt, a schema or a session uses PaF's generic path, because
+a backend's native review command cannot carry them. `--quiet` cannot be combined
+with review mode.
+
+A review that fails ends there: one that reaches its `--timeout`, is interrupted
+(Ctrl-C), or hits a sign-in or rate-limit error is not started again through
+another path. The one exception is a backend CLI too old for its native review
+command, where PaF says so on stderr and sends the diff itself.
 
 `--include-diff` remains available for normal prompt mode. It cannot be combined with review mode; select `working-tree` or `all` instead. To override a `defaults.include_diff = true` config setting on a normal relay, use `--no-include-diff` (or set `PHONE_A_FRIEND_INCLUDE_DIFF=false` in the environment for older binaries).
 
@@ -502,6 +513,10 @@ Claude configuration via TOML:
 [backends.claude]
 peer_messaging = "native" # native (default), accept, or refuse
 ```
+
+Claude limits via environment variables:
+- `CLAUDE_MAX_TURNS` -- how many turns Claude may take in one relay (default: no limit; PaF used to pass 10). A relay that reaches the limit fails with an error naming it. Use `--timeout` to bound a relay by time.
+- `CLAUDE_MAX_BUDGET` -- spending limit in USD for one relay (no default).
 
 Phone-a-friend environment variables:
 - `PHONE_A_FRIEND_INCLUDE_DIFF=false` -- disable diff inclusion globally (equivalent to `--no-include-diff` on every call).
