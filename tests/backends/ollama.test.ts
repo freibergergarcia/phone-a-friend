@@ -9,7 +9,7 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 vi.mock('../../src/backends/http-fetch.js', () => ({ longFetch: (...args: unknown[]) => mockFetch(...args) }));
 
-import { OllamaBackend, OllamaBackendError } from '../../src/backends/ollama.js';
+import { OllamaBackend, OllamaBackendError, ollamaBaseUrl } from '../../src/backends/ollama.js';
 
 function makeOpts(overrides: Record<string, unknown> = {}) {
   return {
@@ -125,6 +125,26 @@ describe('OllamaBackend', () => {
     await backend.run(makeOpts({ env: { OLLAMA_HOST: 'http://remote:8080' } }));
     const url = mockFetch.mock.calls[0][0];
     expect(url).toBe('http://remote:8080/api/chat');
+  });
+
+  it('accepts the scheme-less host:port form Ollama documents', async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({
+      message: { content: 'response' },
+    }));
+
+    await backend.run(makeOpts({ env: { OLLAMA_HOST: '127.0.0.1:11434' } }));
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toBe('http://127.0.0.1:11434/api/chat');
+    // The value as written is not a usable URL: "127.0.0.1:11434/api/chat" does not parse.
+    expect(() => new URL('127.0.0.1:11434/api/chat')).toThrow();
+  });
+
+  it('accepts a scheme-less host when streaming', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('stop here'));
+
+    const stream = backend.runStream(makeOpts({ env: { OLLAMA_HOST: 'gpu-box:8080' } }));
+    await expect(stream.next()).rejects.toThrow();
+    expect(mockFetch.mock.calls[0][0]).toBe('http://gpu-box:8080/api/chat');
   });
 
   it('strips trailing slashes from host', async () => {
@@ -407,5 +427,42 @@ describe('OllamaBackend.runStream', () => {
 
     const streamPromise = collectStream(backend.runStream(makeOpts({ timeoutSeconds: 0.05 })));
     await expect(streamPromise).rejects.toThrow('timed out');
+  });
+});
+
+// Each row was checked against the Ollama 0.40.14 client (`OLLAMA_HOST=<value> ollama list`),
+// except the IPv6 and empty-host rows, which follow the same rule.
+describe('ollamaBaseUrl()', () => {
+  it.each([
+    [undefined, 'http://localhost:11434'],
+    ['', 'http://localhost:11434'],
+    ['   ', 'http://localhost:11434'],
+    ['http://remote:8080', 'http://remote:8080'],
+    ['https://ollama.example.com', 'https://ollama.example.com'],
+    ['http://localhost:11434///', 'http://localhost:11434'],
+    ['127.0.0.1:11434', 'http://127.0.0.1:11434'],
+    ['localhost:8080', 'http://localhost:8080'],
+    ['gpu-box.local', 'http://gpu-box.local:11434'],
+    ['0.0.0.0', 'http://0.0.0.0:11434'],
+    ['  gpu-box.local:11434  ', 'http://gpu-box.local:11434'],
+    ['gpu-box.local:11434/', 'http://gpu-box.local:11434'],
+    ['gpu-box.local/ollama', 'http://gpu-box.local:11434/ollama'],
+    [':8080', 'http://localhost:8080'],
+    ['[::1]:11434', 'http://[::1]:11434'],
+    ['[::1]', 'http://[::1]:11434'],
+    ['::1', 'http://[::1]:11434'],
+  ])('reads %j as %s', (raw, expected) => {
+    expect(ollamaBaseUrl(raw)).toBe(expected);
+  });
+
+  it('keeps the port a scheme implies, as the Ollama client does', () => {
+    // `http://host` means port 80 to Ollama too: only a scheme-less value defaults to 11434.
+    expect(new URL(ollamaBaseUrl('http://gpu-box.local')).port).toBe('');
+  });
+
+  it('always returns a URL that parses', () => {
+    for (const raw of ['127.0.0.1:11434', 'localhost', '::1', ':8080', 'gpu-box.local/ollama']) {
+      expect(() => new URL(`${ollamaBaseUrl(raw)}/api/tags`)).not.toThrow();
+    }
   });
 });

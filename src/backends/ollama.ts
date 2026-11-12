@@ -19,6 +19,35 @@ import {
 import { parseNDJSONStream } from '../stream-parsers.js';
 
 const DEFAULT_HOST = 'http://localhost:11434';
+const DEFAULT_PORT = '11434';
+
+/**
+ * Base URL for the Ollama server, from `OLLAMA_HOST`, read the way Ollama's
+ * own client reads it (checked against the 0.40.14 client): surrounding
+ * whitespace and trailing slashes are dropped, a value without a scheme is
+ * http, and a scheme-less value without a port gets 11434. A value with a
+ * scheme keeps that scheme's own default port, as it does for Ollama.
+ *
+ * Before this the value was used as written, so `127.0.0.1:11434`, the form
+ * Ollama documents, made every request fail as an invalid URL.
+ */
+export function ollamaBaseUrl(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim().replace(/\/+$/, '');
+  if (!value) return DEFAULT_HOST;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+
+  const slash = value.indexOf('/');
+  let hostport = slash === -1 ? value : value.slice(0, slash);
+  const path = slash === -1 ? '' : value.slice(slash);
+
+  // A bare IPv6 address has several colons and none of them is a port.
+  if (!hostport.startsWith('[') && (hostport.match(/:/g)?.length ?? 0) > 1) {
+    hostport = `[${hostport}]`;
+  }
+  if (hostport.startsWith(':')) hostport = `localhost${hostport}`;
+  if (!/:\d+$/.test(hostport)) hostport = `${hostport}:${DEFAULT_PORT}`;
+  return `http://${hostport}${path}`;
+}
 
 export class OllamaBackendError extends BackendError {
   constructor(message: string) {
@@ -41,7 +70,7 @@ export class OllamaBackend implements Backend {
   ]);
 
   async run(opts: BackendRunOptions): Promise<string> {
-    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, '');
+    const host = ollamaBaseUrl(opts.env.OLLAMA_HOST);
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? undefined;
     const prompt = opts.schema
       ? injectSchemaPrompt(opts.prompt, opts.schema)
@@ -120,7 +149,7 @@ export class OllamaBackend implements Backend {
   }
 
   async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
-    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, '');
+    const host = ollamaBaseUrl(opts.env.OLLAMA_HOST);
     const model = opts.model ?? opts.env.OLLAMA_MODEL ?? undefined;
     const prompt = opts.schema
       ? injectSchemaPrompt(opts.prompt, opts.schema)

@@ -16,6 +16,7 @@ import {
   NativeReviewUnavailableError,
   INSTALL_HINTS,
   isInPath,
+  largePromptStdin,
   registerBackend,
   SpawnCliError,
   spawnCli,
@@ -115,6 +116,7 @@ export class CodexBackend implements Backend {
           cwd: opts.resumeSession && opts.sessionId ? opts.repoPath : undefined,
           label: 'codex exec',
           onStdout: tap,
+          stdin: largePromptStdin(opts.prompt),
         });
         tap?.flush();
         stdout = result.stdout;
@@ -198,8 +200,10 @@ export class CodexBackend implements Backend {
       // codex exec review: --base and positional [PROMPT] are mutually exclusive.
       // When --base is used, omit the custom prompt (review uses the diff as context).
       // Custom prompts with --base fall through to the generic run() path in relay.ts.
-      if (opts.prompt && !opts.base) {
-        args.push(opts.prompt);
+      const reviewPrompt = opts.prompt && !opts.base ? opts.prompt : null;
+      const reviewStdin = reviewPrompt === null ? undefined : largePromptStdin(reviewPrompt);
+      if (reviewPrompt !== null) {
+        args.push(reviewStdin === undefined ? reviewPrompt : '-');
       }
 
       let stdout = '';
@@ -209,6 +213,7 @@ export class CodexBackend implements Backend {
           env: opts.env,
           cwd: opts.repoPath,
           label: 'codex exec review',
+          stdin: reviewStdin,
           onStdout: tap,
         });
         tap?.flush();
@@ -327,7 +332,8 @@ function buildCodexExecArgs(opts: CodexExecArgsOptions): string[] {
     args.push('-m', opts.model);
   }
 
-  args.push(opts.prompt);
+  // `-` makes exec and exec resume read the prompt from stdin.
+  args.push(largePromptStdin(opts.prompt) === undefined ? opts.prompt : '-');
   return args;
 }
 

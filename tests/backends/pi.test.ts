@@ -336,6 +336,18 @@ describe('pi backend', () => {
       await expect(attempt).rejects.toThrow(/Unknown provider "nope"/);
     });
 
+    it('names the PaF config when pi refuses a provider without a model', async () => {
+      // pi 1.5.2, verbatim: exit 1 before any model call.
+      mockSpawn.mockReturnValue(mockChild('', 1, {
+        stderr: 'Error: --provider requires --model (for example: --provider mlx --model <pattern>)\n',
+      }));
+      const attempt = PI_BACKEND.run(makeOpts());
+      await expect(attempt).rejects.toThrow(PiBackendError);
+      await expect(attempt).rejects.toThrow(/\[backends\.pi\] provider/);
+      await expect(attempt).rejects.toThrow(/Pass --model <id>, or set `model` under \[backends\.pi\]/);
+      await expect(attempt).rejects.not.toThrow(/exited with code/);
+    });
+
     it('prefers the final error in the JSONL stream over stderr on a nonzero exit', async () => {
       mockSpawn.mockReturnValue(mockChild(fixture('error-exit-zero.jsonl'), 1, { stderr: 'some noise\n' }));
       const attempt = PI_BACKEND.run(makeOpts());

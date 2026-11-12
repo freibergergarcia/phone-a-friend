@@ -614,9 +614,11 @@ describe('detectDefaultBranch', () => {
     vi.restoreAllMocks();
   });
 
+  // Git is mocked here; tests/default-branch.test.ts runs the same function on real repositories.
   it('returns main when main exists', () => {
     mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('main')) return 'sha\n';
+      if (args.includes('main^{commit}')) return 'sha\n';
+      if (args.includes('main..HEAD')) return '2\n';
       throw new Error('not found');
     });
 
@@ -625,8 +627,17 @@ describe('detectDefaultBranch', () => {
 
   it('returns master when main does not exist but master does', () => {
     mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('main')) throw new Error('not found');
-      if (args.includes('master')) return 'sha\n';
+      if (args.includes('master^{commit}')) return 'sha\n';
+      if (args.includes('master..HEAD')) return '2\n';
+      throw new Error('not found');
+    });
+
+    expect(detectDefaultBranch('/tmp/repo')).toBe('master');
+  });
+
+  it('keeps the first existing candidate when commits cannot be counted', () => {
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('master^{commit}') || args.includes('origin/master^{commit}')) return 'sha\n';
       throw new Error('not found');
     });
 
@@ -1076,7 +1087,7 @@ describe('reviewRelay', () => {
 
     // Mock git rev-parse --verify main to succeed
     mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('rev-parse') && args.includes('main')) return 'sha\n';
+      if (args.includes('rev-parse') && args.includes('main^{commit}')) return 'sha\n';
       if (args.includes('diff')) return 'branch diff';
       throw new Error('not found');
     });

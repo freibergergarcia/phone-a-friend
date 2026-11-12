@@ -289,7 +289,8 @@ function syncClaudePluginRegistration(
     [['claude', 'plugin', 'marketplace', 'update', marketplaceName], 'marketplace_update'],
     [['claude', 'plugin', 'install', `${pluginName}@${marketplaceName}`, '-s', scope], 'install'],
     [['claude', 'plugin', 'enable', `${pluginName}@${marketplaceName}`, '-s', scope], 'enable'],
-    [['claude', 'plugin', 'update', `${pluginName}@${marketplaceName}`], 'update'],
+    // With no scope `update` auto-detects one, which need not be the scope just installed.
+    [['claude', 'plugin', 'update', `${pluginName}@${marketplaceName}`, '-s', scope], 'update'],
   ];
 
   for (const [cmd, label] of commands) {

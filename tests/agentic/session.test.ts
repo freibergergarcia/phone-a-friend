@@ -111,6 +111,41 @@ describe('SessionManager', () => {
         expect(spawnMock).toHaveBeenCalledWith('claude', expect.any(Array), expect.any(Object));
       });
 
+      it('passes a normal prompt after -p and writes nothing to stdin', async () => {
+        const child = makeChild('output');
+        spawnMock.mockReturnValue(child);
+        await sm.spawn(makeAgent(), 'system', 'hello', '/repo');
+        const args = spawnMock.mock.calls[0][1] as string[];
+        expect(args.slice(0, 2)).toEqual(['-p', 'system\n\n---\n\nhello']);
+        expect(child.stdin.end).toHaveBeenCalledWith();
+      });
+
+      it('sends a prompt too large for one argument on stdin', async () => {
+        const child = makeChild('output');
+        const on = vi.fn();
+        (child.stdin as unknown as { on: typeof on }).on = on;
+        spawnMock.mockReturnValue(child);
+        const large = 'x'.repeat(120_000);
+
+        await sm.spawn(makeAgent(), 'system', large, '/repo');
+
+        const args = spawnMock.mock.calls[0][1] as string[];
+        expect(args.slice(0, 2)).toEqual(['-p', '--session-id']);
+        expect(args.some(a => a.includes(large))).toBe(false);
+        expect(child.stdin.end).toHaveBeenCalledWith(`system\n\n---\n\n${large}`);
+        // A broken pipe must not surface as an unhandled stream error.
+        expect(on).toHaveBeenCalledWith('error', expect.any(Function));
+      });
+
+      it('explains a start that spawn() refuses outright', async () => {
+        spawnMock.mockImplementation(() => {
+          throw Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' });
+        });
+        const attempt = sm.spawn(makeAgent(), 'system', 'hello', '/repo');
+        await expect(attempt).rejects.toThrow(/claude failed to start/);
+        await expect(attempt).rejects.toThrow(/E2BIG/);
+      });
+
       it('passes --session-id arg', async () => {
         spawnMock.mockReturnValue(makeChild('output'));
         await sm.spawn(makeAgent(), 'system', 'hello', '/repo');

@@ -19,6 +19,10 @@ import {
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  largePromptStdin,
+  spawnFailureMessage,
+  startChild,
+  writeChildStdin,
   spawnCli,
   SpawnCliError,
   type Backend,
@@ -260,7 +264,8 @@ export class ClaudeBackend implements Backend {
     peerMessagingSupported?: boolean;
     sessionLabel?: string | null;
   }): string[] {
-    const args: string[] = ['-p', opts.prompt];
+    // With no prompt argument `claude -p` reads the prompt from stdin.
+    const args: string[] = largePromptStdin(opts.prompt) === undefined ? ['-p', opts.prompt] : ['-p'];
 
     if (opts.sessionId) {
       if (opts.resumeSession) {
@@ -365,6 +370,7 @@ export class ClaudeBackend implements Backend {
         env: this.cleanEnv(opts.env),
         cwd: opts.repoPath,
         label: 'claude',
+        stdin: largePromptStdin(opts.prompt),
       });
 
       if (result.stdout) {
@@ -411,12 +417,14 @@ export class ClaudeBackend implements Backend {
     // Add --include-partial-messages for incremental streaming
     args.push('--include-partial-messages');
 
-    const child = spawn('claude', args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    const stdin = largePromptStdin(opts.prompt);
+    const child = startChild('claude', () => spawn('claude', args, {
+      stdio: [stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env),
       ...ownProcessGroup(),
-    });
+    }));
+    writeChildStdin(child, stdin);
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
 
     // Drain stderr to prevent pipe backpressure stalling the child
@@ -433,7 +441,7 @@ export class ClaudeBackend implements Backend {
       // Parser succeeded — verify process exited cleanly
       const { code, signal, spawnError } = await supervisor.exit;
       if (spawnError) {
-        throw new ClaudeBackendError(`claude failed to start: ${spawnError.message}`);
+        throw new ClaudeBackendError(spawnFailureMessage('claude', spawnError));
       }
       if (supervisor.timedOut) {
         throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);

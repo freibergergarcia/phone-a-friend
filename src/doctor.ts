@@ -27,6 +27,7 @@ import { defaultCachePath, readSnapshot, type UpdateCheckSnapshot } from './upda
 import { parseOpenCodeMajor } from './backends/opencode.js';
 import { PI_MIN_VERSION, isSupportedPiVersion } from './backends/pi.js';
 import { INSTALL_HINTS } from './backends/index.js';
+import { ollamaBaseUrl } from './backends/ollama.js';
 import {
   inspectExecutables,
   attachModelAndCapabilities,
@@ -382,10 +383,8 @@ function computeExitCode(report: DetectionReport): number {
 // Advisories
 // ---------------------------------------------------------------------------
 
-const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
-
 async function probeOllamaVersion(): Promise<string | null> {
-  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+  const host = ollamaBaseUrl(process.env.OLLAMA_HOST);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
   try {

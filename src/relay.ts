@@ -199,19 +199,59 @@ function gitDiff(repoPath: string): string {
   return tryGitDiff(repoPath, ['HEAD~1', 'HEAD', '--']);
 }
 
-export function detectDefaultBranch(repoPath: string): string {
-  for (const branch of ['main', 'master']) {
-    try {
-      execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', branch], {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      return branch;
-    } catch {
-      // Branch doesn't exist, try next
-    }
+/** Trimmed stdout of a git command, or null when it fails. */
+function gitOutput(repoPath: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', ['-C', repoPath, ...args], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    return null;
   }
-  return 'HEAD~1';
+}
+
+/**
+ * Remotes whose default branch can be the base of a review: `origin`, and
+ * `upstream`, the name a fork's parent conventionally has (`gh repo fork` sets
+ * it). Other remotes are left out on purpose: a deploy remote that already
+ * holds the branch would make the review look empty.
+ */
+const BASE_REMOTES = ['origin', 'upstream'];
+
+/**
+ * The ref a review is compared against when `--base` is not given.
+ *
+ * Candidates are the local `main` and `master`, then for each of
+ * `BASE_REMOTES` its default branch (`<remote>/HEAD`) with the local branch of
+ * that name, `<remote>/main` and `<remote>/master`. The one with the fewest
+ * commits between it and `HEAD` wins, and a tie keeps the earlier candidate,
+ * so the local branch is still the answer whenever it is as good as any other.
+ *
+ * Before this the local `main` was used whenever it existed. On a branch cut
+ * from a freshly fetched `origin/main`, with the local `main` never pulled,
+ * the review then also covered every commit merged since that last pull.
+ */
+export function detectDefaultBranch(repoPath: string): string {
+  const candidates = ['main', 'master'];
+  for (const remote of BASE_REMOTES) {
+    const remoteDefault = gitOutput(repoPath, ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`]);
+    if (remoteDefault?.startsWith(`${remote}/`)) {
+      candidates.push(remoteDefault.slice(remote.length + 1), remoteDefault);
+    }
+    candidates.push(`${remote}/main`, `${remote}/master`);
+  }
+
+  let firstExisting: string | null = null;
+  let best: { ref: string; ahead: number } | null = null;
+  for (const ref of new Set(candidates)) {
+    if (gitOutput(repoPath, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) === null) continue;
+    firstExisting ??= ref;
+    const count = gitOutput(repoPath, ['rev-list', '--count', `${ref}..HEAD`]);
+    const ahead = count !== null && /^\d+$/.test(count) ? Number(count) : null;
+    if (ahead !== null && (best === null || ahead < best.ahead)) best = { ref, ahead };
+  }
+  return best?.ref ?? firstExisting ?? 'HEAD~1';
 }
 
 export function gitDiffBase(repoPath: string, base: string): string {

@@ -375,6 +375,11 @@ phone-a-friend --to codex --review --context-file ticket.md    # Send notes with
 | `working-tree` | Staged, unstaged, and non-ignored untracked files relative to `HEAD` |
 | `all` | Branch changes plus staged, unstaged, and non-ignored untracked files |
 
+Without `--base`, the comparison ref is whichever of `main`, `master` and the
+default, `main` and `master` branches of the `origin` and `upstream` remotes is
+nearest to `HEAD`, so a local `main` that was never pulled does not widen the review. The progress
+line names the ref used. PaF does not fetch.
+
 Pass a repository root, linked Git worktree, or any directory inside one through
 `--repo <path>`; review mode normalizes it to the containing worktree root before
 collecting changes. Before the first commit, `working-tree` and `all` compare
@@ -504,7 +509,7 @@ state.
 | **xAI** | Responses HTTP API | No |
 
 Ollama configuration via environment variables:
-- `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`)
+- `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`). Read as Ollama reads it: `127.0.0.1:11434` and a bare host name work, with http and port 11434 as the defaults
 - `OLLAMA_MODEL` -- default model (overridden by `--model` flag)
 
 Claude configuration via TOML:

@@ -147,6 +147,23 @@ describe('detection', () => {
       expect(ollama!.installHint).toContain('ollama');
     });
 
+    it('probes a scheme-less OLLAMA_HOST as an http URL', async () => {
+      vi.stubEnv('OLLAMA_HOST', '127.0.0.1:11434');
+      try {
+        const fetchFn = vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ models: [{ name: 'qwen3:latest' }] }),
+        });
+
+        const results = await detection.detectLocalBackends(vi.fn(() => true), fetchFn);
+
+        expect(fetchFn.mock.calls[0][0]).toBe('http://127.0.0.1:11434/api/tags');
+        expect(results.find(b => b.name === 'ollama')!.available).toBe(true);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('passes abort signal as { signal } init object to fetch', async () => {
       const whichFn = vi.fn(() => true);
       const fetchFn = vi.fn().mockResolvedValue({
