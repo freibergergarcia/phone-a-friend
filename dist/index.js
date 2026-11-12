@@ -229,15 +229,38 @@ function checkBackends(whichFn = isInPath) {
   }
   return result;
 }
+function largePromptStdin(prompt) {
+  return Buffer.byteLength(prompt) >= STDIN_PROMPT_MIN_BYTES ? prompt : void 0;
+}
+function spawnFailureMessage(label, error2) {
+  if (error2.code === "E2BIG") {
+    return `${label} failed to start: its command line is larger than the operating system allows (E2BIG). Linux limits one argument to 131,071 bytes, and antigravity, gemini, opencode and pi take the prompt as an argument. Send a shorter prompt, context or diff, or use --to claude, --to codex or --to grok, which do not.`;
+  }
+  return `${label} failed to start: ${error2.message}`;
+}
+function startChild(label, start) {
+  try {
+    return start();
+  } catch (err) {
+    throw new BackendError(spawnFailureMessage(label, err instanceof Error ? err : new Error(String(err))));
+  }
+}
+function writeChildStdin(child, input) {
+  if (input === void 0 || !child.stdin) return;
+  child.stdin.on("error", () => {
+  });
+  child.stdin.end(input);
+}
 function spawnCli(command, args, opts) {
   const label = opts.label ?? command;
   return new Promise((resolve5, reject) => {
-    const child = nodeSpawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
+    const child = startChild(label, () => nodeSpawn(command, args, {
+      stdio: [opts.stdin === void 0 ? "ignore" : "pipe", "pipe", "pipe"],
       env: opts.env ?? process.env,
       cwd: opts.cwd,
       ...ownProcessGroup()
-    });
+    }));
+    writeChildStdin(child, opts.stdin);
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutMs, killGraceMs: opts.killGraceMs });
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -253,7 +276,7 @@ function spawnCli(command, args, opts) {
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
     void supervisor.exit.then(({ code, signal, spawnError }) => {
       if (spawnError) {
-        reject(new BackendError(`${label} failed to start: ${spawnError.message}`));
+        reject(new BackendError(spawnFailureMessage(label, spawnError)));
         return;
       }
       const stdout = Buffer.concat(stdoutChunks).toString().trim();
@@ -279,7 +302,7 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, NativeReviewUnavailableError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, NativeReviewUnavailableError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry, STDIN_PROMPT_MIN_BYTES;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -346,6 +369,7 @@ var init_backends = __esm({
       grok: "grok"
     };
     registry = /* @__PURE__ */ new Map();
+    STDIN_PROMPT_MIN_BYTES = 1e5;
   }
 });
 
@@ -359,6 +383,492 @@ ${schema}`;
 var init_schema_prompt = __esm({
   "src/backends/schema-prompt.ts"() {
     "use strict";
+  }
+});
+
+// src/backends/http-fetch.ts
+import http from "http";
+import https from "https";
+import { pipeline, Readable } from "stream";
+import { constants, createBrotliDecompress, createGunzip, createInflate } from "zlib";
+function longFetch(url, init, redirects = 0) {
+  return new Promise((resolve5, reject) => {
+    const target = new URL(url);
+    const request = target.protocol === "https:" ? https.request : http.request;
+    const req = request(
+      target,
+      {
+        method: init.method,
+        headers: { "Accept-Encoding": "gzip, deflate, br", ...init.headers },
+        signal: init.signal
+      },
+      (res) => {
+        const status = res.statusCode ?? 502;
+        if (BODY_PRESERVING_REDIRECTS.has(status) && res.headers.location) {
+          res.resume();
+          const next = URL.parse(res.headers.location, target);
+          if (!next) {
+            reject(new Error(`Invalid redirect location from ${url}`));
+          } else if (redirects >= MAX_REDIRECTS) {
+            reject(new Error(`Too many redirects from ${url}`));
+          } else if (next.protocol !== "http:" && next.protocol !== "https:") {
+            reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
+          } else {
+            const headers2 = next.origin === target.origin ? init.headers : Object.fromEntries(Object.entries(init.headers).filter(([name]) => !CROSS_ORIGIN_DROPPED_HEADERS.has(name.toLowerCase())));
+            resolve5(longFetch(next.href, { ...init, headers: headers2 }, redirects + 1));
+          }
+          return;
+        }
+        if (status < 200 || status > 599) {
+          res.resume();
+          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
+          return;
+        }
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(res.headers)) {
+          if (value === void 0) continue;
+          for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
+        }
+        if (NULL_BODY_STATUSES.has(status)) {
+          res.resume();
+          resolve5(new Response(null, { status, headers }));
+          return;
+        }
+        const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+        const decoder = encoding ? DECODERS.get(encoding)?.() : void 0;
+        if (decoder) {
+          headers.delete("content-encoding");
+          headers.delete("content-length");
+        }
+        const body = decoder ? pipeline(res, decoder, () => {
+        }) : res;
+        resolve5(new Response(Readable.toWeb(body), { status, headers }));
+      }
+    );
+    req.on("error", reject);
+    req.end(init.body);
+  });
+}
+var NULL_BODY_STATUSES, BODY_PRESERVING_REDIRECTS, MAX_REDIRECTS, CROSS_ORIGIN_DROPPED_HEADERS, DECODERS;
+var init_http_fetch = __esm({
+  "src/backends/http-fetch.ts"() {
+    "use strict";
+    NULL_BODY_STATUSES = /* @__PURE__ */ new Set([101, 204, 205, 304]);
+    BODY_PRESERVING_REDIRECTS = /* @__PURE__ */ new Set([307, 308]);
+    MAX_REDIRECTS = 20;
+    CROSS_ORIGIN_DROPPED_HEADERS = /* @__PURE__ */ new Set(["authorization", "cookie", "proxy-authorization"]);
+    DECODERS = /* @__PURE__ */ new Map([
+      ["gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
+      ["x-gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
+      ["deflate", () => createInflate({ flush: constants.Z_SYNC_FLUSH })],
+      ["br", () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })]
+    ]);
+  }
+});
+
+// src/stream-parsers.ts
+async function* parseNDJSONStream(body, signal) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let receivedDone = false;
+  function* processNDJSONLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (parsed.error) {
+        throw new Error(`Stream error: ${String(parsed.error)}`);
+      }
+      const message = parsed.message;
+      const content = message?.content;
+      if (typeof content === "string" && content.length > 0) {
+        yield content;
+      }
+      if (parsed.done === true) {
+        receivedDone = true;
+        return;
+      }
+    }
+  }
+  try {
+    while (true) {
+      if (signal?.aborted) throw new Error("Stream aborted");
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const token of processNDJSONLines(lines)) {
+        if (signal?.aborted) throw new Error("Stream aborted");
+        yield token;
+      }
+      if (receivedDone) return;
+    }
+    if (buffer.trim()) {
+      yield* processNDJSONLines([buffer]);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!receivedDone) {
+    throw new Error("Stream ended unexpectedly");
+  }
+}
+function extractOpenCodeErrorMessage(event) {
+  const error2 = event.error;
+  if (error2 && typeof error2 === "object") {
+    const data = error2.data;
+    if (data && typeof data.message === "string" && data.message.trim()) {
+      return data.message;
+    }
+    if (typeof error2.message === "string" && error2.message.trim()) {
+      const kind = typeof error2.type === "string" && error2.type.trim() ? ` (${error2.type})` : "";
+      return `${error2.message}${kind}`;
+    }
+    if (typeof error2.name === "string" && error2.name.trim()) {
+      return error2.name;
+    }
+    try {
+      return JSON.stringify(error2);
+    } catch {
+    }
+  }
+  return "opencode reported an error";
+}
+async function* parseOpenCodeStreamJSON(stdout, opts) {
+  let buffer = "";
+  let sessionReported = false;
+  let errorReported = false;
+  function* processLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (!sessionReported && typeof parsed.sessionID === "string" && opts?.onSessionCreated) {
+        opts.onSessionCreated(parsed.sessionID);
+        sessionReported = true;
+      }
+      if (!errorReported && parsed.type === "error" && opts?.onError) {
+        opts.onError(extractOpenCodeErrorMessage(parsed));
+        errorReported = true;
+      }
+      if (parsed.type === "text") {
+        const part = parsed.part;
+        if (part?.text && typeof part.text === "string") {
+          yield part.text;
+        }
+      }
+    }
+  }
+  for await (const chunk of stdout) {
+    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    yield* processLines(lines);
+  }
+  if (buffer.trim()) {
+    yield* processLines([buffer]);
+  }
+}
+async function* parseClaudeStreamJSON(stdout, hooks = {}) {
+  let buffer = "";
+  let emittedLength = 0;
+  function* processLines(lines) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (parsed.error) {
+        throw new Error(`Stream error: ${JSON.stringify(parsed.error)}`);
+      }
+      const type = parsed.type;
+      if (type === "result") {
+        try {
+          hooks.onResult?.(parsed);
+        } catch {
+        }
+        const result = parsed.result;
+        if (typeof result === "string" && result.length > emittedLength) {
+          yield result.slice(emittedLength);
+          emittedLength = result.length;
+        }
+        continue;
+      }
+      const inner = type === "stream_event" ? parsed.event : parsed;
+      const innerType = inner?.type ?? type;
+      if (innerType === "content_block_delta") {
+        const delta = inner.delta;
+        if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+          emittedLength += delta.text.length;
+          yield delta.text;
+        }
+        continue;
+      }
+      if (innerType === "assistant" || innerType === "message") {
+        const message = inner?.message ?? inner;
+        const contentBlocks = message.content;
+        if (Array.isArray(contentBlocks)) {
+          let fullText = "";
+          for (const block of contentBlocks) {
+            if (block.type === "text" && typeof block.text === "string") {
+              fullText += block.text;
+            }
+          }
+          if (fullText.length > emittedLength) {
+            yield fullText.slice(emittedLength);
+            emittedLength = fullText.length;
+          }
+        }
+      }
+    }
+  }
+  for await (const chunk of stdout) {
+    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    yield* processLines(lines);
+  }
+  if (buffer.trim()) {
+    yield* processLines([buffer]);
+  }
+}
+var init_stream_parsers = __esm({
+  "src/stream-parsers.ts"() {
+    "use strict";
+  }
+});
+
+// src/backends/ollama.ts
+function ollamaBaseUrl(raw) {
+  const value = (raw ?? "").trim().replace(/\/+$/, "");
+  if (!value) return DEFAULT_HOST;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return value;
+  const slash = value.indexOf("/");
+  let hostport = slash === -1 ? value : value.slice(0, slash);
+  const path4 = slash === -1 ? "" : value.slice(slash);
+  if (!hostport.startsWith("[") && (hostport.match(/:/g)?.length ?? 0) > 1) {
+    hostport = `[${hostport}]`;
+  }
+  if (hostport.startsWith(":")) hostport = `localhost${hostport}`;
+  if (!/:\d+$/.test(hostport)) hostport = `${hostport}:${DEFAULT_PORT}`;
+  return `http://${hostport}${path4}`;
+}
+function injectSchemaPrompt2(prompt, schema) {
+  return `${prompt}
+
+Respond with JSON only. The response must match this JSON Schema exactly:
+${schema}`;
+}
+function ollamaFormatForSchema(schema) {
+  try {
+    const parsed = JSON.parse(schema);
+    if (isJsonObject(parsed)) return parsed;
+  } catch {
+  }
+  return "json";
+}
+function isJsonObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+var DEFAULT_HOST, DEFAULT_PORT, OllamaBackendError, OllamaBackend, OLLAMA_BACKEND;
+var init_ollama = __esm({
+  "src/backends/ollama.ts"() {
+    "use strict";
+    init_http_fetch();
+    init_backends();
+    init_stream_parsers();
+    DEFAULT_HOST = "http://localhost:11434";
+    DEFAULT_PORT = "11434";
+    OllamaBackendError = class extends BackendError {
+      constructor(message) {
+        super(message);
+        this.name = "OllamaBackendError";
+      }
+    };
+    OllamaBackend = class {
+      name = "ollama";
+      localFileAccess = false;
+      capabilities = {
+        resumeStrategy: "transcript-replay",
+        requiresClientSessionId: false
+      };
+      allowedSandboxes = /* @__PURE__ */ new Set([
+        "read-only",
+        "workspace-write",
+        "danger-full-access"
+      ]);
+      async run(opts) {
+        const host = ollamaBaseUrl(opts.env.OLLAMA_HOST);
+        const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+        const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+        const history = opts.sessionHistory ?? [];
+        const body = {
+          messages: [...history, { role: "user", content: prompt }],
+          stream: false
+        };
+        if (model) body.model = model;
+        if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
+        const url = `${host}/api/chat`;
+        const controller = new AbortController();
+        const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
+        let data;
+        try {
+          const resp = await longFetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+          if (!resp.ok) {
+            let body2 = "";
+            try {
+              body2 = await resp.text();
+            } catch {
+            }
+            throw new OllamaBackendError(
+              `Ollama returned HTTP ${resp.status}${body2 ? `: ${body2.slice(0, 200)}` : ""}`
+            );
+          }
+          let raw;
+          try {
+            raw = await resp.json();
+          } catch (err) {
+            if (controller.signal.aborted) throw err;
+            throw new OllamaBackendError(
+              `Ollama returned invalid JSON (HTTP ${resp.status})`
+            );
+          }
+          if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+            throw new OllamaBackendError("Ollama returned JSON that is not a response object");
+          }
+          data = raw;
+        } catch (err) {
+          if (err instanceof OllamaBackendError) throw err;
+          clearTimeout(timer);
+          return this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+        } finally {
+          clearTimeout(timer);
+        }
+        if (data.error) {
+          throw new OllamaBackendError(`Ollama error: ${data.error}`);
+        }
+        if (data.done === false) {
+          throw new OllamaBackendError("Ollama returned an incomplete response");
+        }
+        const message = data.message;
+        const content = typeof message?.content === "string" ? message.content.trim() : "";
+        if (!content) {
+          throw new OllamaBackendError(
+            "Ollama completed without producing output"
+          );
+        }
+        return content;
+      }
+      async *runStream(opts) {
+        const host = ollamaBaseUrl(opts.env.OLLAMA_HOST);
+        const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
+        const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
+        const history = opts.sessionHistory ?? [];
+        const body = {
+          messages: [...history, { role: "user", content: prompt }],
+          stream: true
+        };
+        if (model) body.model = model;
+        if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
+        const url = `${host}/api/chat`;
+        const controller = new AbortController();
+        const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
+        let resp;
+        try {
+          resp = await longFetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+        } catch (err) {
+          clearTimeout(timer);
+          return void await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+        }
+        if (!resp.ok) {
+          clearTimeout(timer);
+          let respBody = "";
+          try {
+            respBody = await resp.text();
+          } catch {
+          }
+          throw new OllamaBackendError(
+            `Ollama returned HTTP ${resp.status}${respBody ? `: ${respBody.slice(0, 200)}` : ""}`
+          );
+        }
+        if (!resp.body) {
+          clearTimeout(timer);
+          throw new OllamaBackendError("Ollama returned empty response body");
+        }
+        try {
+          let hasText = false;
+          for await (const chunk of parseNDJSONStream(resp.body, controller.signal)) {
+            if (chunk.trim()) hasText = true;
+            yield chunk;
+          }
+          if (!hasText) {
+            throw new OllamaBackendError("Ollama completed without producing output");
+          }
+        } catch (err) {
+          if (err instanceof OllamaBackendError) throw err;
+          const msg = err instanceof Error ? err.message : String(err);
+          if (controller.signal.aborted) {
+            throw new OllamaBackendError(
+              `Ollama timed out after ${opts.timeoutSeconds}s`
+            );
+          }
+          if (msg.startsWith("Stream ")) {
+            throw new OllamaBackendError(msg);
+          }
+          await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      async diagnoseAndThrow(host, originalErr, timeout) {
+        if (originalErr instanceof DOMException || originalErr instanceof Error && originalErr.name === "AbortError") {
+          throw new OllamaBackendError(
+            `Ollama timed out after ${timeout}s`
+          );
+        }
+        const controller = new AbortController();
+        const probeTimer = setTimeout(() => controller.abort(), 3e3);
+        try {
+          await fetch(`${host}/api/tags`, { signal: controller.signal });
+        } catch {
+          throw new OllamaBackendError(
+            `Ollama server not reachable at ${host}. Is Ollama running? Install: https://ollama.com/download`
+          );
+        } finally {
+          clearTimeout(probeTimer);
+        }
+        const detail = originalErr instanceof Error ? originalErr.message : String(originalErr);
+        throw new OllamaBackendError(`Ollama request failed: ${detail}`);
+      }
+    };
+    OLLAMA_BACKEND = new OllamaBackend();
+    registerBackend(OLLAMA_BACKEND);
   }
 });
 
@@ -2747,9 +3257,13 @@ function confirmPiSession(plan, header, stderr, repoCwd) {
 function timeoutMessage(timeoutSeconds) {
   return `pi timed out after ${timeoutSeconds}s. If the model runs locally, check the server is up (your provider's baseUrl) and try a smaller model.`;
 }
+function isPiProviderWithoutModel(stderr) {
+  return /--provider requires --model/.test(stderr);
+}
 function piExitError(exitCode, finalAssistant, stderr) {
   const failure = piFailureDetail(finalAssistant);
   if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  if (isPiProviderWithoutModel(stderr)) return new PiBackendError(PI_PROVIDER_NEEDS_MODEL);
   const tail = stderrTail2(stderr);
   return new PiBackendError(`pi exited with code ${exitCode ?? "unknown"}${tail ? `: ${tail}` : "."}`);
 }
@@ -2762,7 +3276,7 @@ function toPiError(err, timeoutSeconds) {
   if (err instanceof BackendError) return new PiBackendError(err.message);
   return new PiBackendError(err instanceof Error ? err.message : String(err));
 }
-var PiBackendError, PI_TOOLS, PI_SESSION_ID_PATTERN, LOCAL_SERVER_HINT, PI_PROGRESS_DETAIL_LIMIT, PI_COMPACTION_REASONS, PI_MIN_VERSION, PI_VERSION_PROBE_TIMEOUT_MS, versionCache, PI_HEADER_SCAN_LIMIT_BYTES, PI_HEADER_READ_BUFFER_BYTES, PiBackend, PI_BACKEND;
+var PiBackendError, PI_TOOLS, PI_SESSION_ID_PATTERN, LOCAL_SERVER_HINT, PI_PROGRESS_DETAIL_LIMIT, PI_COMPACTION_REASONS, PI_MIN_VERSION, PI_VERSION_PROBE_TIMEOUT_MS, versionCache, PI_HEADER_SCAN_LIMIT_BYTES, PI_HEADER_READ_BUFFER_BYTES, PI_PROVIDER_NEEDS_MODEL, PiBackend, PI_BACKEND;
 var init_pi = __esm({
   "src/backends/pi.ts"() {
     "use strict";
@@ -2791,6 +3305,7 @@ var init_pi = __esm({
     versionCache = /* @__PURE__ */ new Map();
     PI_HEADER_SCAN_LIMIT_BYTES = 1024 * 1024;
     PI_HEADER_READ_BUFFER_BYTES = 4096;
+    PI_PROVIDER_NEEDS_MODEL = "pi needs a model when a provider is set, and `[backends.pi] provider` is set without one. Pass --model <id>, or set `model` under [backends.pi] in the phone-a-friend config.";
     PiBackend = class {
       name = "pi";
       localFileAccess = true;
@@ -2849,12 +3364,12 @@ var init_pi = __esm({
       }
       async *runStream(opts) {
         const { args, repoCwd, session } = await this.prepare(opts);
-        const child = spawn3("pi", args, {
+        const child = startChild("pi", () => spawn3("pi", args, {
           stdio: ["ignore", "pipe", "pipe"],
           cwd: repoCwd,
           env: opts.env,
           ...ownProcessGroup()
-        });
+        }));
         const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
         const stderrChunks = [];
         child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
@@ -2876,7 +3391,7 @@ var init_pi = __esm({
           const { code, signal, spawnError } = await supervisor.exit;
           const stderr = Buffer.concat(stderrChunks).toString().trim();
           if (spawnError) {
-            throw new PiBackendError(`pi failed to start: ${spawnError.message}`);
+            throw new PiBackendError(spawnFailureMessage("pi", spawnError));
           }
           if (supervisor.timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
           if (supervisor.interruptedBy) throw new PiBackendError(`pi interrupted by ${supervisor.interruptedBy}`);
@@ -4045,18 +4560,35 @@ function gitDiff(repoPath) {
   if (uncommitted) return uncommitted;
   return tryGitDiff(repoPath, ["HEAD~1", "HEAD", "--"]);
 }
-function detectDefaultBranch(repoPath) {
-  for (const branch of ["main", "master"]) {
-    try {
-      execFileSync3("git", ["-C", repoPath, "rev-parse", "--verify", branch], {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-      return branch;
-    } catch {
-    }
+function gitOutput(repoPath, args) {
+  try {
+    return execFileSync3("git", ["-C", repoPath, ...args], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+  } catch {
+    return null;
   }
-  return "HEAD~1";
+}
+function detectDefaultBranch(repoPath) {
+  const candidates = ["main", "master"];
+  for (const remote of BASE_REMOTES) {
+    const remoteDefault = gitOutput(repoPath, ["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]);
+    if (remoteDefault?.startsWith(`${remote}/`)) {
+      candidates.push(remoteDefault.slice(remote.length + 1), remoteDefault);
+    }
+    candidates.push(`${remote}/main`, `${remote}/master`);
+  }
+  let firstExisting = null;
+  let best = null;
+  for (const ref of new Set(candidates)) {
+    if (gitOutput(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) === null) continue;
+    firstExisting ??= ref;
+    const count = gitOutput(repoPath, ["rev-list", "--count", `${ref}..HEAD`]);
+    const ahead = count !== null && /^\d+$/.test(count) ? Number(count) : null;
+    if (ahead !== null && (best === null || ahead < best.ahead)) best = { ref, ahead };
+  }
+  return best?.ref ?? firstExisting ?? "HEAD~1";
 }
 function gitDiffBase(repoPath, base) {
   try {
@@ -4753,7 +5285,7 @@ function relayBackground(opts) {
   });
   return { job, promise };
 }
-var DEFAULT_TIMEOUT_SECONDS, DEFAULT_BACKEND, DEFAULT_SANDBOX, MAX_RELAY_DEPTH, MAX_CONTEXT_FILE_BYTES, MAX_DIFF_BYTES, MAX_PROMPT_BYTES, EMPTY_GIT_TREE_SHA, GIT_DIFF_MAX_BUFFER_BYTES, RelayError;
+var DEFAULT_TIMEOUT_SECONDS, DEFAULT_BACKEND, DEFAULT_SANDBOX, MAX_RELAY_DEPTH, MAX_CONTEXT_FILE_BYTES, MAX_DIFF_BYTES, MAX_PROMPT_BYTES, EMPTY_GIT_TREE_SHA, GIT_DIFF_MAX_BUFFER_BYTES, RelayError, BASE_REMOTES;
 var init_relay = __esm({
   "src/relay.ts"() {
     "use strict";
@@ -4777,6 +5309,7 @@ var init_relay = __esm({
         this.name = "RelayError";
       }
     };
+    BASE_REMOTES = ["origin", "upstream"];
   }
 });
 
@@ -5496,7 +6029,8 @@ function syncClaudePluginRegistration(source, marketplaceName = MARKETPLACE_NAME
     [["claude", "plugin", "marketplace", "update", marketplaceName], "marketplace_update"],
     [["claude", "plugin", "install", `${pluginName}@${marketplaceName}`, "-s", scope], "install"],
     [["claude", "plugin", "enable", `${pluginName}@${marketplaceName}`, "-s", scope], "enable"],
-    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`], "update"]
+    // With no scope `update` auto-detects one, which need not be the scope just installed.
+    [["claude", "plugin", "update", `${pluginName}@${marketplaceName}`, "-s", scope], "update"]
   ];
   for (const [cmd, label] of commands) {
     const { code, output } = runClaudeCommand(cmd);
@@ -19477,7 +20011,7 @@ async function detectCliBackends(whichFn = isInPath) {
 }
 async function detectLocalBackends(whichFn = isInPath, fetchFn = globalThis.fetch) {
   const binaryInstalled = whichFn("ollama");
-  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+  const host = ollamaBaseUrl(process.env.OLLAMA_HOST);
   let serverResponding = false;
   let models = [];
   const controller = new AbortController();
@@ -19628,11 +20162,12 @@ async function detectAll(whichFn = isInPath, fetchFn = globalThis.fetch) {
   const environment = detectEnvironment(whichFn);
   return { cli, local, api: detectApiBackends(), host, environment };
 }
-var CLI_BACKENDS, OLLAMA_DEFAULT_HOST, OLLAMA_INSTALL_HINT, HOST_INTEGRATIONS;
+var CLI_BACKENDS, OLLAMA_INSTALL_HINT, HOST_INTEGRATIONS;
 var init_detection = __esm({
   "src/detection.ts"() {
     "use strict";
     init_backends();
+    init_ollama();
     CLI_BACKENDS = [
       // Antigravity is the consumer replacement path for Gemini CLI, but it is
       // optional so existing users without `agy` do not get failing doctor checks.
@@ -19649,7 +20184,6 @@ var init_detection = __esm({
       // Optional for the same reason: Grok Build is a separate install.
       { name: "grok", installHint: INSTALL_HINTS.grok, label: "Grok Build", optional: true }
     ];
-    OLLAMA_DEFAULT_HOST = "http://localhost:11434";
     OLLAMA_INSTALL_HINT = "brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh";
     HOST_INTEGRATIONS = [
       { name: "claude", installHint: "npm install -g @anthropic-ai/claude-code", label: "Claude Code CLI" },
@@ -74396,12 +74930,6 @@ var init_session = __esm({
       // ---- Claude (persistent sessions) --------------------------------------
       spawnClaude(sessionId, systemPrompt, prompt, repoPath, model, options = {}) {
         const args = [
-          "-p",
-          `${systemPrompt}
-
----
-
-${prompt}`,
           "--session-id",
           sessionId,
           "--add-dir",
@@ -74415,7 +74943,11 @@ ${prompt}`,
           args.push("--model", model);
         }
         this.applyPolicy(args, options);
-        return this.execClaude(args, repoPath, options);
+        return this.execClaude(`${systemPrompt}
+
+---
+
+${prompt}`, args, repoPath, options);
       }
       applyPolicy(args, options) {
         const sandbox = options.sandbox ?? "read-only";
@@ -74432,8 +74964,6 @@ ${prompt}`,
       }
       resumeClaude(sessionId, message, repoPath, model, options = {}) {
         const args = [
-          "-p",
-          message,
           "-r",
           sessionId,
           "--add-dir",
@@ -74445,18 +74975,21 @@ ${prompt}`,
         ];
         if (model) args.push("--model", model);
         this.applyPolicy(args, options);
-        return this.execClaude(args, repoPath, options);
+        return this.execClaude(message, args, repoPath, options);
       }
-      execClaude(args, repoPath, options) {
+      /** `flags` is everything after `-p <prompt>`; a large prompt goes on stdin instead (see `largePromptStdin()`). */
+      execClaude(prompt, flags, repoPath, options) {
         if (options.signal?.aborted) return Promise.reject(new Error("Claude session cancelled"));
+        const stdin = largePromptStdin(prompt);
+        const args = stdin === void 0 ? ["-p", prompt, ...flags] : ["-p", ...flags];
         return new Promise((resolve5, reject) => {
           const grouped = process.platform !== "win32";
-          const child = spawn8("claude", args, {
+          const child = startChild("claude", () => spawn8("claude", args, {
             env: this.cleanEnv(),
             cwd: repoPath,
             detached: grouped,
             stdio: ["pipe", "pipe", "pipe"]
-          });
+          }));
           const stdout = [];
           const stderr = [];
           let settled = false;
@@ -74507,7 +75040,8 @@ ${prompt}`,
           });
           child.stdout.on("data", (chunk) => stdout.push(chunk));
           child.stderr.on("data", (chunk) => stderr.push(chunk));
-          child.stdin?.end();
+          if (stdin === void 0) child.stdin?.end();
+          else writeChildStdin(child, stdin);
           options.signal?.addEventListener("abort", abort, { once: true });
           if (options.signal?.aborted) abort();
         });
@@ -75807,7 +76341,8 @@ var CodexBackend = class {
           // the process cwd or the resumed thread works in PaF's own cwd.
           cwd: opts.resumeSession && opts.sessionId ? opts.repoPath : void 0,
           label: "codex exec",
-          onStdout: tap
+          onStdout: tap,
+          stdin: largePromptStdin(opts.prompt)
         });
         tap?.flush();
         stdout = result.stdout;
@@ -75867,8 +76402,10 @@ var CodexBackend = class {
       if (opts.model) {
         args.push("-m", opts.model);
       }
-      if (opts.prompt && !opts.base) {
-        args.push(opts.prompt);
+      const reviewPrompt = opts.prompt && !opts.base ? opts.prompt : null;
+      const reviewStdin = reviewPrompt === null ? void 0 : largePromptStdin(reviewPrompt);
+      if (reviewPrompt !== null) {
+        args.push(reviewStdin === void 0 ? reviewPrompt : "-");
       }
       let stdout = "";
       try {
@@ -75877,6 +76414,7 @@ var CodexBackend = class {
           env: opts.env,
           cwd: opts.repoPath,
           label: "codex exec review",
+          stdin: reviewStdin,
           onStdout: tap
         });
         tap?.flush();
@@ -75941,7 +76479,7 @@ function buildCodexExecArgs(opts) {
   if (opts.model) {
     args.push("-m", opts.model);
   }
-  args.push(opts.prompt);
+  args.push(largePromptStdin(opts.prompt) === void 0 ? opts.prompt : "-");
   return args;
 }
 function assertResumeSchemaSupport(env4, timeoutMs) {
@@ -76659,461 +77197,11 @@ function extractGeminiResult(jsonOutput) {
 var GEMINI_BACKEND = new GeminiBackend();
 registerBackend(GEMINI_BACKEND);
 
-// src/backends/http-fetch.ts
-import http from "http";
-import https from "https";
-import { pipeline, Readable } from "stream";
-import { constants, createBrotliDecompress, createGunzip, createInflate } from "zlib";
-var NULL_BODY_STATUSES = /* @__PURE__ */ new Set([101, 204, 205, 304]);
-var BODY_PRESERVING_REDIRECTS = /* @__PURE__ */ new Set([307, 308]);
-var MAX_REDIRECTS = 20;
-var CROSS_ORIGIN_DROPPED_HEADERS = /* @__PURE__ */ new Set(["authorization", "cookie", "proxy-authorization"]);
-var DECODERS = /* @__PURE__ */ new Map([
-  ["gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
-  ["x-gzip", () => createGunzip({ flush: constants.Z_SYNC_FLUSH })],
-  ["deflate", () => createInflate({ flush: constants.Z_SYNC_FLUSH })],
-  ["br", () => createBrotliDecompress({ flush: constants.BROTLI_OPERATION_FLUSH })]
-]);
-function longFetch(url, init, redirects = 0) {
-  return new Promise((resolve5, reject) => {
-    const target = new URL(url);
-    const request = target.protocol === "https:" ? https.request : http.request;
-    const req = request(
-      target,
-      {
-        method: init.method,
-        headers: { "Accept-Encoding": "gzip, deflate, br", ...init.headers },
-        signal: init.signal
-      },
-      (res) => {
-        const status = res.statusCode ?? 502;
-        if (BODY_PRESERVING_REDIRECTS.has(status) && res.headers.location) {
-          res.resume();
-          const next = URL.parse(res.headers.location, target);
-          if (!next) {
-            reject(new Error(`Invalid redirect location from ${url}`));
-          } else if (redirects >= MAX_REDIRECTS) {
-            reject(new Error(`Too many redirects from ${url}`));
-          } else if (next.protocol !== "http:" && next.protocol !== "https:") {
-            reject(new Error(`Refusing to follow a redirect to ${next.protocol}`));
-          } else {
-            const headers2 = next.origin === target.origin ? init.headers : Object.fromEntries(Object.entries(init.headers).filter(([name]) => !CROSS_ORIGIN_DROPPED_HEADERS.has(name.toLowerCase())));
-            resolve5(longFetch(next.href, { ...init, headers: headers2 }, redirects + 1));
-          }
-          return;
-        }
-        if (status < 200 || status > 599) {
-          res.resume();
-          reject(new Error(`Unsupported HTTP status ${status} from ${url}`));
-          return;
-        }
-        const headers = new Headers();
-        for (const [name, value] of Object.entries(res.headers)) {
-          if (value === void 0) continue;
-          for (const item of Array.isArray(value) ? value : [value]) headers.append(name, item);
-        }
-        if (NULL_BODY_STATUSES.has(status)) {
-          res.resume();
-          resolve5(new Response(null, { status, headers }));
-          return;
-        }
-        const encoding = headers.get("content-encoding")?.trim().toLowerCase();
-        const decoder = encoding ? DECODERS.get(encoding)?.() : void 0;
-        if (decoder) {
-          headers.delete("content-encoding");
-          headers.delete("content-length");
-        }
-        const body = decoder ? pipeline(res, decoder, () => {
-        }) : res;
-        resolve5(new Response(Readable.toWeb(body), { status, headers }));
-      }
-    );
-    req.on("error", reject);
-    req.end(init.body);
-  });
-}
-
-// src/backends/ollama.ts
-init_backends();
-
-// src/stream-parsers.ts
-async function* parseNDJSONStream(body, signal) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let receivedDone = false;
-  function* processNDJSONLines(lines) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === "") continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
-        continue;
-      }
-      if (parsed.error) {
-        throw new Error(`Stream error: ${String(parsed.error)}`);
-      }
-      const message = parsed.message;
-      const content = message?.content;
-      if (typeof content === "string" && content.length > 0) {
-        yield content;
-      }
-      if (parsed.done === true) {
-        receivedDone = true;
-        return;
-      }
-    }
-  }
-  try {
-    while (true) {
-      if (signal?.aborted) throw new Error("Stream aborted");
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const token of processNDJSONLines(lines)) {
-        if (signal?.aborted) throw new Error("Stream aborted");
-        yield token;
-      }
-      if (receivedDone) return;
-    }
-    if (buffer.trim()) {
-      yield* processNDJSONLines([buffer]);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  if (!receivedDone) {
-    throw new Error("Stream ended unexpectedly");
-  }
-}
-function extractOpenCodeErrorMessage(event) {
-  const error2 = event.error;
-  if (error2 && typeof error2 === "object") {
-    const data = error2.data;
-    if (data && typeof data.message === "string" && data.message.trim()) {
-      return data.message;
-    }
-    if (typeof error2.message === "string" && error2.message.trim()) {
-      const kind = typeof error2.type === "string" && error2.type.trim() ? ` (${error2.type})` : "";
-      return `${error2.message}${kind}`;
-    }
-    if (typeof error2.name === "string" && error2.name.trim()) {
-      return error2.name;
-    }
-    try {
-      return JSON.stringify(error2);
-    } catch {
-    }
-  }
-  return "opencode reported an error";
-}
-async function* parseOpenCodeStreamJSON(stdout, opts) {
-  let buffer = "";
-  let sessionReported = false;
-  let errorReported = false;
-  function* processLines(lines) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === "") continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
-        continue;
-      }
-      if (!sessionReported && typeof parsed.sessionID === "string" && opts?.onSessionCreated) {
-        opts.onSessionCreated(parsed.sessionID);
-        sessionReported = true;
-      }
-      if (!errorReported && parsed.type === "error" && opts?.onError) {
-        opts.onError(extractOpenCodeErrorMessage(parsed));
-        errorReported = true;
-      }
-      if (parsed.type === "text") {
-        const part = parsed.part;
-        if (part?.text && typeof part.text === "string") {
-          yield part.text;
-        }
-      }
-    }
-  }
-  for await (const chunk of stdout) {
-    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    yield* processLines(lines);
-  }
-  if (buffer.trim()) {
-    yield* processLines([buffer]);
-  }
-}
-async function* parseClaudeStreamJSON(stdout, hooks = {}) {
-  let buffer = "";
-  let emittedLength = 0;
-  function* processLines(lines) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === "") continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(trimmed);
-      } catch {
-        continue;
-      }
-      if (parsed.error) {
-        throw new Error(`Stream error: ${JSON.stringify(parsed.error)}`);
-      }
-      const type = parsed.type;
-      if (type === "result") {
-        try {
-          hooks.onResult?.(parsed);
-        } catch {
-        }
-        const result = parsed.result;
-        if (typeof result === "string" && result.length > emittedLength) {
-          yield result.slice(emittedLength);
-          emittedLength = result.length;
-        }
-        continue;
-      }
-      const inner = type === "stream_event" ? parsed.event : parsed;
-      const innerType = inner?.type ?? type;
-      if (innerType === "content_block_delta") {
-        const delta = inner.delta;
-        if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
-          emittedLength += delta.text.length;
-          yield delta.text;
-        }
-        continue;
-      }
-      if (innerType === "assistant" || innerType === "message") {
-        const message = inner?.message ?? inner;
-        const contentBlocks = message.content;
-        if (Array.isArray(contentBlocks)) {
-          let fullText = "";
-          for (const block of contentBlocks) {
-            if (block.type === "text" && typeof block.text === "string") {
-              fullText += block.text;
-            }
-          }
-          if (fullText.length > emittedLength) {
-            yield fullText.slice(emittedLength);
-            emittedLength = fullText.length;
-          }
-        }
-      }
-    }
-  }
-  for await (const chunk of stdout) {
-    buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    yield* processLines(lines);
-  }
-  if (buffer.trim()) {
-    yield* processLines([buffer]);
-  }
-}
-
-// src/backends/ollama.ts
-var DEFAULT_HOST = "http://localhost:11434";
-var OllamaBackendError = class extends BackendError {
-  constructor(message) {
-    super(message);
-    this.name = "OllamaBackendError";
-  }
-};
-var OllamaBackend = class {
-  name = "ollama";
-  localFileAccess = false;
-  capabilities = {
-    resumeStrategy: "transcript-replay",
-    requiresClientSessionId: false
-  };
-  allowedSandboxes = /* @__PURE__ */ new Set([
-    "read-only",
-    "workspace-write",
-    "danger-full-access"
-  ]);
-  async run(opts) {
-    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
-    const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
-    const history = opts.sessionHistory ?? [];
-    const body = {
-      messages: [...history, { role: "user", content: prompt }],
-      stream: false
-    };
-    if (model) body.model = model;
-    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
-    const url = `${host}/api/chat`;
-    const controller = new AbortController();
-    const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
-    let data;
-    try {
-      const resp = await longFetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      if (!resp.ok) {
-        let body2 = "";
-        try {
-          body2 = await resp.text();
-        } catch {
-        }
-        throw new OllamaBackendError(
-          `Ollama returned HTTP ${resp.status}${body2 ? `: ${body2.slice(0, 200)}` : ""}`
-        );
-      }
-      let raw;
-      try {
-        raw = await resp.json();
-      } catch (err) {
-        if (controller.signal.aborted) throw err;
-        throw new OllamaBackendError(
-          `Ollama returned invalid JSON (HTTP ${resp.status})`
-        );
-      }
-      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-        throw new OllamaBackendError("Ollama returned JSON that is not a response object");
-      }
-      data = raw;
-    } catch (err) {
-      if (err instanceof OllamaBackendError) throw err;
-      clearTimeout(timer);
-      return this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (data.error) {
-      throw new OllamaBackendError(`Ollama error: ${data.error}`);
-    }
-    if (data.done === false) {
-      throw new OllamaBackendError("Ollama returned an incomplete response");
-    }
-    const message = data.message;
-    const content = typeof message?.content === "string" ? message.content.trim() : "";
-    if (!content) {
-      throw new OllamaBackendError(
-        "Ollama completed without producing output"
-      );
-    }
-    return content;
-  }
-  async *runStream(opts) {
-    const host = (opts.env.OLLAMA_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
-    const model = opts.model ?? opts.env.OLLAMA_MODEL ?? void 0;
-    const prompt = opts.schema ? injectSchemaPrompt2(opts.prompt, opts.schema) : opts.prompt;
-    const history = opts.sessionHistory ?? [];
-    const body = {
-      messages: [...history, { role: "user", content: prompt }],
-      stream: true
-    };
-    if (model) body.model = model;
-    if (opts.schema) body.format = ollamaFormatForSchema(opts.schema);
-    const url = `${host}/api/chat`;
-    const controller = new AbortController();
-    const timer = opts.timeoutSeconds > 0 ? setTimeout(() => controller.abort(), opts.timeoutSeconds * 1e3) : void 0;
-    let resp;
-    try {
-      resp = await longFetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      return void await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
-    }
-    if (!resp.ok) {
-      clearTimeout(timer);
-      let respBody = "";
-      try {
-        respBody = await resp.text();
-      } catch {
-      }
-      throw new OllamaBackendError(
-        `Ollama returned HTTP ${resp.status}${respBody ? `: ${respBody.slice(0, 200)}` : ""}`
-      );
-    }
-    if (!resp.body) {
-      clearTimeout(timer);
-      throw new OllamaBackendError("Ollama returned empty response body");
-    }
-    try {
-      let hasText = false;
-      for await (const chunk of parseNDJSONStream(resp.body, controller.signal)) {
-        if (chunk.trim()) hasText = true;
-        yield chunk;
-      }
-      if (!hasText) {
-        throw new OllamaBackendError("Ollama completed without producing output");
-      }
-    } catch (err) {
-      if (err instanceof OllamaBackendError) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
-      if (controller.signal.aborted) {
-        throw new OllamaBackendError(
-          `Ollama timed out after ${opts.timeoutSeconds}s`
-        );
-      }
-      if (msg.startsWith("Stream ")) {
-        throw new OllamaBackendError(msg);
-      }
-      await this.diagnoseAndThrow(host, err, opts.timeoutSeconds);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  async diagnoseAndThrow(host, originalErr, timeout) {
-    if (originalErr instanceof DOMException || originalErr instanceof Error && originalErr.name === "AbortError") {
-      throw new OllamaBackendError(
-        `Ollama timed out after ${timeout}s`
-      );
-    }
-    const controller = new AbortController();
-    const probeTimer = setTimeout(() => controller.abort(), 3e3);
-    try {
-      await fetch(`${host}/api/tags`, { signal: controller.signal });
-    } catch {
-      throw new OllamaBackendError(
-        `Ollama server not reachable at ${host}. Is Ollama running? Install: https://ollama.com/download`
-      );
-    } finally {
-      clearTimeout(probeTimer);
-    }
-    const detail = originalErr instanceof Error ? originalErr.message : String(originalErr);
-    throw new OllamaBackendError(`Ollama request failed: ${detail}`);
-  }
-};
-function injectSchemaPrompt2(prompt, schema) {
-  return `${prompt}
-
-Respond with JSON only. The response must match this JSON Schema exactly:
-${schema}`;
-}
-function ollamaFormatForSchema(schema) {
-  try {
-    const parsed = JSON.parse(schema);
-    if (isJsonObject(parsed)) return parsed;
-  } catch {
-  }
-  return "json";
-}
-function isJsonObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-var OLLAMA_BACKEND = new OllamaBackend();
-registerBackend(OLLAMA_BACKEND);
+// src/index.ts
+init_ollama();
 
 // src/backends/xai.ts
+init_http_fetch();
 init_backends();
 var XaiBackendError = class extends BackendError {
   constructor(message) {
@@ -77262,6 +77350,7 @@ registerBackend(XAI_BACKEND);
 // src/backends/claude.ts
 init_backends();
 init_child_supervisor();
+init_stream_parsers();
 import { execFileSync as execFileSync2, spawn } from "child_process";
 var READ_ONLY_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch";
 var WORKSPACE_WRITE_TOOLS = "Read,Grep,Glob,LS,Edit,Write,WebFetch,WebSearch";
@@ -77372,7 +77461,7 @@ var ClaudeBackend = class {
    * Build the common CLI args shared by run() and runStream().
    */
   buildArgs(opts) {
-    const args = ["-p", opts.prompt];
+    const args = largePromptStdin(opts.prompt) === void 0 ? ["-p", opts.prompt] : ["-p"];
     if (opts.sessionId) {
       if (opts.resumeSession) {
         args.push("-r", opts.sessionId);
@@ -77444,7 +77533,8 @@ var ClaudeBackend = class {
         timeoutMs: opts.timeoutSeconds * 1e3,
         env: this.cleanEnv(opts.env),
         cwd: opts.repoPath,
-        label: "claude"
+        label: "claude",
+        stdin: largePromptStdin(opts.prompt)
       });
       if (result.stdout) {
         return opts.schema ? extractClaudeSchemaOutput(result.stdout) : result.stdout;
@@ -77479,12 +77569,14 @@ var ClaudeBackend = class {
     });
     args.push("--verbose");
     args.push("--include-partial-messages");
-    const child = spawn("claude", args, {
-      stdio: ["ignore", "pipe", "pipe"],
+    const stdin = largePromptStdin(opts.prompt);
+    const child = startChild("claude", () => spawn("claude", args, {
+      stdio: [stdin === void 0 ? "ignore" : "pipe", "pipe", "pipe"],
       cwd: opts.repoPath,
       env: this.cleanEnv(opts.env),
       ...ownProcessGroup()
-    });
+    }));
+    writeChildStdin(child, stdin);
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
@@ -77497,7 +77589,7 @@ var ClaudeBackend = class {
       });
       const { code, signal, spawnError } = await supervisor.exit;
       if (spawnError) {
-        throw new ClaudeBackendError(`claude failed to start: ${spawnError.message}`);
+        throw new ClaudeBackendError(spawnFailureMessage("claude", spawnError));
       }
       if (supervisor.timedOut) {
         throw new ClaudeBackendError(`claude timed out after ${opts.timeoutSeconds}s`);
@@ -77588,11 +77680,12 @@ registerBackend(CLAUDE_BACKEND);
 // src/backends/opencode.ts
 init_backends();
 init_child_supervisor();
-import { spawn as spawn2 } from "child_process";
-import { delimiter as pathDelimiter2, resolve as resolvePath2 } from "path";
+init_stream_parsers();
 init_config();
 init_diagnostics();
 init_schema_prompt();
+import { spawn as spawn2 } from "child_process";
+import { delimiter as pathDelimiter2, resolve as resolvePath2 } from "path";
 var OpenCodeBackendError = class extends BackendError {
   constructor(message) {
     super(message);
@@ -77816,12 +77909,12 @@ var OpenCodeBackend = class {
       major,
       standalone
     });
-    const child = spawn2("opencode", args, {
+    const child = startChild("opencode", () => spawn2("opencode", args, {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: opts.repoPath,
       env: opts.env,
       ...ownProcessGroup()
-    });
+    }));
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
@@ -77842,7 +77935,7 @@ var OpenCodeBackend = class {
       }
       const { code, signal, spawnError } = await supervisor.exit;
       if (spawnError) {
-        throw new OpenCodeBackendError(`opencode failed to start: ${spawnError.message}`);
+        throw new OpenCodeBackendError(spawnFailureMessage("opencode", spawnError));
       }
       if (supervisor.timedOut) {
         throw new OpenCodeBackendError(
@@ -85277,6 +85370,7 @@ function detectMachineFlag(argv) {
 // src/doctor.ts
 init_pi();
 init_backends();
+init_ollama();
 init_diagnostics();
 function countableBackends(report) {
   return [...report.cli, ...report.local, ...report.api].filter((b) => {
@@ -85493,9 +85587,8 @@ function computeExitCode(report) {
   if (available < total) return 1;
   return 0;
 }
-var OLLAMA_DEFAULT_HOST2 = "http://localhost:11434";
 async function probeOllamaVersion() {
-  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST2;
+  const host = ollamaBaseUrl(process.env.OLLAMA_HOST);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3e3);
   try {

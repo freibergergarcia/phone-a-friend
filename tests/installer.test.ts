@@ -544,6 +544,15 @@ describe('installer constants', () => {
     );
     expect(claudeCalls.length).toBe(8);
     expect(lines.some(l => l.includes('marketplace_add: ok'))).toBe(true);
+
+    // install, enable and update all name the same scope: without `-s`,
+    // `claude plugin update` picks a scope by auto-detection.
+    const pluginArgs = claudeCalls.map((c: unknown[]) => c[1] as string[]);
+    for (const verb of ['install', 'enable', 'update']) {
+      const call = pluginArgs.find(a => a[0] === 'plugin' && a[1] === verb);
+      expect(call, verb).toBeDefined();
+      expect(call!.slice(-2), verb).toEqual(['-s', 'user']);
+    }
   });
 
   it('skips CLI sync when claude binary not found', () => {

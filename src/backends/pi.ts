@@ -36,6 +36,8 @@ import {
   INSTALL_HINTS,
   registerBackend,
   spawnCli,
+  spawnFailureMessage,
+  startChild,
   SpawnCliError,
   SpawnCliTimeoutError,
   type SandboxMode,
@@ -969,6 +971,20 @@ function timeoutMessage(timeoutSeconds: number): string {
  * A nonzero exit. An invocation error sometimes follows a stream that already
  * carried a failed response; that message is the more useful one.
  */
+const PI_PROVIDER_NEEDS_MODEL =
+  'pi needs a model when a provider is set, and `[backends.pi] provider` is set without one. ' +
+  'Pass --model <id>, or set `model` under [backends.pi] in the phone-a-friend config.';
+
+/**
+ * pi 1.5 refuses `--provider` without `--model` before any model call
+ * ("--provider requires --model", exit 1, seen on 1.5.2). The provider only
+ * ever comes from PaF's config, so the error names that instead of a pi flag
+ * the user never typed.
+ */
+export function isPiProviderWithoutModel(stderr: string): boolean {
+  return /--provider requires --model/.test(stderr);
+}
+
 function piExitError(
   exitCode: number | null,
   finalAssistant: Record<string, unknown> | null,
@@ -976,6 +992,7 @@ function piExitError(
 ): PiBackendError {
   const failure = piFailureDetail(finalAssistant);
   if (failure) return new PiBackendError(`pi reported an error: ${describePiFailure(failure)}`);
+  if (isPiProviderWithoutModel(stderr)) return new PiBackendError(PI_PROVIDER_NEEDS_MODEL);
   const tail = stderrTail(stderr);
   return new PiBackendError(`pi exited with code ${exitCode ?? 'unknown'}${tail ? `: ${tail}` : '.'}`);
 }
@@ -1065,12 +1082,12 @@ export class PiBackend implements Backend {
   async *runStream(opts: BackendRunOptions): AsyncGenerator<string> {
     const { args, repoCwd, session } = await this.prepare(opts);
 
-    const child = spawn('pi', args, {
+    const child = startChild('pi', () => spawn('pi', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: repoCwd,
       env: opts.env,
       ...ownProcessGroup(),
-    });
+    }));
     // The verdict is derived after stdout is fully read, so the exit status is
     // only awaited at the end.
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
@@ -1099,7 +1116,7 @@ export class PiBackend implements Backend {
       const stderr = Buffer.concat(stderrChunks).toString().trim();
 
       if (spawnError) {
-        throw new PiBackendError(`pi failed to start: ${spawnError.message}`);
+        throw new PiBackendError(spawnFailureMessage('pi', spawnError));
       }
       if (supervisor.timedOut) throw new PiBackendError(timeoutMessage(opts.timeoutSeconds));
       if (supervisor.interruptedBy) throw new PiBackendError(`pi interrupted by ${supervisor.interruptedBy}`);

@@ -8,6 +8,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { BACKEND_COMMANDS, INSTALL_HINTS, isInPath, xaiApiKey } from './backends/index.js';
+import { ollamaBaseUrl } from './backends/ollama.js';
 import type { ExecutableInfo, ModelDiagnostics, CapabilityDiagnostics } from './diagnostics.js';
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,6 @@ const CLI_BACKENDS: { name: string; command?: string; installHint: string; label
   { name: 'grok', installHint: INSTALL_HINTS.grok, label: 'Grok Build', optional: true },
 ];
 
-const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
 const OLLAMA_INSTALL_HINT = 'brew install ollama  # or: curl -fsSL https://ollama.com/install.sh | sh';
 
 const HOST_INTEGRATIONS: { name: string; installHint: string; label: string }[] = [
@@ -124,7 +124,7 @@ export async function detectLocalBackends(
   fetchFn: FetchFn = globalThis.fetch,
 ): Promise<BackendStatus[]> {
   const binaryInstalled = whichFn('ollama');
-  const host = process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+  const host = ollamaBaseUrl(process.env.OLLAMA_HOST);
 
   let serverResponding = false;
   let models: string[] = [];

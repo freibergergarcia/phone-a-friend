@@ -21,6 +21,8 @@ import {
   INSTALL_HINTS,
   isInPath,
   registerBackend,
+  spawnFailureMessage,
+  startChild,
   spawnCli,
   SpawnCliError,
   type Backend,
@@ -433,12 +435,12 @@ export class OpenCodeBackend implements Backend {
       standalone,
     });
 
-    const child = spawn('opencode', args, {
+    const child = startChild('opencode', () => spawn('opencode', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd: opts.repoPath,
       env: opts.env,
       ...ownProcessGroup(),
-    });
+    }));
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1000 });
 
     const stderrChunks: Buffer[] = [];
@@ -468,7 +470,7 @@ export class OpenCodeBackend implements Backend {
       const { code, signal, spawnError } = await supervisor.exit;
 
       if (spawnError) {
-        throw new OpenCodeBackendError(`opencode failed to start: ${spawnError.message}`);
+        throw new OpenCodeBackendError(spawnFailureMessage('opencode', spawnError));
       }
       if (supervisor.timedOut) {
         throw new OpenCodeBackendError(

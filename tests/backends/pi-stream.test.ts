@@ -302,6 +302,15 @@ describe('pi backend streaming', () => {
       await expect(attempt).rejects.toThrow(/Unknown provider "nope"/);
     });
 
+    it('names the PaF config when pi refuses a provider without a model', async () => {
+      mockSpawn.mockReturnValue(chunkedChild([], 1, {
+        stderr: 'Error: --provider requires --model (for example: --provider mlx --model <pattern>)\n',
+      }));
+      const attempt = collect();
+      await expect(attempt).rejects.toThrow(/\[backends\.pi\] provider/);
+      await expect(attempt).rejects.toThrow(/set `model` under \[backends\.pi\]/);
+    });
+
     it('prefers the stream error over stderr on a nonzero exit', async () => {
       mockSpawn.mockReturnValue(chunkedChild([fixture('error-exit-zero.jsonl')], 1, { stderr: 'some noise\n' }));
       await expect(collect()).rejects.toThrow(/404/);

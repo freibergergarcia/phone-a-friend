@@ -16,7 +16,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { getBackend, SpawnCliError } from '../backends/index.js';
+import { getBackend, largePromptStdin, SpawnCliError, startChild, writeChildStdin } from '../backends/index.js';
 import type { AgentConfig, AgenticSessionConfig } from './types.js';
 
 // Env vars that trigger Claude's nested-session guard
@@ -192,7 +192,6 @@ export class SessionManager {
     options: AgenticRunOptions = {},
   ): Promise<string> {
     const args = [
-      '-p', `${systemPrompt}\n\n---\n\n${prompt}`,
       '--session-id', sessionId,
       '--add-dir', repoPath,
       '--max-turns', '3',
@@ -204,7 +203,7 @@ export class SessionManager {
     }
 
     this.applyPolicy(args, options);
-    return this.execClaude(args, repoPath, options);
+    return this.execClaude(`${systemPrompt}\n\n---\n\n${prompt}`, args, repoPath, options);
   }
 
   private applyPolicy(args: string[], options: AgenticRunOptions): void {
@@ -230,22 +229,26 @@ export class SessionManager {
     model?: string,
     options: AgenticRunOptions = {},
   ): Promise<string> {
-    const args = ['-p', message, '-r', sessionId, '--add-dir', repoPath,
+    const args = ['-r', sessionId, '--add-dir', repoPath,
       '--max-turns', '3', '--output-format', 'text'];
     if (model) args.push('--model', model);
     this.applyPolicy(args, options);
-    return this.execClaude(args, repoPath, options);
+    return this.execClaude(message, args, repoPath, options);
   }
 
-  private execClaude(args: string[], repoPath: string, options: AgenticRunOptions): Promise<string> {
+  /** `flags` is everything after `-p <prompt>`; a large prompt goes on stdin instead (see `largePromptStdin()`). */
+  private execClaude(prompt: string, flags: string[], repoPath: string, options: AgenticRunOptions): Promise<string> {
     if (options.signal?.aborted) return Promise.reject(new Error('Claude session cancelled'));
+    const stdin = largePromptStdin(prompt);
+    const args = stdin === undefined ? ['-p', prompt, ...flags] : ['-p', ...flags];
     return new Promise((resolve, reject) => {
       // A separate process group lets cancellation include tool subprocesses.
       const grouped = process.platform !== 'win32';
-      const child = spawn('claude', args, {
+      // A throw here (Node throws E2BIG from spawn itself) rejects with the explained error.
+      const child = startChild('claude', () => spawn('claude', args, {
         env: this.cleanEnv(), cwd: repoPath, detached: grouped,
         stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      }));
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
       let settled = false;
@@ -294,7 +297,8 @@ export class SessionManager {
       child.on('close', (code) => { closed = true; exitCode = code; finish(); });
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
       child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-      child.stdin?.end();
+      if (stdin === undefined) child.stdin?.end();
+      else writeChildStdin(child, stdin);
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted) abort();
     });

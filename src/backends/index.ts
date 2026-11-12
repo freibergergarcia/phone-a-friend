@@ -269,9 +269,54 @@ export function checkBackends(
 // Async subprocess runner
 // ---------------------------------------------------------------------------
 
+/**
+ * Prompts of this many bytes or more are written to the backend's stdin
+ * instead of being passed as an argument, for the backends whose CLI reads a
+ * prompt there (Claude and Codex, both checked against the real CLIs).
+ *
+ * Linux refuses any single argument of 131,072 bytes or more with
+ * `spawn E2BIG` (reproduced on Node 22 in a Linux container; macOS allows
+ * about 1 MB for all arguments and the environment together), and PaF accepts
+ * prompts up to 500,000 bytes. A review with an inlined diff or a relay with a
+ * context file passes that size easily. Smaller prompts stay arguments, so an
+ * ordinary relay's command line is unchanged.
+ */
+export const STDIN_PROMPT_MIN_BYTES = 100_000;
+
+/** The prompt when it has to travel on stdin, otherwise undefined. */
+export function largePromptStdin(prompt: string): string | undefined {
+  return Buffer.byteLength(prompt) >= STDIN_PROMPT_MIN_BYTES ? prompt : undefined;
+}
+
+/** Message for a backend process that could not be started. */
+export function spawnFailureMessage(label: string, error: Error): string {
+  if ((error as NodeJS.ErrnoException).code === 'E2BIG') {
+    return `${label} failed to start: its command line is larger than the operating system allows (E2BIG). ` +
+      'Linux limits one argument to 131,071 bytes, and antigravity, gemini, opencode and pi take the prompt ' +
+      'as an argument. Send a shorter prompt, context or diff, or use --to claude, --to codex or --to grok, ' +
+      'which do not.';
+  }
+  return `${label} failed to start: ${error.message}`;
+}
+
+/**
+ * Run a `spawn()` call and report a failure to start as a BackendError.
+ * Node throws E2BIG from `spawn()` itself instead of emitting `error` (seen on
+ * Node 22, Linux), so without this the user got a bare "spawn E2BIG".
+ */
+export function startChild<T>(label: string, start: () => T): T {
+  try {
+    return start();
+  } catch (err: unknown) {
+    throw new BackendError(spawnFailureMessage(label, err instanceof Error ? err : new Error(String(err))));
+  }
+}
+
 export interface SpawnCliOptions {
   /** Time limit in milliseconds. `0` means no limit. */
   timeoutMs: number;
+  /** Written to the child's stdin, which is then closed. Without it stdin is not opened. */
+  stdin?: string;
   /** Full process environment. Defaults to process.env if not provided.
    *  When provided, this replaces the entire env (Node.js spawn behavior).
    *  Callers must pass a complete env (e.g. from nextRelayEnv()), not partial overrides. */
@@ -292,6 +337,17 @@ export interface SpawnCliResult {
 }
 
 /**
+ * Write `input` to a child's stdin and close it. A child that exits without
+ * reading (a rejected flag, a missing sign-in) breaks the pipe; its exit status
+ * is the error to report, so the write error is dropped.
+ */
+export function writeChildStdin(child: { stdin?: NodeJS.WritableStream | null }, input: string | undefined): void {
+  if (input === undefined || !child.stdin) return;
+  child.stdin.on('error', () => {});
+  child.stdin.end(input);
+}
+
+/**
  * Async subprocess runner shared by all CLI backends.
  * Replaces execFileSync: non-blocking, stderr draining. `superviseChild()` owns
  * the time limit, signal forwarding and termination.
@@ -304,12 +360,14 @@ export function spawnCli(
   const label = opts.label ?? command;
 
   return new Promise((resolve, reject) => {
-    const child = nodeSpawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // A throw here rejects the promise with the explained error.
+    const child = startChild(label, () => nodeSpawn(command, args, {
+      stdio: [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       env: opts.env ?? process.env as Record<string, string>,
       cwd: opts.cwd,
       ...ownProcessGroup(),
-    });
+    }));
+    writeChildStdin(child, opts.stdin);
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutMs, killGraceMs: opts.killGraceMs });
 
     const stdoutChunks: Buffer[] = [];
@@ -328,7 +386,7 @@ export function spawnCli(
 
     void supervisor.exit.then(({ code, signal, spawnError }) => {
       if (spawnError) {
-        reject(new BackendError(`${label} failed to start: ${spawnError.message}`));
+        reject(new BackendError(spawnFailureMessage(label, spawnError)));
         return;
       }
 
