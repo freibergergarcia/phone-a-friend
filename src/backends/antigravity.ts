@@ -40,7 +40,7 @@ export function antigravityTimeoutRemediation(host: string): string {
     return (
       'Antigravity timed out under Codex\'s sandbox. Codex\'s default workspace-write ' +
       'sandbox can block subprocess OAuth/keychain access and outbound Google auth refresh. ' +
-      'Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), ' +
+      'Re-run Codex with `codex --sandbox danger-full-access`, ' +
       'or run the relay from a regular terminal.'
     );
   }

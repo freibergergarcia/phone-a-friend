@@ -279,7 +279,7 @@ function spawnCli(command, args, opts) {
     });
   });
 }
-var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry;
+var REVIEW_SCOPES, CLAUDE_PEER_MESSAGING_MODES, BackendError, NativeReviewUnavailableError, SpawnCliError, SpawnCliTimeoutError, GIT_DIFF_HEADING, CONTEXT_HEADING, INSTALL_HINTS, BACKEND_COMMANDS, registry;
 var init_backends = __esm({
   "src/backends/index.ts"() {
     "use strict";
@@ -294,6 +294,12 @@ var init_backends = __esm({
       constructor(message) {
         super(message);
         this.name = "BackendError";
+      }
+    };
+    NativeReviewUnavailableError = class extends BackendError {
+      constructor(message) {
+        super(message);
+        this.name = "NativeReviewUnavailableError";
       }
     };
     SpawnCliError = class extends BackendError {
@@ -4663,6 +4669,7 @@ async function reviewRelay(opts) {
   const session = opts.session ?? null;
   const backendSession = opts.backendSession ?? null;
   refuseUnsupportedRelaySession(selectedBackend.name, session, backendSession);
+  const resolvedContext = resolveContextText(opts.contextFile ?? null, opts.contextText ?? null);
   const base = opts.base ?? detectDefaultBranch(resolvedRepo);
   const env4 = nextRelayEnv();
   const collectedDiff = collectReviewDiff(resolvedRepo, base, scope);
@@ -4672,7 +4679,7 @@ async function reviewRelay(opts) {
   const scopeInfo = describeDiff(collectedDiff, scope, base);
   safeObserve(() => observer?.onScope?.(scopeInfo));
   const nativeReviewScopes = selectedBackend.nativeReviewScopes ?? /* @__PURE__ */ new Set(["branch"]);
-  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema && !session && !backendSession) {
+  if (typeof selectedBackend.review === "function" && nativeReviewScopes.has(scope) && !prompt && !schema && !resolvedContext && !session && !backendSession) {
     try {
       const nativeResult = await selectedBackend.review({
         repoPath: resolvedRepo,
@@ -4691,6 +4698,10 @@ async function reviewRelay(opts) {
       if (err instanceof RelayError) {
         throw err;
       }
+      if (!(err instanceof NativeReviewUnavailableError)) {
+        if (err instanceof BackendError) throw backendErrorToRelayError(err);
+        throw err;
+      }
       console.error(`[phone-a-friend] review() failed, falling back to generic relay: ${err.message}`);
     }
   }
@@ -4699,7 +4710,7 @@ async function reviewRelay(opts) {
   const fullPrompt = finalizePrompt(selectedBackend, buildPrompt({
     prompt: reviewPrompt,
     repoPath: resolvedRepo,
-    contextText: "",
+    contextText: resolvedContext,
     diffText,
     localFileAccess: selectedBackend.localFileAccess
   }), "review");
@@ -75377,7 +75388,7 @@ var AntigravityBackendError = class extends BackendError {
 };
 function antigravityTimeoutRemediation(host) {
   if (host === "codex") {
-    return "Antigravity timed out under Codex's sandbox. Codex's default workspace-write sandbox can block subprocess OAuth/keychain access and outbound Google auth refresh. Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), or run the relay from a regular terminal.";
+    return "Antigravity timed out under Codex's sandbox. Codex's default workspace-write sandbox can block subprocess OAuth/keychain access and outbound Google auth refresh. Re-run Codex with `codex --sandbox danger-full-access`, or run the relay from a regular terminal.";
   }
   return 'Antigravity timed out. Verify `agy --prompt "test"` works at the terminal and that your Google account is authenticated.';
 }
@@ -75842,6 +75853,8 @@ var CodexBackend = class {
         "exec",
         "review",
         ...reviewTargetArgs,
+        "-c",
+        `sandbox_mode="${opts.sandbox}"`,
         "--output-last-message",
         outputPath,
         "--skip-git-repo-check"
@@ -75870,6 +75883,9 @@ var CodexBackend = class {
         stdout = result.stdout;
       } catch (err) {
         tap?.flush();
+        if (isCodexUsageError(err)) {
+          throw new NativeReviewUnavailableError(firstLine(err.stderr));
+        }
         if (err instanceof BackendError) {
           throw new CodexBackendError(err.message);
         }
@@ -75892,6 +75908,12 @@ var CodexBackend = class {
     }
   }
 };
+function isCodexUsageError(err) {
+  return err instanceof SpawnCliError && err.exitCode === 2 && /^error: /m.test(err.stderr) && /^Usage: codex\b/m.test(err.stderr);
+}
+function firstLine(text) {
+  return text.split("\n").find((line) => line.trim().length > 0)?.trim() ?? text;
+}
 function buildCodexExecArgs(opts) {
   const isResume = opts.resumeSession && opts.sessionId;
   const args = isResume ? ["exec", "resume", opts.sessionId] : ["exec"];
@@ -76395,7 +76417,7 @@ var GeminiBackendError = class extends BackendError {
 };
 function geminiTimeoutRemediation(host = process.env.PHONE_A_FRIEND_HOST ?? "") {
   if (host === "codex") {
-    return "Gemini timed out under Codex's sandbox. Codex's default workspace-write sandbox blocks Gemini's OAuth refresh path (keychain + outbound HTTPS). Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), or set `GEMINI_API_KEY` so Gemini skips OAuth entirely.";
+    return "Gemini timed out under Codex's sandbox. Codex's default workspace-write sandbox blocks Gemini's OAuth refresh path (keychain + outbound HTTPS). Re-run Codex with `codex --sandbox danger-full-access`, or set `GEMINI_API_KEY` so Gemini skips OAuth entirely.";
   }
   return 'Gemini timed out. Verify `gemini -p "test"` works at the terminal. If it hangs, run `gemini` interactively to refresh OAuth, or set `GEMINI_API_KEY`.';
 }
@@ -76829,7 +76851,7 @@ async function* parseOpenCodeStreamJSON(stdout, opts) {
     yield* processLines([buffer]);
   }
 }
-async function* parseClaudeStreamJSON(stdout) {
+async function* parseClaudeStreamJSON(stdout, hooks = {}) {
   let buffer = "";
   let emittedLength = 0;
   function* processLines(lines) {
@@ -76847,6 +76869,10 @@ async function* parseClaudeStreamJSON(stdout) {
       }
       const type = parsed.type;
       if (type === "result") {
+        try {
+          hooks.onResult?.(parsed);
+        } catch {
+        }
         const result = parsed.result;
         if (typeof result === "string" && result.length > emittedLength) {
           yield result.slice(emittedLength);
@@ -77259,7 +77285,7 @@ var ClaudeAuthError = class extends ClaudeBackendError {
 };
 function defaultClaudeRemediation(host = process.env.PHONE_A_FRIEND_HOST ?? "") {
   if (host === "codex") {
-    return "Codex is running with a sandbox that blocks Claude's keychain access. Re-run Codex with `codex --sandbox danger-full-access` (or `--full-auto`), or escalate this specific command via the approval prompt. This is NOT a Claude login problem \u2014 `claude -p` works fine outside the Codex sandbox.";
+    return "Codex is running with a sandbox that blocks Claude's keychain access. Re-run Codex with `codex --sandbox danger-full-access`, or escalate this specific command via the approval prompt. This is NOT a Claude login problem \u2014 `claude -p` works fine outside the Codex sandbox.";
   }
   return "Run `claude` interactively, then `/login` to authenticate. Or export ANTHROPIC_API_KEY.";
 }
@@ -77295,6 +77321,28 @@ function extractClaudeSchemaOutput(stdout) {
     return JSON.stringify(parsed.structured_output);
   }
   return stdout;
+}
+function claudeMaxTurns(env4) {
+  const value = env4.CLAUDE_MAX_TURNS?.trim();
+  return value ? value : null;
+}
+function isClaudeTurnLimit(stdout) {
+  if (/^Error: Reached max turns \(\d+\)\s*$/m.test(stdout)) return true;
+  try {
+    const parsed = JSON.parse(stdout);
+    return isClaudeTurnLimitResult(parsed);
+  } catch {
+    return false;
+  }
+}
+function isClaudeTurnLimitResult(event) {
+  return typeof event === "object" && event !== null && event.type === "result" && event.subtype === "error_max_turns";
+}
+function claudeTurnLimitMessage(maxTurns) {
+  if (maxTurns === null) {
+    return "Claude stopped at a turn limit before giving an answer. PaF set none for this run, so it comes from Claude Code itself.";
+  }
+  return `Claude stopped at its turn limit (${maxTurns} ${maxTurns === "1" ? "turn" : "turns"}) before giving an answer. The limit comes from the CLAUDE_MAX_TURNS environment variable: raise it, or unset it for no limit.`;
 }
 var ClaudeBackend = class {
   name = "claude";
@@ -77343,8 +77391,10 @@ var ClaudeBackend = class {
     if (opts.model) {
       args.push("--model", opts.model);
     }
-    const maxTurns = opts.env.CLAUDE_MAX_TURNS ?? "10";
-    args.push("--max-turns", maxTurns);
+    const maxTurns = claudeMaxTurns(opts.env);
+    if (maxTurns !== null) {
+      args.push("--max-turns", maxTurns);
+    }
     const maxBudget = opts.env.CLAUDE_MAX_BUDGET;
     if (maxBudget) {
       args.push("--max-budget-usd", maxBudget);
@@ -77402,6 +77452,9 @@ var ClaudeBackend = class {
       throw new ClaudeBackendError("claude completed without producing output");
     } catch (err) {
       if (err instanceof ClaudeBackendError) throw err;
+      if (err instanceof SpawnCliError && isClaudeTurnLimit(err.stdout)) {
+        throw new ClaudeBackendError(claudeTurnLimitMessage(claudeMaxTurns(opts.env)));
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (isClaudeAuthError(msg)) {
         throw new ClaudeAuthError();
@@ -77435,8 +77488,13 @@ var ClaudeBackend = class {
     const supervisor = superviseChild(child, { timeoutMs: opts.timeoutSeconds * 1e3 });
     const stderrChunks = [];
     child.stderr?.on("data", (chunk) => stderrChunks.push(chunk));
+    let reachedTurnLimit = false;
     try {
-      yield* parseClaudeStreamJSON(child.stdout);
+      yield* parseClaudeStreamJSON(child.stdout, {
+        onResult: (event) => {
+          if (isClaudeTurnLimitResult(event)) reachedTurnLimit = true;
+        }
+      });
       const { code, signal, spawnError } = await supervisor.exit;
       if (spawnError) {
         throw new ClaudeBackendError(`claude failed to start: ${spawnError.message}`);
@@ -77451,6 +77509,9 @@ var ClaudeBackend = class {
         throw new ClaudeBackendError(`claude killed by signal ${signal}`);
       }
       if (code !== 0 && code !== null) {
+        if (reachedTurnLimit) {
+          throw new ClaudeBackendError(claudeTurnLimitMessage(claudeMaxTurns(opts.env)));
+        }
         const stderr = Buffer.concat(stderrChunks).toString().trim();
         const errMsg = stderr || `claude exited with code ${code}`;
         if (isClaudeAuthError(errMsg)) throw new ClaudeAuthError();
@@ -86210,6 +86271,13 @@ ${banner("AI coding agent relay")}
         exitCode = 1;
         return;
       }
+      if (isReview && opts.quiet) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error("--quiet cannot be combined with review mode. Run the review without --quiet.")}`
+        );
+        exitCode = 1;
+        return;
+      }
       const resolved = resolveConfig(
         {
           to: opts.to,
@@ -86261,6 +86329,8 @@ ${banner("AI coding agent relay")}
             base: opts.base ?? resolved.reviewBase,
             scope: reviewScope,
             prompt: opts.prompt,
+            contextFile: normalizeContextFiles(opts.contextFile),
+            contextText: opts.contextText ?? null,
             timeoutSeconds: resolved.timeout,
             model: resolved.model ?? null,
             sandbox: resolved.sandbox,

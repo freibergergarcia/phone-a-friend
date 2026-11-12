@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { BackendError, type BackendRunOptions, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
+import { BackendError, NativeReviewUnavailableError, type BackendRunOptions, type BackendCapabilities, type SandboxMode, type Backend } from '../src/backends/index.js';
 import { SessionStore } from '../src/sessions.js';
 
 // Mock child_process for git diff calls
@@ -905,9 +905,9 @@ describe('reviewRelay', () => {
     expect(callArgs.sandbox).toBe('read-only');
   });
 
-  it('falls back to run() when review() throws', async () => {
+  it('falls back to run() when native review is unavailable', async () => {
     const backend = makeMockBackendWithReview('codex');
-    backend.review.mockRejectedValue(new Error('codex exec review not supported'));
+    backend.review.mockRejectedValue(new NativeReviewUnavailableError("error: unexpected argument '--base' found"));
     registerBackend(backend);
 
     // Mock git for gitDiffBase fallback
@@ -931,8 +931,143 @@ describe('reviewRelay', () => {
     expect(backend.review).toHaveBeenCalledOnce();
     expect(backend.run).toHaveBeenCalledOnce();
     expect(consoleErr).toHaveBeenCalledWith(
-      expect.stringContaining('review() failed, falling back'),
+      expect.stringContaining("review() failed, falling back to generic relay: error: unexpected argument '--base' found"),
     );
+  });
+
+  it.each([
+    ['its time limit', 'codex exec review timed out after 60s'],
+    ['Ctrl-C', 'codex exec review interrupted by SIGINT'],
+    ['a signal to the backend', 'codex exec review killed by signal SIGKILL'],
+    ['a sign-in failure', 'ERROR: Not signed in. Run codex login.'],
+    ['a rate limit', 'ERROR: You have hit your usage limit.'],
+    ['an empty review', 'codex exec review completed without producing feedback'],
+  ])('does not start a second run when review() failed with %s', async (_name, message) => {
+    const backend = makeMockBackendWithReview('codex');
+    backend.review.mockRejectedValue(new BackendError(message));
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('diff')) return 'diff content here';
+      return '';
+    });
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const err = await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RelayError);
+    expect(err.message).toBe(message);
+    expect(backend.review).toHaveBeenCalledOnce();
+    expect(backend.run).not.toHaveBeenCalled();
+    expect(consoleErr).not.toHaveBeenCalled();
+  });
+
+  it('keeps a backend remediation when a failed native review is not retried', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    const failure = Object.assign(new BackendError('Claude CLI is not authenticated.'), { remediation: 'Run /login.' });
+    backend.review.mockRejectedValue(failure);
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? 'diff content here' : ''));
+
+    const err = await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main' }).catch((e) => e);
+
+    expect(err.message).toBe('Claude CLI is not authenticated.\n\nRun /login.');
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
+  it('rethrows an error that is not a backend failure, without a second run', async () => {
+    const backend = makeMockBackendWithReview('codex');
+    backend.review.mockRejectedValue(new TypeError('cannot read properties of undefined'));
+    registerBackend(backend);
+    mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => (args.includes('diff') ? 'diff content here' : ''));
+
+    await expect(reviewRelay({ repoPath: repo, backend: 'codex', base: 'main' })).rejects.toThrow(TypeError);
+    expect(backend.run).not.toHaveBeenCalled();
+  });
+
+  describe('context in review mode', () => {
+    function gitWithDiff(): void {
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
+        if (args.includes('diff')) return 'diff content here';
+        return '';
+      });
+    }
+
+    it('sends context text on the generic path instead of native review()', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+
+      await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', contextText: 'the ticket says X' });
+
+      expect(backend.review).not.toHaveBeenCalled();
+      expect(backend.run).toHaveBeenCalledOnce();
+      const sent = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt as string;
+      expect(sent).toContain('Additional Context:\nthe ticket says X');
+      expect(sent).toContain('Git Diff:\ndiff content here');
+      expect(sent.indexOf('Additional Context:')).toBeLessThan(sent.indexOf('Git Diff:'));
+    });
+
+    it('sends context files, several in order', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+      const a = path.join(repo, 'plan.md');
+      const b = path.join(repo, 'notes.md');
+      fs.writeFileSync(a, 'first');
+      fs.writeFileSync(b, 'second');
+
+      await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', contextFile: [a, b] });
+
+      const sent = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt as string;
+      expect(sent).toContain('Additional Context:\nfirst\n\n--- notes.md ---\nsecond');
+    });
+
+    it('keeps the context in a verdict review', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+
+      await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', verdictJson: true, contextText: 'known flaky test' });
+
+      const sent = (backend.run as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt as string;
+      expect(sent).toContain('Additional Context:\nknown flaky test');
+    });
+
+    it('fails before any backend call when a context file is missing', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+
+      await expect(reviewRelay({
+        repoPath: repo, backend: 'codex', base: 'main', contextFile: path.join(repo, 'absent.md'),
+      })).rejects.toThrow(/Context file does not exist/);
+      expect(backend.review).not.toHaveBeenCalled();
+      expect(backend.run).not.toHaveBeenCalled();
+    });
+
+    it('refuses a context file together with context text, as a relay does', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+      const a = path.join(repo, 'plan.md');
+      fs.writeFileSync(a, 'first');
+
+      await expect(reviewRelay({
+        repoPath: repo, backend: 'codex', base: 'main', contextFile: a, contextText: 'inline',
+      })).rejects.toThrow(/either context_file or context_text/);
+      expect(backend.run).not.toHaveBeenCalled();
+    });
+
+    it('still uses native review() when no context is attached', async () => {
+      const backend = makeMockBackendWithReview('codex');
+      registerBackend(backend);
+      gitWithDiff();
+
+      await reviewRelay({ repoPath: repo, backend: 'codex', base: 'main', contextText: '   ' });
+
+      expect(backend.review).toHaveBeenCalledOnce();
+      expect(backend.run).not.toHaveBeenCalled();
+    });
   });
 
   it('auto-detects base branch when not provided', async () => {

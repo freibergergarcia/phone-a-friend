@@ -312,8 +312,14 @@ export async function* parseOpenCodeStreamJSON(
   }
 }
 
+export interface ClaudeStreamHooks {
+  /** Receives each `result` event as parsed. Errors thrown here are ignored. */
+  onResult?: (event: Record<string, unknown>) => void;
+}
+
 export async function* parseClaudeStreamJSON(
   stdout: Readable,
+  hooks: ClaudeStreamHooks = {},
 ): AsyncGenerator<string> {
   let buffer = '';
   let emittedLength = 0;
@@ -340,6 +346,11 @@ export async function* parseClaudeStreamJSON(
 
       // Final result message: { type: "result", result: "full text" }
       if (type === 'result') {
+        try {
+          hooks.onResult?.(parsed);
+        } catch {
+          // An observer must never break the stream.
+        }
         const result = parsed.result as string | undefined;
         if (typeof result === 'string' && result.length > emittedLength) {
           yield result.slice(emittedLength);

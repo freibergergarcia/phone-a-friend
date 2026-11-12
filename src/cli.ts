@@ -601,6 +601,16 @@ export async function run(argv: string[]): Promise<number> {
         return;
       }
 
+      // --quiet belongs to the job store, which only relays write. Before this
+      // check a review ignored the flag and printed as usual.
+      if (isReview && opts.quiet) {
+        console.error(
+          `  ${theme.crossmark} ${theme.error('--quiet cannot be combined with review mode. Run the review without --quiet.')}`,
+        );
+        exitCode = 1;
+        return;
+      }
+
       // Resolve config: CLI flags > env vars > repo config > user config > defaults
       const resolved = resolveConfig(
         {
@@ -664,6 +674,8 @@ export async function run(argv: string[]): Promise<number> {
             base: opts.base ?? resolved.reviewBase,
             scope: reviewScope,
             prompt: opts.prompt,
+            contextFile: normalizeContextFiles(opts.contextFile),
+            contextText: opts.contextText ?? null,
             timeoutSeconds: resolved.timeout,
             model: resolved.model ?? null,
             sandbox: resolved.sandbox as SandboxMode,

@@ -397,6 +397,8 @@ describe('AntigravityBackend', () => {
   it('surfaces Codex sandbox-aware timeout remediation', () => {
     expect(antigravityTimeoutRemediation('codex')).toContain('Codex');
     expect(antigravityTimeoutRemediation('codex')).toContain('danger-full-access');
+    // Removed from Codex: `codex --full-auto` is an unexpected argument on 0.167.1.
+    expect(antigravityTimeoutRemediation('codex')).not.toContain('--full-auto');
   });
 
   it('does not read Codex host remediation from process env when host is omitted', () => {

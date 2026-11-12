@@ -448,6 +448,7 @@ Environment variables:
 - `PHONE_A_FRIEND_DEPTH` — relay depth guard (already documented in Core Behavior).
 - `PHONE_A_FRIEND_UPDATE_CHECK=false` — disable npm update notifications. Equivalent to `defaults.update_check = false` in TOML config. The env var takes precedence.
 - `PHONE_A_FRIEND_TASK_HISTORY=results|metadata|off` — overrides `defaults.task_history` (see "Task tracking"). `--no-task-history` skips the record for one run and wins over both.
+- `CLAUDE_MAX_TURNS=<n>` — passes `--max-turns <n>` to `--to claude`. Unset (the default) passes no turn limit: a relay is bounded by `--timeout`, as for every other backend. PaF used to pass 10, which ended a task needing an eleventh turn without an answer (verified on 2.1.322: a 14-turn task completes with no flag). At a limit Claude exits 1 and prints the reason on stdout only; PaF reports it as a turn-limit error naming this variable (`isClaudeTurnLimit()` in `src/backends/claude.ts`). `CLAUDE_MAX_BUDGET=<usd>` adds `--max-budget-usd`. Neither has a config key or a CLI flag. Agentic mode is separate: each agent call passes `--max-turns 3` (`src/agentic/session.ts`).
 
 pi configuration:
 
@@ -688,6 +689,10 @@ Every CLI relay and review is recorded as a task so delegated work stays findabl
 - Codex handles `branch` with native `--base` and `working-tree` with native `--uncommitted`. Unsupported native scopes use PaF's generic diff path.
 - `--verdict-json`, custom prompts, and schemas use the generic path and preserve the selected scope.
 - `--include-diff` is for normal relay mode and is rejected when combined with review mode; use `working-tree` or `all`.
+- `--context-file` and `--context-text` are sent with a review, as with a relay. Native `review()` has no field for context, so a review with context uses the generic path. Before this they were dropped without a word.
+- `--quiet` is rejected in review mode: the job store is written only by relays. Before this a review ignored the flag.
+- **Native review fallback.** `reviewRelay` runs the generic path after a failed native `review()` only when the backend threw `NativeReviewUnavailableError`: its CLI refused the command line before doing any work. Codex throws it for an argument-parser error (`isCodexUsageError()`: exit 2 plus `error:` and `Usage: codex` lines, verified on 0.167.1; a failure while running exits 1). Every other failure is reported as it is. Before this every failure fell back, so `--timeout N` ran for up to 2N seconds, Ctrl-C started a second review, and a sign-in or rate-limit error was followed by a second full run. OpenCode's `review()` is the same `opencode run` as a relay, so it never throws it.
+- **Codex native review sandbox.** `codex exec review` accepts neither `-C` nor `--sandbox`, so PaF passes `-c sandbox_mode="<sandbox>"` (as for `exec resume`). Without it the review ran under the user's Codex config: verified on 0.167.1, the header read `sandbox: danger-full-access` without the override and `sandbox: read-only` with it.
 
 ## Structured output
 

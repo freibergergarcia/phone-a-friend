@@ -26,7 +26,9 @@ import {
   ClaudeBackendError,
   ClaudeAuthError,
   claudePeerName,
+  defaultClaudeRemediation,
   isClaudeAuthError,
+  isClaudeTurnLimit,
   supportsClaudePeerMessaging,
 } from '../../src/backends/claude.js';
 
@@ -308,9 +310,8 @@ describe('ClaudeBackend', () => {
     // Ephemeral
     expect(args).toContain('--no-session-persistence');
 
-    // Max turns default
-    expect(args).toContain('--max-turns');
-    expect(args[args.indexOf('--max-turns') + 1]).toBe('10');
+    // No turn limit unless CLAUDE_MAX_TURNS asks for one
+    expect(args).not.toContain('--max-turns');
 
     // cwd set to repo path
     expect(spawnOpts.cwd).toBe('/tmp/repo');
@@ -557,6 +558,117 @@ describe('ClaudeBackend', () => {
     ).rejects.toThrow('API error: rate limited');
   });
 
+  // What Claude Code 2.1.322 printed at `--max-turns 1`, in each output format
+  // (exit 1 every time). Ids and cost fields are left out of the envelope.
+  const TURN_LIMIT_TEXT_STDOUT = 'Error: Reached max turns (1)';
+  const TURN_LIMIT_STDERR =
+    'Warning: this sign-in may have ended between 2026-11-08 and 2026-11-11. ' +
+    'If requests are refused, run claude auth login, or use claude setup-token for unattended jobs.';
+  const TURN_LIMIT_RESULT = {
+    type: 'result',
+    subtype: 'error_max_turns',
+    is_error: true,
+    stop_reason: 'tool_use',
+    terminal_reason: 'max_turns',
+    num_turns: 2,
+    errors: ['Reached maximum number of turns (1)'],
+  };
+
+  describe('turn limit', () => {
+    it('recognizes the text and JSON forms, and nothing else', () => {
+      expect(isClaudeTurnLimit(TURN_LIMIT_TEXT_STDOUT)).toBe(true);
+      expect(isClaudeTurnLimit(JSON.stringify(TURN_LIMIT_RESULT))).toBe(true);
+      expect(isClaudeTurnLimit('')).toBe(false);
+      expect(isClaudeTurnLimit('The log says "Error: Reached max turns (3)" on line 4.')).toBe(false);
+      expect(isClaudeTurnLimit(JSON.stringify({ type: 'result', subtype: 'success', result: 'ok' }))).toBe(false);
+      expect(isClaudeTurnLimit(JSON.stringify({ type: 'result', subtype: 'error_during_execution' }))).toBe(false);
+    });
+
+    it('names the limit instead of the unrelated stderr warning (text output)', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+      mockSpawn.mockReturnValue(mockChildProcess(TURN_LIMIT_TEXT_STDOUT, 1, { stderr: TURN_LIMIT_STDERR }));
+
+      const err = await CLAUDE_BACKEND.run(makeOpts({ env: { CLAUDE_MAX_TURNS: '1' } })).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ClaudeBackendError);
+      expect(err).not.toBeInstanceOf(ClaudeAuthError);
+      expect(err.message).toContain('turn limit (1 turn)');
+      expect(err.message).toContain('CLAUDE_MAX_TURNS');
+      expect(err.message).not.toContain('sign-in');
+    });
+
+    it('does not blame CLAUDE_MAX_TURNS when PaF passed no limit', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+      mockSpawn.mockReturnValue(mockChildProcess(TURN_LIMIT_TEXT_STDOUT, 1, { stderr: TURN_LIMIT_STDERR }));
+
+      const err = await CLAUDE_BACKEND.run(makeOpts()).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ClaudeBackendError);
+      expect(err.message).toContain('turn limit');
+      expect(err.message).toContain('PaF set none');
+      expect(err.message).not.toContain('sign-in');
+    });
+
+    it.each([['unset', {}], ['empty', { CLAUDE_MAX_TURNS: '' }], ['blank', { CLAUDE_MAX_TURNS: '  ' }]])(
+      'passes no --max-turns when CLAUDE_MAX_TURNS is %s, on the batch and the stream path',
+      async (_name, env) => {
+        mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+        mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
+        await CLAUDE_BACKEND.run(makeOpts({ env }));
+        expect(mockSpawn.mock.calls[0][1]).not.toContain('--max-turns');
+
+        mockSpawn.mockReset();
+        mockSpawn.mockReturnValue(mockChildProcess(JSON.stringify({ type: 'result', result: 'ok' }) + '\n', 0));
+        for await (const _ of CLAUDE_BACKEND.runStream!(makeOpts({ env }))) { /* drain */ }
+        expect(mockSpawn.mock.calls[0][1]).not.toContain('--max-turns');
+      },
+    );
+
+    it('names the limit for schema runs (JSON envelope) with the configured value', async () => {
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+      mockSpawn.mockReturnValue(mockChildProcess(JSON.stringify(TURN_LIMIT_RESULT), 1, { stderr: TURN_LIMIT_STDERR }));
+
+      const err = await CLAUDE_BACKEND.run(makeOpts({
+        schema: '{"type":"object"}',
+        env: { CLAUDE_MAX_TURNS: '3' },
+      })).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ClaudeBackendError);
+      expect(err.message).toContain('turn limit (3 turns)');
+    });
+
+    it('names the limit when streaming', async () => {
+      const lines = [
+        JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Let me read it.' } } }),
+        JSON.stringify(TURN_LIMIT_RESULT),
+        '',
+      ].join('\n');
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+      mockSpawn.mockReturnValue(mockChildProcess(lines, 1, { stderr: TURN_LIMIT_STDERR }));
+
+      const chunks: string[] = [];
+      const err = await (async () => {
+        for await (const chunk of CLAUDE_BACKEND.runStream!(makeOpts({ env: { CLAUDE_MAX_TURNS: '10' } }))) chunks.push(chunk);
+      })().catch((e) => e);
+
+      expect(chunks.join('')).toBe('Let me read it.');
+      expect(err).toBeInstanceOf(ClaudeBackendError);
+      expect(err.message).toContain('turn limit (10 turns)');
+      expect(err.message).not.toContain('sign-in');
+    });
+
+    it('keeps the stderr message for any other failed result', async () => {
+      const lines = [JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true }), ''].join('\n');
+      mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
+      mockSpawn.mockReturnValue(mockChildProcess(lines, 1, { stderr: 'API error: rate limited' }));
+
+      const gen = CLAUDE_BACKEND.runStream!(makeOpts());
+      await expect(async () => {
+        for await (const _ of gen) { /* consume */ }
+      }).rejects.toThrow('API error: rate limited');
+    });
+  });
+
   it('strips CLAUDECODE and CLAUDE_CODE_SESSION from subprocess env', async () => {
     mockExecFileSync.mockReturnValue('/usr/local/bin/claude');
     mockSpawn.mockReturnValue(mockChildProcess('ok', 0));
@@ -759,6 +871,12 @@ describe('ClaudeBackend', () => {
   });
 
   describe('auth error detection', () => {
+    it('does not recommend the removed `codex --full-auto` from a Codex host', () => {
+      const text = defaultClaudeRemediation('codex');
+      expect(text).toContain('codex --sandbox danger-full-access');
+      expect(text).not.toContain('--full-auto');
+    });
+
     it('isClaudeAuthError matches the canonical "Not logged in" message', () => {
       expect(isClaudeAuthError('Not logged in · Please run /login')).toBe(true);
       expect(isClaudeAuthError('Please run /login')).toBe(true);
