@@ -2,7 +2,7 @@
   "name": "@freibergergarcia/phone-a-friend",
   "version": "4.17.2",
   "description": "CLI relay that lets AI coding agents collaborate",
-  "homepage": "https://github.com/freibergergarcia/phone-a-friend#readme",
+  "homepage": "https://phone-a-friend.space.fast",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/freibergergarcia/phone-a-friend.git"

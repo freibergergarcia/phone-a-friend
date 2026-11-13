@@ -1,11 +1,7 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-light.svg">
-    <img alt="phone-a-friend" src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo-dark.svg" width="480">
-  </picture>
+  <img alt="phone-a-friend. Let your agent phone a friend." src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/logo/phone-a-friend-banner.svg" width="100%">
 
-  <p><em>When your AI needs a second opinion.</em></p>
+  <p>An open-source CLI that lets your coding agent call another model in the middle of a task,<br>and brings the answer back into the same conversation.</p>
 
   [![npm](https://img.shields.io/npm/v/%40freibergergarcia%2Fphone-a-friend)](https://www.npmjs.com/package/@freibergergarcia/phone-a-friend)
   [![pi package](https://img.shields.io/badge/pi-package-blueviolet)](https://pi.dev/packages/@freibergergarcia/phone-a-friend)
@@ -13,10 +9,34 @@
   [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
   ![Node.js 22.13+](https://img.shields.io/badge/node-%E2%89%A522.13-green)
 
+  <br>
+
+  <p>
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/antigravity-label.svg" width="84" alt="Antigravity">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/claude-label.svg" width="84" alt="Claude">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/codex-label.svg" width="84" alt="Codex">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/gemini-label.svg" width="84" alt="Gemini">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/grok-label.svg" width="84" alt="Grok">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/ollama-label.svg" width="84" alt="Ollama">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/opencode-label.svg" width="84" alt="OpenCode">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/pi-label.svg" width="84" alt="pi">
+    <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/xai-label.svg" width="84" alt="xAI">
+  </p>
+
 </div>
 
-`phone-a-friend` is a CLI orchestration layer for AI coding agents.
-Relay tasks to any backend, spin up multi-model teams, or run persistent multi-agent sessions.
+Ask Codex for a review, have Gemini check a design, or put three models on one bug. One call, a team over several rounds, or a standing multi-agent session.
+
+> **You:** Ask Codex to review this branch.
+
+Claude Code makes the call, and the findings come back into the same conversation:
+
+```console
+$ phone-a-friend --to codex --review
+  ◇ scope: 4 file(s) · 12840 bytes (branch against main)
+  ◇ 00:12 Running: git diff
+  ◇ Task 3f9a2c1d completed · 41s · scope unchanged
+```
 
 | Mode | What it does | Best for |
 |------|-------------|----------|
@@ -498,15 +518,15 @@ state.
 
 | Backend | Type | Streaming |
 |---------|------|-----------|
-| **Antigravity** | CLI subprocess (`agy`) | No |
-| **Codex** | CLI subprocess | No |
-| **Gemini** | CLI subprocess | No |
-| **Ollama** | HTTP API | Yes (NDJSON) |
-| **Claude** | CLI subprocess | Yes (JSON) |
-| **OpenCode** | CLI subprocess | Yes (NDJSON) |
-| **pi** | CLI subprocess (`pi --mode json`) | Yes (JSONL) |
-| **Grok** | CLI subprocess (`grok --prompt-file`) | Yes (NDJSON) |
-| **xAI** | Responses HTTP API | No |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/antigravity.svg" width="20" alt=""> **Antigravity** | CLI subprocess (`agy`) | No |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/codex.svg" width="20" alt=""> **Codex** | CLI subprocess | No |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/gemini.svg" width="20" alt=""> **Gemini** | CLI subprocess | No |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/ollama.svg" width="20" alt=""> **Ollama** | HTTP API | Yes (NDJSON) |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/claude.svg" width="20" alt=""> **Claude** | CLI subprocess | Yes (JSON) |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/opencode.svg" width="20" alt=""> **OpenCode** | CLI subprocess | Yes (NDJSON) |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/pi.svg" width="20" alt=""> **pi** | CLI subprocess (`pi --mode json`) | Yes (JSONL) |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/grok.svg" width="20" alt=""> **Grok** | CLI subprocess (`grok --prompt-file`) | Yes (NDJSON) |
+| <img src="https://raw.githubusercontent.com/freibergergarcia/phone-a-friend/main/assets/backends/xai.svg" width="20" alt=""> **xAI** | Responses HTTP API | No |
 
 Ollama configuration via environment variables:
 - `OLLAMA_HOST` -- custom host (default: `http://localhost:11434`). Read as Ollama reads it: `127.0.0.1:11434` and a bare host name work, with http and port 11434 as the defaults
